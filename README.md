@@ -7,7 +7,7 @@ contacts, deals, research agents, and a module system.
 
 Use Node.js 22.6 or newer. Run `npm ci`, then `npm run typecheck` and `npm run build`.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and
-[docs/self-hosting.md](docs/self-hosting.md) for Docker setup.
+[docs/self-hosting.md](docs/self-hosting.md) for Docker Compose, Railway, and Convex Cloud deployment.
 
 This source export omits internal deployment infrastructure, operator dashboards,
 and private modules. See [the module marketplace](docs/modules-marketplace.md)

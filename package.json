@@ -13,6 +13,8 @@
     "typecheck": "bash scripts/typecheck.sh",
     "lint": "eslint",
     "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts",
+    "selfhost:deploy": "node --experimental-strip-types scripts/selfhost-deploy.ts",
+    "selfhost:doctor": "node --experimental-strip-types scripts/selfhost-doctor.ts",
     "module:examples": "node --experimental-strip-types scripts/build-module-examples.ts",
     "module:build": "node --experimental-strip-types scripts/module-build.ts",
     "fullstackgtm": "node --experimental-strip-types scripts/fullstackgtm.ts",
