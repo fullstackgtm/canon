@@ -1,0 +1,6438 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/win-loss",
+  "version": "0.6.0",
+  "title": "Win-loss",
+  "description": "A review on every closed deal: why it was won or lost, with the reasons from your own taxonomy, confirmed by the rep and approved by a manager. When a deal closes, Canon drafts its review with AI from the deal's calls, meetings and notes, on the owner's ChatGPT plan, keeping only quotes it finds word for word. Reviews open as deals close, or by backfill. Admins keep the reasons, the program's settings and the competitors you meet.",
+  "author": {
+    "org": "canon"
+  },
+  "engines": {
+    "moduleApi": "1"
+  },
+  "nav": {
+    "label": "Win-loss",
+    "icon": "scale",
+    "section": "CRM",
+    "landing": {
+      "default": "inbox",
+      "rep": "mine"
+    }
+  },
+  "collections": {
+    "reasons": {
+      "label": "Reason",
+      "schema": {
+        "type": "object",
+        "value": {
+          "code": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "optional": false,
+            "label": "Code",
+            "help": "Lower case, no spaces: price, missing_capability."
+          },
+          "label": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "optional": false,
+            "label": "Reason"
+          },
+          "category": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "product"
+                },
+                {
+                  "type": "literal",
+                  "value": "price"
+                },
+                {
+                  "type": "literal",
+                  "value": "sales_experience"
+                },
+                {
+                  "type": "literal",
+                  "value": "competition"
+                },
+                {
+                  "type": "literal",
+                  "value": "timing"
+                },
+                {
+                  "type": "literal",
+                  "value": "relationship"
+                },
+                {
+                  "type": "literal",
+                  "value": "security"
+                },
+                {
+                  "type": "literal",
+                  "value": "other"
+                }
+              ],
+              "labels": {
+                "product": "Product",
+                "price": "Price",
+                "sales_experience": "Sales experience",
+                "competition": "Competition",
+                "timing": "Timing",
+                "relationship": "Relationship",
+                "security": "Security and compliance",
+                "other": "Other"
+              }
+            },
+            "optional": false,
+            "label": "Category"
+          },
+          "applies": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "both"
+                },
+                {
+                  "type": "literal",
+                  "value": "loss"
+                },
+                {
+                  "type": "literal",
+                  "value": "win"
+                }
+              ],
+              "labels": {
+                "both": "Wins and losses",
+                "loss": "Losses",
+                "win": "Wins"
+              }
+            },
+            "optional": false,
+            "label": "Applies to"
+          },
+          "description": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "optional": true,
+            "label": "What it means",
+            "widget": "textarea"
+          },
+          "order": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Order"
+          },
+          "active": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false,
+            "label": "Active"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "code"
+        ]
+      },
+      "title": "label",
+      "indexes": {
+        "byOrder": [
+          "active",
+          "order"
+        ]
+      },
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      }
+    },
+    "settings": {
+      "label": "Settings",
+      "schema": {
+        "type": "object",
+        "value": {
+          "slot": {
+            "fieldType": {
+              "type": "literal",
+              "value": "main"
+            },
+            "optional": false
+          },
+          "autoDraft": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false,
+            "label": "Draft each review with AI when its deal closes"
+          },
+          "excludedDealTypes": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": true,
+            "label": "Deal types without a review",
+            "suggest": {
+              "deals": "dealType"
+            }
+          },
+          "debriefQuestions": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            "optional": true,
+            "label": "Questions the rep answers when confirming"
+          },
+          "lossReasonField": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "optional": true,
+            "label": "The CRM's loss reason field",
+            "help": "Its name in Settings > Data model, after custom.: loss_reason."
+          },
+          "regionField": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "optional": true,
+            "label": "Region field",
+            "help": "A custom deal field to group Trends by: region."
+          },
+          "sourceField": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "optional": true,
+            "label": "Lead source field",
+            "help": "A custom deal field to group Trends by: lead_source."
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "slot"
+        ]
+      },
+      "indexes": {},
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      }
+    },
+    "competitors": {
+      "label": "Competitor",
+      "schema": {
+        "type": "object",
+        "value": {
+          "slug": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "optional": false,
+            "label": "Code",
+            "help": "Lower case, no spaces: acme."
+          },
+          "name": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "optional": false,
+            "label": "Name"
+          },
+          "aliases": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string",
+                "maxLength": 80
+              }
+            },
+            "optional": true,
+            "label": "Also called",
+            "help": "Other names the CRM or reps use: Acme for Acme CRM."
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "slug"
+        ]
+      },
+      "title": "name",
+      "indexes": {
+        "byName": [
+          "name"
+        ]
+      },
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      }
+    },
+    "reviews": {
+      "label": "Review",
+      "schema": {
+        "type": "object",
+        "value": {
+          "deal": {
+            "fieldType": {
+              "type": "ref",
+              "to": "deals"
+            },
+            "optional": false,
+            "label": "Deal"
+          },
+          "dealName": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": true,
+            "label": "Deal name"
+          },
+          "rep": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Rep"
+          },
+          "outcome": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "won"
+                },
+                {
+                  "type": "literal",
+                  "value": "lost"
+                }
+              ],
+              "labels": {
+                "won": "Won",
+                "lost": "Lost"
+              }
+            },
+            "optional": false,
+            "label": "Outcome"
+          },
+          "closedOn": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Closed on",
+            "widget": "date"
+          },
+          "amount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Amount",
+            "widget": "money"
+          },
+          "dealType": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Deal type"
+          },
+          "segment": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Segment"
+          },
+          "lostAtStage": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Lost at"
+          },
+          "crmLossReason": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": true,
+            "label": "CRM loss reason"
+          },
+          "region": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "optional": true,
+            "label": "Region"
+          },
+          "source": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "optional": true,
+            "label": "Lead source"
+          },
+          "daysToClose": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Days to close"
+          },
+          "competitor": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "competitors"
+            },
+            "optional": true,
+            "label": "Competitor"
+          },
+          "summary": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "optional": true,
+            "label": "Summary",
+            "widget": "textarea"
+          },
+          "drivers": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "reason": {
+                    "fieldType": {
+                      "type": "ref",
+                      "to": "doc",
+                      "collection": "reasons"
+                    },
+                    "optional": false,
+                    "label": "Reason"
+                  },
+                  "direction": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "negative"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "positive"
+                        }
+                      ],
+                      "labels": {
+                        "negative": "Hurt us",
+                        "positive": "Helped us"
+                      }
+                    },
+                    "optional": false,
+                    "label": "Direction"
+                  },
+                  "weight": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "primary"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "contributing"
+                        }
+                      ],
+                      "labels": {
+                        "primary": "Primary",
+                        "contributing": "Contributing"
+                      }
+                    },
+                    "optional": false,
+                    "label": "Weight"
+                  },
+                  "strength": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "strong"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "normal"
+                        }
+                      ],
+                      "labels": {
+                        "strong": "Strong",
+                        "normal": "Some"
+                      }
+                    },
+                    "optional": true,
+                    "label": "Strength"
+                  },
+                  "by": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "ai"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "person"
+                        }
+                      ],
+                      "labels": {
+                        "ai": "AI",
+                        "person": "Person"
+                      }
+                    },
+                    "optional": true,
+                    "label": "Added by",
+                    "help": "Left empty: a person added it."
+                  },
+                  "note": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "optional": true,
+                    "label": "Note"
+                  },
+                  "quotes": {
+                    "fieldType": {
+                      "type": "array",
+                      "value": {
+                        "type": "object",
+                        "value": {
+                          "text": {
+                            "fieldType": {
+                              "type": "string",
+                              "maxLength": 500
+                            },
+                            "optional": false,
+                            "label": "Quote"
+                          },
+                          "source": {
+                            "fieldType": {
+                              "type": "object",
+                              "value": {
+                                "kind": {
+                                  "fieldType": {
+                                    "type": "union",
+                                    "value": [
+                                      {
+                                        "type": "literal",
+                                        "value": "call"
+                                      },
+                                      {
+                                        "type": "literal",
+                                        "value": "meeting"
+                                      },
+                                      {
+                                        "type": "literal",
+                                        "value": "note"
+                                      },
+                                      {
+                                        "type": "literal",
+                                        "value": "email"
+                                      },
+                                      {
+                                        "type": "literal",
+                                        "value": "survey"
+                                      }
+                                    ],
+                                    "labels": {
+                                      "call": "Call",
+                                      "meeting": "Meeting",
+                                      "note": "Note",
+                                      "email": "Email",
+                                      "survey": "Survey"
+                                    }
+                                  },
+                                  "optional": false,
+                                  "label": "From"
+                                },
+                                "id": {
+                                  "fieldType": {
+                                    "type": "string"
+                                  },
+                                  "optional": false,
+                                  "label": "Record"
+                                },
+                                "at": {
+                                  "fieldType": {
+                                    "type": "string"
+                                  },
+                                  "optional": true,
+                                  "label": "When",
+                                  "widget": "date"
+                                },
+                                "speaker": {
+                                  "fieldType": {
+                                    "type": "string",
+                                    "maxLength": 120
+                                  },
+                                  "optional": true,
+                                  "label": "Speaker"
+                                }
+                              }
+                            },
+                            "optional": false,
+                            "label": "Source"
+                          },
+                          "verified": {
+                            "fieldType": {
+                              "type": "boolean"
+                            },
+                            "optional": false,
+                            "label": "Found word for word"
+                          }
+                        }
+                      }
+                    },
+                    "optional": true,
+                    "label": "Quotes"
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Reasons"
+          },
+          "debrief": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "question": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "optional": false,
+                    "label": "Question"
+                  },
+                  "answer": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 1000
+                    },
+                    "optional": false,
+                    "label": "Answer",
+                    "widget": "textarea"
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Rep's debrief"
+          },
+          "confirmBy": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Confirm by",
+            "widget": "date"
+          },
+          "approvedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Approved",
+            "widget": "time"
+          },
+          "escalatedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Went to the manager unconfirmed",
+            "widget": "time"
+          },
+          "draftedBy": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "optional": true,
+            "label": "Drafted by"
+          },
+          "sourcesAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Read activity up to",
+            "widget": "time"
+          },
+          "primaryReason": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "reasons"
+            },
+            "optional": true,
+            "label": "Primary reason"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "pending"
+                },
+                {
+                  "type": "literal",
+                  "value": "drafting"
+                },
+                {
+                  "type": "literal",
+                  "value": "draft"
+                },
+                {
+                  "type": "literal",
+                  "value": "submitted"
+                },
+                {
+                  "type": "literal",
+                  "value": "approved"
+                },
+                {
+                  "type": "literal",
+                  "value": "dismissed"
+                },
+                {
+                  "type": "literal",
+                  "value": "reopened"
+                }
+              ],
+              "labels": {
+                "pending": "Waiting for a draft",
+                "drafting": "Drafting",
+                "draft": "To confirm",
+                "submitted": "Waiting on manager",
+                "approved": "Approved",
+                "dismissed": "No review needed",
+                "reopened": "Deal reopened"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "deal"
+        ]
+      },
+      "owner": "rep",
+      "title": "dealName",
+      "indexes": {
+        "byStatus": [
+          "status",
+          "closedOn"
+        ],
+        "byRep": [
+          "rep",
+          "status"
+        ],
+        "byCompetitor": [
+          "competitor",
+          "closedOn"
+        ],
+        "byConfirmBy": [
+          "status",
+          "confirmBy"
+        ],
+        "byDeal": [
+          "deal"
+        ]
+      },
+      "access": {
+        "manager": "team",
+        "rep": "own"
+      },
+      "report": {
+        "dimensions": [
+          "outcome",
+          "status",
+          "rep",
+          "competitor",
+          "segment",
+          "dealType",
+          "lostAtStage",
+          "closedOn",
+          "primaryReason",
+          "rep.team",
+          "rep.managerId",
+          "region",
+          "source"
+        ],
+        "measures": [
+          "amount",
+          "daysToClose"
+        ]
+      }
+    },
+    "published": {
+      "label": "Approved review",
+      "schema": {
+        "type": "object",
+        "value": {
+          "review": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "reviews"
+            },
+            "optional": false,
+            "label": "Review"
+          },
+          "rep": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Rep"
+          },
+          "deal": {
+            "fieldType": {
+              "type": "ref",
+              "to": "deals"
+            },
+            "optional": false,
+            "label": "Deal"
+          },
+          "outcome": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "won"
+                },
+                {
+                  "type": "literal",
+                  "value": "lost"
+                }
+              ],
+              "labels": {
+                "won": "Won",
+                "lost": "Lost"
+              }
+            },
+            "optional": false,
+            "label": "Outcome"
+          },
+          "closedOn": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Closed on",
+            "widget": "date"
+          },
+          "amount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Amount",
+            "widget": "money"
+          },
+          "dealType": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Deal type"
+          },
+          "segment": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Segment"
+          },
+          "lostAtStage": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Lost at"
+          },
+          "region": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "optional": true,
+            "label": "Region"
+          },
+          "source": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "optional": true,
+            "label": "Lead source"
+          },
+          "competitor": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "competitors"
+            },
+            "optional": true,
+            "label": "Competitor"
+          },
+          "primaryReason": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "reasons"
+            },
+            "optional": true,
+            "label": "Primary reason"
+          },
+          "primaryCategory": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "product"
+                },
+                {
+                  "type": "literal",
+                  "value": "price"
+                },
+                {
+                  "type": "literal",
+                  "value": "sales_experience"
+                },
+                {
+                  "type": "literal",
+                  "value": "competition"
+                },
+                {
+                  "type": "literal",
+                  "value": "timing"
+                },
+                {
+                  "type": "literal",
+                  "value": "relationship"
+                },
+                {
+                  "type": "literal",
+                  "value": "security"
+                },
+                {
+                  "type": "literal",
+                  "value": "other"
+                }
+              ],
+              "labels": {
+                "product": "Product",
+                "price": "Price",
+                "sales_experience": "Sales experience",
+                "competition": "Competition",
+                "timing": "Timing",
+                "relationship": "Relationship",
+                "security": "Security and compliance",
+                "other": "Other"
+              }
+            },
+            "optional": true,
+            "label": "Primary category"
+          },
+          "summary": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "optional": true,
+            "label": "Summary"
+          },
+          "approvedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Approved",
+            "widget": "time"
+          },
+          "drivers": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "reason": {
+                    "fieldType": {
+                      "type": "ref",
+                      "to": "doc",
+                      "collection": "reasons"
+                    },
+                    "optional": false,
+                    "label": "Reason"
+                  },
+                  "direction": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "negative"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "positive"
+                        }
+                      ],
+                      "labels": {
+                        "negative": "Hurt us",
+                        "positive": "Helped us"
+                      }
+                    },
+                    "optional": false,
+                    "label": "Direction"
+                  },
+                  "weight": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "primary"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "contributing"
+                        }
+                      ],
+                      "labels": {
+                        "primary": "Primary",
+                        "contributing": "Contributing"
+                      }
+                    },
+                    "optional": false,
+                    "label": "Weight"
+                  },
+                  "strength": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "strong"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "normal"
+                        }
+                      ],
+                      "labels": {
+                        "strong": "Strong",
+                        "normal": "Some"
+                      }
+                    },
+                    "optional": true,
+                    "label": "Strength"
+                  },
+                  "by": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "ai"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "person"
+                        }
+                      ],
+                      "labels": {
+                        "ai": "AI",
+                        "person": "Person"
+                      }
+                    },
+                    "optional": true,
+                    "label": "Added by",
+                    "help": "Left empty: a person added it."
+                  },
+                  "note": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "optional": true,
+                    "label": "Note"
+                  },
+                  "quotes": {
+                    "fieldType": {
+                      "type": "array",
+                      "value": {
+                        "type": "object",
+                        "value": {
+                          "text": {
+                            "fieldType": {
+                              "type": "string",
+                              "maxLength": 500
+                            },
+                            "optional": false,
+                            "label": "Quote"
+                          },
+                          "source": {
+                            "fieldType": {
+                              "type": "object",
+                              "value": {
+                                "kind": {
+                                  "fieldType": {
+                                    "type": "union",
+                                    "value": [
+                                      {
+                                        "type": "literal",
+                                        "value": "call"
+                                      },
+                                      {
+                                        "type": "literal",
+                                        "value": "meeting"
+                                      },
+                                      {
+                                        "type": "literal",
+                                        "value": "note"
+                                      },
+                                      {
+                                        "type": "literal",
+                                        "value": "email"
+                                      },
+                                      {
+                                        "type": "literal",
+                                        "value": "survey"
+                                      }
+                                    ],
+                                    "labels": {
+                                      "call": "Call",
+                                      "meeting": "Meeting",
+                                      "note": "Note",
+                                      "email": "Email",
+                                      "survey": "Survey"
+                                    }
+                                  },
+                                  "optional": false,
+                                  "label": "From"
+                                },
+                                "id": {
+                                  "fieldType": {
+                                    "type": "string"
+                                  },
+                                  "optional": false,
+                                  "label": "Record"
+                                },
+                                "at": {
+                                  "fieldType": {
+                                    "type": "string"
+                                  },
+                                  "optional": true,
+                                  "label": "When",
+                                  "widget": "date"
+                                },
+                                "speaker": {
+                                  "fieldType": {
+                                    "type": "string",
+                                    "maxLength": 120
+                                  },
+                                  "optional": true,
+                                  "label": "Speaker"
+                                }
+                              }
+                            },
+                            "optional": false,
+                            "label": "Source"
+                          },
+                          "verified": {
+                            "fieldType": {
+                              "type": "boolean"
+                            },
+                            "optional": false,
+                            "label": "Found word for word"
+                          }
+                        }
+                      }
+                    },
+                    "optional": true,
+                    "label": "Quotes"
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Reasons"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "live"
+                },
+                {
+                  "type": "literal",
+                  "value": "withdrawn"
+                }
+              ],
+              "labels": {
+                "live": "Live",
+                "withdrawn": "Withdrawn"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "review"
+        ]
+      },
+      "owner": "rep",
+      "indexes": {
+        "byStatus": [
+          "status",
+          "closedOn"
+        ],
+        "byCompetitor": [
+          "competitor",
+          "closedOn"
+        ],
+        "byReview": [
+          "review"
+        ]
+      },
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      },
+      "report": {
+        "dimensions": [
+          "outcome",
+          "rep",
+          "competitor",
+          "segment",
+          "dealType",
+          "lostAtStage",
+          "primaryReason",
+          "primaryCategory",
+          "closedOn",
+          "status",
+          "rep.team"
+        ],
+        "measures": [
+          "amount"
+        ]
+      }
+    },
+    "stages": {
+      "label": "Open stage",
+      "schema": {
+        "type": "object",
+        "value": {
+          "deal": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Deal"
+          },
+          "stage": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Stage"
+          },
+          "at": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Since",
+            "widget": "time"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "deal"
+        ]
+      },
+      "indexes": {
+        "byDeal": [
+          "deal"
+        ]
+      },
+      "access": {}
+    },
+    "cards": {
+      "label": "Battlecard section",
+      "schema": {
+        "type": "object",
+        "value": {
+          "section": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "overview"
+                },
+                {
+                  "type": "literal",
+                  "value": "pricing"
+                },
+                {
+                  "type": "literal",
+                  "value": "feature_comparison"
+                },
+                {
+                  "type": "literal",
+                  "value": "landmines"
+                },
+                {
+                  "type": "literal",
+                  "value": "objections"
+                },
+                {
+                  "type": "literal",
+                  "value": "why_we_win"
+                }
+              ],
+              "labels": {
+                "overview": "Overview",
+                "pricing": "Pricing",
+                "feature_comparison": "Feature comparison",
+                "landmines": "Landmines",
+                "objections": "Objection handling",
+                "why_we_win": "Why we win"
+              }
+            },
+            "optional": false,
+            "label": "Section"
+          },
+          "text": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 6000
+            },
+            "optional": false,
+            "label": "Text",
+            "widget": "textarea"
+          }
+        }
+      },
+      "key": "auto",
+      "title": "text",
+      "indexes": {
+        "bySection": [
+          "section"
+        ]
+      },
+      "access": {},
+      "setOf": {
+        "parent": "competitors"
+      }
+    },
+    "cardUpdates": {
+      "label": "Card update",
+      "schema": {
+        "type": "object",
+        "value": {
+          "competitor": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "competitors"
+            },
+            "optional": false,
+            "label": "Competitor"
+          },
+          "section": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "overview"
+                },
+                {
+                  "type": "literal",
+                  "value": "pricing"
+                },
+                {
+                  "type": "literal",
+                  "value": "feature_comparison"
+                },
+                {
+                  "type": "literal",
+                  "value": "landmines"
+                },
+                {
+                  "type": "literal",
+                  "value": "objections"
+                },
+                {
+                  "type": "literal",
+                  "value": "why_we_win"
+                }
+              ],
+              "labels": {
+                "overview": "Overview",
+                "pricing": "Pricing",
+                "feature_comparison": "Feature comparison",
+                "landmines": "Landmines",
+                "objections": "Objection handling",
+                "why_we_win": "Why we win"
+              }
+            },
+            "optional": false,
+            "label": "Section"
+          },
+          "reason": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "reasons"
+            },
+            "optional": false,
+            "label": "Reason"
+          },
+          "outcome": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "won"
+                },
+                {
+                  "type": "literal",
+                  "value": "lost"
+                }
+              ],
+              "labels": {
+                "won": "Wins",
+                "lost": "Losses"
+              }
+            },
+            "optional": false,
+            "label": "From"
+          },
+          "line": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "optional": false,
+            "label": "What changed",
+            "widget": "textarea"
+          },
+          "quotes": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "text": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 500
+                    },
+                    "optional": false,
+                    "label": "Quote"
+                  },
+                  "review": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": false,
+                    "label": "Review"
+                  },
+                  "source": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": true,
+                    "label": "From"
+                  }
+                }
+              }
+            },
+            "optional": false,
+            "label": "Quotes"
+          },
+          "basis": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "optional": false,
+            "label": "Reviews it rests on"
+          },
+          "declineReason": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "optional": true,
+            "label": "Why declined"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "proposed"
+                },
+                {
+                  "type": "literal",
+                  "value": "accepted"
+                },
+                {
+                  "type": "literal",
+                  "value": "declined"
+                }
+              ],
+              "labels": {
+                "proposed": "Proposed",
+                "accepted": "Accepted",
+                "declined": "Declined"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          }
+        }
+      },
+      "key": "auto",
+      "title": "line",
+      "indexes": {
+        "byStatus": [
+          "status",
+          "competitor"
+        ],
+        "byCompetitor": [
+          "competitor",
+          "status"
+        ]
+      },
+      "access": {
+        "manager": "all",
+        "rep": "none"
+      }
+    },
+    "comments": {
+      "label": "Comment",
+      "schema": {
+        "type": "object",
+        "value": {
+          "body": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "optional": false,
+            "label": "Comment",
+            "widget": "textarea"
+          },
+          "author": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "Author"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {},
+      "access": {},
+      "setOf": {
+        "parent": "reviews"
+      }
+    }
+  },
+  "views": {
+    "reasons.all": {
+      "kind": "list",
+      "collection": "reasons",
+      "index": "byOrder",
+      "limit": 200
+    },
+    "reasons.active": {
+      "kind": "list",
+      "collection": "reasons",
+      "index": "byOrder",
+      "eq": [
+        true
+      ],
+      "limit": 200
+    },
+    "reasons.one": {
+      "kind": "one",
+      "collection": "reasons",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "settings.main": {
+      "kind": "one",
+      "collection": "settings",
+      "key": "main"
+    },
+    "competitors.all": {
+      "kind": "list",
+      "collection": "competitors",
+      "index": "byName",
+      "limit": 500
+    },
+    "competitors.one": {
+      "kind": "one",
+      "collection": "competitors",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "reviews.all": {
+      "kind": "list",
+      "collection": "reviews",
+      "index": "byStatus",
+      "limit": 1000
+    },
+    "reviews.one": {
+      "kind": "one",
+      "collection": "reviews",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "reviews.mine": {
+      "kind": "list",
+      "collection": "reviews",
+      "index": "byRep",
+      "eq": [
+        {
+          "caller": "userId"
+        }
+      ],
+      "limit": 500
+    },
+    "reviews.inStatus": {
+      "kind": "list",
+      "collection": "reviews",
+      "args": {
+        "status": "string"
+      },
+      "index": "byStatus",
+      "eq": [
+        {
+          "arg": "status"
+        }
+      ],
+      "order": "desc",
+      "limit": 500
+    },
+    "reviews.forDeals": {
+      "kind": "list",
+      "collection": "reviews",
+      "args": {
+        "deals": "string[]"
+      },
+      "index": "byDeal",
+      "eq": [
+        {
+          "arg": "deals"
+        }
+      ],
+      "limit": 1000
+    },
+    "published.forReviews": {
+      "kind": "list",
+      "collection": "published",
+      "args": {
+        "reviews": "string[]"
+      },
+      "index": "byReview",
+      "eq": [
+        {
+          "arg": "reviews"
+        }
+      ],
+      "limit": 1000
+    },
+    "published.live": {
+      "kind": "list",
+      "collection": "published",
+      "args": {
+        "from": "string",
+        "to": "string"
+      },
+      "index": "byStatus",
+      "eq": [
+        "live"
+      ],
+      "range": {
+        "gte": {
+          "arg": "from"
+        },
+        "lte": {
+          "arg": "to"
+        }
+      },
+      "limit": 1000
+    },
+    "stages.forDeals": {
+      "kind": "list",
+      "collection": "stages",
+      "args": {
+        "deals": "string[]"
+      },
+      "index": "byDeal",
+      "eq": [
+        {
+          "arg": "deals"
+        }
+      ],
+      "limit": 1000
+    },
+    "published.forCompetitors": {
+      "kind": "list",
+      "collection": "published",
+      "args": {
+        "competitors": "string[]"
+      },
+      "index": "byCompetitor",
+      "eq": [
+        {
+          "arg": "competitors"
+        }
+      ],
+      "order": "desc",
+      "limit": 1000
+    },
+    "published.ofCompetitor": {
+      "kind": "list",
+      "collection": "published",
+      "args": {
+        "competitor": "string"
+      },
+      "index": "byCompetitor",
+      "eq": [
+        {
+          "arg": "competitor"
+        }
+      ],
+      "order": "desc",
+      "limit": 100
+    },
+    "cards.ofCompetitor": {
+      "kind": "list",
+      "collection": "cards",
+      "args": {
+        "competitor": "string"
+      },
+      "parent": {
+        "arg": "competitor"
+      },
+      "limit": 50
+    },
+    "cardUpdates.forCompetitors": {
+      "kind": "list",
+      "collection": "cardUpdates",
+      "args": {
+        "competitors": "string[]"
+      },
+      "index": "byCompetitor",
+      "eq": [
+        {
+          "arg": "competitors"
+        }
+      ],
+      "limit": 1000
+    },
+    "cardUpdates.ofCompetitor": {
+      "kind": "list",
+      "collection": "cardUpdates",
+      "args": {
+        "competitor": "string"
+      },
+      "index": "byCompetitor",
+      "eq": [
+        {
+          "arg": "competitor"
+        }
+      ],
+      "limit": 200
+    },
+    "cardUpdates.proposed": {
+      "kind": "list",
+      "collection": "cardUpdates",
+      "index": "byStatus",
+      "eq": [
+        "proposed"
+      ],
+      "limit": 200
+    },
+    "cardUpdates.one": {
+      "kind": "one",
+      "collection": "cardUpdates",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "reviews.ofDeal": {
+      "kind": "list",
+      "collection": "reviews",
+      "args": {
+        "deal": "string"
+      },
+      "index": "byDeal",
+      "eq": [
+        {
+          "arg": "deal"
+        }
+      ],
+      "limit": 5
+    },
+    "comments.forReview": {
+      "kind": "list",
+      "collection": "comments",
+      "args": {
+        "review": "string"
+      },
+      "parent": {
+        "arg": "review"
+      }
+    }
+  },
+  "ops": {
+    "reasons.create": {
+      "label": "Add a reason",
+      "kind": "create",
+      "collection": "reasons",
+      "fields": [
+        "code",
+        "label",
+        "category",
+        "applies",
+        "description",
+        "order",
+        "active"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "The taxonomy is an admin's."
+    },
+    "reasons.update": {
+      "label": "Edit reason",
+      "kind": "update",
+      "collection": "reasons",
+      "fields": [
+        "label",
+        "category",
+        "applies",
+        "description",
+        "order",
+        "active"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "The taxonomy is an admin's."
+    },
+    "settings.create": {
+      "label": "Set up win-loss",
+      "kind": "create",
+      "collection": "settings",
+      "fields": [
+        "autoDraft",
+        "excludedDealTypes",
+        "debriefQuestions",
+        "lossReasonField",
+        "regionField",
+        "sourceField"
+      ],
+      "set": {
+        "slot": "main"
+      },
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "Settings are an admin's."
+    },
+    "settings.update": {
+      "label": "Save settings",
+      "kind": "update",
+      "collection": "settings",
+      "fields": [
+        "autoDraft",
+        "excludedDealTypes",
+        "debriefQuestions",
+        "lossReasonField",
+        "regionField",
+        "sourceField"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "Settings are an admin's."
+    },
+    "competitors.create": {
+      "label": "Add a competitor",
+      "kind": "create",
+      "collection": "competitors",
+      "fields": [
+        "slug",
+        "name",
+        "aliases"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "competitors.update": {
+      "label": "Edit competitor",
+      "kind": "update",
+      "collection": "competitors",
+      "fields": [
+        "name",
+        "aliases"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "reviews.editDrivers": {
+      "label": "Edit reasons",
+      "kind": "update",
+      "collection": "reviews",
+      "fields": [
+        "drivers",
+        "competitor",
+        "summary"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "field": "status",
+            "in": [
+              "pending",
+              "draft",
+              "submitted"
+            ]
+          },
+          "message": "An approved or dismissed review is read only. Reopen it first."
+        }
+      ],
+      "dirties": [
+        {
+          "job": "derive",
+          "key": [
+            {
+              "doc": "key"
+            }
+          ]
+        },
+        {
+          "job": "verify",
+          "key": [
+            {
+              "doc": "key"
+            }
+          ]
+        }
+      ]
+    },
+    "reviews.saveDraft": {
+      "label": "Save the AI draft",
+      "kind": "update",
+      "collection": "reviews",
+      "fields": [
+        "summary",
+        "drivers",
+        "competitor"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "field": "status",
+            "in": [
+              "drafting"
+            ]
+          },
+          "message": "An AI draft is saved only while the review is drafting."
+        }
+      ],
+      "dirties": [
+        {
+          "job": "derive",
+          "key": [
+            {
+              "doc": "key"
+            }
+          ]
+        },
+        {
+          "job": "verify",
+          "key": [
+            {
+              "doc": "key"
+            }
+          ]
+        }
+      ]
+    },
+    "reviews.debrief": {
+      "label": "Add your debrief",
+      "kind": "update",
+      "collection": "reviews",
+      "fields": [
+        "debrief"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "human",
+      "reason": "The debrief is the rep's own account.",
+      "guards": [
+        {
+          "when": {
+            "field": "status",
+            "in": [
+              "draft"
+            ]
+          },
+          "message": "The debrief goes with the draft, before it is confirmed."
+        }
+      ]
+    },
+    "cards.create": {
+      "label": "Add a section",
+      "kind": "create",
+      "collection": "cards",
+      "fields": [
+        "section",
+        "text"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "cards.update": {
+      "label": "Edit section",
+      "kind": "update",
+      "collection": "cards",
+      "fields": [
+        "text"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "comments.create": {
+      "label": "Comment",
+      "kind": "create",
+      "collection": "comments",
+      "fields": [
+        "body"
+      ],
+      "set": {
+        "author": {
+          "caller": "userId"
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "effects": [
+        {
+          "notify": [
+            {
+              "lookup": {
+                "view": "reviews.one",
+                "args": {
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                }
+              },
+              "field": "rep"
+            }
+          ],
+          "subject": "Comment on your win-loss review",
+          "message": "{$doc.body}",
+          "link": "reviews/:parentKey"
+        }
+      ]
+    }
+  },
+  "machines": {
+    "review": {
+      "collection": "reviews",
+      "field": "status",
+      "states": [
+        "pending",
+        "drafting",
+        "draft",
+        "submitted",
+        "approved",
+        "dismissed",
+        "reopened"
+      ],
+      "initial": "pending",
+      "transitions": {
+        "startDraft": {
+          "label": "Draft with AI",
+          "from": [
+            "pending",
+            "draft"
+          ],
+          "to": "drafting",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "ai": "draftReview"
+        },
+        "autoDraft": {
+          "label": "Draft with AI on close",
+          "from": [
+            "pending"
+          ],
+          "to": "drafting",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "ai": "draftReview"
+        },
+        "drafted": {
+          "label": "Drafted",
+          "from": [
+            "drafting"
+          ],
+          "to": "draft",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "set": {
+            "confirmBy": {
+              "nowPlusDays": 5,
+              "as": "date"
+            },
+            "sourcesAt": {
+              "now": "ms"
+            }
+          },
+          "effects": [
+            {
+              "notify": [
+                {
+                  "doc": "rep"
+                }
+              ],
+              "subject": "Win-loss review drafted",
+              "message": "{$doc.dealName}: the AI draft is ready for you to confirm.",
+              "link": "reviews/:key"
+            }
+          ]
+        },
+        "draftFailed": {
+          "label": "Draft failed",
+          "from": [
+            "drafting"
+          ],
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "to": {
+            "cases": [
+              {
+                "when": {
+                  "items": {
+                    "list": "drivers"
+                  },
+                  "atLeast": 1
+                },
+                "to": "draft"
+              }
+            ],
+            "else": "pending"
+          }
+        },
+        "fillIn": {
+          "label": "Fill in by hand",
+          "from": [
+            "pending"
+          ],
+          "to": "draft",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "set": {
+            "confirmBy": {
+              "nowPlusDays": 5,
+              "as": "date"
+            }
+          }
+        },
+        "confirm": {
+          "label": "Confirm",
+          "from": [
+            "draft"
+          ],
+          "to": "submitted",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "human",
+          "reason": "A person stands behind every review.",
+          "guards": [
+            {
+              "when": {
+                "any": [
+                  {
+                    "caller": "isOwner"
+                  },
+                  {
+                    "role": [
+                      "admin"
+                    ]
+                  }
+                ]
+              },
+              "message": "Only the deal's rep confirms; a manager approves."
+            },
+            {
+              "when": {
+                "items": {
+                  "list": "drivers",
+                  "where": {
+                    "field": "weight",
+                    "in": [
+                      "primary"
+                    ]
+                  }
+                },
+                "atLeast": 1,
+                "atMost": 1
+              },
+              "message": "Pick one primary reason."
+            },
+            {
+              "when": {
+                "every": {
+                  "list": "drivers",
+                  "where": {
+                    "any": [
+                      {
+                        "field": "by",
+                        "in": [
+                          "person",
+                          null
+                        ]
+                      },
+                      {
+                        "items": {
+                          "list": "quotes",
+                          "where": {
+                            "field": "verified",
+                            "in": [
+                              true
+                            ]
+                          }
+                        },
+                        "atLeast": 1
+                      }
+                    ]
+                  }
+                }
+              },
+              "message": "Every AI reason needs a quote Canon found word for word, or remove it."
+            }
+          ],
+          "effects": [
+            {
+              "notify": [
+                {
+                  "role": [
+                    "manager"
+                  ]
+                }
+              ],
+              "subject": "Win-loss review to approve",
+              "message": "{$doc.deal|ref}: the rep confirmed the review.",
+              "link": "reviews/:key"
+            }
+          ]
+        },
+        "approve": {
+          "label": "Approve",
+          "from": [
+            "submitted"
+          ],
+          "to": "approved",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "agent": "human",
+          "reason": "A person approves every review before it counts.",
+          "guards": [
+            {
+              "when": {
+                "items": {
+                  "list": "drivers",
+                  "where": {
+                    "field": "weight",
+                    "in": [
+                      "primary"
+                    ]
+                  }
+                },
+                "atLeast": 1,
+                "atMost": 1
+              },
+              "message": "Pick one primary reason."
+            },
+            {
+              "when": {
+                "every": {
+                  "list": "drivers",
+                  "where": {
+                    "any": [
+                      {
+                        "field": "by",
+                        "in": [
+                          "person",
+                          null
+                        ]
+                      },
+                      {
+                        "items": {
+                          "list": "quotes",
+                          "where": {
+                            "field": "verified",
+                            "in": [
+                              true
+                            ]
+                          }
+                        },
+                        "atLeast": 1
+                      }
+                    ]
+                  }
+                }
+              },
+              "message": "Every AI reason needs a quote Canon found word for word, or remove it."
+            }
+          ],
+          "effects": [
+            {
+              "notify": [
+                {
+                  "doc": "rep"
+                }
+              ],
+              "subject": "Win-loss review approved",
+              "message": "{$doc.deal|ref}: your review was approved.",
+              "link": "reviews/:key"
+            }
+          ],
+          "set": {
+            "approvedAt": {
+              "now": "ms"
+            }
+          },
+          "dirties": [
+            {
+              "job": "publish",
+              "key": [
+                {
+                  "doc": "key"
+                }
+              ]
+            }
+          ]
+        },
+        "sendBack": {
+          "label": "Send back",
+          "from": [
+            "submitted"
+          ],
+          "to": "draft",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "agent": "human",
+          "reason": "Sending back is a manager's call.",
+          "args": {
+            "type": "object",
+            "value": {
+              "note": {
+                "fieldType": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "optional": false,
+                "label": "What to change",
+                "widget": "textarea"
+              }
+            }
+          },
+          "set": {
+            "confirmBy": {
+              "nowPlusDays": 5,
+              "as": "date"
+            },
+            "escalatedAt": {
+              "unset": true
+            }
+          },
+          "effects": [
+            {
+              "create": "comments",
+              "parent": {
+                "doc": "key"
+              },
+              "data": {
+                "body": {
+                  "arg": "note"
+                },
+                "author": {
+                  "caller": "userId"
+                }
+              }
+            },
+            {
+              "notify": [
+                {
+                  "doc": "rep"
+                }
+              ],
+              "subject": "Win-loss review sent back",
+              "message": "{$doc.deal|ref}: your manager sent the review back.",
+              "link": "reviews/:key"
+            }
+          ]
+        },
+        "escalate": {
+          "label": "Past due",
+          "from": [
+            "draft"
+          ],
+          "to": "submitted",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "at": "confirmBy",
+          "set": {
+            "escalatedAt": {
+              "now": "ms"
+            }
+          },
+          "effects": [
+            {
+              "notify": [
+                {
+                  "doc": "rep"
+                },
+                {
+                  "role": [
+                    "manager"
+                  ]
+                }
+              ],
+              "subject": "Win-loss review past due",
+              "message": "{$doc.deal|ref}: the rep didn't confirm in time, so the review went to the manager.",
+              "link": "reviews/:key"
+            }
+          ]
+        },
+        "dismiss": {
+          "label": "No review needed",
+          "from": [
+            "pending",
+            "draft",
+            "submitted"
+          ],
+          "to": "dismissed",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "agent": "human",
+          "reason": "Leaving a deal out of the program is a person's call.",
+          "args": {
+            "type": "object",
+            "value": {
+              "why": {
+                "fieldType": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "optional": false,
+                "label": "Why"
+              }
+            }
+          },
+          "effects": [
+            {
+              "create": "comments",
+              "parent": {
+                "doc": "key"
+              },
+              "data": {
+                "body": {
+                  "arg": "why"
+                },
+                "author": {
+                  "caller": "userId"
+                }
+              }
+            }
+          ]
+        },
+        "reopen": {
+          "label": "Reopen",
+          "from": [
+            "approved",
+            "dismissed"
+          ],
+          "to": "draft",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "agent": "human",
+          "reason": "Reopening an approved review is a person's call.",
+          "set": {
+            "confirmBy": {
+              "nowPlusDays": 5,
+              "as": "date"
+            },
+            "escalatedAt": {
+              "unset": true
+            }
+          },
+          "dirties": [
+            {
+              "job": "publish",
+              "key": [
+                {
+                  "doc": "key"
+                }
+              ]
+            }
+          ]
+        },
+        "dealReopened": {
+          "label": "Deal reopened",
+          "from": [
+            "pending",
+            "drafting",
+            "draft",
+            "submitted"
+          ],
+          "to": "reopened",
+          "roles": [],
+          "system": true,
+          "agent": "allowed"
+        },
+        "dealReclosed": {
+          "label": "Deal closed again",
+          "from": [
+            "reopened"
+          ],
+          "to": "pending",
+          "roles": [],
+          "system": true,
+          "agent": "allowed"
+        }
+      }
+    },
+    "published": {
+      "collection": "published",
+      "field": "status",
+      "states": [
+        "live",
+        "withdrawn"
+      ],
+      "initial": "live",
+      "transitions": {
+        "withdraw": {
+          "label": "Withdraw",
+          "from": [
+            "live"
+          ],
+          "to": "withdrawn",
+          "roles": [],
+          "system": true,
+          "agent": "allowed"
+        },
+        "republish": {
+          "label": "Publish again",
+          "from": [
+            "withdrawn"
+          ],
+          "to": "live",
+          "roles": [],
+          "system": true,
+          "agent": "allowed"
+        }
+      }
+    },
+    "cardUpdate": {
+      "collection": "cardUpdates",
+      "field": "status",
+      "states": [
+        "proposed",
+        "accepted",
+        "declined"
+      ],
+      "initial": "proposed",
+      "transitions": {
+        "accept": {
+          "label": "Accept",
+          "from": [
+            "proposed"
+          ],
+          "to": "accepted",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "agent": "human",
+          "reason": "A person decides what a battlecard says."
+        },
+        "decline": {
+          "label": "Decline",
+          "from": [
+            "proposed"
+          ],
+          "to": "declined",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "agent": "human",
+          "reason": "A person decides what a battlecard says.",
+          "args": {
+            "type": "object",
+            "value": {
+              "why": {
+                "fieldType": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "optional": false,
+                "label": "Why"
+              }
+            }
+          },
+          "set": {
+            "declineReason": {
+              "arg": "why"
+            }
+          }
+        }
+      }
+    }
+  },
+  "reads": {
+    "deals": [
+      "name",
+      "amount",
+      "closeDate",
+      "stage",
+      "dealType",
+      "isClosed",
+      "isWon",
+      "closedAt",
+      "ownerId",
+      "companyId",
+      "createdAt",
+      "custom"
+    ],
+    "users": [
+      "name",
+      "managerId",
+      "isActive"
+    ],
+    "companies": [
+      "name",
+      "industry",
+      "employees"
+    ],
+    "activities": [
+      "kind",
+      "at",
+      "ownerId",
+      "dealId",
+      "subject",
+      "text",
+      "transcript"
+    ]
+  },
+  "server": "dist/module.js",
+  "calls": {
+    "seedTaxonomy": {
+      "label": "Add Canon's reasons",
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "The taxonomy is an admin's.",
+      "reads": {
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        }
+      },
+      "writes": [
+        "reasons"
+      ],
+      "returns": "value",
+      "confirm": "Add Canon's 15 reasons for winning and losing? You can rename, reorder or turn off any of them."
+    },
+    "onDeals": {
+      "label": "Open a review when a deal closes",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {},
+      "writes": [],
+      "returns": "none"
+    },
+    "intake": {
+      "label": "Open or update closed deals' reviews",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "deals": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500,
+          "custom": true
+        },
+        "companies": {
+          "canon": "companies.byIds",
+          "args": {
+            "ids": {
+              "read": "deals",
+              "field": "companyId"
+            }
+          },
+          "limit": 500
+        },
+        "reviews": {
+          "view": "reviews.forDeals",
+          "args": {
+            "deals": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "stages": {
+          "view": "stages.forDeals",
+          "args": {
+            "deals": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "settings": {
+          "view": "settings.main"
+        }
+      },
+      "writes": [
+        "reviews"
+      ],
+      "returns": "none"
+    },
+    "backfill": {
+      "label": "Open reviews for deals closed earlier",
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "Backfilling the program is an admin's call.",
+      "args": {
+        "type": "object",
+        "value": {
+          "from": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Closed from",
+            "widget": "date"
+          },
+          "to": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Closed to",
+            "widget": "date"
+          }
+        }
+      },
+      "reads": {
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": {
+              "arg": "from"
+            },
+            "to": {
+              "arg": "to"
+            }
+          },
+          "limit": 500,
+          "custom": true
+        },
+        "companies": {
+          "canon": "companies.byIds",
+          "args": {
+            "ids": {
+              "read": "deals",
+              "field": "companyId"
+            }
+          },
+          "limit": 500
+        },
+        "reviews": {
+          "view": "reviews.forDeals",
+          "args": {
+            "deals": {
+              "read": "deals",
+              "field": "id"
+            }
+          },
+          "limit": 500
+        },
+        "settings": {
+          "view": "settings.main"
+        }
+      },
+      "writes": [
+        "reviews"
+      ],
+      "returns": "value",
+      "result": {
+        "kind": "message"
+      }
+    },
+    "reviewDrivers": {
+      "label": "Reasons",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "review": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "review": {
+          "view": "reviews.one",
+          "args": {
+            "key": {
+              "arg": "review"
+            }
+          }
+        },
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "draftReview": {
+      "label": "Draft with AI",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "review": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "review": {
+          "view": "reviews.one",
+          "args": {
+            "key": {
+              "arg": "review"
+            }
+          }
+        },
+        "deal": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "read": "review",
+              "field": "deal"
+            }
+          }
+        },
+        "acts": {
+          "canon": "activities.forDeals",
+          "args": {
+            "ids": {
+              "read": "review",
+              "field": "deal"
+            }
+          },
+          "limit": 200
+        },
+        "reasons": {
+          "view": "reasons.active",
+          "limit": 200
+        },
+        "competitors": {
+          "view": "competitors.all",
+          "limit": 500
+        }
+      },
+      "writes": [
+        "reviews"
+      ],
+      "returns": "value",
+      "ai": {
+        "prompt": "You draft a win-loss review of one closed deal for the rep who owned it to confirm. Read the deal and every call, meeting and note on it, then say why the deal was won or lost.\n\n- summary: three sentences at most, in plain words: what the buyer chose and why, as the record shows it.\n- drivers: two to five reasons from the reasons list, the one that decided it as weight \"primary\" (exactly one) and the rest \"contributing\". For each: direction \"negative\" if it hurt us, \"positive\" if it helped; strength \"strong\" when the buyer said it decided or nearly decided the deal, else \"normal\"; and one to three quotes, each copied word for word from a call's transcript, a meeting's notes or a note, with that record's id, its kind (call, meeting or note), its date as YYYY-MM-DD and the speaker when the transcript names one. A reason you can't quote, leave out.\n- competitor: the key of the competitor the buyer chose or compared us with, from the competitors list, or leave it out.\n\nWrite nothing the record doesn't say. If the record is too thin to explain the outcome, return a summary that says so and no drivers.",
+        "output": {
+          "op": "reviews.saveDraft",
+          "key": {
+            "arg": "review"
+          },
+          "fields": [
+            "summary",
+            "drivers",
+            "competitor"
+          ],
+          "set": {
+            "drivers[].by": "ai",
+            "drivers[].quotes[].verified": true
+          }
+        },
+        "choices": {
+          "drivers[].reason": {
+            "read": "reasons"
+          },
+          "competitor": {
+            "read": "competitors"
+          }
+        },
+        "evidence": [
+          {
+            "quote": "drivers[].quotes[].text",
+            "source": "drivers[].quotes[].source.id",
+            "in": "acts",
+            "text": [
+              "text",
+              "transcript"
+            ],
+            "dropParent": "drivers[]"
+          }
+        ],
+        "budget": {
+          "inputChars": 200000,
+          "perDay": 100
+        },
+        "queue": {
+          "machine": "review",
+          "then": "drafted",
+          "fail": "draftFailed"
+        }
+      }
+    },
+    "verifyQuotes": {
+      "label": "Check each review's quotes word for word",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "reviews": {
+          "view": "reviews.forDeals",
+          "args": {
+            "deals": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "acts": {
+          "canon": "activities.forDeals",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          },
+          "limit": 2000
+        }
+      },
+      "writes": [
+        "reviews"
+      ],
+      "returns": "none"
+    },
+    "keepStage": {
+      "label": "Keep each open deal's stage",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "stages": {
+          "view": "stages.forDeals",
+          "args": {
+            "deals": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        }
+      },
+      "writes": [
+        "stages"
+      ],
+      "returns": "none"
+    },
+    "publishAll": {
+      "label": "Publish the reviews approved before this version",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "approved": {
+          "view": "reviews.inStatus",
+          "args": {
+            "status": "approved"
+          },
+          "limit": 1000
+        }
+      },
+      "writes": [],
+      "returns": "none"
+    },
+    "cardDigest": {
+      "label": "Propose battlecard updates from approved reviews",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "published": {
+          "view": "published.forCompetitors",
+          "args": {
+            "competitors": {
+              "arg": "competitor"
+            }
+          },
+          "limit": 1000
+        },
+        "updates": {
+          "view": "cardUpdates.forCompetitors",
+          "args": {
+            "competitors": {
+              "arg": "competitor"
+            }
+          },
+          "limit": 1000
+        },
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        },
+        "competitors": {
+          "view": "competitors.all",
+          "limit": 500
+        }
+      },
+      "writes": [
+        "cardUpdates"
+      ],
+      "returns": "none"
+    },
+    "applyCardUpdate": {
+      "label": "Accept",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "human",
+      "reason": "A person decides what a battlecard says.",
+      "args": {
+        "type": "object",
+        "value": {
+          "update": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "update": {
+          "view": "cardUpdates.one",
+          "args": {
+            "key": {
+              "arg": "update"
+            }
+          }
+        },
+        "cards": {
+          "view": "cards.ofCompetitor",
+          "args": {
+            "competitor": {
+              "read": "update",
+              "field": "competitor"
+            }
+          },
+          "limit": 50
+        }
+      },
+      "writes": [
+        "cards",
+        "cardUpdates"
+      ],
+      "returns": "none",
+      "confirm": "Add this to the battlecard?"
+    },
+    "competitorBoard": {
+      "label": "Competitors",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "rates": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "competitor"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "published": {
+          "view": "published.live",
+          "args": {
+            "from": "2000-01-01",
+            "to": "2999-12-31"
+          },
+          "limit": 1000
+        },
+        "updates": {
+          "view": "cardUpdates.proposed",
+          "limit": 200
+        },
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        },
+        "competitors": {
+          "view": "competitors.all",
+          "limit": 500
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "competitorDetail": {
+      "label": "Competitor",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "competitor": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "rates": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "competitor"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "competitor",
+                "op": "eq",
+                "value": {
+                  "arg": "competitor"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "published": {
+          "view": "published.ofCompetitor",
+          "args": {
+            "competitor": {
+              "arg": "competitor"
+            }
+          },
+          "limit": 100
+        },
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "derive": {
+      "label": "Keep each review's primary reason",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "reviews": {
+          "view": "reviews.forDeals",
+          "args": {
+            "deals": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        }
+      },
+      "writes": [
+        "reviews"
+      ],
+      "returns": "none"
+    },
+    "trends": {
+      "label": "Trends",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "from": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "From",
+            "widget": "date"
+          },
+          "to": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "To",
+            "widget": "date"
+          }
+        }
+      },
+      "reads": {
+        "all": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "byCompetitor": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "competitor"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "byRep": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "rep"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "byTeam": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "rep.team"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "bySegment": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "segment"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "byQuarter": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              {
+                "field": "closedOn",
+                "bucket": "quarter"
+              }
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "byRegion": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "region"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "bySource": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "source"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "byDealType": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "dealType"
+            ],
+            "columns": [
+              "outcome"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              },
+              {
+                "fn": "sum",
+                "field": "amount"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "status": {
+          "report": {
+            "collection": "reviews",
+            "rows": [
+              "status"
+            ],
+            "values": [
+              {
+                "fn": "count"
+              }
+            ],
+            "filter": [
+              {
+                "field": "closedOn",
+                "op": "gte",
+                "value": {
+                  "arg": "from"
+                }
+              },
+              {
+                "field": "closedOn",
+                "op": "lte",
+                "value": {
+                  "arg": "to"
+                }
+              },
+              {
+                "field": "status",
+                "op": "neq",
+                "value": "reopened"
+              }
+            ]
+          }
+        },
+        "published": {
+          "view": "published.live",
+          "args": {
+            "from": {
+              "arg": "from"
+            },
+            "to": {
+              "arg": "to"
+            }
+          },
+          "limit": 1000
+        },
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        },
+        "competitors": {
+          "view": "competitors.all",
+          "limit": 500
+        },
+        "members": {
+          "canon": "users.withInactive"
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "exportQuotes": {
+      "label": "Quotes",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "from": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "From",
+            "widget": "date"
+          },
+          "to": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "To",
+            "widget": "date"
+          }
+        }
+      },
+      "reads": {
+        "published": {
+          "view": "published.live",
+          "args": {
+            "from": {
+              "arg": "from"
+            },
+            "to": {
+              "arg": "to"
+            }
+          },
+          "limit": 500
+        },
+        "deals": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "read": "published",
+              "field": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "publish": {
+      "label": "Publish approved reviews",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "reviews": {
+          "view": "reviews.forDeals",
+          "args": {
+            "deals": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "published": {
+          "view": "published.forReviews",
+          "args": {
+            "reviews": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        }
+      },
+      "writes": [
+        "published"
+      ],
+      "returns": "none"
+    },
+    "reorderReasons": {
+      "label": "Reorder reasons",
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "The taxonomy is an admin's.",
+      "args": {
+        "type": "object",
+        "value": {
+          "keys": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        }
+      },
+      "writes": [
+        "reasons"
+      ],
+      "returns": "none"
+    }
+  },
+  "jobs": {
+    "publish": {
+      "label": "Approved reviews, published",
+      "call": "publish",
+      "key": [
+        "deal"
+      ],
+      "batch": 50
+    },
+    "cardDigest": {
+      "label": "Battlecard updates",
+      "call": "cardDigest",
+      "key": [
+        "competitor"
+      ],
+      "batch": 20
+    },
+    "keepStage": {
+      "label": "Open deals' stages",
+      "call": "keepStage",
+      "key": [
+        "deal",
+        "stage"
+      ],
+      "batch": 50
+    },
+    "publishAll": {
+      "label": "Reviews approved before 0.3.0, published",
+      "call": "publishAll",
+      "key": [
+        "scope"
+      ]
+    },
+    "verify": {
+      "label": "Reviews' quotes, checked word for word",
+      "call": "verifyQuotes",
+      "key": [
+        "deal"
+      ],
+      "batch": 1
+    },
+    "intake": {
+      "label": "Closed deals' reviews",
+      "call": "intake",
+      "key": [
+        "deal"
+      ],
+      "batch": 50,
+      "attempts": 5
+    },
+    "derive": {
+      "label": "Reviews' primary reason",
+      "call": "derive",
+      "key": [
+        "deal"
+      ],
+      "batch": 50
+    }
+  },
+  "watches": [
+    {
+      "object": "deals",
+      "call": "onDeals",
+      "fields": [
+        "isClosed",
+        "isWon",
+        "ownerId",
+        "amount",
+        "closeDate",
+        "stage"
+      ]
+    }
+  ],
+  "exports": {
+    "quotes.csv": {
+      "label": "Export quotes",
+      "filename": "win-loss-quotes",
+      "call": "exportQuotes",
+      "rows": "rows",
+      "columns": [
+        {
+          "label": "Deal",
+          "value": "{$row.deal}"
+        },
+        {
+          "label": "Outcome",
+          "value": "{$row.outcome}"
+        },
+        {
+          "label": "Reason",
+          "value": "{$row.reason}"
+        },
+        {
+          "label": "Direction",
+          "value": "{$row.direction}"
+        },
+        {
+          "label": "Quote",
+          "value": "{$row.text}"
+        },
+        {
+          "label": "From",
+          "value": "{$row.source}"
+        },
+        {
+          "label": "Closed on",
+          "value": "{$row.closedOn|date}"
+        }
+      ]
+    },
+    "reviews.csv": {
+      "label": "Export reviews",
+      "filename": "win-loss-reviews",
+      "view": "reviews.all",
+      "join": [
+        "deal",
+        "competitor",
+        "primaryReason"
+      ],
+      "columns": [
+        {
+          "label": "Deal",
+          "value": "{$row.deal|ref}"
+        },
+        {
+          "label": "Outcome",
+          "value": "{$row.outcome}"
+        },
+        {
+          "label": "Status",
+          "value": "{$row.status}"
+        },
+        {
+          "label": "Rep",
+          "value": "{$row.rep|user}"
+        },
+        {
+          "label": "Amount",
+          "value": "{$row.amount|money}"
+        },
+        {
+          "label": "Closed on",
+          "value": "{$row.closedOn|date}"
+        },
+        {
+          "label": "Segment",
+          "value": "{$row.segment}"
+        },
+        {
+          "label": "Competitor",
+          "value": "{$row.competitor|ref}"
+        },
+        {
+          "label": "Primary reason",
+          "value": "{$row.primaryReason|ref}"
+        },
+        {
+          "label": "Summary",
+          "value": "{$row.summary}"
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "path": "inbox",
+      "title": "Win-loss",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "tab": {
+        "label": "Inbox",
+        "order": 0,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "bind": {
+        "submitted": {
+          "view": "reviews.inStatus",
+          "args": {
+            "status": "submitted"
+          },
+          "join": [
+            "deal"
+          ],
+          "limit": 200
+        },
+        "drafts": {
+          "view": "reviews.inStatus",
+          "args": {
+            "status": "draft"
+          },
+          "join": [
+            "deal"
+          ],
+          "limit": 200
+        },
+        "pending": {
+          "view": "reviews.inStatus",
+          "args": {
+            "status": "pending"
+          },
+          "join": [
+            "deal"
+          ],
+          "limit": 200
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Win-loss",
+          "subtitle": "A review on every closed deal: why it was won or lost, in the buyer's words, confirmed by the rep and approved by a manager.",
+          "actions": [
+            {
+              "call": "backfill",
+              "label": "Backfill…",
+              "dialog": {
+                "title": "Open reviews for deals closed earlier",
+                "description": "Canon opens a review for each closed deal in the range that has none. Up to 500 deals a run: backfill a long history a quarter at a time."
+              }
+            }
+          ]
+        },
+        {
+          "c": "jobStatus",
+          "job": "intake",
+          "label": "Reviews for closed deals"
+        },
+        {
+          "c": "queue",
+          "empty": "Nothing waits: every closed deal's review is approved or dismissed.",
+          "filters": true,
+          "group": true,
+          "sources": [
+            {
+              "from": "submitted",
+              "label": "Ready to approve",
+              "title": "{$row.deal|ref}",
+              "subtitle": "{$row.rep|user} · {$row.outcome} · {$row.amount|money}",
+              "date": "closedOn",
+              "link": "reviews/:key",
+              "actions": [
+                {
+                  "transition": "approve",
+                  "machine": "review"
+                }
+              ],
+              "attention": {
+                "field": "status",
+                "in": [
+                  "submitted"
+                ]
+              }
+            },
+            {
+              "from": "drafts",
+              "label": "Draft with the rep",
+              "title": "{$row.deal|ref}",
+              "subtitle": "{$row.rep|user} · confirm by {$row.confirmBy|date}",
+              "date": "closedOn",
+              "link": "reviews/:key"
+            },
+            {
+              "from": "pending",
+              "label": "Waiting for a draft",
+              "title": "{$row.deal|ref}",
+              "subtitle": "{$row.rep|user} · {$row.outcome} · {$row.amount|money}",
+              "date": "closedOn",
+              "link": "reviews/:key",
+              "actions": [
+                {
+                  "transition": "startDraft",
+                  "machine": "review"
+                },
+                {
+                  "transition": "fillIn",
+                  "machine": "review"
+                },
+                {
+                  "transition": "dismiss",
+                  "machine": "review"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "mine",
+      "title": "My reviews",
+      "roles": [
+        "rep"
+      ],
+      "tab": {
+        "label": "My reviews",
+        "order": 0,
+        "roles": [
+          "rep"
+        ]
+      },
+      "bind": {
+        "mine": {
+          "view": "reviews.mine",
+          "join": [
+            "deal"
+          ],
+          "limit": 500
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "My win-loss reviews",
+          "subtitle": "Each of your closed deals gets a review. Confirm yours; your manager approves it."
+        },
+        {
+          "c": "empty",
+          "text": "None of your deals has closed since win-loss was turned on.",
+          "when": {
+            "bind": "mine",
+            "empty": true
+          }
+        },
+        {
+          "c": "table",
+          "from": "mine",
+          "id": "m",
+          "rowLink": "reviews/:key",
+          "empty": "No reviews.",
+          "sort": {
+            "by": "closedOn",
+            "dir": "desc"
+          },
+          "chips": [
+            {
+              "label": "To confirm",
+              "when": {
+                "field": "status",
+                "in": [
+                  "draft",
+                  "pending"
+                ]
+              }
+            },
+            {
+              "label": "Waiting on manager",
+              "when": {
+                "field": "status",
+                "in": [
+                  "submitted"
+                ]
+              }
+            },
+            {
+              "label": "Approved",
+              "when": {
+                "field": "status",
+                "in": [
+                  "approved"
+                ]
+              }
+            }
+          ],
+          "columns": [
+            {
+              "label": "Deal",
+              "value": "{$row.deal|ref}",
+              "sort": "deal.name",
+              "link": "reviews/:key"
+            },
+            {
+              "label": "Outcome",
+              "value": "{$row.outcome}",
+              "sort": "outcome",
+              "tone": {
+                "by": "outcome",
+                "badge": true,
+                "cases": [
+                  {
+                    "in": [
+                      "won"
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "in": [
+                      "lost"
+                    ],
+                    "tone": "danger"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Status",
+              "value": "{$row.status}",
+              "sort": "status",
+              "tone": {
+                "by": "status",
+                "badge": true,
+                "cases": [
+                  {
+                    "in": [
+                      "approved"
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "in": [
+                      "submitted"
+                    ],
+                    "tone": "warn"
+                  },
+                  {
+                    "in": [
+                      "dismissed",
+                      "reopened"
+                    ],
+                    "tone": "neutral"
+                  },
+                  {
+                    "tone": "info"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Amount",
+              "value": "{$row.amount|money}",
+              "align": "end",
+              "sort": "amount",
+              "total": {
+                "sum": "amount",
+                "format": "money"
+              }
+            },
+            {
+              "label": "Closed",
+              "value": "{$row.closedOn|date}",
+              "sort": "closedOn"
+            },
+            {
+              "label": "Primary reason",
+              "value": "{$row.primaryReason|ref}",
+              "empty": "Not yet"
+            }
+          ],
+          "rowActions": [
+            {
+              "transition": "fillIn",
+              "machine": "review"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "reviews",
+      "title": "Reviews",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "tab": {
+        "label": "Reviews",
+        "order": 1,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "bind": {
+        "reviews": {
+          "view": "reviews.all",
+          "join": [
+            "deal"
+          ],
+          "limit": 1000
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Reviews",
+          "subtitle": "Every closed deal's review you can see.",
+          "actions": [
+            {
+              "export": "reviews.csv",
+              "label": "Export",
+              "formats": [
+                "csv",
+                "xlsx"
+              ]
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "reviews",
+          "id": "r",
+          "rowLink": "reviews/:key",
+          "empty": "No reviews yet. They open as deals close, or with Backfill on the Inbox.",
+          "sort": {
+            "by": "closedOn",
+            "dir": "desc"
+          },
+          "search": [
+            "deal.name"
+          ],
+          "filters": [
+            {
+              "field": "outcome",
+              "label": "Outcome"
+            },
+            {
+              "field": "status",
+              "label": "Status"
+            },
+            {
+              "field": "rep",
+              "label": "Rep"
+            },
+            {
+              "field": "competitor",
+              "label": "Competitor"
+            },
+            {
+              "field": "dealType",
+              "label": "Deal type"
+            },
+            {
+              "field": "closedOn",
+              "label": "Closed"
+            }
+          ],
+          "group": {
+            "by": "status"
+          },
+          "groupBy": [
+            {
+              "by": "outcome",
+              "label": "Outcome"
+            },
+            {
+              "by": "rep",
+              "label": "Rep"
+            },
+            {
+              "by": "competitor",
+              "label": "Competitor"
+            }
+          ],
+          "columns": [
+            {
+              "label": "Deal",
+              "value": "{$row.deal|ref}",
+              "sort": "deal.name",
+              "link": "reviews/:key"
+            },
+            {
+              "label": "Outcome",
+              "value": "{$row.outcome}",
+              "sort": "outcome",
+              "tone": {
+                "by": "outcome",
+                "badge": true,
+                "cases": [
+                  {
+                    "in": [
+                      "won"
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "in": [
+                      "lost"
+                    ],
+                    "tone": "danger"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Status",
+              "value": "{$row.status}",
+              "sort": "status",
+              "tone": {
+                "by": "status",
+                "badge": true,
+                "cases": [
+                  {
+                    "in": [
+                      "approved"
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "in": [
+                      "submitted"
+                    ],
+                    "tone": "warn"
+                  },
+                  {
+                    "in": [
+                      "dismissed",
+                      "reopened"
+                    ],
+                    "tone": "neutral"
+                  },
+                  {
+                    "tone": "info"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Rep",
+              "value": "{$row.rep|user}",
+              "sort": "rep"
+            },
+            {
+              "label": "Amount",
+              "value": "{$row.amount|money}",
+              "align": "end",
+              "sort": "amount",
+              "total": {
+                "sum": "amount",
+                "format": "money"
+              }
+            },
+            {
+              "label": "Closed",
+              "value": "{$row.closedOn|date}",
+              "sort": "closedOn"
+            },
+            {
+              "label": "Segment",
+              "value": "{$row.segment}",
+              "empty": "Unknown"
+            },
+            {
+              "label": "Competitor",
+              "value": "{$row.competitor|ref}",
+              "empty": "None named"
+            },
+            {
+              "label": "Primary reason",
+              "value": "{$row.primaryReason|ref}",
+              "empty": "Not yet"
+            }
+          ],
+          "rowActions": [
+            {
+              "transition": "fillIn",
+              "machine": "review"
+            },
+            {
+              "transition": "approve",
+              "machine": "review"
+            },
+            {
+              "transition": "dismiss",
+              "machine": "review"
+            }
+          ],
+          "select": {
+            "actions": [
+              {
+                "transition": "dismiss",
+                "machine": "review"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "path": "reviews/:key",
+      "title": "{$review.deal|ref}",
+      "bind": {
+        "review": {
+          "view": "reviews.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          },
+          "join": [
+            "deal",
+            "competitor",
+            "primaryReason"
+          ]
+        },
+        "comments": {
+          "view": "comments.forReview",
+          "args": {
+            "review": {
+              "route": "key"
+            }
+          }
+        },
+        "drivers": {
+          "call": "reviewDrivers",
+          "args": {
+            "review": {
+              "route": "key"
+            }
+          }
+        },
+        "settings": {
+          "view": "settings.main"
+        }
+      },
+      "fallback": {
+        "missing": "This review doesn't exist, or it isn't yours to see.",
+        "back": {
+          "label": "Back to win-loss",
+          "path": "inbox"
+        }
+      },
+      "document": {
+        "heading": "WIN-LOSS REVIEW"
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$review.deal|ref}",
+          "subtitle": "{$review.outcome} · {$review.amount|money} · closed {$review.closedOn|date} · {$review.rep|user}",
+          "actions": [
+            {
+              "canon": "deal",
+              "label": "Open deal",
+              "bind": "review",
+              "ref": "deal"
+            },
+            {
+              "pdf": "Download PDF"
+            }
+          ]
+        },
+        {
+          "c": "statusSteps",
+          "from": "review",
+          "machine": "review",
+          "steps": [
+            "pending",
+            "draft",
+            "submitted",
+            "approved"
+          ]
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "The deal was reopened. This review waits until it closes again.",
+          "when": {
+            "bind": "review",
+            "field": "status",
+            "in": [
+              "reopened"
+            ]
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "warn",
+          "text": "The rep didn't confirm by {$review.confirmBy|date}, so the review went to the manager unconfirmed.",
+          "when": {
+            "bind": "review",
+            "field": "escalatedAt",
+            "set": true
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "ai",
+          "text": "Canon is drafting this review from the deal's calls, meetings and notes. It opens for the rep to confirm when it's done.",
+          "when": {
+            "bind": "review",
+            "field": "status",
+            "in": [
+              "drafting"
+            ]
+          }
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "transition": "startDraft",
+              "machine": "review",
+              "target": "review",
+              "toast": "Drafting: the review opens for the rep when it's done."
+            },
+            {
+              "transition": "fillIn",
+              "machine": "review",
+              "target": "review"
+            },
+            {
+              "op": "reviews.editDrivers",
+              "target": "review",
+              "label": "Edit reasons",
+              "fields": [
+                {
+                  "field": "drivers",
+                  "label": "Reasons"
+                },
+                {
+                  "field": "competitor",
+                  "label": "Competitor"
+                },
+                {
+                  "field": "summary",
+                  "label": "Summary"
+                }
+              ]
+            },
+            {
+              "op": "reviews.debrief",
+              "target": "review",
+              "label": "Add your debrief",
+              "fields": [
+                {
+                  "field": "debrief",
+                  "label": "Debrief"
+                }
+              ]
+            },
+            {
+              "transition": "confirm",
+              "machine": "review",
+              "target": "review",
+              "toast": "Confirmed. Your manager approves it next."
+            },
+            {
+              "transition": "approve",
+              "machine": "review",
+              "target": "review",
+              "toast": "Approved"
+            },
+            {
+              "transition": "sendBack",
+              "machine": "review",
+              "target": "review",
+              "fields": [
+                {
+                  "field": "note",
+                  "label": "What to change"
+                }
+              ]
+            },
+            {
+              "transition": "dismiss",
+              "machine": "review",
+              "target": "review",
+              "fields": [
+                {
+                  "field": "why",
+                  "label": "Why"
+                }
+              ]
+            },
+            {
+              "transition": "reopen",
+              "machine": "review",
+              "target": "review"
+            }
+          ]
+        },
+        {
+          "c": "detail",
+          "columns": 4,
+          "items": [
+            {
+              "label": "Outcome",
+              "value": "{$review.outcome}"
+            },
+            {
+              "label": "Amount",
+              "value": "{$review.amount|money}"
+            },
+            {
+              "label": "Closed on",
+              "value": "{$review.closedOn|date}"
+            },
+            {
+              "label": "Rep",
+              "value": "{$review.rep|user}"
+            },
+            {
+              "label": "Segment",
+              "value": "{$review.segment}"
+            },
+            {
+              "label": "Deal type",
+              "value": "{$review.dealType}"
+            },
+            {
+              "label": "Days to close",
+              "value": "{$review.daysToClose|number}"
+            },
+            {
+              "label": "Competitor",
+              "value": "{$review.competitor|ref}"
+            },
+            {
+              "label": "Primary reason",
+              "value": "{$review.primaryReason|ref}"
+            },
+            {
+              "label": "CRM loss reason",
+              "value": "{$review.crmLossReason}"
+            },
+            {
+              "label": "Region",
+              "value": "{$review.region}"
+            },
+            {
+              "label": "Lead source",
+              "value": "{$review.source}"
+            },
+            {
+              "label": "Confirm by",
+              "value": "{$review.confirmBy|date}"
+            },
+            {
+              "label": "Summary",
+              "value": "{$review.summary}",
+              "span": 2
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "drivers",
+          "rows": "rows",
+          "empty": "No reasons yet. Add them with Edit reasons.",
+          "columns": [
+            {
+              "label": "Reason",
+              "value": "{$row.reason}"
+            },
+            {
+              "label": "Direction",
+              "value": "{$row.direction}",
+              "tone": {
+                "by": "direction",
+                "badge": true,
+                "cases": [
+                  {
+                    "in": [
+                      "Helped us"
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "tone": "danger"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Weight",
+              "value": "{$row.weight}"
+            },
+            {
+              "label": "Strength",
+              "value": "{$row.strength}"
+            },
+            {
+              "label": "Added by",
+              "value": "{$row.by}",
+              "tone": {
+                "by": "by",
+                "cases": [
+                  {
+                    "in": [
+                      "AI"
+                    ],
+                    "tone": "ai"
+                  },
+                  {
+                    "tone": "neutral"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Quotes",
+              "value": "{$row.quoteCount|number} ({$row.verifiedCount|number} found word for word)",
+              "popover": {
+                "items": "quotes",
+                "label": "“{$item.text}” · {$item.from}",
+                "title": "Quotes"
+              }
+            },
+            {
+              "label": "Note",
+              "value": "{$row.note}",
+              "empty": "None"
+            }
+          ]
+        },
+        {
+          "c": "tabs",
+          "param": "view",
+          "tabs": [
+            {
+              "id": "debrief",
+              "label": "Rep's debrief",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "drivers",
+                  "rows": "debrief",
+                  "empty": "The rep hasn't added a debrief.",
+                  "columns": [
+                    {
+                      "label": "Question",
+                      "value": "{$row.question}"
+                    },
+                    {
+                      "label": "Answer",
+                      "value": "{$row.answer}"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "comments",
+              "label": "Comments",
+              "body": [
+                {
+                  "c": "thread",
+                  "from": "comments",
+                  "body": "body",
+                  "author": "author",
+                  "empty": "No comments yet.",
+                  "tags": {
+                    "rep": "Rep",
+                    "manager": "Manager",
+                    "admin": "Admin"
+                  },
+                  "post": {
+                    "op": "comments.create",
+                    "parent": {
+                      "route": "key"
+                    },
+                    "field": "body",
+                    "label": "Comment"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "history",
+              "label": "History",
+              "body": [
+                {
+                  "c": "timeline",
+                  "of": "review",
+                  "hide": {
+                    "actors": [
+                      "system"
+                    ],
+                    "roles": [
+                      "rep"
+                    ],
+                    "keep": [
+                      "review.escalate"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "trends",
+      "title": "Trends",
+      "tab": {
+        "label": "Trends",
+        "order": 2
+      },
+      "persist": [
+        "from",
+        "to"
+      ],
+      "bind": {
+        "t": {
+          "call": "trends",
+          "args": {
+            "from": {
+              "query": "from"
+            },
+            "to": {
+              "query": "to"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Trends",
+          "subtitle": "Win rates over every closed deal in the range; reasons over the approved reviews.",
+          "actions": [
+            {
+              "export": "quotes.csv",
+              "label": "Export quotes",
+              "formats": [
+                "csv",
+                "xlsx"
+              ],
+              "args": {
+                "from": {
+                  "query": "from"
+                },
+                "to": {
+                  "query": "to"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "c": "dateRange",
+          "from": "from",
+          "to": "to",
+          "label": "Closed",
+          "default": "this fiscal year"
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "Win rate",
+              "value": "{$t.winRate|percent}",
+              "hint": "{$t.won|number} won of {$t.closed|number} closed"
+            },
+            {
+              "label": "Dollar win rate",
+              "value": "{$t.dollarRate|percent}"
+            },
+            {
+              "label": "Reviews approved",
+              "value": "{$t.coverage|percent}",
+              "hint": "{$t.approved|number} approved, {$t.waiting|number} waiting"
+            },
+            {
+              "label": "Days from close to approval",
+              "value": "{$t.daysToApprove|number}",
+              "hint": "median, over the approved reviews"
+            }
+          ]
+        },
+        {
+          "c": "chart",
+          "kind": "bar",
+          "title": "Why we lose: primary reasons of approved losses",
+          "from": "t",
+          "rows": "lossReasons",
+          "x": "label",
+          "y": "share",
+          "format": "percent",
+          "order": "value",
+          "top": 10
+        },
+        {
+          "c": "chart",
+          "kind": "bar",
+          "title": "Why we win: primary reasons of approved wins",
+          "from": "t",
+          "rows": "winReasons",
+          "x": "label",
+          "y": "share",
+          "format": "percent",
+          "order": "value",
+          "top": 10
+        },
+        {
+          "c": "tabs",
+          "param": "by",
+          "tabs": [
+            {
+              "id": "competitor",
+              "label": "By competitor",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "byCompetitor",
+                  "empty": "No closed deals in the range.",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Won",
+                      "value": "{$row.won|number} of {$row.closed|number}"
+                    },
+                    {
+                      "label": "Win rate",
+                      "value": "{$row.rate|percent}",
+                      "bar": {
+                        "value": "rate"
+                      }
+                    },
+                    {
+                      "label": "Dollar win rate",
+                      "value": "{$row.dollarRate|percent}"
+                    },
+                    {
+                      "label": "Sample",
+                      "value": "Small sample",
+                      "when": {
+                        "field": "small",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "small",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "rep",
+              "label": "By rep",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "byRep",
+                  "empty": "No closed deals in the range.",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Won",
+                      "value": "{$row.won|number} of {$row.closed|number}"
+                    },
+                    {
+                      "label": "Win rate",
+                      "value": "{$row.rate|percent}",
+                      "bar": {
+                        "value": "rate"
+                      }
+                    },
+                    {
+                      "label": "Dollar win rate",
+                      "value": "{$row.dollarRate|percent}"
+                    },
+                    {
+                      "label": "Sample",
+                      "value": "Small sample",
+                      "when": {
+                        "field": "small",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "small",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "team",
+              "label": "By team",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "byTeam",
+                  "empty": "No closed deals in the range.",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Won",
+                      "value": "{$row.won|number} of {$row.closed|number}"
+                    },
+                    {
+                      "label": "Win rate",
+                      "value": "{$row.rate|percent}",
+                      "bar": {
+                        "value": "rate"
+                      }
+                    },
+                    {
+                      "label": "Dollar win rate",
+                      "value": "{$row.dollarRate|percent}"
+                    },
+                    {
+                      "label": "Sample",
+                      "value": "Small sample",
+                      "when": {
+                        "field": "small",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "small",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "segment",
+              "label": "By segment",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "bySegment",
+                  "empty": "No closed deals in the range.",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Won",
+                      "value": "{$row.won|number} of {$row.closed|number}"
+                    },
+                    {
+                      "label": "Win rate",
+                      "value": "{$row.rate|percent}",
+                      "bar": {
+                        "value": "rate"
+                      }
+                    },
+                    {
+                      "label": "Dollar win rate",
+                      "value": "{$row.dollarRate|percent}"
+                    },
+                    {
+                      "label": "Sample",
+                      "value": "Small sample",
+                      "when": {
+                        "field": "small",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "small",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "quarter",
+              "label": "By quarter",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "byQuarter",
+                  "empty": "No closed deals in the range.",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Won",
+                      "value": "{$row.won|number} of {$row.closed|number}"
+                    },
+                    {
+                      "label": "Win rate",
+                      "value": "{$row.rate|percent}",
+                      "bar": {
+                        "value": "rate"
+                      }
+                    },
+                    {
+                      "label": "Dollar win rate",
+                      "value": "{$row.dollarRate|percent}"
+                    },
+                    {
+                      "label": "Sample",
+                      "value": "Small sample",
+                      "when": {
+                        "field": "small",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "small",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "deal-type",
+              "label": "By deal type",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "byDealType",
+                  "empty": "No closed deals in the range.",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Won",
+                      "value": "{$row.won|number} of {$row.closed|number}"
+                    },
+                    {
+                      "label": "Win rate",
+                      "value": "{$row.rate|percent}",
+                      "bar": {
+                        "value": "rate"
+                      }
+                    },
+                    {
+                      "label": "Dollar win rate",
+                      "value": "{$row.dollarRate|percent}"
+                    },
+                    {
+                      "label": "Sample",
+                      "value": "Small sample",
+                      "when": {
+                        "field": "small",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "small",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "influence",
+              "label": "Reasons by influence",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "influence",
+                  "empty": "No approved reviews in the range.",
+                  "sort": {
+                    "by": "influence",
+                    "dir": "desc"
+                  },
+                  "columns": [
+                    {
+                      "label": "Reason",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "In",
+                      "value": "{$row.outcome}"
+                    },
+                    {
+                      "label": "Primary",
+                      "value": "{$row.primary|number}"
+                    },
+                    {
+                      "label": "Contributing",
+                      "value": "{$row.contributing|number}"
+                    },
+                    {
+                      "label": "Average strength",
+                      "value": "{$row.avgStrength|number}",
+                      "empty": "None"
+                    },
+                    {
+                      "label": "Influence",
+                      "value": "{$row.influence|number}",
+                      "sort": "influence"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "region",
+              "label": "By region",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "byRegion",
+                  "empty": "No region: pick the region field in Setup > Program.",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Won",
+                      "value": "{$row.won|number} of {$row.closed|number}"
+                    },
+                    {
+                      "label": "Win rate",
+                      "value": "{$row.rate|percent}",
+                      "bar": {
+                        "value": "rate"
+                      }
+                    },
+                    {
+                      "label": "Dollar win rate",
+                      "value": "{$row.dollarRate|percent}"
+                    },
+                    {
+                      "label": "Sample",
+                      "value": "Small sample",
+                      "when": {
+                        "field": "small",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "small",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "source",
+              "label": "By lead source",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "t",
+                  "rows": "bySource",
+                  "empty": "No lead source: pick the source field in Setup > Program.",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Won",
+                      "value": "{$row.won|number} of {$row.closed|number}"
+                    },
+                    {
+                      "label": "Win rate",
+                      "value": "{$row.rate|percent}",
+                      "bar": {
+                        "value": "rate"
+                      }
+                    },
+                    {
+                      "label": "Dollar win rate",
+                      "value": "{$row.dollarRate|percent}"
+                    },
+                    {
+                      "label": "Sample",
+                      "value": "Small sample",
+                      "when": {
+                        "field": "small",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "small",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "stage",
+              "label": "Lost at stage",
+              "body": [
+                {
+                  "c": "chart",
+                  "kind": "bar",
+                  "title": "Lost deals by the last stage they reached",
+                  "from": "t",
+                  "rows": "lostAtStage",
+                  "x": "stage",
+                  "y": "count",
+                  "order": "value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "c": "report",
+          "id": "wl",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "collection": "published",
+          "title": "Report builder: approved reviews",
+          "sources": [
+            "reviews"
+          ],
+          "rows": [
+            "primaryReason"
+          ],
+          "columns": [
+            "outcome"
+          ],
+          "values": [
+            {
+              "fn": "count"
+            },
+            {
+              "fn": "sum",
+              "field": "amount"
+            }
+          ],
+          "chart": "bar"
+        }
+      ]
+    },
+    {
+      "path": "competitors",
+      "title": "Competitors",
+      "tab": {
+        "label": "Competitors",
+        "order": 3
+      },
+      "bind": {
+        "board": {
+          "call": "competitorBoard"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Competitors",
+          "subtitle": "Win rate against each over every closed deal you can see, and why we lose to them, from approved reviews.",
+          "actions": [
+            {
+              "op": "competitors.create",
+              "label": "Add a competitor"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "board",
+          "rows": "rows",
+          "id": "cb",
+          "rowLink": "competitors/:key",
+          "empty": "No competitors yet. Add the ones you meet here or in Setup.",
+          "sort": {
+            "by": "closed",
+            "dir": "desc"
+          },
+          "columns": [
+            {
+              "label": "Competitor",
+              "value": "{$row.name}"
+            },
+            {
+              "label": "Won",
+              "value": "{$row.won|number} of {$row.closed|number}"
+            },
+            {
+              "label": "Win rate",
+              "value": "{$row.rate|percent}",
+              "bar": {
+                "value": "rate"
+              },
+              "empty": "No deals"
+            },
+            {
+              "label": "Losses",
+              "value": "{$row.lost|number}"
+            },
+            {
+              "label": "Top loss reason",
+              "value": "{$row.topLoss}",
+              "empty": "None approved"
+            },
+            {
+              "label": "Updates to review",
+              "value": "{$row.proposed|number}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "competitors/:key",
+      "title": "{$competitor.name}",
+      "bind": {
+        "competitor": {
+          "view": "competitors.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          }
+        },
+        "detail": {
+          "call": "competitorDetail",
+          "args": {
+            "competitor": {
+              "route": "key"
+            }
+          }
+        },
+        "cards": {
+          "view": "cards.ofCompetitor",
+          "args": {
+            "competitor": {
+              "route": "key"
+            }
+          }
+        },
+        "updates": {
+          "view": "cardUpdates.ofCompetitor",
+          "args": {
+            "competitor": {
+              "route": "key"
+            }
+          },
+          "limit": 200
+        }
+      },
+      "fallback": {
+        "missing": "This competitor doesn't exist.",
+        "back": {
+          "label": "Back to competitors",
+          "path": "competitors"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$competitor.name}",
+          "actions": [
+            {
+              "op": "competitors.update",
+              "target": "competitor",
+              "label": "Edit"
+            }
+          ]
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "Win rate against them",
+              "value": "{$detail.rate|percent}",
+              "hint": "{$detail.won|number} won of {$detail.closed|number} closed"
+            },
+            {
+              "label": "Dollar win rate",
+              "value": "{$detail.dollarRate|percent}"
+            },
+            {
+              "label": "Approved reviews",
+              "value": "{$detail.reviews|number}"
+            }
+          ]
+        },
+        {
+          "c": "chart",
+          "kind": "bar",
+          "title": "Why we lose to them",
+          "from": "detail",
+          "rows": "lossReasons",
+          "x": "label",
+          "y": "share",
+          "format": "percent",
+          "order": "value",
+          "top": 10
+        },
+        {
+          "c": "tabs",
+          "param": "view",
+          "tabs": [
+            {
+              "id": "card",
+              "label": "Battlecard",
+              "body": [
+                {
+                  "c": "header",
+                  "title": "Battlecard",
+                  "actions": [
+                    {
+                      "op": "cards.create",
+                      "label": "Add a section",
+                      "fixed": {},
+                      "parent": {
+                        "route": "key"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "cards",
+                  "empty": "No battlecard yet. Add a section, or accept an update below.",
+                  "columns": [
+                    {
+                      "label": "Section",
+                      "value": "{$row.section}"
+                    },
+                    {
+                      "label": "Text",
+                      "value": "{$row.text}"
+                    }
+                  ],
+                  "rowActions": [
+                    {
+                      "op": "cards.update",
+                      "label": "Edit",
+                      "aria": "Edit {$row.section}"
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "updates",
+                  "id": "cu",
+                  "empty": "No updates proposed.",
+                  "chips": [
+                    {
+                      "label": "To review",
+                      "when": {
+                        "field": "status",
+                        "in": [
+                          "proposed"
+                        ]
+                      }
+                    }
+                  ],
+                  "columns": [
+                    {
+                      "label": "Update",
+                      "value": "{$row.line}",
+                      "tone": {
+                        "by": "status",
+                        "cases": [
+                          {
+                            "in": [
+                              "proposed"
+                            ],
+                            "tone": "ai"
+                          },
+                          {
+                            "tone": "neutral"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Section",
+                      "value": "{$row.section}"
+                    },
+                    {
+                      "label": "Quotes",
+                      "value": "{$row.quotes|number} quotes",
+                      "popover": {
+                        "items": "quotes",
+                        "label": "“{$item.text}”",
+                        "title": "Found word for word in approved reviews"
+                      }
+                    },
+                    {
+                      "label": "Status",
+                      "value": "{$row.status}",
+                      "tone": {
+                        "by": "status",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "in": [
+                              "accepted"
+                            ],
+                            "tone": "success"
+                          },
+                          {
+                            "in": [
+                              "declined"
+                            ],
+                            "tone": "neutral"
+                          },
+                          {
+                            "tone": "info"
+                          }
+                        ]
+                      }
+                    }
+                  ],
+                  "rowActions": [
+                    {
+                      "call": "applyCardUpdate",
+                      "label": "Accept",
+                      "args": {
+                        "update": {
+                          "row": "key"
+                        }
+                      },
+                      "when": {
+                        "field": "status",
+                        "in": [
+                          "proposed"
+                        ]
+                      },
+                      "toast": "Added to the battlecard"
+                    },
+                    {
+                      "transition": "decline",
+                      "machine": "cardUpdate",
+                      "fields": [
+                        {
+                          "field": "why",
+                          "label": "Why"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "quotes",
+              "label": "What buyers said",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "detail",
+                  "rows": "quotes",
+                  "empty": "No approved review against them yet.",
+                  "columns": [
+                    {
+                      "label": "Quote",
+                      "value": "“{$row.text}”"
+                    },
+                    {
+                      "label": "Reason",
+                      "value": "{$row.reason}"
+                    },
+                    {
+                      "label": "Outcome",
+                      "value": "{$row.outcome}"
+                    },
+                    {
+                      "label": "Closed",
+                      "value": "{$row.closedOn|date}"
+                    },
+                    {
+                      "label": "Review",
+                      "value": "Open",
+                      "link": "reviews/:review"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "setup",
+      "title": "Win-loss setup",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "tab": {
+        "label": "Setup",
+        "order": 4,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "bind": {
+        "reasons": {
+          "view": "reasons.all",
+          "limit": 200
+        },
+        "settings": {
+          "view": "settings.main"
+        },
+        "competitors": {
+          "view": "competitors.all",
+          "limit": 500
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Setup",
+          "subtitle": "The reasons deals are won and lost for, how reviews run, and the competitors you meet."
+        },
+        {
+          "c": "tabs",
+          "param": "section",
+          "tabs": [
+            {
+              "id": "reasons",
+              "label": "Reasons",
+              "body": [
+                {
+                  "c": "empty",
+                  "text": "No reasons yet. Start from Canon's 15, then rename, reorder or turn off any of them.",
+                  "when": {
+                    "bind": "reasons",
+                    "empty": true
+                  },
+                  "action": {
+                    "call": "seedTaxonomy",
+                    "label": "Add Canon's reasons",
+                    "toast": "Added {$result.added} reasons"
+                  }
+                },
+                {
+                  "c": "header",
+                  "title": "Reasons",
+                  "actions": [
+                    {
+                      "op": "reasons.create",
+                      "label": "Add a reason",
+                      "initial": {
+                        "active": true,
+                        "applies": "both",
+                        "order": 100
+                      }
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "reasons",
+                  "id": "rs",
+                  "empty": "No reasons.",
+                  "reorder": {
+                    "call": "reorderReasons",
+                    "by": "order"
+                  },
+                  "columns": [
+                    {
+                      "label": "Reason",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Category",
+                      "value": "{$row.category}"
+                    },
+                    {
+                      "label": "Applies to",
+                      "value": "{$row.applies}"
+                    },
+                    {
+                      "label": "Active",
+                      "value": "{$row.active}",
+                      "tone": {
+                        "by": "active",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "in": [
+                              true
+                            ],
+                            "tone": "success"
+                          },
+                          {
+                            "tone": "neutral"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "label": "What it means",
+                      "value": "{$row.description}",
+                      "empty": "—"
+                    }
+                  ],
+                  "rowActions": [
+                    {
+                      "op": "reasons.update",
+                      "label": "Edit",
+                      "aria": "Edit {$row.label}"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "program",
+              "label": "Program",
+              "body": [
+                {
+                  "c": "empty",
+                  "text": "Win-loss runs on Canon's defaults: a review opens on every closed deal, and the rep has 5 days to confirm it.",
+                  "when": {
+                    "bind": "settings",
+                    "field": "slot",
+                    "set": false
+                  },
+                  "action": {
+                    "op": "settings.create",
+                    "label": "Change the defaults",
+                    "initial": {
+                      "autoDraft": true
+                    }
+                  }
+                },
+                {
+                  "c": "form",
+                  "op": "settings.update",
+                  "from": "settings",
+                  "when": {
+                    "bind": "settings",
+                    "field": "slot",
+                    "set": true
+                  },
+                  "fields": [
+                    {
+                      "field": "autoDraft",
+                      "label": "Draft each review with AI when its deal closes"
+                    },
+                    {
+                      "field": "excludedDealTypes",
+                      "label": "Deal types without a review"
+                    },
+                    {
+                      "field": "debriefQuestions",
+                      "label": "Questions the rep answers when confirming"
+                    },
+                    {
+                      "field": "lossReasonField",
+                      "label": "The CRM's loss reason field"
+                    },
+                    {
+                      "field": "regionField",
+                      "label": "Region field"
+                    },
+                    {
+                      "field": "sourceField",
+                      "label": "Lead source field"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "competitors",
+              "label": "Competitors",
+              "body": [
+                {
+                  "c": "header",
+                  "title": "Competitors",
+                  "actions": [
+                    {
+                      "op": "competitors.create",
+                      "label": "Add a competitor"
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "competitors",
+                  "id": "cs",
+                  "empty": "No competitors yet.",
+                  "search": [
+                    "name"
+                  ],
+                  "columns": [
+                    {
+                      "label": "Competitor",
+                      "value": "{$row.name}"
+                    },
+                    {
+                      "label": "Also called",
+                      "value": "{$row.aliases|number} names",
+                      "popover": {
+                        "items": "aliases",
+                        "label": "{$item.value}",
+                        "title": "Also called"
+                      }
+                    }
+                  ],
+                  "rowActions": [
+                    {
+                      "op": "competitors.update",
+                      "label": "Edit",
+                      "aria": "Edit {$row.name}"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "upgrade": {
+    "job": "publishAll"
+  },
+  "contributes": {
+    "dealPage": {
+      "panels": [
+        {
+          "id": "review",
+          "title": "Win-loss review",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "bind": {
+            "review": {
+              "view": "reviews.ofDeal",
+              "args": {
+                "deal": {
+                  "query": "record"
+                }
+              },
+              "join": [
+                "primaryReason",
+                "competitor"
+              ]
+            }
+          },
+          "body": [
+            {
+              "c": "table",
+              "from": "review",
+              "rowLink": "reviews/:key",
+              "empty": "No review yet: one opens when the deal closes.",
+              "columns": [
+                {
+                  "label": "Status",
+                  "value": "{$row.status}",
+                  "tone": {
+                    "by": "status",
+                    "badge": true,
+                    "cases": [
+                      {
+                        "in": [
+                          "approved"
+                        ],
+                        "tone": "success"
+                      },
+                      {
+                        "in": [
+                          "submitted"
+                        ],
+                        "tone": "warn"
+                      },
+                      {
+                        "in": [
+                          "dismissed",
+                          "reopened"
+                        ],
+                        "tone": "neutral"
+                      },
+                      {
+                        "tone": "info"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "label": "Outcome",
+                  "value": "{$row.outcome}",
+                  "tone": {
+                    "by": "outcome",
+                    "badge": true,
+                    "cases": [
+                      {
+                        "in": [
+                          "won"
+                        ],
+                        "tone": "success"
+                      },
+                      {
+                        "in": [
+                          "lost"
+                        ],
+                        "tone": "danger"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "label": "Primary reason",
+                  "value": "{$row.primaryReason|ref}",
+                  "empty": "Not yet"
+                },
+                {
+                  "label": "CRM loss reason",
+                  "value": "{$row.crmLossReason}",
+                  "empty": "None"
+                },
+                {
+                  "label": "Competitor",
+                  "value": "{$row.competitor|ref}",
+                  "empty": "None named"
+                },
+                {
+                  "label": "Summary",
+                  "value": "{$row.summary}",
+                  "empty": "None yet"
+                }
+              ],
+              "rowActions": [
+                {
+                  "transition": "startDraft",
+                  "machine": "review",
+                  "toast": "Drafting: the review opens for the rep when it's done."
+                },
+                {
+                  "transition": "fillIn",
+                  "machine": "review"
+                }
+              ]
+            }
+          ],
+          "link": {
+            "label": "Open win-loss",
+            "path": "reviews/{$query.record}"
+          }
+        },
+        {
+          "id": "cards",
+          "title": "Battlecards",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "bind": {
+            "competitors": {
+              "view": "competitors.all",
+              "limit": 50
+            }
+          },
+          "body": [
+            {
+              "c": "table",
+              "from": "competitors",
+              "rowLink": "competitors/:key?view=card",
+              "empty": "No competitors yet.",
+              "columns": [
+                {
+                  "label": "Competitor",
+                  "value": "{$row.name}"
+                },
+                {
+                  "label": "Also called",
+                  "value": "{$row.aliases|number} names",
+                  "popover": {
+                    "items": "aliases",
+                    "label": "{$item.value}",
+                    "title": "Also called"
+                  }
+                }
+              ]
+            }
+          ],
+          "link": {
+            "label": "All competitors",
+            "path": "competitors"
+          }
+        }
+      ]
+    }
+  }
+}

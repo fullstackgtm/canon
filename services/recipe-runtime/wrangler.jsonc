@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "canon-recipe-runtime",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "ai": { "binding": "AI" },
+  "worker_loaders": [{ "binding": "LOADER" }],
+  // Shared with Convex's RECIPE_RUNTIME_SECRET: `wrangler secret put RECIPE_RUNTIME_SECRET`, or .dev.vars for `wrangler dev`.
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}

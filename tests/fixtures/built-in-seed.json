@@ -1,0 +1,247 @@
+{
+  "created": 9,
+  "reports": [
+    {
+      "name": "Open pipeline",
+      "createdBy": "u1",
+      "shared": true,
+      "spec": {
+        "object": "deal",
+        "filter": [
+          {
+            "field": "isClosed",
+            "op": "eq",
+            "value": false
+          }
+        ],
+        "groupBy": [],
+        "measures": [
+          {
+            "fn": "sum",
+            "field": "amount"
+          },
+          {
+            "fn": "count"
+          }
+        ],
+        "chart": "number"
+      },
+      "builtIn": "open_pipeline"
+    },
+    {
+      "name": "Pipeline by stage",
+      "createdBy": "u1",
+      "shared": true,
+      "spec": {
+        "object": "deal",
+        "filter": [
+          {
+            "field": "isClosed",
+            "op": "eq",
+            "value": false
+          }
+        ],
+        "groupBy": [
+          {
+            "field": "stage"
+          }
+        ],
+        "measures": [
+          {
+            "fn": "sum",
+            "field": "amount"
+          },
+          {
+            "fn": "count"
+          }
+        ],
+        "chart": "bar"
+      },
+      "builtIn": "pipeline_by_stage"
+    },
+    {
+      "name": "Pipeline by forecast category",
+      "createdBy": "u1",
+      "shared": true,
+      "spec": {
+        "object": "deal",
+        "filter": [
+          {
+            "field": "isClosed",
+            "op": "eq",
+            "value": false
+          }
+        ],
+        "groupBy": [
+          {
+            "field": "forecastCategory"
+          }
+        ],
+        "measures": [
+          {
+            "fn": "sum",
+            "field": "amount"
+          },
+          {
+            "fn": "count"
+          }
+        ],
+        "chart": "pie"
+      },
+      "builtIn": "pipeline_by_forecast"
+    },
+    {
+      "name": "Won and lost by month",
+      "createdBy": "u1",
+      "shared": true,
+      "spec": {
+        "object": "deal",
+        "filter": [
+          {
+            "field": "isClosed",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "groupBy": [
+          {
+            "field": "closeDate",
+            "bucket": "month"
+          },
+          {
+            "field": "isWon"
+          }
+        ],
+        "measures": [
+          {
+            "fn": "sum",
+            "field": "amount"
+          },
+          {
+            "fn": "count"
+          }
+        ],
+        "chart": "bar"
+      },
+      "builtIn": "won_lost_by_month"
+    },
+    {
+      "name": "Activities by owner and type",
+      "createdBy": "u1",
+      "shared": true,
+      "spec": {
+        "object": "activity",
+        "filter": [],
+        "groupBy": [
+          {
+            "field": "ownerId"
+          },
+          {
+            "field": "type"
+          }
+        ],
+        "measures": [
+          {
+            "fn": "count"
+          }
+        ],
+        "chart": "bar"
+      },
+      "builtIn": "activities_by_owner"
+    },
+    {
+      "name": "New deals by month",
+      "createdBy": "u1",
+      "shared": true,
+      "spec": {
+        "object": "deal",
+        "filter": [],
+        "groupBy": [
+          {
+            "field": "createdAt",
+            "bucket": "month"
+          }
+        ],
+        "measures": [
+          {
+            "fn": "count"
+          },
+          {
+            "fn": "sum",
+            "field": "amount"
+          }
+        ],
+        "chart": "line"
+      },
+      "builtIn": "new_deals_by_month"
+    },
+    {
+      "name": "New leads by month",
+      "createdBy": "u1",
+      "shared": true,
+      "spec": {
+        "object": "lead",
+        "filter": [],
+        "groupBy": [
+          {
+            "field": "createdAt",
+            "bucket": "month"
+          }
+        ],
+        "measures": [
+          {
+            "fn": "count"
+          }
+        ],
+        "chart": "line"
+      },
+      "builtIn": "new_leads_by_month"
+    }
+  ],
+  "dashboards": [
+    {
+      "name": "Revenue",
+      "createdBy": "u1",
+      "shared": true,
+      "tiles": [
+        {
+          "report": "open_pipeline",
+          "wide": false
+        },
+        {
+          "report": "pipeline_by_forecast",
+          "wide": false
+        },
+        {
+          "report": "pipeline_by_stage",
+          "wide": true
+        },
+        {
+          "report": "won_lost_by_month",
+          "wide": true
+        }
+      ],
+      "builtIn": "revenue"
+    },
+    {
+      "name": "Activity",
+      "createdBy": "u1",
+      "shared": true,
+      "tiles": [
+        {
+          "report": "activities_by_owner",
+          "wide": true
+        },
+        {
+          "report": "new_deals_by_month",
+          "wide": false
+        },
+        {
+          "report": "new_leads_by_month",
+          "wide": false
+        }
+      ],
+      "builtIn": "activity"
+    }
+  ]
+}

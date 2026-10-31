@@ -1,0 +1,9 @@
+wrangler 4.151.3, `wrangler dev --local -c dispatcher.json -c org-a.json`, dispatcher binding
+  "dispatch_namespaces": [{ "binding": "NS", "namespace": "canon-orgs" }]
+
+Binding table printed by wrangler:
+  env.NS (canon-orgs)      Dispatch Namespace      not supported
+Warning printed by wrangler:
+  Dispatch Namespace bindings do not support local development, and so parts of your Worker may not work correctly. You can set `remote: true` for the binding definition in your configuration file to access a remote version of the resource.
+Response from `env.NS.get("org-a").fetch(req)`:
+  500 err:Binding NS needs to be run remotely

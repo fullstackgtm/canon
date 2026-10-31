@@ -1,0 +1,5 @@
+.flue-vite/
+.flue-vite.wrangler.jsonc
+dist/
+node_modules/
+.wrangler/

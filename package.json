@@ -1,0 +1,76 @@
+{
+  "name": "fullstackgtm-app",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "pretest": "npm ci --prefix services/record-service",
+    "build": "next build",
+    "start": "node scripts/start-standalone.mjs",
+    "typecheck": "bash scripts/typecheck.sh",
+    "lint": "eslint",
+    "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts",
+    "module:examples": "node --experimental-strip-types scripts/build-module-examples.ts",
+    "module:build": "node --experimental-strip-types scripts/module-build.ts",
+    "fullstackgtm": "node --experimental-strip-types scripts/fullstackgtm.ts",
+    "fullstackgtm:mcp": "node --experimental-strip-types scripts/fullstackgtm-mcp.ts"
+  },
+  "dependencies": {
+    "@clerk/mcp-tools": "^0.3.1",
+    "@clerk/nextjs": "^6.39.3",
+    "@earendil-works/chord": "1.3.0",
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-durable": "1.3.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@telnyx/webrtc": "2.27.10",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "convex": "^1.31.7",
+    "date-fns": "^4.1.0",
+    "geist": "^1.7.0",
+    "lucide-react": "^0.563.0",
+    "mcp-handler": "^1.1.0",
+    "motion": "^12.34.0",
+    "next": "^16.2.4",
+    "next-themes": "^0.4.6",
+    "npm-run-all": "^4.1.5",
+    "papaparse": "^5.4.1",
+    "radix-ui": "^1.4.3",
+    "react": "19.2.3",
+    "react-day-picker": "^9.13.1",
+    "react-dom": "19.2.3",
+    "sonner": "^2.0.7",
+    "stripe": "22.6.0",
+    "svix": "^1.92.2",
+    "tailwind-merge": "^3.4.0",
+    "tldts": "^7.4.19",
+    "zod": "^4.4.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/papaparse": "^5.3.15",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "esbuild": "0.27.0",
+    "eslint": "^9",
+    "eslint-config-next": "^16.2.4",
+    "linkedom": "0.18.14",
+    "shadcn": "^3.8.4",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "postcss": "8.5.10",
+    "mcp-handler": {
+      "@modelcontextprotocol/sdk": "$@modelcontextprotocol/sdk"
+    }
+  },
+  "type": "module"
+}

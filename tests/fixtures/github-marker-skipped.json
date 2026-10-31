@@ -1,0 +1,795 @@
+{
+ "run": {
+  "id": 40117443174,
+  "status": "completed",
+  "conclusion": "failure"
+ },
+ "jobs": [
+  {
+   "name": "Plan batch",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Select surfaces",
+     "conclusion": "success"
+    },
+    {
+     "name": "Record service required",
+     "conclusion": "success"
+    },
+    {
+     "name": "Recipe runtime required",
+     "conclusion": "success"
+    },
+    {
+     "name": "Infrastructure required",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Build app image",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd",
+     "conclusion": "success"
+    },
+    {
+     "name": "Build",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Build record service image",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd",
+     "conclusion": "success"
+    },
+    {
+     "name": "Build",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Validate / Select checks",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Validate inputs",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run if [[ \"$SCOPE\" == main ]]; then",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Recipe runtime (Cloudflare)",
+   "status": "completed",
+   "conclusion": "failure",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run npm ci --no-audit --no-fund && rm -rf node_modules/@next/swc-linux-x64-musl node_modules/@img/*linuxmusl*",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Run npm ci --no-audit --no-fund",
+     "conclusion": "success"
+    },
+    {
+     "name": "Deploy, check, point Convex dev at it",
+     "conclusion": "failure"
+    },
+    {
+     "name": "Post Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Build production app image",
+   "status": "completed",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "Infrastructure (dev)",
+   "status": "completed",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "Validate / Static",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Use the real home directory",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run npm ci && rm -rf node_modules/@next/swc-linux-x64-musl node_modules/@img/*linuxmusl*",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Install pinned Terraform",
+     "conclusion": "success"
+    },
+    {
+     "name": "Validate Terraform without a backend or cloud credentials",
+     "conclusion": "success"
+    },
+    {
+     "name": "Generate route types",
+     "conclusion": "success"
+    },
+    {
+     "name": "Typecheck app",
+     "conclusion": "success"
+    },
+    {
+     "name": "Typecheck convex",
+     "conclusion": "success"
+    },
+    {
+     "name": "Syntax-check CLI and MCP entrypoints",
+     "conclusion": "success"
+    },
+    {
+     "name": "Agent-facing JSON contracts are parseable and stderr-clean",
+     "conclusion": "success"
+    },
+    {
+     "name": "Piped output carries zero ANSI bytes (TUI stays TTY-only)",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Lint",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Validate / Tests (2)",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Use the real home directory",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run npm ci",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Full root test shard",
+     "conclusion": "success"
+    },
+    {
+     "name": "PR selected tests",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Validate / Tests (4)",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Use the real home directory",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run npm ci",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Full root test shard",
+     "conclusion": "success"
+    },
+    {
+     "name": "PR selected tests",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Validate / Tests (1)",
+   "status": "completed",
+   "conclusion": "failure",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Use the real home directory",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run npm ci",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Full root test shard",
+     "conclusion": "failure"
+    },
+    {
+     "name": "PR selected tests",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Validate / Services",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Use the real home directory",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run npm ci --prefix services/record-service",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Test record service",
+     "conclusion": "success"
+    },
+    {
+     "name": "Test prospect index",
+     "conclusion": "success"
+    },
+    {
+     "name": "Test Salesforce simulator",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Validate / Tests (3)",
+   "status": "completed",
+   "conclusion": "success",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Use the real home directory",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run npm ci",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Full root test shard",
+     "conclusion": "success"
+    },
+    {
+     "name": "PR selected tests",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Record service",
+   "status": "completed",
+   "conclusion": "failure",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Recheck deployment admission",
+     "conclusion": "failure"
+    },
+    {
+     "name": "Run aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Run actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Deploy",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Close runner SSH rule",
+     "conclusion": "success"
+    },
+    {
+     "name": "Health",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Convex (dev)",
+   "status": "completed",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "App (dev.canoncrm.com)",
+   "status": "completed",
+   "conclusion": "skipped",
+   "steps": []
+  },
+  {
+   "name": "Validate / Validation",
+   "status": "completed",
+   "conclusion": "failure",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Check required results",
+     "conclusion": "failure"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  },
+  {
+   "name": "Deployed",
+   "status": "completed",
+   "conclusion": "failure",
+   "steps": [
+    {
+     "name": "Set up job",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Assert frozen checkout",
+     "conclusion": "success"
+    },
+    {
+     "name": "Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "success"
+    },
+    {
+     "name": "Verify complete batch",
+     "conclusion": "failure"
+    },
+    {
+     "name": "Post Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e",
+     "conclusion": "skipped"
+    },
+    {
+     "name": "Post Run actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+     "conclusion": "success"
+    },
+    {
+     "name": "Complete job",
+     "conclusion": "success"
+    }
+   ]
+  }
+ ]
+}

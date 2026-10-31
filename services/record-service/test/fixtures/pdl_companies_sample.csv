@@ -1,0 +1,9 @@
+id,website,name,founded,size,locality,region,country,industry,linkedin_url
+f1,acmerobotics.com,acme robotics,2015,51-200,boston,massachusetts,united states,machinery,linkedin.com/company/acme-robotics
+f2,www.globex.io,globex,2009,1001-5000,san francisco,california,united states,computer software,linkedin.com/company/globex
+f3,initech.co.uk,initech,1998,201-500,london,england,united kingdom,computer software,linkedin.com/company/initech
+f4,umbrella-health.de,umbrella health,2012,10001+,berlin,berlin,germany,hospital & health care,linkedin.com/company/umbrella-health
+f5,,no website inc,2020,1-10,austin,texas,united states,computer software,
+f6,hooli.com,hooli,2004,5001-10000,palo alto,california,united states,internet,linkedin.com/company/hooli
+f7,piedpiper.com,pied piper,2014,11-50,palo alto,california,united states,computer software,linkedin.com/company/pied-piper
+f8,piedpiper.com,pied piper duplicate,2014,11-50,palo alto,california,united states,computer software,

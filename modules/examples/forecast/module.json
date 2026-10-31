@@ -1,0 +1,3722 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/forecast",
+  "version": "1.6.0",
+  "title": "Forecast",
+  "description": "Each person's weekly call for the quarter, rolled up the manager chain beside Canon's own numbers from the deals closing in it: Closed won, Commit, Best case and Pipeline, cumulative as Clari and Salesforce count them. Reps submit a call and an upside with a note; managers see their reports' calls, adjust them with a reason, and call their own number from the adjusted sum, against the targets saved in Reports > Targets.",
+  "author": {
+    "org": "canon"
+  },
+  "engines": {
+    "moduleApi": "1"
+  },
+  "nav": {
+    "label": "Forecast",
+    "icon": "chart",
+    "section": "CRM",
+    "landing": {
+      "default": "team",
+      "rep": "mine"
+    }
+  },
+  "server": "dist/module.js",
+  "reads": {
+    "deals": [
+      "name",
+      "amount",
+      "closeDate",
+      "stage",
+      "forecastCategory",
+      "isClosed",
+      "isWon",
+      "ownerId",
+      "companyName",
+      "nextStep"
+    ],
+    "users": [
+      "name",
+      "managerId",
+      "title",
+      "isActive"
+    ],
+    "teams": [
+      "name",
+      "managerId",
+      "memberIds"
+    ],
+    "targets": [
+      "year",
+      "fyStart",
+      "repMonths"
+    ],
+    "activities": [
+      "kind",
+      "at",
+      "dealId",
+      "personId",
+      "subject",
+      "outcome"
+    ],
+    "people": [
+      "name",
+      "title"
+    ]
+  },
+  "collections": {
+    "settings": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "scope": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "workspace"
+                }
+              ],
+              "labels": {
+                "workspace": "Workspace"
+              }
+            },
+            "optional": false
+          },
+          "cadenceDay": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Calls reset on",
+            "help": "The day of the week a new week's calls are due: 1 is Monday, 7 Sunday."
+          },
+          "accuracyWeek": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Accuracy week",
+            "help": "Which week's call accuracy compares with what closed: 4 is the fourth week anyone called in the quarter."
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "scope"
+        ]
+      },
+      "indexes": {},
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      },
+      "label": "Forecast settings"
+    },
+    "periods": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Period"
+          },
+          "label": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Label"
+          },
+          "grain": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "quarter"
+                },
+                {
+                  "type": "literal",
+                  "value": "month"
+                }
+              ],
+              "labels": {
+                "quarter": "Quarter",
+                "month": "Month"
+              }
+            },
+            "optional": false,
+            "label": "Grain"
+          },
+          "start": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Starts",
+            "widget": "date"
+          },
+          "end": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Ends",
+            "widget": "date"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "open"
+                },
+                {
+                  "type": "literal",
+                  "value": "closing"
+                },
+                {
+                  "type": "literal",
+                  "value": "closed"
+                }
+              ],
+              "labels": {
+                "open": "Open",
+                "closing": "Closing",
+                "closed": "Closed"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          },
+          "finalWon": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Final won",
+            "widget": "money"
+          },
+          "closedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Closed",
+            "widget": "time"
+          },
+          "alias": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "The current quarter"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {
+        "byStatus": [
+          "status",
+          "start"
+        ]
+      },
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      },
+      "title": "label"
+    },
+    "submissions": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Period"
+          },
+          "week": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Week of",
+            "widget": "date"
+          },
+          "member": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Member"
+          },
+          "call": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Call",
+            "widget": "money"
+          },
+          "upside": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Upside",
+            "widget": "money"
+          },
+          "note": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "optional": true,
+            "label": "Note"
+          },
+          "system": {
+            "fieldType": {
+              "type": "any"
+            },
+            "optional": true,
+            "label": "Canon's numbers then"
+          },
+          "submittedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Submitted",
+            "widget": "time"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "due"
+                },
+                {
+                  "type": "literal",
+                  "value": "submitted"
+                }
+              ],
+              "labels": {
+                "due": "Update required",
+                "submitted": "Submitted"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          }
+        }
+      },
+      "key": "auto",
+      "owner": "member",
+      "indexes": {
+        "byPeriod": [
+          "period",
+          "week",
+          "member"
+        ],
+        "byMember": [
+          "member",
+          "period"
+        ]
+      },
+      "access": {
+        "manager": "hier",
+        "rep": "own"
+      },
+      "title": "{$doc.week} call"
+    },
+    "adjustments": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Period"
+          },
+          "week": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Week of",
+            "widget": "date"
+          },
+          "by": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Adjusted by"
+          },
+          "member": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Member"
+          },
+          "from": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Their call",
+            "widget": "money"
+          },
+          "to": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Adjusted to",
+            "widget": "money"
+          },
+          "reason": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "optional": false,
+            "label": "Reason"
+          }
+        }
+      },
+      "key": "auto",
+      "owner": "by",
+      "indexes": {
+        "byPeriod": [
+          "period",
+          "week",
+          "member"
+        ],
+        "byMember": [
+          "member",
+          "period"
+        ]
+      },
+      "access": {
+        "manager": "hier",
+        "rep": "none"
+      }
+    },
+    "rollups": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Period"
+          },
+          "week": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Week of",
+            "widget": "date"
+          },
+          "member": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Member"
+          },
+          "asOf": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "As of",
+            "widget": "date"
+          },
+          "won": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Closed won",
+            "widget": "money"
+          },
+          "commit": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Commit",
+            "widget": "money"
+          },
+          "bestCase": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Best case",
+            "widget": "money"
+          },
+          "pipeline": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Pipeline",
+            "widget": "money"
+          },
+          "openCount": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Open deals"
+          },
+          "target": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Target",
+            "widget": "money"
+          },
+          "call": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Call",
+            "widget": "money"
+          },
+          "top": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "Top of the tree"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "period",
+          "week",
+          "member"
+        ]
+      },
+      "owner": "member",
+      "indexes": {
+        "byPeriod": [
+          "period",
+          "week",
+          "member"
+        ],
+        "byMember": [
+          "member",
+          "period"
+        ]
+      },
+      "access": {
+        "manager": "hier",
+        "rep": "own"
+      },
+      "report": {
+        "dimensions": [
+          "member",
+          "period",
+          "week",
+          "top",
+          "member.team"
+        ],
+        "measures": [
+          "won",
+          "commit",
+          "bestCase",
+          "pipeline",
+          "call",
+          "target"
+        ],
+        "members": "member"
+      }
+    },
+    "accuracy": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Period"
+          },
+          "member": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Member"
+          },
+          "week": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Call of the week of",
+            "widget": "date"
+          },
+          "call": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Call",
+            "widget": "money"
+          },
+          "actual": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Closed won",
+            "widget": "money"
+          },
+          "error": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Call minus won",
+            "widget": "money"
+          },
+          "accuracy": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Accuracy"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "period",
+          "member"
+        ]
+      },
+      "owner": "member",
+      "indexes": {
+        "byPeriod": [
+          "period",
+          "member"
+        ]
+      },
+      "access": {
+        "manager": "hier",
+        "rep": "own"
+      }
+    },
+    "risks": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "deal": {
+            "fieldType": {
+              "type": "ref",
+              "to": "deals"
+            },
+            "optional": false,
+            "label": "Deal"
+          },
+          "rule": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "no_activity"
+                },
+                {
+                  "type": "literal",
+                  "value": "overdue"
+                },
+                {
+                  "type": "literal",
+                  "value": "stalled"
+                },
+                {
+                  "type": "literal",
+                  "value": "pushed"
+                },
+                {
+                  "type": "literal",
+                  "value": "amount_down"
+                },
+                {
+                  "type": "literal",
+                  "value": "category_down"
+                },
+                {
+                  "type": "literal",
+                  "value": "single_threaded"
+                },
+                {
+                  "type": "literal",
+                  "value": "no_next_step"
+                }
+              ],
+              "labels": {
+                "no_activity": "No activity",
+                "overdue": "Overdue",
+                "stalled": "Stalled in stage",
+                "pushed": "Close date pushed",
+                "amount_down": "Amount down",
+                "category_down": "Category down",
+                "single_threaded": "Single-threaded",
+                "no_next_step": "No next step"
+              }
+            },
+            "optional": false,
+            "label": "Risk"
+          },
+          "severity": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "high"
+                },
+                {
+                  "type": "literal",
+                  "value": "medium"
+                },
+                {
+                  "type": "literal",
+                  "value": "low"
+                }
+              ],
+              "labels": {
+                "high": "High",
+                "medium": "Medium",
+                "low": "Low"
+              }
+            },
+            "optional": false,
+            "label": "Severity"
+          },
+          "evidence": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "optional": false,
+            "label": "Why"
+          },
+          "since": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Since",
+            "widget": "time"
+          },
+          "owner": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "Deal owner"
+          },
+          "dismissReason": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "optional": true,
+            "label": "Dismissed because"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "open"
+                },
+                {
+                  "type": "literal",
+                  "value": "dismissed"
+                }
+              ],
+              "labels": {
+                "open": "Open",
+                "dismissed": "Dismissed"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "deal",
+          "rule"
+        ]
+      },
+      "owner": "owner",
+      "indexes": {
+        "byDeal": [
+          "deal",
+          "status"
+        ],
+        "byStatus": [
+          "status",
+          "severity"
+        ]
+      },
+      "access": {
+        "manager": "hier",
+        "rep": "own"
+      },
+      "title": "{$doc.rule}"
+    }
+  },
+  "exports": {
+    "team.csv": {
+      "label": "Export the team forecast",
+      "filename": "forecast-team",
+      "call": "team",
+      "rows": "rows",
+      "columns": [
+        {
+          "label": "Member",
+          "value": "{$row.name}"
+        },
+        {
+          "label": "Call",
+          "value": "{$row.adjustedCall|money}"
+        },
+        {
+          "label": "Their own call",
+          "value": "{$row.call|money}"
+        },
+        {
+          "label": "Reports' call",
+          "value": "{$row.reportsCall|money}"
+        },
+        {
+          "label": "Closed won",
+          "value": "{$row.won|money}"
+        },
+        {
+          "label": "Commit",
+          "value": "{$row.commit|money}"
+        },
+        {
+          "label": "Best case",
+          "value": "{$row.bestCase|money}"
+        },
+        {
+          "label": "Pipeline",
+          "value": "{$row.pipeline|money}"
+        },
+        {
+          "label": "Target",
+          "value": "{$row.target|money}"
+        },
+        {
+          "label": "Status",
+          "value": "{$row.statusLabel}"
+        }
+      ]
+    },
+    "accuracy.csv": {
+      "label": "Export accuracy",
+      "filename": "forecast-accuracy",
+      "view": "accuracy.all",
+      "columns": [
+        {
+          "label": "Period",
+          "value": "{$row.period}"
+        },
+        {
+          "label": "Member",
+          "value": "{$row.member|user}"
+        },
+        {
+          "label": "Week of",
+          "value": "{$row.week}"
+        },
+        {
+          "label": "Call",
+          "value": "{$row.call|money}"
+        },
+        {
+          "label": "Closed won",
+          "value": "{$row.actual|money}"
+        },
+        {
+          "label": "Call minus won",
+          "value": "{$row.error|money}"
+        },
+        {
+          "label": "Accuracy",
+          "value": "{$row.accuracy|percent}"
+        }
+      ]
+    }
+  },
+  "views": {
+    "periods.quarters": {
+      "kind": "list",
+      "collection": "periods",
+      "where": {
+        "field": "alias",
+        "in": [
+          null,
+          false
+        ]
+      },
+      "limit": 200
+    },
+    "rollups.forPeriod": {
+      "kind": "list",
+      "collection": "rollups",
+      "args": {
+        "period": "string"
+      },
+      "index": "byPeriod",
+      "eq": [
+        {
+          "arg": "period"
+        }
+      ],
+      "limit": 1000
+    },
+    "rollups.ofMember": {
+      "kind": "list",
+      "collection": "rollups",
+      "args": {
+        "member": "string"
+      },
+      "index": "byMember",
+      "eq": [
+        {
+          "arg": "member"
+        }
+      ],
+      "order": "desc",
+      "limit": 200
+    },
+    "accuracy.all": {
+      "kind": "list",
+      "collection": "accuracy",
+      "limit": 1000
+    },
+    "accuracy.forPeriod": {
+      "kind": "list",
+      "collection": "accuracy",
+      "args": {
+        "period": "string"
+      },
+      "index": "byPeriod",
+      "eq": [
+        {
+          "arg": "period"
+        }
+      ],
+      "limit": 1000
+    },
+    "risks.open": {
+      "kind": "list",
+      "collection": "risks",
+      "index": "byStatus",
+      "eq": [
+        "open"
+      ],
+      "limit": 1000
+    },
+    "risks.forDeals": {
+      "kind": "list",
+      "collection": "risks",
+      "args": {
+        "deals": "string[]"
+      },
+      "index": "byDeal",
+      "eq": [
+        {
+          "arg": "deals"
+        }
+      ],
+      "limit": 1000
+    },
+    "risks.forDeal": {
+      "kind": "list",
+      "collection": "risks",
+      "args": {
+        "deal": "string"
+      },
+      "index": "byDeal",
+      "eq": [
+        {
+          "arg": "deal"
+        }
+      ],
+      "limit": 50
+    },
+    "settings.one": {
+      "kind": "one",
+      "collection": "settings",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "periods.one": {
+      "kind": "one",
+      "collection": "periods",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "periods.all": {
+      "kind": "list",
+      "collection": "periods",
+      "limit": 200
+    },
+    "periods.open": {
+      "kind": "list",
+      "collection": "periods",
+      "index": "byStatus",
+      "eq": [
+        "open"
+      ],
+      "limit": 50
+    },
+    "submissions.forPeriod": {
+      "kind": "list",
+      "collection": "submissions",
+      "args": {
+        "period": "string"
+      },
+      "index": "byPeriod",
+      "eq": [
+        {
+          "arg": "period"
+        }
+      ],
+      "limit": 1000
+    },
+    "submissions.mine": {
+      "kind": "list",
+      "collection": "submissions",
+      "args": {
+        "period": "string"
+      },
+      "index": "byMember",
+      "eq": [
+        {
+          "caller": "userId"
+        },
+        {
+          "arg": "period"
+        }
+      ],
+      "limit": 200
+    },
+    "submissions.ofMember": {
+      "kind": "list",
+      "collection": "submissions",
+      "args": {
+        "member": "string"
+      },
+      "index": "byMember",
+      "eq": [
+        {
+          "arg": "member"
+        }
+      ],
+      "order": "desc",
+      "limit": 200
+    },
+    "adjustments.ofMember": {
+      "kind": "list",
+      "collection": "adjustments",
+      "args": {
+        "member": "string"
+      },
+      "index": "byMember",
+      "eq": [
+        {
+          "arg": "member"
+        }
+      ],
+      "order": "desc",
+      "limit": 200
+    },
+    "adjustments.forPeriod": {
+      "kind": "list",
+      "collection": "adjustments",
+      "args": {
+        "period": "string"
+      },
+      "index": "byPeriod",
+      "eq": [
+        {
+          "arg": "period"
+        }
+      ],
+      "limit": 1000
+    }
+  },
+  "ops": {
+    "adjustments.set": {
+      "label": "Adjust call",
+      "kind": "create",
+      "collection": "adjustments",
+      "fields": [
+        "period",
+        "week",
+        "member",
+        "from",
+        "to",
+        "reason"
+      ],
+      "set": {
+        "by": {
+          "caller": "userId"
+        }
+      },
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "human",
+      "reason": "An adjustment is a manager's judgment."
+    },
+    "settings.save": {
+      "label": "Save settings",
+      "kind": "create",
+      "collection": "settings",
+      "fields": [
+        "scope",
+        "cadenceDay",
+        "accuracyWeek"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "settings change everyone's forecast"
+    },
+    "settings.update": {
+      "label": "Save settings",
+      "kind": "update",
+      "collection": "settings",
+      "fields": [
+        "cadenceDay",
+        "accuracyWeek"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "settings change everyone's forecast"
+    }
+  },
+  "machines": {
+    "risk": {
+      "collection": "risks",
+      "field": "status",
+      "states": [
+        "open",
+        "dismissed"
+      ],
+      "initial": "open",
+      "transitions": {
+        "dismiss": {
+          "label": "Dismiss",
+          "from": [
+            "open"
+          ],
+          "to": "dismissed",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "args": {
+            "type": "object",
+            "value": {
+              "reason": {
+                "fieldType": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "optional": false,
+                "label": "Why it isn't a risk"
+              }
+            }
+          },
+          "set": {
+            "dismissReason": {
+              "arg": "reason"
+            }
+          }
+        },
+        "reopen": {
+          "label": "Reopen",
+          "from": [
+            "dismissed"
+          ],
+          "to": "open",
+          "roles": [],
+          "system": true,
+          "agent": "allowed"
+        }
+      }
+    },
+    "submission": {
+      "collection": "submissions",
+      "field": "status",
+      "states": [
+        "due",
+        "submitted"
+      ],
+      "initial": "due",
+      "transitions": {
+        "submit": {
+          "label": "Submit",
+          "from": [
+            "due"
+          ],
+          "to": "submitted",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "propose"
+        },
+        "reopen": {
+          "label": "Reopen",
+          "from": [
+            "submitted"
+          ],
+          "to": "due",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "agent": "human",
+          "reason": "reopening asks the person to call again",
+          "args": {
+            "type": "object",
+            "value": {
+              "reason": {
+                "fieldType": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "optional": false,
+                "label": "Why"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "jobs": {
+    "risk": {
+      "label": "Deal risks",
+      "call": "assess",
+      "key": [
+        "deal"
+      ],
+      "batch": 25
+    }
+  },
+  "watches": [
+    {
+      "object": "deals",
+      "call": "onDeals",
+      "fields": [
+        "amount",
+        "closeDate",
+        "forecastCategory",
+        "isClosed",
+        "isWon",
+        "ownerId",
+        "stage"
+      ]
+    },
+    {
+      "object": "activities",
+      "call": "onActivities",
+      "fields": [
+        "kind",
+        "at",
+        "dealId"
+      ]
+    }
+  ],
+  "calls": {
+    "riskSweep": {
+      "label": "Assess every open deal's risks",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": {
+              "nowPlusDays": -365,
+              "as": "date"
+            },
+            "to": {
+              "nowPlusDays": 400,
+              "as": "date"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [],
+      "returns": "none"
+    },
+    "onDeals": {
+      "label": "Assess the deals a change touches",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {},
+      "writes": [],
+      "returns": "none"
+    },
+    "onActivities": {
+      "label": "Assess the deals an activity touches",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {},
+      "writes": [],
+      "returns": "none"
+    },
+    "assess": {
+      "label": "Assess deal risks",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "deals": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "changes": {
+          "canon": "deals.changesBetween",
+          "args": {
+            "since": {
+              "nowPlusDays": -90
+            },
+            "until": {
+              "now": "ms"
+            },
+            "from": "1970-01-01",
+            "to": "2999-12-31"
+          },
+          "limit": 5000
+        },
+        "acts": {
+          "canon": "activities.forDeals",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            },
+            "since": {
+              "nowPlusDays": -90
+            }
+          },
+          "limit": 5000
+        },
+        "existing": {
+          "view": "risks.forDeals",
+          "args": {
+            "deals": {
+              "arg": "deal"
+            }
+          },
+          "limit": 1000
+        }
+      },
+      "writes": [
+        "risks"
+      ],
+      "returns": "none"
+    },
+    "memberDeals": {
+      "label": "A member's deals in the period",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "member": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Member"
+          },
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Period"
+          }
+        }
+      },
+      "reads": {
+        "period": {
+          "view": "periods.one",
+          "args": {
+            "key": {
+              "arg": "period"
+            }
+          }
+        },
+        "users": {
+          "canon": "users.all",
+          "limit": 2000
+        },
+        "teams": {
+          "canon": "teams.all",
+          "limit": 500
+        },
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": {
+              "read": "period",
+              "field": "start"
+            },
+            "to": {
+              "read": "period",
+              "field": "end"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "kpis",
+        "items": [
+          {
+            "label": "Total (won and commit)",
+            "value": "{$result.total|money}"
+          },
+          {
+            "label": "Closed won",
+            "value": "{$result.won|money}"
+          },
+          {
+            "label": "Open",
+            "value": "{$result.open|money}"
+          }
+        ]
+      }
+    },
+    "insights": {
+      "label": "Deal insights",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "deal": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Deal"
+          }
+        }
+      },
+      "reads": {
+        "deal": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          }
+        },
+        "acts": {
+          "canon": "activities.forDeals",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "team": {
+          "canon": "deals.people",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          },
+          "limit": 200
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "kpis",
+        "items": [
+          {
+            "label": "Category",
+            "value": "{$result.deal.category}"
+          },
+          {
+            "label": "Last activity",
+            "value": "{$result.lastAt|date}",
+            "hint": "{$result.daysSince} days ago"
+          },
+          {
+            "label": "Activities",
+            "value": "{$result.count|number}"
+          },
+          {
+            "label": "People reached",
+            "value": "{$result.people|number}"
+          },
+          {
+            "label": "People on the deal",
+            "value": "{$result.onDeal|number}",
+            "hint": "{$result.engaged} of them with activity"
+          }
+        ]
+      }
+    },
+    "freezeWeek": {
+      "label": "Freeze this week's numbers and calls",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "period": {
+          "view": "periods.one",
+          "args": {
+            "key": "current"
+          }
+        },
+        "settings": {
+          "view": "settings.one",
+          "args": {
+            "key": "workspace"
+          }
+        },
+        "users": {
+          "canon": "users.all",
+          "limit": 2000
+        },
+        "teams": {
+          "canon": "teams.all",
+          "limit": 500
+        },
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": {
+              "read": "period",
+              "field": "start"
+            },
+            "to": {
+              "read": "period",
+              "field": "end"
+            }
+          },
+          "limit": 5000
+        },
+        "subs": {
+          "view": "submissions.forPeriod",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 1000
+        },
+        "adjs": {
+          "view": "adjustments.forPeriod",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 1000
+        },
+        "plan": {
+          "canon": "targets.forYear",
+          "args": {
+            "on": {
+              "read": "period",
+              "field": "start"
+            }
+          }
+        },
+        "existing": {
+          "view": "rollups.forPeriod",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [
+        "rollups"
+      ],
+      "returns": "none"
+    },
+    "closePeriod": {
+      "label": "Close period",
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "Closing a period freezes everyone's accuracy for it.",
+      "confirm": "Closing the period records each person's call accuracy against what closed, and can't be undone.",
+      "args": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Period"
+          }
+        }
+      },
+      "reads": {
+        "period": {
+          "view": "periods.one",
+          "args": {
+            "key": {
+              "arg": "period"
+            }
+          }
+        },
+        "settings": {
+          "view": "settings.one",
+          "args": {
+            "key": "workspace"
+          }
+        },
+        "users": {
+          "canon": "users.all",
+          "limit": 2000
+        },
+        "teams": {
+          "canon": "teams.all",
+          "limit": 500
+        },
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": {
+              "read": "period",
+              "field": "start"
+            },
+            "to": {
+              "read": "period",
+              "field": "end"
+            }
+          },
+          "limit": 5000
+        },
+        "subs": {
+          "view": "submissions.forPeriod",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 1000
+        },
+        "existing": {
+          "view": "accuracy.forPeriod",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 1000
+        }
+      },
+      "writes": [
+        "accuracy",
+        "periods"
+      ],
+      "returns": "value"
+    },
+    "dealPanel": {
+      "label": "Forecast on the deal",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "deal": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Deal"
+          }
+        }
+      },
+      "reads": {
+        "deal": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          }
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "kpis",
+        "items": [
+          {
+            "label": "Category",
+            "value": "{$result.category}"
+          },
+          {
+            "label": "Close date",
+            "value": "{$result.closeDate|date}"
+          },
+          {
+            "label": "Next step",
+            "value": "{$result.nextStep}"
+          }
+        ]
+      }
+    },
+    "moved": {
+      "label": "What moved",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Period"
+          },
+          "from": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "From",
+            "widget": "date"
+          },
+          "to": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "To",
+            "widget": "date"
+          }
+        }
+      },
+      "reads": {
+        "period": {
+          "view": "periods.one",
+          "args": {
+            "key": {
+              "arg": "period"
+            }
+          }
+        },
+        "changes": {
+          "canon": "deals.changesBetween",
+          "args": {
+            "since": {
+              "toMs": {
+                "arg": "from"
+              }
+            },
+            "until": {
+              "toMs": {
+                "arg": "to"
+              },
+              "endOfDay": true
+            },
+            "from": {
+              "read": "period",
+              "field": "start"
+            },
+            "to": {
+              "read": "period",
+              "field": "end"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "inspect": {
+      "label": "Inspect",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Period"
+          }
+        }
+      },
+      "reads": {
+        "period": {
+          "view": "periods.one",
+          "args": {
+            "key": {
+              "arg": "period"
+            }
+          }
+        },
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": {
+              "read": "period",
+              "field": "start"
+            },
+            "to": {
+              "read": "period",
+              "field": "end"
+            }
+          },
+          "limit": 5000
+        },
+        "changes": {
+          "canon": "deals.changesBetween",
+          "args": {
+            "since": {
+              "nowPlusDays": -7
+            },
+            "until": {
+              "now": "ms"
+            },
+            "from": {
+              "read": "period",
+              "field": "start"
+            },
+            "to": {
+              "read": "period",
+              "field": "end"
+            }
+          },
+          "limit": 5000
+        },
+        "risks": {
+          "view": "risks.open",
+          "limit": 1000
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "openPeriods": {
+      "label": "Open this quarter and the next",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "periods": {
+          "view": "periods.all",
+          "limit": 200
+        }
+      },
+      "writes": [
+        "periods"
+      ],
+      "returns": "none"
+    },
+    "team": {
+      "label": "Team forecast",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Period"
+          },
+          "member": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Member"
+          }
+        }
+      },
+      "reads": {
+        "period": {
+          "view": "periods.one",
+          "args": {
+            "key": {
+              "arg": "period"
+            }
+          }
+        },
+        "settings": {
+          "view": "settings.one",
+          "args": {
+            "key": "workspace"
+          }
+        },
+        "users": {
+          "canon": "users.all",
+          "limit": 2000
+        },
+        "teams": {
+          "canon": "teams.all",
+          "limit": 500
+        },
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": {
+              "read": "period",
+              "field": "start"
+            },
+            "to": {
+              "read": "period",
+              "field": "end"
+            }
+          },
+          "limit": 5000
+        },
+        "subs": {
+          "view": "submissions.forPeriod",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 1000
+        },
+        "adjs": {
+          "view": "adjustments.forPeriod",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 1000
+        },
+        "plan": {
+          "canon": "targets.forYear",
+          "args": {
+            "on": {
+              "read": "period",
+              "field": "start"
+            }
+          }
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "mine": {
+      "label": "My forecast",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Period"
+          }
+        }
+      },
+      "reads": {
+        "period": {
+          "view": "periods.one",
+          "args": {
+            "key": {
+              "arg": "period"
+            }
+          }
+        },
+        "settings": {
+          "view": "settings.one",
+          "args": {
+            "key": "workspace"
+          }
+        },
+        "deals": {
+          "canon": "deals.forOwner",
+          "args": {
+            "owner": {
+              "caller": "userId"
+            }
+          },
+          "limit": 5000
+        },
+        "subs": {
+          "view": "submissions.mine",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 200
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "saveCall": {
+      "label": "Submit my call",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "propose",
+      "proposal": {
+        "summary": "Submit a call of {$args.call|money} (upside {$args.upside|money}) for the week of {$value.week}: {$args.note}"
+      },
+      "args": {
+        "type": "object",
+        "value": {
+          "period": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Period"
+          },
+          "call": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "My call",
+            "widget": "money"
+          },
+          "upside": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Upside",
+            "widget": "money"
+          },
+          "note": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "optional": true,
+            "label": "Note"
+          }
+        }
+      },
+      "reads": {
+        "period": {
+          "view": "periods.one",
+          "args": {
+            "key": {
+              "arg": "period"
+            }
+          }
+        },
+        "settings": {
+          "view": "settings.one",
+          "args": {
+            "key": "workspace"
+          }
+        },
+        "deals": {
+          "canon": "deals.forOwner",
+          "args": {
+            "owner": {
+              "caller": "userId"
+            }
+          },
+          "limit": 5000
+        },
+        "subs": {
+          "view": "submissions.mine",
+          "args": {
+            "period": {
+              "read": "period",
+              "field": "period"
+            }
+          },
+          "limit": 200
+        }
+      },
+      "writes": [
+        "submissions"
+      ],
+      "returns": "value"
+    }
+  },
+  "schedules": {
+    "periods": {
+      "label": "Open this quarter and the next",
+      "call": "openPeriods",
+      "everyMinutes": 60
+    },
+    "freeze": {
+      "label": "Freeze this week's numbers and calls",
+      "call": "freezeWeek",
+      "dailyAt": "06:00"
+    },
+    "risks": {
+      "label": "Assess every open deal's risks",
+      "call": "riskSweep",
+      "dailyAt": "05:00"
+    }
+  },
+  "contributes": {
+    "dealPage": {
+      "panels": [
+        {
+          "id": "forecast",
+          "title": "Forecast",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "bind": {
+            "panel": {
+              "call": "dealPanel",
+              "args": {
+                "deal": {
+                  "query": "record"
+                }
+              }
+            },
+            "risks": {
+              "view": "risks.forDeal",
+              "args": {
+                "deal": {
+                  "query": "record"
+                }
+              }
+            }
+          },
+          "body": [
+            {
+              "c": "callResult",
+              "from": "panel",
+              "label": "Forecast"
+            },
+            {
+              "c": "table",
+              "from": "risks",
+              "empty": "No risks found.",
+              "columns": [
+                {
+                  "label": "Risk",
+                  "value": "{$row.rule}"
+                },
+                {
+                  "label": "Why",
+                  "value": "{$row.evidence}"
+                },
+                {
+                  "label": "Status",
+                  "value": "{$row.status}"
+                }
+              ],
+              "rowActions": [
+                {
+                  "transition": "dismiss",
+                  "machine": "risk",
+                  "label": "Dismiss",
+                  "fields": [
+                    {
+                      "field": "reason",
+                      "label": "Why it isn't a risk"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "link": {
+            "label": "Open in Forecast",
+            "path": "inspect"
+          }
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "path": "team",
+      "title": "Team forecast",
+      "tab": {
+        "label": "Team",
+        "order": 0,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "bind": {
+        "team": {
+          "call": "team",
+          "args": {
+            "period": {
+              "query": "period",
+              "default": "current"
+            },
+            "member": {
+              "query": "member",
+              "default": ""
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Forecast · {$team.period.label}",
+          "subtitle": "Week of {$team.week|date}. Canon's numbers come from the deals closing in the quarter; calls are this week's.",
+          "actions": [
+            {
+              "export": "team.csv",
+              "label": "Export",
+              "args": {
+                "period": "current"
+              },
+              "formats": [
+                "csv",
+                "xlsx"
+              ]
+            }
+          ]
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "Target",
+              "value": "{$team.root.target|money}"
+            },
+            {
+              "label": "Closed won",
+              "value": "{$team.root.won|money}",
+              "hint": "Gap to go {$team.root.gap|money}"
+            },
+            {
+              "label": "Commit",
+              "value": "{$team.root.commit|money}",
+              "hint": "Won plus commit"
+            },
+            {
+              "label": "Best case",
+              "value": "{$team.root.bestCase|money}",
+              "hint": "Commit plus best case"
+            },
+            {
+              "label": "Reports' call",
+              "value": "{$team.root.reportsCall|money}",
+              "hint": "Before your adjustments: {$team.root.reportsCallUnadjusted|money}"
+            },
+            {
+              "label": "Coverage",
+              "value": "{$team.root.coverage|percent}",
+              "hint": "Your call ÷ target"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "team",
+          "rows": "rows",
+          "id": "tm",
+          "empty": "No one reports to you yet. Set managers in Settings > Team.",
+          "columns": [
+            {
+              "label": "Member",
+              "value": "{$row.name}",
+              "sort": "name"
+            },
+            {
+              "label": "Call",
+              "value": "{$row.adjustedCall|money}",
+              "align": "end",
+              "sort": "adjustedCall",
+              "empty": "Update required",
+              "tone": {
+                "by": "adjusted",
+                "cases": [
+                  {
+                    "in": [
+                      true
+                    ],
+                    "tone": "warn"
+                  }
+                ],
+                "badge": true
+              },
+              "tooltip": "Their call {$row.call|money}"
+            },
+            {
+              "label": "Reports' call",
+              "value": "{$row.reportsCall|money}",
+              "align": "end",
+              "sort": "reportsCall",
+              "tooltip": "Before adjustments: {$row.reportsCallUnadjusted|money}"
+            },
+            {
+              "label": "Closed won",
+              "value": "{$row.won|money}",
+              "align": "end",
+              "sort": "won"
+            },
+            {
+              "label": "Commit",
+              "value": "{$row.commit|money}",
+              "align": "end",
+              "sort": "commit"
+            },
+            {
+              "label": "Best case",
+              "value": "{$row.bestCase|money}",
+              "align": "end",
+              "sort": "bestCase"
+            },
+            {
+              "label": "Pipeline",
+              "value": "{$row.pipeline|money}",
+              "align": "end",
+              "sort": "pipeline"
+            },
+            {
+              "label": "Target",
+              "value": "{$row.target|money}",
+              "align": "end",
+              "sort": "target",
+              "empty": "No target"
+            },
+            {
+              "label": "Coverage",
+              "value": "{$row.coverage|percent}",
+              "align": "end",
+              "sort": "coverage",
+              "empty": "—"
+            },
+            {
+              "label": "Status",
+              "value": "{$row.statusLabel}",
+              "tone": {
+                "by": "status",
+                "cases": [
+                  {
+                    "in": [
+                      "due"
+                    ],
+                    "tone": "warn"
+                  },
+                  {
+                    "in": [
+                      "none"
+                    ],
+                    "tone": "neutral"
+                  },
+                  {
+                    "tone": "success"
+                  }
+                ],
+                "badge": true
+              }
+            }
+          ],
+          "rowActions": [
+            {
+              "op": "adjustments.set",
+              "label": "Adjust",
+              "fixed": {
+                "period": {
+                  "row": "period"
+                },
+                "week": {
+                  "row": "week"
+                },
+                "member": {
+                  "row": "member"
+                },
+                "from": {
+                  "row": "callValue"
+                }
+              },
+              "fields": [
+                {
+                  "field": "to",
+                  "label": "Adjusted call",
+                  "help": "Their call: {$row.callValue|money}"
+                },
+                {
+                  "field": "reason",
+                  "label": "Reason",
+                  "placeholder": "Why the number moves"
+                }
+              ],
+              "dialog": {
+                "title": "Adjust {$row.name}'s call"
+              },
+              "when": {
+                "field": "isReport",
+                "in": [
+                  true
+                ]
+              }
+            },
+            {
+              "transition": "reopen",
+              "machine": "submission",
+              "key": {
+                "row": "subKey"
+              },
+              "label": "Reopen",
+              "fields": [
+                {
+                  "field": "reason",
+                  "label": "Why"
+                }
+              ],
+              "when": {
+                "field": "status",
+                "in": [
+                  "submitted"
+                ]
+              }
+            },
+            {
+              "navigate": "team?member=:member&period=:period",
+              "label": "Drill in",
+              "when": {
+                "field": "hasReports",
+                "in": [
+                  true
+                ]
+              }
+            },
+            {
+              "navigate": "history/:member",
+              "label": "History",
+              "when": {
+                "field": "person",
+                "in": [
+                  true
+                ]
+              }
+            },
+            {
+              "navigate": "deals/:member?period=:period",
+              "label": "Deals",
+              "when": {
+                "field": "person",
+                "in": [
+                  true
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "mine",
+      "title": "My forecast",
+      "tab": {
+        "label": "My forecast",
+        "order": 1
+      },
+      "bind": {
+        "mine": {
+          "call": "mine",
+          "args": {
+            "period": {
+              "query": "period",
+              "default": "current"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "My forecast · {$mine.period.label}",
+          "subtitle": "Week of {$mine.week|date}. Your deals closing in the quarter, by forecast category."
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "My call",
+              "value": "{$mine.call|money}",
+              "hint": "{$mine.statusLabel}"
+            },
+            {
+              "label": "Closed won",
+              "value": "{$mine.won|money}"
+            },
+            {
+              "label": "Commit",
+              "value": "{$mine.commit|money}",
+              "hint": "Won plus commit"
+            },
+            {
+              "label": "Best case",
+              "value": "{$mine.bestCase|money}",
+              "hint": "Commit plus best case"
+            },
+            {
+              "label": "Pipeline",
+              "value": "{$mine.pipeline|money}"
+            }
+          ]
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "call": "saveCall",
+              "label": "Submit my call",
+              "args": {
+                "period": "current"
+              },
+              "when": {
+                "page": {
+                  "query": "period"
+                },
+                "in": [
+                  null,
+                  "",
+                  "current"
+                ]
+              },
+              "toast": "Call submitted for the week of {$result.week}."
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "mine",
+          "rows": "deals",
+          "id": "md",
+          "empty": "You own no deals closing this quarter.",
+          "group": {
+            "by": "category"
+          },
+          "chips": [
+            {
+              "label": "Open",
+              "when": {
+                "field": "open",
+                "in": [
+                  true
+                ]
+              }
+            },
+            {
+              "label": "Closed",
+              "when": {
+                "field": "open",
+                "in": [
+                  false
+                ]
+              }
+            }
+          ],
+          "columns": [
+            {
+              "label": "Deal",
+              "value": "{$row.name}",
+              "sort": "name",
+              "link": {
+                "canon": "deals",
+                "query": {
+                  "q": "{$row.name}"
+                }
+              }
+            },
+            {
+              "label": "Stage",
+              "value": "{$row.stage|stage}",
+              "sort": "stage"
+            },
+            {
+              "label": "Close date",
+              "value": "{$row.closeDate|date}",
+              "sort": "closeDate"
+            },
+            {
+              "label": "Amount",
+              "value": "{$row.amount|money}",
+              "align": "end",
+              "sort": "amount",
+              "total": {
+                "sum": "amount",
+                "format": "money"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "inspect",
+      "title": "Inspect",
+      "tab": {
+        "label": "Inspect",
+        "order": 2
+      },
+      "bind": {
+        "inspect": {
+          "call": "inspect",
+          "args": {
+            "period": {
+              "query": "period",
+              "default": "current"
+            }
+          }
+        },
+        "risks": {
+          "view": "risks.open",
+          "join": [
+            "deal"
+          ]
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Inspect · {$inspect.period.label}",
+          "subtitle": "Open deals closing in the quarter, with what changed in the last {$inspect.days} days and their risks."
+        },
+        {
+          "c": "table",
+          "from": "inspect",
+          "rows": "rows",
+          "id": "in",
+          "empty": "No open deals close this quarter.",
+          "search": [
+            "name",
+            "companyName"
+          ],
+          "chips": [
+            {
+              "label": "At risk",
+              "when": {
+                "field": "atRisk",
+                "in": [
+                  true
+                ]
+              }
+            },
+            {
+              "label": "Pushed",
+              "when": {
+                "field": "pushed",
+                "in": [
+                  true
+                ]
+              }
+            },
+            {
+              "label": "Amount down",
+              "when": {
+                "field": "amountDown",
+                "in": [
+                  true
+                ]
+              }
+            },
+            {
+              "label": "Mine",
+              "when": {
+                "field": "mine",
+                "in": [
+                  true
+                ]
+              }
+            }
+          ],
+          "columns": [
+            {
+              "label": "Deal",
+              "value": "{$row.name}",
+              "sort": "name",
+              "link": {
+                "canon": "deals",
+                "query": {
+                  "q": "{$row.name}"
+                }
+              }
+            },
+            {
+              "label": "Owner",
+              "value": "{$row.ownerId|user}",
+              "sort": "ownerId",
+              "empty": "No owner"
+            },
+            {
+              "label": "Company",
+              "value": "{$row.companyName}",
+              "empty": "No company"
+            },
+            {
+              "label": "Amount",
+              "value": "{$row.amount|money}",
+              "align": "end",
+              "sort": "amount",
+              "tooltip": "{$row.amountWas}",
+              "tone": {
+                "by": "amountDown",
+                "cases": [
+                  {
+                    "in": [
+                      true
+                    ],
+                    "tone": "danger"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Close date",
+              "value": "{$row.closeDate|date}",
+              "sort": "closeDate",
+              "tooltip": "{$row.datesHeld}",
+              "tone": {
+                "by": "pushed",
+                "cases": [
+                  {
+                    "in": [
+                      true
+                    ],
+                    "tone": "warn"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Category",
+              "value": "{$row.category}",
+              "tooltip": "{$row.categoryMove}",
+              "tone": {
+                "by": "moved",
+                "cases": [
+                  {
+                    "in": [
+                      true
+                    ],
+                    "tone": "info"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Stage",
+              "value": "{$row.stage|stage}"
+            },
+            {
+              "label": "Risks",
+              "value": "{$row.risks}",
+              "empty": "None"
+            }
+          ],
+          "rowActions": [
+            {
+              "navigate": "insights/:id",
+              "label": "Insights"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "risks",
+          "id": "rk",
+          "empty": "No open risks.",
+          "columns": [
+            {
+              "label": "Deal",
+              "value": "{$row.deal.name}"
+            },
+            {
+              "label": "Risk",
+              "value": "{$row.rule}"
+            },
+            {
+              "label": "Why",
+              "value": "{$row.evidence}"
+            },
+            {
+              "label": "Severity",
+              "value": "{$row.severity}",
+              "tone": {
+                "by": "severity",
+                "cases": [
+                  {
+                    "in": [
+                      "high"
+                    ],
+                    "tone": "danger"
+                  },
+                  {
+                    "in": [
+                      "medium"
+                    ],
+                    "tone": "warn"
+                  }
+                ],
+                "badge": true
+              }
+            }
+          ],
+          "rowActions": [
+            {
+              "transition": "dismiss",
+              "machine": "risk",
+              "label": "Dismiss",
+              "fields": [
+                {
+                  "field": "reason",
+                  "label": "Why it isn't a risk"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "moved",
+      "title": "What moved",
+      "tab": {
+        "label": "What moved",
+        "order": 3,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "bind": {
+        "moved": {
+          "call": "moved",
+          "args": {
+            "period": {
+              "query": "period",
+              "default": "current"
+            },
+            "from": {
+              "query": "from"
+            },
+            "to": {
+              "query": "to"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "What moved · {$moved.period.label}",
+          "subtitle": "How the quarter's amount (open and won deals closing in it) changed between two dates, from Canon's deal history."
+        },
+        {
+          "c": "dateRange",
+          "from": "from",
+          "to": "to",
+          "label": "Between",
+          "default": "last 7 days"
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "At the start",
+              "value": "{$moved.start|money}"
+            },
+            {
+              "label": "New and moved in",
+              "value": "{$moved.newAmount|money}"
+            },
+            {
+              "label": "Increased",
+              "value": "{$moved.up|money}"
+            },
+            {
+              "label": "Decreased",
+              "value": "{$moved.down|money}"
+            },
+            {
+              "label": "Slipped out",
+              "value": "{$moved.slipped|money}"
+            },
+            {
+              "label": "Lost",
+              "value": "{$moved.lost|money}"
+            },
+            {
+              "label": "At the end",
+              "value": "{$moved.end|money}",
+              "hint": "Won in the window: {$moved.won|money}"
+            }
+          ]
+        },
+        {
+          "c": "chart",
+          "kind": "waterfall",
+          "title": "How the amount moved",
+          "from": "moved",
+          "rows": "steps",
+          "x": "step",
+          "y": "amount",
+          "start": "start",
+          "end": "end",
+          "startLabel": "At the start",
+          "endLabel": "At the end",
+          "format": "money"
+        },
+        {
+          "c": "table",
+          "from": "moved",
+          "rows": "steps",
+          "id": "st",
+          "empty": "Nothing moved.",
+          "columns": [
+            {
+              "label": "Step",
+              "value": "{$row.step}"
+            },
+            {
+              "label": "Amount",
+              "value": "{$row.amount|money}",
+              "align": "end",
+              "total": {
+                "sum": "amount",
+                "format": "money"
+              }
+            },
+            {
+              "label": "Deals",
+              "value": "{$row.deals|number}",
+              "align": "end"
+            },
+            {
+              "label": "Which",
+              "value": "{$row.names}",
+              "empty": "—"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "moved",
+          "rows": "categoryMoves",
+          "id": "cm",
+          "empty": "No deal changed category.",
+          "columns": [
+            {
+              "label": "Deal",
+              "value": "{$row.deal}"
+            },
+            {
+              "label": "From",
+              "value": "{$row.from}"
+            },
+            {
+              "label": "To",
+              "value": "{$row.to}"
+            },
+            {
+              "label": "Amount",
+              "value": "{$row.amount|money}",
+              "align": "end"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "moved",
+          "rows": "flows",
+          "id": "fl",
+          "empty": "No deals in Commit or Best case at the start.",
+          "group": {
+            "by": "from"
+          },
+          "columns": [
+            {
+              "label": "Where they went",
+              "value": "{$row.to}"
+            },
+            {
+              "label": "Amount",
+              "value": "{$row.amount|money}",
+              "align": "end"
+            },
+            {
+              "label": "Deals",
+              "value": "{$row.deals|number}",
+              "align": "end"
+            },
+            {
+              "label": "Which",
+              "value": "{$row.names}",
+              "empty": "—"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "accuracy",
+      "title": "Accuracy",
+      "tab": {
+        "label": "Accuracy",
+        "order": 4
+      },
+      "bind": {
+        "accuracy": {
+          "view": "accuracy.all"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Forecast accuracy",
+          "subtitle": "Each closed quarter: the call at the accuracy week against what closed, per person (a manager's actual is their part of the tree).",
+          "actions": [
+            {
+              "export": "accuracy.csv",
+              "label": "Export"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "accuracy",
+          "empty": "No quarter is closed yet. An admin closes one in Settings once it's over.",
+          "group": {
+            "by": "period"
+          },
+          "columns": [
+            {
+              "label": "Member",
+              "value": "{$row.member|user}",
+              "sort": "member"
+            },
+            {
+              "label": "Week of",
+              "value": "{$row.week|date}",
+              "empty": "—"
+            },
+            {
+              "label": "Call",
+              "value": "{$row.call|money}",
+              "align": "end"
+            },
+            {
+              "label": "Closed won",
+              "value": "{$row.actual|money}",
+              "align": "end"
+            },
+            {
+              "label": "Call minus won",
+              "value": "{$row.error|money}",
+              "align": "end"
+            },
+            {
+              "label": "Accuracy",
+              "value": "{$row.accuracy|percent}",
+              "align": "end",
+              "empty": "—",
+              "sort": "accuracy",
+              "tone": {
+                "by": "accuracy",
+                "cases": [
+                  {
+                    "gte": 0.9,
+                    "tone": "success"
+                  },
+                  {
+                    "gte": 0.75,
+                    "tone": "warn"
+                  },
+                  {
+                    "tone": "danger"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "deals/:member",
+      "title": "Deals",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "bind": {
+        "deals": {
+          "call": "memberDeals",
+          "args": {
+            "member": {
+              "route": "member"
+            },
+            "period": {
+              "query": "period",
+              "default": "current"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Deals · {$deals.period.label}",
+          "subtitle": "The deals behind a person's numbers in the quarter, theirs and their team's, by category."
+        },
+        {
+          "c": "callResult",
+          "from": "deals",
+          "label": "Their numbers"
+        },
+        {
+          "c": "table",
+          "from": "deals",
+          "rows": "deals",
+          "id": "dd",
+          "empty": "No deals close in this quarter for them.",
+          "group": {
+            "by": "category"
+          },
+          "chips": [
+            {
+              "label": "Open",
+              "when": {
+                "field": "open",
+                "in": [
+                  true
+                ]
+              }
+            },
+            {
+              "label": "Closed",
+              "when": {
+                "field": "open",
+                "in": [
+                  false
+                ]
+              }
+            }
+          ],
+          "columns": [
+            {
+              "label": "Deal",
+              "value": "{$row.name}",
+              "sort": "name",
+              "link": {
+                "canon": "deals",
+                "query": {
+                  "q": "{$row.name}"
+                }
+              }
+            },
+            {
+              "label": "Owner",
+              "value": "{$row.owner}",
+              "sort": "owner"
+            },
+            {
+              "label": "Company",
+              "value": "{$row.companyName}",
+              "empty": "No company"
+            },
+            {
+              "label": "Stage",
+              "value": "{$row.stage|stage}",
+              "sort": "stage"
+            },
+            {
+              "label": "Close date",
+              "value": "{$row.closeDate|date}",
+              "sort": "closeDate"
+            },
+            {
+              "label": "Amount",
+              "value": "{$row.amount|money}",
+              "align": "end",
+              "sort": "amount",
+              "total": {
+                "sum": "amount",
+                "format": "money"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "insights/:deal",
+      "title": "Insights",
+      "bind": {
+        "insights": {
+          "call": "insights",
+          "args": {
+            "deal": {
+              "route": "deal"
+            }
+          }
+        },
+        "risks": {
+          "view": "risks.forDeal",
+          "args": {
+            "deal": {
+              "route": "deal"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$insights.deal.name}",
+          "subtitle": "Its activity, the people on it and reached, and its risks."
+        },
+        {
+          "c": "callResult",
+          "from": "insights",
+          "label": "Insights"
+        },
+        {
+          "c": "table",
+          "from": "risks",
+          "empty": "No risks found.",
+          "columns": [
+            {
+              "label": "Risk",
+              "value": "{$row.rule}"
+            },
+            {
+              "label": "Why",
+              "value": "{$row.evidence}"
+            },
+            {
+              "label": "Status",
+              "value": "{$row.status}"
+            }
+          ],
+          "rowActions": [
+            {
+              "transition": "dismiss",
+              "machine": "risk",
+              "label": "Dismiss",
+              "fields": [
+                {
+                  "field": "reason",
+                  "label": "Why it isn't a risk"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "insights",
+          "rows": "team",
+          "id": "team",
+          "empty": "No one is on this deal yet. Add contacts and their roles on the deal's page.",
+          "columns": [
+            {
+              "label": "Person",
+              "value": "{$row.name}"
+            },
+            {
+              "label": "Title",
+              "value": "{$row.title}",
+              "empty": "—"
+            },
+            {
+              "label": "Role",
+              "value": "{$row.role}",
+              "empty": "—"
+            },
+            {
+              "label": "Last activity",
+              "value": "{$row.lastAt|date}",
+              "empty": "None logged"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "insights",
+          "rows": "activities",
+          "id": "ac",
+          "empty": "No activity logged on this deal.",
+          "columns": [
+            {
+              "label": "When",
+              "value": "{$row.at|date}",
+              "sort": "at"
+            },
+            {
+              "label": "Kind",
+              "value": "{$row.kind}"
+            },
+            {
+              "label": "About",
+              "value": "{$row.subject}",
+              "empty": "—"
+            },
+            {
+              "label": "Outcome",
+              "value": "{$row.outcome}",
+              "empty": "—"
+            }
+          ],
+          "sort": {
+            "by": "at",
+            "dir": "desc"
+          }
+        }
+      ]
+    },
+    {
+      "path": "history/:member",
+      "title": "Call history",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "bind": {
+        "subs": {
+          "view": "submissions.ofMember",
+          "args": {
+            "member": {
+              "route": "member"
+            }
+          }
+        },
+        "adjs": {
+          "view": "adjustments.ofMember",
+          "args": {
+            "member": {
+              "route": "member"
+            }
+          }
+        },
+        "rollups": {
+          "view": "rollups.ofMember",
+          "args": {
+            "member": {
+              "route": "member"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Call history",
+          "subtitle": "Each week's call with Canon's numbers as they stood when it was submitted."
+        },
+        {
+          "c": "table",
+          "from": "subs",
+          "empty": "No calls yet.",
+          "columns": [
+            {
+              "label": "Period",
+              "value": "{$row.period}"
+            },
+            {
+              "label": "Week of",
+              "value": "{$row.week|date}",
+              "sort": "week"
+            },
+            {
+              "label": "Call",
+              "value": "{$row.call|money}",
+              "align": "end"
+            },
+            {
+              "label": "Upside",
+              "value": "{$row.upside|money}",
+              "align": "end",
+              "empty": "—"
+            },
+            {
+              "label": "Commit then",
+              "value": "{$row.system.commit|money}",
+              "align": "end"
+            },
+            {
+              "label": "Best case then",
+              "value": "{$row.system.bestCase|money}",
+              "align": "end"
+            },
+            {
+              "label": "Note",
+              "value": "{$row.note}",
+              "empty": "—"
+            },
+            {
+              "label": "Status",
+              "value": "{$row.status}"
+            }
+          ],
+          "sort": {
+            "by": "week",
+            "dir": "desc"
+          }
+        },
+        {
+          "c": "chart",
+          "kind": "line",
+          "title": "Commit by week",
+          "from": "rollups",
+          "x": "week",
+          "y": "commit",
+          "format": "money",
+          "order": "label",
+          "dir": "asc"
+        },
+        {
+          "c": "table",
+          "from": "rollups",
+          "empty": "No week frozen yet: Canon freezes each week's numbers every morning.",
+          "columns": [
+            {
+              "label": "Period",
+              "value": "{$row.period}"
+            },
+            {
+              "label": "Week of",
+              "value": "{$row.week|date}"
+            },
+            {
+              "label": "Call",
+              "value": "{$row.call|money}",
+              "align": "end",
+              "empty": "—"
+            },
+            {
+              "label": "Closed won",
+              "value": "{$row.won|money}",
+              "align": "end"
+            },
+            {
+              "label": "Commit",
+              "value": "{$row.commit|money}",
+              "align": "end"
+            },
+            {
+              "label": "Best case",
+              "value": "{$row.bestCase|money}",
+              "align": "end"
+            },
+            {
+              "label": "Target",
+              "value": "{$row.target|money}",
+              "align": "end"
+            }
+          ],
+          "sort": {
+            "by": "week",
+            "dir": "desc"
+          }
+        },
+        {
+          "c": "table",
+          "from": "adjs",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "empty": "No adjustments.",
+          "columns": [
+            {
+              "label": "Week of",
+              "value": "{$row.week|date}"
+            },
+            {
+              "label": "By",
+              "value": "{$row.by|user}"
+            },
+            {
+              "label": "Their call",
+              "value": "{$row.from|money}",
+              "align": "end"
+            },
+            {
+              "label": "Adjusted to",
+              "value": "{$row.to|money}",
+              "align": "end"
+            },
+            {
+              "label": "Reason",
+              "value": "{$row.reason}"
+            },
+            {
+              "label": "When",
+              "value": "{$row.createdAt|time}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "settings",
+      "title": "Forecast settings",
+      "tab": {
+        "label": "Settings",
+        "order": 9,
+        "roles": [
+          "admin"
+        ]
+      },
+      "roles": [
+        "admin"
+      ],
+      "bind": {
+        "settings": {
+          "view": "settings.one",
+          "args": {
+            "key": "workspace"
+          }
+        },
+        "periods": {
+          "view": "periods.quarters"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Forecast settings"
+        },
+        {
+          "c": "form",
+          "op": "settings.save",
+          "when": {
+            "bind": "settings",
+            "field": "scope",
+            "set": false
+          },
+          "fixed": {
+            "scope": "workspace"
+          },
+          "initial": {
+            "cadenceDay": 1
+          },
+          "fields": [
+            {
+              "field": "cadenceDay",
+              "label": "Calls reset on (1 Monday … 7 Sunday)"
+            },
+            {
+              "field": "accuracyWeek",
+              "label": "Accuracy week"
+            }
+          ],
+          "submit": "Save"
+        },
+        {
+          "c": "form",
+          "op": "settings.update",
+          "from": "settings",
+          "when": {
+            "bind": "settings",
+            "field": "scope",
+            "set": true
+          },
+          "fields": [
+            {
+              "field": "cadenceDay",
+              "label": "Calls reset on (1 Monday … 7 Sunday)"
+            },
+            {
+              "field": "accuracyWeek",
+              "label": "Accuracy week"
+            }
+          ],
+          "submit": "Save"
+        },
+        {
+          "c": "table",
+          "from": "periods",
+          "empty": "Periods open within the hour.",
+          "columns": [
+            {
+              "label": "Period",
+              "value": "{$row.label}"
+            },
+            {
+              "label": "Starts",
+              "value": "{$row.start|date}"
+            },
+            {
+              "label": "Ends",
+              "value": "{$row.end|date}"
+            },
+            {
+              "label": "Status",
+              "value": "{$row.status}"
+            },
+            {
+              "label": "Final won",
+              "value": "{$row.finalWon|money}",
+              "empty": "—"
+            }
+          ],
+          "rowActions": [
+            {
+              "call": "closePeriod",
+              "label": "Close",
+              "args": {
+                "period": {
+                  "row": "key"
+                }
+              },
+              "when": {
+                "field": "status",
+                "in": [
+                  "open"
+                ]
+              },
+              "toast": "Closed {$result.label}: accuracy for {$result.members} people."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

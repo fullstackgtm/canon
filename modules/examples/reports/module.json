@@ -1,0 +1,97 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/reports",
+  "version": "0.6.0",
+  "title": "Reports",
+  "description": "Pace bookings and created pipeline against the year's targets, build reports over Canon records, and pin saved reports to dashboards.",
+  "author": { "org": "canon" },
+  "engines": { "moduleApi": "1" },
+  "default": true,
+  "imports": ["reports.legacy"],
+  "nav": { "label": "Reports", "icon": "chart", "section": "Activity", "landing": "pacing", "slot": "reports" },
+  "reads": {
+    "deals": ["name", "amount", "currency", "closeDate", "stage", "dealType", "forecastCategory", "probability", "isClosed", "isWon", "ownerId", "companyName"],
+    "users": ["name", "role", "managerId", "startDate", "title", "department", "isActive"],
+    "records": ["*"],
+    "stageHistory": ["deal", "stage", "fromStage", "changedAt", "leftAt", "daysInStage", "daysSoFar", "current", "ownerId"],
+    "targets": ["year", "fyStart", "total", "coverage", "months", "repMonths", "teamMonths", "repTeam"]
+  },
+  "reports": {
+    "open_pipeline": {"name": "Open pipeline", "spec": {"object": "canon.deals", "filter": [{"field": "isClosed", "op": "eq", "value": false}], "groupBy": [], "measures": [{"fn": "sum", "field": "amount"}, {"fn": "count"}], "chart": "number"}, "report": "deals"},
+    "pipeline_by_stage": {"name": "Pipeline by stage", "spec": {"object": "canon.deals", "filter": [{"field": "isClosed", "op": "eq", "value": false}], "groupBy": [{"field": "stage"}], "measures": [{"fn": "sum", "field": "amount"}, {"fn": "count"}], "chart": "bar"}, "report": "deals"},
+    "pipeline_by_forecast": {"name": "Pipeline by forecast category", "spec": {"object": "canon.deals", "filter": [{"field": "isClosed", "op": "eq", "value": false}], "groupBy": [{"field": "forecastCategory"}], "measures": [{"fn": "sum", "field": "amount"}, {"fn": "count"}], "chart": "pie"}, "report": "deals"},
+    "won_lost_by_month": {"name": "Won and lost by month", "spec": {"object": "canon.deals", "filter": [{"field": "isClosed", "op": "eq", "value": true}], "groupBy": [{"field": "closeDate", "bucket": "month"}, {"field": "isWon"}], "measures": [{"fn": "sum", "field": "amount"}, {"fn": "count"}], "chart": "bar"}, "report": "deals"},
+    "activities_by_owner": {"name": "Activities by owner and type", "spec": {"object": "canon.activities", "filter": [], "groupBy": [{"field": "ownerId"}, {"field": "type"}], "measures": [{"fn": "count"}], "chart": "bar"}, "report": "deals"},
+    "new_deals_by_month": {"name": "New deals by month", "spec": {"object": "canon.deals", "filter": [], "groupBy": [{"field": "createdAt", "bucket": "month"}], "measures": [{"fn": "count"}, {"fn": "sum", "field": "amount"}], "chart": "line"}, "report": "deals"},
+    "new_leads_by_month": {"name": "New leads by month", "spec": {"object": "canon.leads", "filter": [], "groupBy": [{"field": "createdAt", "bucket": "month"}], "measures": [{"fn": "count"}], "chart": "line"}, "report": "deals"}
+  },
+  "dashboards": {
+    "revenue": {"name": "Revenue", "tiles": [{"report": "open_pipeline", "wide": false}, {"report": "pipeline_by_forecast", "wide": false}, {"report": "pipeline_by_stage", "wide": true}, {"report": "won_lost_by_month", "wide": true}]},
+    "activity": {"name": "Activity", "tiles": [{"report": "activities_by_owner", "wide": true}, {"report": "new_deals_by_month", "wide": false}, {"report": "new_leads_by_month", "wide": false}]}
+  },
+  "collections": {},
+  "views": {},
+  "ops": {},
+  "pages": [
+    {
+      "path": "pacing",
+      "title": "Pacing",
+      "tab": { "label": "Pacing", "order": 0 },
+      "bind": { "plan": { "canon": "targets.forYear" } },
+      "body": [
+        { "c": "header", "title": "Pacing", "actions": [{ "canon": "targets", "label": "Edit targets" }] },
+        {
+          "c": "pacing", "id": "pace", "target": "plan",
+          "sources": [
+            { "id": "booked", "label": "Bookings", "collection": "canon.deals", "date": "closeDate", "amount": "amount", "filter": [{ "field": "isWon", "op": "eq", "value": true }] },
+            { "id": "created", "label": "Pipeline created", "collection": "canon.deals", "date": "createdAt", "amount": "amount", "coverage": true }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "builder",
+      "title": "Report builder",
+      "tab": { "label": "Report builder", "order": 1 },
+      "body": [
+        {
+          "c": "report",
+          "id": "deals",
+          "title": "Deals",
+          "collection": "canon.deals",
+          "sources": ["canon.*"],
+          "rows": ["stage"],
+          "values": [{ "fn": "sum", "field": "amount" }, { "fn": "count" }],
+          "chart": "table"
+        }
+      ]
+    },
+    {
+      "path": "dashboards",
+      "title": "Dashboards",
+      "tab": { "label": "Dashboards", "order": 2 },
+      "body": [{ "c": "dashboards" }]
+    },
+    {
+      "path": "stages",
+      "title": "Stage history",
+      "tab": { "label": "Stage history", "order": 3 },
+      "body": [
+        { "c": "header", "title": "Stage history and time in stage", "subtitle": "Every stage visit since Canon first saw each deal. Time in stage averages finished stays; current stays are counted separately." },
+        {
+          "c": "report", "id": "stageTime", "title": "Time in stage", "collection": "canon.stageHistory",
+          "rows": ["stage"], "values": [{ "fn": "avg", "field": "daysInStage" }, { "fn": "count" }], "chart": "bar"
+        },
+        {
+          "c": "chart", "title": "Entries into stages over time", "kind": "line",
+          "report": { "collection": "canon.stageHistory", "rows": [{ "field": "changedAt", "bucket": "month" }, "stage"], "values": [{ "fn": "count" }] }
+        },
+        {
+          "c": "report", "id": "stageSummary", "title": "Finished and current stays", "collection": "canon.stageHistory",
+          "rows": ["stage", "current"], "values": [{ "fn": "count" }, { "fn": "avg", "field": "daysInStage" }, { "fn": "avg", "field": "daysSoFar" }], "chart": "table"
+        }
+      ]
+    }
+  ]
+}

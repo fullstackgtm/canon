@@ -1,0 +1,1666 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/ai-fields",
+  "version": "0.2.0",
+  "title": "AI fields",
+  "description": "Manage hosted research runs, probes, review gates and refresh schedules for account and contact AI fields. Inspect run progress, samples, traces and cited answers.",
+  "author": {
+    "org": "canon"
+  },
+  "engines": {
+    "moduleApi": "1"
+  },
+  "nav": {
+    "label": "AI fields",
+    "icon": "sparkles",
+    "section": "Admin",
+    "landing": "fields"
+  },
+  "collections": {},
+  "views": {},
+  "ops": {},
+  "reads": {
+    "research": [
+      "label",
+      "attribute",
+      "kind",
+      "question",
+      "options",
+      "answerType",
+      "entity",
+      "autoAccept",
+      "refreshCadence",
+      "refreshNextAt",
+      "refreshHold",
+      "recipe",
+      "owner",
+      "agentStatus",
+      "agentMessage",
+      "latestRun",
+      "canEditGate",
+      "canRefresh",
+      "refreshEstimate"
+    ],
+    "researchRuns": [
+      "status",
+      "inScope",
+      "planned",
+      "done",
+      "skipped",
+      "answered",
+      "unknown",
+      "noEvidence",
+      "inferred",
+      "errors",
+      "pagesRead",
+      "llmCalls",
+      "error",
+      "stop",
+      "credits",
+      "scheduled",
+      "probe",
+      "updatedAt",
+      "runtime",
+      "sample",
+      "verdict",
+      "progress"
+    ],
+    "researchTraces": [
+      "recordId",
+      "label",
+      "status",
+      "value",
+      "quote",
+      "sourceUrl",
+      "reason",
+      "jev",
+      "inferred",
+      "steps",
+      "ms",
+      "calls",
+      "model",
+      "promptVersion"
+    ],
+    "researchAnswers": [
+      "entityId",
+      "account",
+      "value",
+      "status",
+      "evidence",
+      "confidence",
+      "verification",
+      "verifiedBy",
+      "observedAt",
+      "decidedBy"
+    ]
+  },
+  "pages": [
+    {
+      "path": "fields",
+      "title": "AI fields",
+      "tab": {
+        "label": "AI fields",
+        "order": 0
+      },
+      "bind": {
+        "fields": {
+          "canon": "research.fields"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "AI fields"
+        },
+        {
+          "c": "empty",
+          "when": {
+            "bind": "fields",
+            "empty": true
+          },
+          "text": "No AI fields yet. Ask a question once, answer it for every account or contact: who a company sells to, which insurers a clinic takes, what persona a buyer is."
+        },
+        {
+          "c": "table",
+          "from": "fields",
+          "when": {
+            "bind": "fields",
+            "empty": false
+          },
+          "columns": [
+            {
+              "label": "Field",
+              "value": "{$row.label}",
+              "tooltip": "{$row.question}"
+            },
+            {
+              "label": "Type",
+              "value": "Question \u00b7 text",
+              "cases": [
+                {
+                  "when": {
+                    "field": "kind",
+                    "in": [
+                      "classify"
+                    ]
+                  },
+                  "value": "Classify"
+                },
+                {
+                  "when": {
+                    "field": "answerType",
+                    "set": true
+                  },
+                  "value": "Question \u00b7 {$row.answerType}"
+                }
+              ]
+            },
+            {
+              "label": "Applies to",
+              "value": "{$row.entity}"
+            },
+            {
+              "label": "Owner",
+              "value": "{$row.owner} \u00b7 {$row.agentStatus}",
+              "tooltip": "{$row.agentMessage}",
+              "cases": [
+                {
+                  "when": {
+                    "field": "owner",
+                    "set": false
+                  },
+                  "value": "unknown \u00b7 {$row.agentStatus}"
+                }
+              ],
+              "tone": {
+                "by": "agentStatus",
+                "cases": [
+                  {
+                    "in": [
+                      "paused",
+                      "archived"
+                    ],
+                    "tone": "danger"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Review",
+              "value": "Manual review",
+              "cases": [
+                {
+                  "when": {
+                    "field": "autoAccept",
+                    "set": true
+                  },
+                  "value": "Auto-accept \u2265 {$row.autoAccept|number}"
+                }
+              ]
+            },
+            {
+              "label": "Refresh",
+              "value": "{$row.refreshCadence}",
+              "empty": "Off",
+              "tooltip": "{$row.refreshHold}",
+              "cases": [
+                {
+                  "when": {
+                    "field": "refreshHold",
+                    "set": true
+                  },
+                  "value": "{$row.refreshCadence} \u00b7 Paused"
+                }
+              ]
+            },
+            {
+              "label": "Latest run",
+              "value": "Not run yet",
+              "cases": [
+                {
+                  "when": {
+                    "field": "latestRun",
+                    "set": true
+                  },
+                  "value": "{$row.latestRun.status} \u00b7 {$row.latestRun.answered} answered \u00b7 {$row.latestRun.errors} errors"
+                }
+              ]
+            }
+          ],
+          "rowLink": "field/:id"
+        }
+      ]
+    },
+    {
+      "path": "field/:slug",
+      "title": "AI field",
+      "bind": {
+        "field": {
+          "call": "field",
+          "args": {
+            "slug": {
+              "route": "slug"
+            }
+          }
+        },
+        "runs": {
+          "canon": "research.runs",
+          "args": {
+            "slug": {
+              "route": "slug"
+            }
+          },
+          "limit": 10
+        },
+        "answers": {
+          "call": "answers",
+          "args": {
+            "slug": {
+              "route": "slug"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$field.title}",
+          "actions": [
+            {
+              "navigate": "fields",
+              "label": "All fields"
+            }
+          ]
+        },
+        {
+          "c": "callResult",
+          "from": "field",
+          "label": "Field details"
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "{$field.scope}",
+          "when": {
+            "bind": "field",
+            "field": "found",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "c": "table",
+          "from": "field",
+          "rows": "options",
+          "columns": [
+            {
+              "label": "Option",
+              "value": "{$row.label}"
+            },
+            {
+              "label": "Key",
+              "value": "{$row.key}"
+            },
+            {
+              "label": "Description",
+              "value": "{$row.description}"
+            }
+          ],
+          "empty": "This question has no classify options.",
+          "when": {
+            "bind": "field",
+            "field": "found",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "call": "start",
+              "args": {
+                "slug": {
+                  "route": "slug"
+                }
+              },
+              "fields": [
+                {
+                  "field": "contacts",
+                  "label": "Contact scope",
+                  "help": "For people, choose all, view with only a saved view id, or ids with only selected record ids. Leave empty for accounts."
+                },
+                {
+                  "field": "filter",
+                  "label": "Account filters",
+                  "help": "Leave empty for best-fit accounts."
+                },
+                {
+                  "field": "capCredits",
+                  "label": "Credit cap",
+                  "help": "Applies to full runs on credits. A probe is capped at its sample size."
+                }
+              ],
+              "dialog": {
+                "description": "Accounts use optional filters. People require a contact scope. Research uses your ChatGPT plan when connected; otherwise it spends workspace credits up to the cap."
+              }
+            }
+          ],
+          "when": {
+            "bind": "field",
+            "field": "canRun",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "call": "probe",
+              "args": {
+                "slug": {
+                  "route": "slug"
+                }
+              },
+              "fields": [
+                {
+                  "field": "contacts",
+                  "label": "Contact scope",
+                  "help": "For people, choose all, view with only a saved view id, or ids with only selected record ids. Leave empty for accounts."
+                },
+                {
+                  "field": "filter",
+                  "label": "Account filters",
+                  "help": "Leave empty for best-fit accounts."
+                },
+                {
+                  "field": "capCredits",
+                  "label": "Credit cap",
+                  "help": "Applies to full runs on credits. A probe is capped at its sample size."
+                }
+              ],
+              "dialog": {
+                "description": "Accounts use optional filters. People require a contact scope. Research uses your ChatGPT plan when connected; otherwise it spends workspace credits up to the cap."
+              }
+            }
+          ],
+          "when": {
+            "bind": "field",
+            "field": "canRun",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "c": "wizard",
+          "call": "autoAccept",
+          "fixed": {
+            "slug": {
+              "route": "slug"
+            }
+          },
+          "steps": [
+            {
+              "title": "Auto-accept threshold",
+              "fields": [
+                {
+                  "field": "minConfidence",
+                  "label": "Minimum Jev confidence",
+                  "help": "Lowering the threshold also accepts waiting answers that clear it.",
+                  "options": {
+                    "from": "field",
+                    "list": "thresholds",
+                    "value": "value",
+                    "label": "{$item.label}"
+                  }
+                }
+              ]
+            }
+          ],
+          "submit": "Save threshold",
+          "when": {
+            "bind": "field",
+            "field": "canEditGate",
+            "in": [
+              true
+            ]
+          },
+          "initial": {
+            "minConfidence": {
+              "bind": "field",
+              "field": "threshold"
+            }
+          }
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "call": "autoAccept",
+              "label": "Use manual review",
+              "args": {
+                "slug": {
+                  "route": "slug"
+                },
+                "minConfidence": null
+              }
+            }
+          ],
+          "when": {
+            "bind": "field",
+            "field": "canEditGate",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "c": "wizard",
+          "call": "refresh",
+          "fixed": {
+            "slug": {
+              "route": "slug"
+            }
+          },
+          "steps": [
+            {
+              "title": "Refresh",
+              "fields": [
+                {
+                  "field": "cadence",
+                  "label": "Cadence"
+                }
+              ]
+            }
+          ],
+          "submit": "Save cadence",
+          "when": {
+            "bind": "field",
+            "field": "canRefresh",
+            "in": [
+              true
+            ]
+          },
+          "initial": {
+            "cadence": {
+              "bind": "field",
+              "field": "cadence"
+            }
+          }
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "call": "refresh",
+              "label": "Turn refresh off",
+              "args": {
+                "slug": {
+                  "route": "slug"
+                },
+                "cadence": null
+              }
+            }
+          ],
+          "when": {
+            "bind": "field",
+            "field": "canRefresh",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "Owner and pause are managed in Agents. Answers awaiting a decision are in Fact Review.",
+          "when": {
+            "bind": "field",
+            "field": "found",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "c": "table",
+          "from": "runs",
+          "empty": "Not run yet.",
+          "rowLink": "run/:slug/:id",
+          "columns": [
+            {
+              "label": "Started",
+              "value": "{$row.createdAt|time}"
+            },
+            {
+              "label": "Status",
+              "value": "{$row.status}"
+            },
+            {
+              "label": "Answered",
+              "value": "{$row.answered}"
+            },
+            {
+              "label": "Unknown",
+              "value": "{$row.unknown}"
+            },
+            {
+              "label": "Without evidence",
+              "value": "{$row.noEvidence}"
+            },
+            {
+              "label": "Inferred by Jev",
+              "value": "{$row.inferred}"
+            },
+            {
+              "label": "Errors",
+              "value": "{$row.errors}"
+            },
+            {
+              "label": "Skipped",
+              "value": "{$row.skipped}"
+            },
+            {
+              "label": "Done",
+              "value": "{$row.done}"
+            },
+            {
+              "label": "Planned",
+              "value": "{$row.planned}"
+            },
+            {
+              "label": "Pages read",
+              "value": "{$row.pagesRead}"
+            },
+            {
+              "label": "Model calls",
+              "value": "{$row.llmCalls}"
+            },
+            {
+              "label": "Progress",
+              "value": "{$row.progress|percent}",
+              "bar": {
+                "value": "progress"
+              }
+            },
+            {
+              "label": "Trigger",
+              "value": "Manual",
+              "cases": [
+                {
+                  "when": {
+                    "field": "scheduled",
+                    "in": [
+                      true
+                    ]
+                  },
+                  "value": "Scheduled refresh"
+                },
+                {
+                  "when": {
+                    "field": "probe",
+                    "in": [
+                      true
+                    ]
+                  },
+                  "value": "Sample of {$row.planned}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "c": "callResult",
+          "from": "answers",
+          "label": "Answers"
+        }
+      ]
+    },
+    {
+      "path": "run/:slug/:run",
+      "title": "Research run",
+      "bind": {
+        "live": {
+          "canon": "research.runs",
+          "args": {
+            "slug": {
+              "route": "slug"
+            },
+            "run": {
+              "route": "run"
+            }
+          },
+          "limit": 1
+        },
+        "detail": {
+          "call": "run",
+          "args": {
+            "slug": {
+              "route": "slug"
+            },
+            "run": {
+              "route": "run"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$detail.title}",
+          "actions": [
+            {
+              "navigate": "field/:slug",
+              "label": "Back to field"
+            }
+          ]
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "call": "stop",
+              "args": {
+                "runId": {
+                  "route": "run"
+                }
+              }
+            }
+          ],
+          "when": {
+            "bind": "detail",
+            "field": "canStop",
+            "in": [
+              true
+            ]
+          }
+        },
+        {
+          "c": "table",
+          "from": "live",
+          "columns": [
+            {
+              "label": "Status",
+              "value": "{$row.status}"
+            },
+            {
+              "label": "Done",
+              "value": "{$row.done}"
+            },
+            {
+              "label": "Planned",
+              "value": "{$row.planned}"
+            },
+            {
+              "label": "Errors",
+              "value": "{$row.errors}"
+            },
+            {
+              "label": "Answered",
+              "value": "{$row.answered}"
+            },
+            {
+              "label": "Updated",
+              "value": "{$row.updatedAt|time}"
+            },
+            {
+              "label": "Progress",
+              "value": "{$row.progress|percent}",
+              "bar": {
+                "value": "progress"
+              }
+            },
+            {
+              "label": "Trigger",
+              "value": "Manual",
+              "cases": [
+                {
+                  "when": {
+                    "field": "scheduled",
+                    "in": [
+                      true
+                    ]
+                  },
+                  "value": "Scheduled refresh"
+                },
+                {
+                  "when": {
+                    "field": "probe",
+                    "in": [
+                      true
+                    ]
+                  },
+                  "value": "Sample of {$row.planned}"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "c": "callResult",
+          "from": "detail",
+          "label": "Counters and progress"
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "{$detail.verdict}",
+          "when": {
+            "bind": "detail",
+            "field": "verdict",
+            "set": true
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "{$detail.bands}",
+          "when": {
+            "bind": "detail",
+            "field": "bands",
+            "set": true
+          }
+        },
+        {
+          "c": "table",
+          "from": "detail",
+          "rows": "picks",
+          "columns": [
+            {
+              "label": "Jev pick",
+              "value": "{$row.choice}"
+            },
+            {
+              "label": "Records",
+              "value": "{$row.count}"
+            },
+            {
+              "label": "Confident",
+              "value": "{$row.confident}"
+            }
+          ],
+          "empty": "No Jev distribution available."
+        },
+        {
+          "c": "table",
+          "from": "detail",
+          "rows": "sample",
+          "columns": [
+            {
+              "label": "Record",
+              "value": "{$row.label}"
+            },
+            {
+              "label": "Outcome",
+              "value": "{$row.status}"
+            },
+            {
+              "label": "Reason",
+              "value": "{$row.reason}"
+            },
+            {
+              "label": "Value",
+              "value": "{$row.value}"
+            },
+            {
+              "label": "Quote",
+              "value": "{$row.quote}"
+            },
+            {
+              "label": "Source",
+              "value": "{$row.source}",
+              "link": {
+                "url": "source"
+              }
+            },
+            {
+              "label": "Jev pick",
+              "value": "{$row.pick}"
+            },
+            {
+              "label": "Confidence",
+              "value": "{$row.confidence}"
+            },
+            {
+              "label": "Inference",
+              "value": "{$row.inferred}"
+            }
+          ],
+          "empty": "No sample records are available; this may be a full run or outside your access."
+        },
+        {
+          "c": "table",
+          "from": "detail",
+          "rows": "traces",
+          "columns": [
+            {
+              "label": "Record",
+              "value": "{$row.label}"
+            },
+            {
+              "label": "Outcome",
+              "value": "{$row.status}"
+            },
+            {
+              "label": "Value",
+              "value": "{$row.value}"
+            },
+            {
+              "label": "Reason",
+              "value": "{$row.reason}"
+            },
+            {
+              "label": "Quote",
+              "value": "{$row.quote}"
+            },
+            {
+              "label": "Source",
+              "value": "{$row.source}",
+              "link": {
+                "url": "source"
+              }
+            },
+            {
+              "label": "Jev pick",
+              "value": "{$row.pick}"
+            },
+            {
+              "label": "Confidence",
+              "value": "{$row.confidence}"
+            },
+            {
+              "label": "Inference",
+              "value": "{$row.inference}"
+            },
+            {
+              "label": "Steps",
+              "value": "{$row.calls}",
+              "popover": {
+                "items": "steps",
+                "label": "{$item.text}",
+                "title": "Search, read and model steps"
+              }
+            },
+            {
+              "label": "Model",
+              "value": "{$row.model}"
+            },
+            {
+              "label": "Prompt",
+              "value": "{$row.prompt}"
+            },
+            {
+              "label": "Calls",
+              "value": "{$row.calls}"
+            },
+            {
+              "label": "Seconds",
+              "value": "{$row.seconds}"
+            }
+          ],
+          "empty": "No record details are available; they may be missing or outside your access."
+        }
+      ]
+    }
+  ],
+  "server": "dist/module.js",
+  "calls": {
+    "start": {
+      "label": "Run",
+      "args": {
+        "type": "object",
+        "value": {
+          "slug": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "filter": {
+            "fieldType": {
+              "type": "object",
+              "value": {
+                "segmentId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "status": {
+                  "fieldType": {
+                    "type": "union",
+                    "value": [
+                      {
+                        "type": "literal",
+                        "value": "new"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "working"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "qualified"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "disqualified"
+                      }
+                    ]
+                  },
+                  "optional": true
+                },
+                "ownerId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "minFit": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": true
+                },
+                "q": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "employeeMin": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": true
+                },
+                "employeeMax": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": true
+                },
+                "icpId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "industry": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                },
+                "country": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                },
+                "sizeBand": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                },
+                "region": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                }
+              }
+            },
+            "optional": true
+          },
+          "contacts": {
+            "fieldType": {
+              "type": "object",
+              "value": {
+                "kind": {
+                  "fieldType": {
+                    "type": "union",
+                    "value": [
+                      {
+                        "type": "literal",
+                        "value": "all"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "view"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "ids"
+                      }
+                    ],
+                    "labels": {
+                      "all": "All people",
+                      "view": "Saved view",
+                      "ids": "Selected record ids"
+                    }
+                  },
+                  "optional": false
+                },
+                "viewId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "ids": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                }
+              }
+            },
+            "optional": true
+          },
+          "capCredits": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true
+          }
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "human",
+      "reads": {},
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "kpis",
+        "items": [
+          {
+            "label": "Run",
+            "value": "{$result.runId}"
+          },
+          {
+            "label": "Refusal",
+            "value": "{$result.refused}"
+          }
+        ]
+      },
+      "canon": {
+        "operation": "research.start"
+      },
+      "reason": "Research management requires a direct human decision."
+    },
+    "probe": {
+      "label": "Try on a sample",
+      "args": {
+        "type": "object",
+        "value": {
+          "slug": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "filter": {
+            "fieldType": {
+              "type": "object",
+              "value": {
+                "segmentId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "status": {
+                  "fieldType": {
+                    "type": "union",
+                    "value": [
+                      {
+                        "type": "literal",
+                        "value": "new"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "working"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "qualified"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "disqualified"
+                      }
+                    ]
+                  },
+                  "optional": true
+                },
+                "ownerId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "minFit": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": true
+                },
+                "q": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "employeeMin": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": true
+                },
+                "employeeMax": {
+                  "fieldType": {
+                    "type": "number"
+                  },
+                  "optional": true
+                },
+                "icpId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "industry": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                },
+                "country": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                },
+                "sizeBand": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                },
+                "region": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                }
+              }
+            },
+            "optional": true
+          },
+          "contacts": {
+            "fieldType": {
+              "type": "object",
+              "value": {
+                "kind": {
+                  "fieldType": {
+                    "type": "union",
+                    "value": [
+                      {
+                        "type": "literal",
+                        "value": "all"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "view"
+                      },
+                      {
+                        "type": "literal",
+                        "value": "ids"
+                      }
+                    ],
+                    "labels": {
+                      "all": "All people",
+                      "view": "Saved view",
+                      "ids": "Selected record ids"
+                    }
+                  },
+                  "optional": false
+                },
+                "viewId": {
+                  "fieldType": {
+                    "type": "string"
+                  },
+                  "optional": true
+                },
+                "ids": {
+                  "fieldType": {
+                    "type": "array",
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "optional": true
+                }
+              }
+            },
+            "optional": true
+          },
+          "capCredits": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true
+          }
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "human",
+      "reads": {},
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "kpis",
+        "items": [
+          {
+            "label": "Run",
+            "value": "{$result.runId}"
+          },
+          {
+            "label": "Refusal",
+            "value": "{$result.refused}"
+          }
+        ]
+      },
+      "canon": {
+        "operation": "research.probe"
+      },
+      "reason": "Research management requires a direct human decision."
+    },
+    "stop": {
+      "label": "Stop",
+      "args": {
+        "type": "object",
+        "value": {
+          "runId": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "human",
+      "reads": {},
+      "writes": [],
+      "returns": "none",
+      "canon": {
+        "operation": "research.stop"
+      },
+      "reason": "Research management requires a direct human decision."
+    },
+    "autoAccept": {
+      "label": "Set auto-accept",
+      "args": {
+        "type": "object",
+        "value": {
+          "slug": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "minConfidence": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "optional": false
+          }
+        }
+      },
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reads": {},
+      "writes": [],
+      "returns": "none",
+      "canon": {
+        "operation": "research.autoAccept"
+      },
+      "reason": "Research management requires a direct human decision."
+    },
+    "refresh": {
+      "label": "Set refresh",
+      "args": {
+        "type": "object",
+        "value": {
+          "slug": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "cadence": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "weekly"
+                },
+                {
+                  "type": "literal",
+                  "value": "monthly"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "optional": false
+          }
+        }
+      },
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "human",
+      "reads": {},
+      "writes": [],
+      "returns": "none",
+      "canon": {
+        "operation": "research.refresh"
+      },
+      "reason": "Research management requires a direct human decision."
+    },
+    "field": {
+      "label": "Field details",
+      "args": {
+        "type": "object",
+        "value": {
+          "slug": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "field": {
+          "canon": "research.fields",
+          "args": {
+            "slug": {
+              "arg": "slug"
+            }
+          },
+          "limit": 1
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "table",
+        "rows": "details",
+        "columns": [
+          {
+            "label": "Setting",
+            "value": "{$row.label}"
+          },
+          {
+            "label": "Value",
+            "value": "{$row.value}",
+            "link": {
+              "path": "path"
+            }
+          }
+        ]
+      }
+    },
+    "run": {
+      "label": "Run details",
+      "args": {
+        "type": "object",
+        "value": {
+          "slug": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "run": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "field": {
+          "canon": "research.fields",
+          "args": {
+            "slug": {
+              "arg": "slug"
+            }
+          },
+          "limit": 1
+        },
+        "run": {
+          "canon": "research.runs",
+          "args": {
+            "slug": {
+              "arg": "slug"
+            },
+            "run": {
+              "arg": "run"
+            }
+          },
+          "limit": 1
+        },
+        "traces": {
+          "canon": "research.traces",
+          "args": {
+            "run": {
+              "arg": "run"
+            }
+          },
+          "limit": 200
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "table",
+        "rows": "summary",
+        "columns": [
+          {
+            "label": "Measure",
+            "value": "{$row.label}"
+          },
+          {
+            "label": "Value",
+            "value": "{$row.value}"
+          }
+        ],
+        "empty": "Run not found, or not yours to see."
+      }
+    },
+    "answers": {
+      "label": "Answers",
+      "args": {
+        "type": "object",
+        "value": {
+          "slug": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "field": {
+          "canon": "research.fields",
+          "args": {
+            "slug": {
+              "arg": "slug"
+            }
+          },
+          "limit": 1
+        },
+        "answers": {
+          "canon": "research.answers",
+          "args": {
+            "slug": {
+              "arg": "slug"
+            }
+          },
+          "limit": 50
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "table",
+        "columns": [
+          {
+            "label": "Record",
+            "value": "{$row.record}"
+          },
+          {
+            "label": "Answer",
+            "value": "{$row.value}"
+          },
+          {
+            "label": "Status",
+            "value": "{$row.status}",
+            "tone": {
+              "by": "status",
+              "badge": true,
+              "cases": [
+                {
+                  "in": [
+                    "accepted"
+                  ],
+                  "tone": "success"
+                },
+                {
+                  "in": [
+                    "proposed"
+                  ],
+                  "tone": "warn"
+                }
+              ]
+            }
+          },
+          {
+            "label": "Jev",
+            "value": "{$row.check}"
+          },
+          {
+            "label": "Quote",
+            "value": "{$row.quote}"
+          },
+          {
+            "label": "Source",
+            "value": "{$row.source}",
+            "link": {
+              "url": "source"
+            }
+          },
+          {
+            "label": "Evidence",
+            "value": "{$row.via}"
+          },
+          {
+            "label": "Observed",
+            "value": "{$row.observed}"
+          }
+        ],
+        "empty": "No answers on the records you can see."
+      }
+    }
+  }
+}

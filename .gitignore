@@ -1,0 +1,100 @@
+# dependencies
+/node_modules
+node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files: every .env* name is ignored (.env.production, .env.local.bak, ...); only the
+# templates below are tracked
+.env*
+!.env.example
+!.env.production.example
+!services/*/.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+.projects/cache
+.projects/vault
+*.tgz
+
+# local agent/tool state (never commit); .agents/skills and .agents/p3-stack are the vendored p3-stack
+/.agents/*
+!/.agents/skills/
+!/.agents/p3-stack/
+/p3-models.md
+.augment/
+# .claude/settings.json is the checked-in agent-guard hook (scripts/agent-guard.mjs); the rest stays local
+**/.claude/*
+!/.claude/settings.json
+!/.claude/skills
+.cursor/
+.cursorignore
+.factory/
+.logs/
+.playwright-mcp/
+.projects/
+
+# local screenshots
+consistency-*.png
+slop-*.png
+.worktrees/
+.ntm/
+
+# HubSpot CLI writes a personal access key here
+hubspot.config.yml
+
+# scale spike build output
+/.spike-build/
+/scale-spike/convex/_generated/
+
+# isolated per-worktree dev stack (scripts/dev/*): ports, PID files, logs, ci-local caches,
+# and a cloud .env.local that worktree-setup.sh moved aside (.devstack/env.local.cloud-backup*)
+/.devstack/
+# belt and braces in case a moved-aside env file is ever relocated
+*.cloud-backup
+*.cloud-backup.*
+.env.local.unsafe.bak
+
+# Terraform keeps provider caches, backend metadata, state, and saved plans private.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+**/crash.log
+**/crash.*.log
+/infra/terraform/bootstrap/dev/backend.operator.tf
+# local anonymous Convex deployment state written by `convex dev --local`
+/.convex/
+
+# Brand lab competitor screenshots: regenerate with docs/brand-lab/tools/capture.py
+/docs/brand-lab/shots/

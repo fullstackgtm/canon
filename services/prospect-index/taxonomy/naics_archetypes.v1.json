@@ -1,0 +1,1263 @@
+{
+ "version": 1,
+ "source": "BLS OEWS May 2025 4-digit industries; Jev choice over archetypes.v1",
+ "titles": {
+  "113300": "Logging",
+  "115100": "Support Activities for Crop Production",
+  "115200": "Support Activities for Animal Production",
+  "211100": "Oil and Gas Extraction",
+  "212100": "Coal Mining",
+  "212200": "Metal Ore Mining",
+  "212300": "Nonmetallic Mineral Mining and Quarrying",
+  "213100": "Support Activities for Mining",
+  "221100": "Electric Power Generation, Transmission and Distribution",
+  "221200": "Natural Gas Distribution",
+  "221300": "Water, Sewage and Other Systems",
+  "236100": "Residential Building Construction",
+  "236200": "Nonresidential Building Construction",
+  "237100": "Utility System Construction",
+  "237200": "Land Subdivision",
+  "237300": "Highway, Street, and Bridge Construction",
+  "237900": "Other Heavy and Civil Engineering Construction",
+  "238100": "Foundation, Structure, and Building Exterior Contractors",
+  "238200": "Building Equipment Contractors",
+  "238300": "Building Finishing Contractors",
+  "238900": "Other Specialty Trade Contractors",
+  "311100": "Animal Food Manufacturing",
+  "311200": "Grain and Oilseed Milling",
+  "311300": "Sugar and Confectionery Product Manufacturing",
+  "311400": "Fruit and Vegetable Preserving and Specialty Food Manufacturing",
+  "311500": "Dairy Product Manufacturing",
+  "311600": "Animal Slaughtering and Processing",
+  "311700": "Seafood Product Preparation and Packaging",
+  "311800": "Bakeries and Tortilla Manufacturing",
+  "311900": "Other Food Manufacturing",
+  "312100": "Beverage Manufacturing",
+  "312200": "Tobacco Manufacturing",
+  "313100": "Fiber, Yarn, and Thread Mills",
+  "313200": "Fabric Mills",
+  "313300": "Textile and Fabric Finishing and Fabric Coating Mills",
+  "314100": "Textile Furnishings Mills",
+  "314900": "Other Textile Product Mills",
+  "315100": "Apparel Knitting Mills",
+  "315200": "Cut and Sew Apparel Manufacturing",
+  "315900": "Apparel Accessories and Other Apparel Manufacturing",
+  "316100": "Leather and Hide Tanning and Finishing",
+  "316200": "Footwear Manufacturing",
+  "316900": "Other Leather and Allied Product Manufacturing",
+  "321100": "Sawmills and Wood Preservation",
+  "321200": "Veneer, Plywood, and Engineered Wood Product Manufacturing",
+  "321900": "Other Wood Product Manufacturing",
+  "322100": "Pulp, Paper, and Paperboard Mills",
+  "322200": "Converted Paper Product Manufacturing",
+  "323100": "Printing and Related Support Activities",
+  "324100": "Petroleum and Coal Products Manufacturing",
+  "325400": "Pharmaceutical and Medicine Manufacturing",
+  "326100": "Plastics Product Manufacturing",
+  "326200": "Rubber Product Manufacturing",
+  "327000": "Nonmetallic Mineral Product Manufacturing",
+  "331100": "Iron and Steel Mills and Ferroalloy Manufacturing",
+  "331200": "Steel Product Manufacturing from Purchased Steel",
+  "331300": "Alumina and Aluminum Production and Processing",
+  "331400": "Nonferrous Metal (except Aluminum) Production and Processing",
+  "331500": "Foundries",
+  "332700": "Machine Shops; Turned Product; and Screw, Nut, and Bolt Manufacturing",
+  "332800": "Coating, Engraving, Heat Treating, and Allied Activities",
+  "333300": "Commercial and Service Industry Machinery Manufacturing",
+  "333500": "Metalworking Machinery Manufacturing",
+  "333600": "Engine, Turbine, and Power Transmission Equipment Manufacturing",
+  "334100": "Computer and Peripheral Equipment Manufacturing",
+  "334200": "Communications Equipment Manufacturing",
+  "334300": "Audio and Video Equipment Manufacturing",
+  "334400": "Semiconductor and Other Electronic Component Manufacturing",
+  "334500": "Navigational, Measuring, Electromedical, and Control Instruments Manufacturing",
+  "334600": "Manufacturing and Reproducing Magnetic and Optical Media",
+  "335100": "Electric Lighting Equipment Manufacturing",
+  "335200": "Household Appliance Manufacturing",
+  "335300": "Electrical Equipment Manufacturing",
+  "335900": "Other Electrical Equipment and Component Manufacturing",
+  "336100": "Motor Vehicle Manufacturing",
+  "336200": "Motor Vehicle Body and Trailer Manufacturing",
+  "336300": "Motor Vehicle Parts Manufacturing",
+  "336400": "Aerospace Product and Parts Manufacturing",
+  "336500": "Railroad Rolling Stock Manufacturing",
+  "336600": "Ship and Boat Building",
+  "336900": "Other Transportation Equipment Manufacturing",
+  "337900": "Other Furniture Related Product Manufacturing",
+  "339100": "Medical Equipment and Supplies Manufacturing",
+  "339900": "Other Miscellaneous Manufacturing",
+  "423100": "Motor Vehicle and Motor Vehicle Parts and Supplies Merchant Wholesalers",
+  "423400": "Professional and Commercial Equipment and Supplies Merchant Wholesalers",
+  "423800": "Machinery, Equipment, and Supplies Merchant Wholesalers",
+  "424300": "Apparel, Piece Goods, and Notions Merchant Wholesalers",
+  "424500": "Farm Product Raw Material Merchant Wholesalers",
+  "425100": "Wholesale Trade Agents and Brokers",
+  "441100": "Automobile Dealers",
+  "441200": "Other Motor Vehicle Dealers",
+  "441300": "Automotive Parts, Accessories, and Tire Retailers",
+  "444100": "Building Material and Supplies Dealers",
+  "444200": "Lawn and Garden Equipment and Supplies Retailers",
+  "445300": "Beer, Wine, and Liquor Retailers",
+  "449100": "Furniture and Home Furnishings Retailers",
+  "449200": "Electronics and Appliance Retailers",
+  "455000": "General Merchandise Retailers",
+  "456100": "Health and Personal Care Retailers",
+  "457100": "Gasoline Stations",
+  "457200": "Fuel Dealers",
+  "458100": "Clothing and Clothing Accessories Retailers",
+  "458200": "Shoe Retailers",
+  "458300": "Jewelry, Luggage, and Leather Goods Retailers",
+  "459100": "Sporting Goods, Hobby, and Musical Instrument Retailers",
+  "459200": "Book Retailers and News Dealers",
+  "459300": "Florists",
+  "459900": "Other Miscellaneous Retailers",
+  "481100": "Scheduled Air Transportation",
+  "481200": "Nonscheduled Air Transportation",
+  "482100": "Rail Transportation",
+  "483100": "Deep Sea, Coastal, and Great Lakes Water Transportation",
+  "483200": "Inland Water Transportation",
+  "484000": "Truck Transportation",
+  "485100": "Urban Transit Systems",
+  "485200": "Interurban and Rural Bus Transportation",
+  "485300": "Taxi and Limousine Service",
+  "485400": "School and Employee Bus Transportation",
+  "485500": "Charter Bus Industry",
+  "485900": "Other Transit and Ground Passenger Transportation",
+  "486100": "Pipeline Transportation of Crude Oil",
+  "486200": "Pipeline Transportation of Natural Gas",
+  "486900": "Other Pipeline Transportation",
+  "487100": "Scenic and Sightseeing Transportation, Land",
+  "487200": "Scenic and Sightseeing Transportation, Water",
+  "487900": "Scenic and Sightseeing Transportation, Other",
+  "488100": "Support Activities for Air Transportation",
+  "488200": "Support Activities for Rail Transportation",
+  "488300": "Support Activities for Water Transportation",
+  "488400": "Support Activities for Road Transportation",
+  "488500": "Freight Transportation Arrangement",
+  "488900": "Other Support Activities for Transportation",
+  "491100": "Postal Service (Federal Government)",
+  "492100": "Couriers and Express Delivery Services",
+  "492200": "Local Messengers and Local Delivery",
+  "493100": "Warehousing and Storage",
+  "512100": "Motion Picture and Video Industries",
+  "512200": "Sound Recording Industries",
+  "513100": "Newspaper, Periodical, Book, and Directory Publishers",
+  "513200": "Software Publishers",
+  "516100": "Radio and Television Broadcasting Stations",
+  "516200": "Media Streaming Distribution Services, Social Networks, and Other Media Networks and Content Providers",
+  "517000": "Telecommunications",
+  "518200": "Computing Infrastructure Providers, Data Processing, Web Hosting, and Related Services",
+  "519200": "Web Search Portals, Libraries, Archives, and Other Information Services",
+  "521100": "Monetary Authorities-Central Bank",
+  "522200": "Nondepository Credit Intermediation",
+  "523000": "Securities, Commodity Contracts, and Other Financial Investments and Related Activities",
+  "524100": "Insurance Carriers",
+  "524200": "Agencies, Brokerages, and Other Insurance Related Activities",
+  "525100": "Insurance and Employee Benefit Funds",
+  "525900": "Other Investment Pools and Funds",
+  "531000": "Real Estate",
+  "532100": "Automotive Equipment Rental and Leasing",
+  "533100": "Lessors of Nonfinancial Intangible Assets (except Copyrighted Works)",
+  "541100": "Legal Services",
+  "541200": "Accounting, Tax Preparation, Bookkeeping, and Payroll Services",
+  "541300": "Architectural, Engineering, and Related Services",
+  "541400": "Specialized Design Services",
+  "541500": "Computer Systems Design and Related Services",
+  "541600": "Management, Scientific, and Technical Consulting Services",
+  "541700": "Scientific Research and Development Services",
+  "541800": "Advertising, Public Relations, and Related Services",
+  "541900": "Other Professional, Scientific, and Technical Services",
+  "551100": "Management of Companies and Enterprises",
+  "561100": "Office Administrative Services",
+  "561200": "Facilities Support Services",
+  "561300": "Employment Services",
+  "561400": "Business Support Services",
+  "561500": "Travel Arrangement and Reservation Services",
+  "561600": "Investigation and Security Services",
+  "561700": "Services to Buildings and Dwellings",
+  "561900": "Other Support Services",
+  "562100": "Waste Collection",
+  "562200": "Waste Treatment and Disposal",
+  "562900": "Remediation and Other Waste Management Services",
+  "611100": "Elementary and Secondary Schools",
+  "611200": "Junior Colleges",
+  "611300": "Colleges, Universities, and Professional Schools",
+  "611400": "Business Schools and Computer and Management Training",
+  "611500": "Technical and Trade Schools",
+  "611600": "Other Schools and Instruction",
+  "611700": "Educational Support Services",
+  "621100": "Offices of Physicians",
+  "621200": "Offices of Dentists",
+  "621300": "Offices of Other Health Practitioners",
+  "621400": "Outpatient Care Centers",
+  "621500": "Medical and Diagnostic Laboratories",
+  "621600": "Home Health Care Services",
+  "621900": "Other Ambulatory Health Care Services",
+  "622100": "General Medical and Surgical Hospitals",
+  "622200": "Psychiatric and Substance Abuse Hospitals",
+  "622300": "Specialty (except Psychiatric and Substance Abuse) Hospitals",
+  "623100": "Nursing Care Facilities (Skilled Nursing Facilities)",
+  "623200": "Residential Intellectual and Developmental Disability, Mental Health, and Substance Abuse Facilities",
+  "623300": "Continuing Care Retirement Communities and Assisted Living Facilities for the Elderly",
+  "623900": "Other Residential Care Facilities",
+  "624100": "Individual and Family Services",
+  "624200": "Community Food and Housing, and Emergency and Other Relief Services",
+  "624300": "Vocational Rehabilitation Services",
+  "624400": "Child Care Services",
+  "711100": "Performing Arts Companies",
+  "711200": "Spectator Sports",
+  "711300": "Promoters of Performing Arts, Sports, and Similar Events",
+  "711400": "Agents and Managers for Artists, Athletes, Entertainers, and Other Public Figures",
+  "711500": "Independent Artists, Writers, and Performers",
+  "712100": "Museums, Historical Sites, and Similar Institutions",
+  "713100": "Amusement Parks and Arcades",
+  "713200": "Gambling Industries",
+  "713900": "Other Amusement and Recreation Industries",
+  "721100": "Traveler Accommodation",
+  "721200": "RV (Recreational Vehicle) Parks and Recreational Camps",
+  "721300": "Rooming and Boarding Houses, Dormitories, and Workers' Camps",
+  "722300": "Special Food Services",
+  "722400": "Drinking Places (Alcoholic Beverages)",
+  "722500": "Restaurants and Other Eating Places",
+  "811100": "Automotive Repair and Maintenance",
+  "811200": "Electronic and Precision Equipment Repair and Maintenance",
+  "811300": "Commercial and Industrial Machinery and Equipment (except Automotive and Electronic) Repair and Maintenance",
+  "811400": "Personal and Household Goods Repair and Maintenance",
+  "812100": "Personal Care Services",
+  "812200": "Death Care Services",
+  "812300": "Drycleaning and Laundry Services",
+  "812900": "Other Personal Services",
+  "813100": "Religious Organizations",
+  "813200": "Grantmaking and Giving Services",
+  "813300": "Social Advocacy Organizations",
+  "813400": "Civic and Social Organizations",
+  "813900": "Business, Professional, Labor, Political, and Similar Organizations",
+  "999100": "Federal Executive Branch (OEWS Designation)",
+  "999200": "State Government, excluding Schools and Hospitals (OEWS Designation)",
+  "999300": "Local Government, excluding Schools and Hospitals (OEWS Designation)",
+  "3250A1": "Chemical Manufacturing (3251, 3252, 3253, and 3259 only)",
+  "3250A2": "Chemical Manufacturing (3255 and 3256 only)",
+  "3320A1": "Fabricated Metal Product Manufacturing (3321, 3322, 3325, 3326, and 3329 only)",
+  "3320A2": "Fabricated Metal Product Manufacturing (3323 and 3324 only)",
+  "3330A1": "Machinery Manufacturing (3331, 3332, 3334, and 3339 only)",
+  "3370A1": "Furniture and Related Product Manufacturing (3371 and 3372 only)",
+  "4230A1": "Merchant Wholesalers, Durable Goods (4232, 4233, 4235, 4236, 4237, and 4239 only)",
+  "4240A1": "Merchant Wholesalers, Nondurable Goods (4244 and 4248 only)",
+  "4240A2": "Merchant Wholesalers, Nondurable Goods (4242 and 4246 only)",
+  "4240A3": "Merchant Wholesalers, Nondurable Goods (4241, 4247, and 4249 only)",
+  "4450A1": "Food and Beverage Retailers (4451 and 4452 only)",
+  "4590A1": "Miscellaneous Store Retailers (4594 and 4595 only)",
+  "5220A1": "Credit Intermediation and Related Activities (5221 and 5223 only)",
+  "5320A1": "Rental and Leasing Services (5322, 5323, and 5324 only)"
+ },
+ "scores": {
+  "113300": {
+   "energy_agriculture/farm_agribusiness": 0.48,
+   "energy_agriculture/other": 0.21,
+   "energy_agriculture/oil_gas_mining": 0.09
+  },
+  "115100": {
+   "energy_agriculture/farm_agribusiness": 0.58,
+   "construction_trades/specialty_trade_contractor": 0.08,
+   "sales_distribution/equipment_dealer": 0.08,
+   "energy_agriculture/other": 0.08
+  },
+  "115200": {
+   "energy_agriculture/farm_agribusiness": 0.72,
+   "energy_agriculture/other": 0.08,
+   "sales_distribution/equipment_dealer": 0.05
+  },
+  "211100": {
+   "energy_agriculture/oil_gas_mining": 1
+  },
+  "212100": {
+   "energy_agriculture/oil_gas_mining": 1
+  },
+  "212200": {
+   "energy_agriculture/oil_gas_mining": 0.93
+  },
+  "212300": {
+   "energy_agriculture/oil_gas_mining": 0.63,
+   "manufacturing/chemicals_materials": 0.24,
+   "energy_agriculture/other": 0.08
+  },
+  "213100": {
+   "energy_agriculture/oil_gas_mining": 0.39,
+   "energy_agriculture/other": 0.09,
+   "construction_trades/specialty_trade_contractor": 0.07,
+   "staffing_hr/staffing_agency": 0.06,
+   "logistics_transport/other": 0.05,
+   "construction_trades/civil_infrastructure": 0.05,
+   "professional_services/architecture_engineering": 0.05,
+   "professional_services/other": 0.05
+  },
+  "221100": {
+   "energy_agriculture/utility": 1
+  },
+  "221200": {
+   "energy_agriculture/utility": 0.97
+  },
+  "221300": {
+   "energy_agriculture/utility": 0.54,
+   "construction_trades/civil_infrastructure": 0.26,
+   "public_nonprofit/government_agency": 0.13
+  },
+  "236100": {
+   "construction_trades/home_builder": 0.93,
+   "construction_trades/general_contractor": 0.07
+  },
+  "236200": {
+   "construction_trades/general_contractor": 1
+  },
+  "237100": {
+   "construction_trades/civil_infrastructure": 0.97
+  },
+  "237200": {
+   "real_estate/real_estate_developer": 0.78,
+   "construction_trades/civil_infrastructure": 0.06,
+   "construction_trades/general_contractor": 0.06
+  },
+  "237300": {
+   "construction_trades/civil_infrastructure": 1
+  },
+  "237900": {
+   "construction_trades/civil_infrastructure": 1
+  },
+  "238100": {
+   "construction_trades/specialty_trade_contractor": 0.8,
+   "construction_trades/general_contractor": 0.17
+  },
+  "238200": {
+   "construction_trades/specialty_trade_contractor": 1
+  },
+  "238300": {
+   "construction_trades/specialty_trade_contractor": 0.98
+  },
+  "238900": {
+   "construction_trades/specialty_trade_contractor": 0.93,
+   "construction_trades/other": 0.07
+  },
+  "311100": {
+   "manufacturing/food_beverage_producer": 0.87,
+   "manufacturing/industrial_manufacturer": 0.13
+  },
+  "311200": {
+   "manufacturing/food_beverage_producer": 0.9,
+   "manufacturing/industrial_manufacturer": 0.1
+  },
+  "311300": {
+   "manufacturing/food_beverage_producer": 0.92,
+   "manufacturing/consumer_goods_manufacturer": 0.07
+  },
+  "311400": {
+   "manufacturing/food_beverage_producer": 0.99
+  },
+  "311500": {
+   "manufacturing/food_beverage_producer": 0.98
+  },
+  "311600": {
+   "manufacturing/food_beverage_producer": 0.9,
+   "manufacturing/industrial_manufacturer": 0.1
+  },
+  "311700": {
+   "manufacturing/food_beverage_producer": 0.97
+  },
+  "311800": {
+   "manufacturing/food_beverage_producer": 0.96
+  },
+  "311900": {
+   "manufacturing/food_beverage_producer": 0.91,
+   "manufacturing/other": 0.06
+  },
+  "312100": {
+   "manufacturing/food_beverage_producer": 1
+  },
+  "312200": {
+   "manufacturing/consumer_goods_manufacturer": 0.44,
+   "manufacturing/industrial_manufacturer": 0.42,
+   "manufacturing/other": 0.1
+  },
+  "313100": {
+   "manufacturing/industrial_manufacturer": 0.85,
+   "manufacturing/consumer_goods_manufacturer": 0.08,
+   "manufacturing/other": 0.05
+  },
+  "313200": {
+   "manufacturing/industrial_manufacturer": 0.92,
+   "manufacturing/consumer_goods_manufacturer": 0.05
+  },
+  "313300": {
+   "manufacturing/industrial_manufacturer": 0.81,
+   "manufacturing/other": 0.07,
+   "manufacturing/chemicals_materials": 0.06,
+   "manufacturing/consumer_goods_manufacturer": 0.06
+  },
+  "314100": {
+   "manufacturing/industrial_manufacturer": 0.63,
+   "manufacturing/consumer_goods_manufacturer": 0.21,
+   "manufacturing/other": 0.11
+  },
+  "314900": {
+   "manufacturing/other": 0.39,
+   "manufacturing/consumer_goods_manufacturer": 0.31,
+   "manufacturing/industrial_manufacturer": 0.28
+  },
+  "315100": {
+   "manufacturing/consumer_goods_manufacturer": 0.74,
+   "manufacturing/industrial_manufacturer": 0.22
+  },
+  "315200": {
+   "manufacturing/consumer_goods_manufacturer": 0.86,
+   "manufacturing/industrial_manufacturer": 0.08
+  },
+  "315900": {
+   "manufacturing/consumer_goods_manufacturer": 0.9,
+   "manufacturing/other": 0.07
+  },
+  "316100": {
+   "manufacturing/industrial_manufacturer": 0.82,
+   "manufacturing/other": 0.07,
+   "manufacturing/consumer_goods_manufacturer": 0.06,
+   "manufacturing/chemicals_materials": 0.05
+  },
+  "316200": {
+   "manufacturing/consumer_goods_manufacturer": 0.85,
+   "manufacturing/industrial_manufacturer": 0.14
+  },
+  "316900": {
+   "manufacturing/industrial_manufacturer": 0.6,
+   "manufacturing/consumer_goods_manufacturer": 0.19,
+   "manufacturing/other": 0.19
+  },
+  "321100": {
+   "manufacturing/industrial_manufacturer": 0.96
+  },
+  "321200": {
+   "manufacturing/industrial_manufacturer": 0.95
+  },
+  "321900": {
+   "manufacturing/industrial_manufacturer": 0.82,
+   "sales_distribution/building_materials_supply": 0.06,
+   "manufacturing/other": 0.06
+  },
+  "322100": {
+   "manufacturing/industrial_manufacturer": 0.75,
+   "manufacturing/chemicals_materials": 0.24
+  },
+  "322200": {
+   "manufacturing/industrial_manufacturer": 0.47,
+   "manufacturing/chemicals_materials": 0.21,
+   "manufacturing/other": 0.19,
+   "manufacturing/consumer_goods_manufacturer": 0.05
+  },
+  "323100": {
+   "manufacturing/industrial_manufacturer": 0.43,
+   "media_publishing/other": 0.16,
+   "manufacturing/other": 0.15,
+   "professional_services/translation_media_services": 0.08,
+   "media_publishing/publisher_news": 0.07,
+   "media_publishing/film_music_production": 0.05
+  },
+  "324100": {
+   "manufacturing/industrial_manufacturer": 0.49,
+   "manufacturing/chemicals_materials": 0.46
+  },
+  "325400": {
+   "manufacturing/medical_device_pharma": 1
+  },
+  "326100": {
+   "manufacturing/chemicals_materials": 0.65,
+   "manufacturing/industrial_manufacturer": 0.32
+  },
+  "326200": {
+   "manufacturing/industrial_manufacturer": 0.64,
+   "manufacturing/chemicals_materials": 0.32
+  },
+  "327000": {
+   "manufacturing/chemicals_materials": 0.59,
+   "manufacturing/industrial_manufacturer": 0.39
+  },
+  "331100": {
+   "manufacturing/industrial_manufacturer": 0.94,
+   "manufacturing/chemicals_materials": 0.06
+  },
+  "331200": {
+   "manufacturing/industrial_manufacturer": 0.92,
+   "manufacturing/chemicals_materials": 0.07
+  },
+  "331300": {
+   "manufacturing/industrial_manufacturer": 0.85,
+   "manufacturing/chemicals_materials": 0.15
+  },
+  "331400": {
+   "manufacturing/industrial_manufacturer": 0.78,
+   "manufacturing/chemicals_materials": 0.2
+  },
+  "331500": {
+   "manufacturing/industrial_manufacturer": 1
+  },
+  "332700": {
+   "manufacturing/industrial_manufacturer": 0.96
+  },
+  "332800": {
+   "manufacturing/industrial_manufacturer": 0.93,
+   "manufacturing/contract_manufacturer": 0.05
+  },
+  "333300": {
+   "manufacturing/industrial_manufacturer": 1
+  },
+  "333500": {
+   "manufacturing/industrial_manufacturer": 1
+  },
+  "333600": {
+   "manufacturing/industrial_manufacturer": 1
+  },
+  "334100": {
+   "manufacturing/electronics_manufacturer": 0.97
+  },
+  "334200": {
+   "manufacturing/industrial_manufacturer": 0.49,
+   "manufacturing/electronics_manufacturer": 0.44,
+   "software_tech/hardware_devices": 0.07
+  },
+  "334300": {
+   "manufacturing/electronics_manufacturer": 0.63,
+   "manufacturing/industrial_manufacturer": 0.17,
+   "manufacturing/consumer_goods_manufacturer": 0.16
+  },
+  "334400": {
+   "manufacturing/electronics_manufacturer": 0.99
+  },
+  "334500": {
+   "manufacturing/industrial_manufacturer": 0.51,
+   "manufacturing/electronics_manufacturer": 0.46
+  },
+  "334600": {
+   "manufacturing/industrial_manufacturer": 0.38,
+   "manufacturing/electronics_manufacturer": 0.25,
+   "media_publishing/film_music_production": 0.21,
+   "manufacturing/other": 0.07
+  },
+  "335100": {
+   "manufacturing/industrial_manufacturer": 0.55,
+   "manufacturing/electronics_manufacturer": 0.37,
+   "manufacturing/consumer_goods_manufacturer": 0.07
+  },
+  "335200": {
+   "manufacturing/consumer_goods_manufacturer": 0.88,
+   "manufacturing/industrial_manufacturer": 0.08
+  },
+  "335300": {
+   "manufacturing/electronics_manufacturer": 0.51,
+   "manufacturing/industrial_manufacturer": 0.48
+  },
+  "335900": {
+   "manufacturing/electronics_manufacturer": 0.62,
+   "manufacturing/industrial_manufacturer": 0.32,
+   "manufacturing/other": 0.06
+  },
+  "336100": {
+   "manufacturing/industrial_manufacturer": 0.83,
+   "manufacturing/other": 0.09
+  },
+  "336200": {
+   "manufacturing/industrial_manufacturer": 0.98
+  },
+  "336300": {
+   "manufacturing/industrial_manufacturer": 0.93
+  },
+  "336400": {
+   "manufacturing/industrial_manufacturer": 1
+  },
+  "336500": {
+   "manufacturing/industrial_manufacturer": 0.99
+  },
+  "336600": {
+   "manufacturing/industrial_manufacturer": 0.97
+  },
+  "336900": {
+   "manufacturing/industrial_manufacturer": 0.82,
+   "manufacturing/other": 0.15
+  },
+  "337900": {
+   "manufacturing/other": 0.39,
+   "manufacturing/industrial_manufacturer": 0.32,
+   "manufacturing/consumer_goods_manufacturer": 0.26
+  },
+  "339100": {
+   "manufacturing/medical_device_pharma": 0.97
+  },
+  "339900": {
+   "manufacturing/other": 0.93
+  },
+  "423100": {
+   "sales_distribution/wholesale_distributor": 0.62,
+   "sales_distribution/auto_dealer": 0.37
+  },
+  "423400": {
+   "sales_distribution/industrial_supply": 0.61,
+   "sales_distribution/wholesale_distributor": 0.28,
+   "sales_distribution/equipment_dealer": 0.11
+  },
+  "423800": {
+   "sales_distribution/wholesale_distributor": 0.45,
+   "sales_distribution/equipment_dealer": 0.31,
+   "sales_distribution/industrial_supply": 0.23
+  },
+  "424300": {
+   "sales_distribution/wholesale_distributor": 1
+  },
+  "424500": {
+   "sales_distribution/wholesale_distributor": 0.49,
+   "energy_agriculture/farm_agribusiness": 0.48
+  },
+  "425100": {
+   "sales_distribution/manufacturers_rep": 0.89,
+   "sales_distribution/wholesale_distributor": 0.05
+  },
+  "441100": {
+   "sales_distribution/auto_dealer": 1
+  },
+  "441200": {
+   "sales_distribution/auto_dealer": 0.98
+  },
+  "441300": {
+   "retail_consumer/brick_and_mortar_retailer": 0.53,
+   "sales_distribution/auto_dealer": 0.35
+  },
+  "444100": {
+   "sales_distribution/building_materials_supply": 0.99
+  },
+  "444200": {
+   "sales_distribution/equipment_dealer": 0.6,
+   "retail_consumer/brick_and_mortar_retailer": 0.31,
+   "retail_consumer/other": 0.06
+  },
+  "445300": {
+   "retail_consumer/brick_and_mortar_retailer": 0.74,
+   "retail_consumer/other": 0.14,
+   "retail_consumer/grocery_convenience": 0.06
+  },
+  "449100": {
+   "retail_consumer/brick_and_mortar_retailer": 0.98
+  },
+  "449200": {
+   "retail_consumer/brick_and_mortar_retailer": 0.95
+  },
+  "455000": {
+   "retail_consumer/brick_and_mortar_retailer": 0.8,
+   "retail_consumer/other": 0.16
+  },
+  "456100": {
+   "healthcare/pharmacy": 0.5,
+   "retail_consumer/brick_and_mortar_retailer": 0.47
+  },
+  "457100": {
+   "retail_consumer/grocery_convenience": 0.69,
+   "retail_consumer/brick_and_mortar_retailer": 0.21
+  },
+  "457200": {
+   "sales_distribution/wholesale_distributor": 0.43,
+   "energy_agriculture/other": 0.14,
+   "energy_agriculture/oil_gas_mining": 0.12,
+   "retail_consumer/grocery_convenience": 0.07,
+   "retail_consumer/brick_and_mortar_retailer": 0.07,
+   "sales_distribution/other": 0.06
+  },
+  "458100": {
+   "retail_consumer/brick_and_mortar_retailer": 0.99
+  },
+  "458200": {
+   "retail_consumer/brick_and_mortar_retailer": 0.87
+  },
+  "458300": {
+   "retail_consumer/brick_and_mortar_retailer": 0.97
+  },
+  "459100": {
+   "retail_consumer/brick_and_mortar_retailer": 0.94
+  },
+  "459200": {
+   "retail_consumer/brick_and_mortar_retailer": 0.8,
+   "media_publishing/publisher_news": 0.07
+  },
+  "459300": {
+   "retail_consumer/brick_and_mortar_retailer": 0.93,
+   "retail_consumer/other": 0.07
+  },
+  "459900": {
+   "retail_consumer/other": 0.67,
+   "retail_consumer/brick_and_mortar_retailer": 0.33
+  },
+  "481100": {
+   "logistics_transport/passenger_transport": 1
+  },
+  "481200": {
+   "logistics_transport/passenger_transport": 0.97
+  },
+  "482100": {
+   "logistics_transport/passenger_transport": 0.65,
+   "logistics_transport/other": 0.18,
+   "logistics_transport/trucking_carrier": 0.15
+  },
+  "483100": {
+   "logistics_transport/passenger_transport": 0.55,
+   "logistics_transport/other": 0.32,
+   "logistics_transport/trucking_carrier": 0.08
+  },
+  "483200": {
+   "logistics_transport/passenger_transport": 0.49,
+   "logistics_transport/other": 0.41,
+   "logistics_transport/trucking_carrier": 0.07
+  },
+  "484000": {
+   "logistics_transport/trucking_carrier": 1
+  },
+  "485100": {
+   "logistics_transport/passenger_transport": 0.99
+  },
+  "485200": {
+   "logistics_transport/passenger_transport": 1
+  },
+  "485300": {
+   "logistics_transport/passenger_transport": 1
+  },
+  "485400": {
+   "logistics_transport/passenger_transport": 0.99
+  },
+  "485500": {
+   "logistics_transport/passenger_transport": 1
+  },
+  "485900": {
+   "logistics_transport/passenger_transport": 0.93,
+   "logistics_transport/other": 0.07
+  },
+  "486100": {
+   "energy_agriculture/oil_gas_mining": 0.57,
+   "logistics_transport/other": 0.14,
+   "energy_agriculture/other": 0.14,
+   "logistics_transport/trucking_carrier": 0.06
+  },
+  "486200": {
+   "energy_agriculture/oil_gas_mining": 0.39,
+   "energy_agriculture/other": 0.23,
+   "logistics_transport/other": 0.15,
+   "energy_agriculture/utility": 0.13
+  },
+  "486900": {
+   "energy_agriculture/oil_gas_mining": 0.3,
+   "energy_agriculture/other": 0.26,
+   "logistics_transport/other": 0.22,
+   "energy_agriculture/utility": 0.13
+  },
+  "487100": {
+   "logistics_transport/passenger_transport": 0.97
+  },
+  "487200": {
+   "logistics_transport/passenger_transport": 0.98
+  },
+  "487900": {
+   "logistics_transport/passenger_transport": 0.93
+  },
+  "488100": {
+   "logistics_transport/other": 0.51,
+   "logistics_transport/passenger_transport": 0.37,
+   "logistics_transport/freight_broker_3pl": 0.06
+  },
+  "488200": {
+   "logistics_transport/other": 0.75,
+   "logistics_transport/freight_broker_3pl": 0.15,
+   "logistics_transport/passenger_transport": 0.05
+  },
+  "488300": {
+   "logistics_transport/other": 0.64,
+   "logistics_transport/freight_broker_3pl": 0.28
+  },
+  "488400": {
+   "logistics_transport/freight_broker_3pl": 0.34,
+   "logistics_transport/other": 0.31,
+   "logistics_transport/trucking_carrier": 0.26
+  },
+  "488500": {
+   "logistics_transport/freight_broker_3pl": 1
+  },
+  "488900": {
+   "logistics_transport/other": 0.86,
+   "logistics_transport/freight_broker_3pl": 0.08
+  },
+  "491100": {
+   "public_nonprofit/government_agency": 0.99
+  },
+  "492100": {
+   "logistics_transport/courier_delivery": 1
+  },
+  "492200": {
+   "logistics_transport/courier_delivery": 0.99
+  },
+  "493100": {
+   "logistics_transport/warehousing_fulfillment": 1
+  },
+  "512100": {
+   "media_publishing/film_music_production": 0.92,
+   "media_publishing/broadcast_streaming": 0.07
+  },
+  "512200": {
+   "media_publishing/film_music_production": 0.95
+  },
+  "513100": {
+   "media_publishing/publisher_news": 0.99
+  },
+  "513200": {
+   "software_tech/b2b_saas": 0.92,
+   "software_tech/other": 0.07
+  },
+  "516100": {
+   "media_publishing/broadcast_streaming": 0.97
+  },
+  "516200": {
+   "media_publishing/broadcast_streaming": 0.96
+  },
+  "517000": {
+   "software_tech/telecom_isp": 1
+  },
+  "518200": {
+   "software_tech/it_services_msp": 0.9
+  },
+  "519200": {
+   "software_tech/data_ai": 0.27,
+   "media_publishing/other": 0.2,
+   "software_tech/other": 0.16,
+   "software_tech/it_services_msp": 0.15,
+   "public_nonprofit/other": 0.06
+  },
+  "521100": {
+   "financial_insurance/bank_credit_union": 0.72,
+   "public_nonprofit/government_agency": 0.26
+  },
+  "522200": {
+   "financial_insurance/lender_specialty_finance": 0.93,
+   "real_estate/mortgage_broker_lender": 0.07
+  },
+  "523000": {
+   "financial_insurance/investment_firm": 0.97
+  },
+  "524100": {
+   "financial_insurance/insurance_carrier": 1
+  },
+  "524200": {
+   "financial_insurance/insurance_agency": 1
+  },
+  "525100": {
+   "financial_insurance/insurance_carrier": 0.59,
+   "staffing_hr/peo_payroll_services": 0.2,
+   "financial_insurance/other": 0.14
+  },
+  "525900": {
+   "financial_insurance/investment_firm": 0.97
+  },
+  "531000": {
+   "real_estate/property_management": 0.37,
+   "real_estate/residential_brokerage": 0.24,
+   "real_estate/other": 0.23,
+   "real_estate/real_estate_developer": 0.09,
+   "real_estate/commercial_brokerage": 0.05
+  },
+  "532100": {
+   "sales_distribution/auto_dealer": 0.47,
+   "sales_distribution/equipment_rental": 0.43,
+   "sales_distribution/equipment_dealer": 0.05,
+   "logistics_transport/passenger_transport": 0.05
+  },
+  "533100": {
+   "sales_distribution/equipment_rental": 0.18,
+   "financial_insurance/other": 0.1,
+   "real_estate/other": 0.06,
+   "professional_services/other": 0.05,
+   "software_tech/other": 0.05,
+   "media_publishing/other": 0.05
+  },
+  "541100": {
+   "professional_services/law_firm": 1
+  },
+  "541200": {
+   "financial_insurance/accounting_firm": 0.99
+  },
+  "541300": {
+   "professional_services/architecture_engineering": 1
+  },
+  "541400": {
+   "professional_services/design_creative_studio": 1
+  },
+  "541500": {
+   "software_tech/software_consultancy": 0.93,
+   "software_tech/it_services_msp": 0.05
+  },
+  "541600": {
+   "professional_services/management_consulting": 1
+  },
+  "541700": {
+   "professional_services/research_testing_lab": 1
+  },
+  "541800": {
+   "professional_services/marketing_agency": 1
+  },
+  "541900": {
+   "professional_services/other": 0.61,
+   "professional_services/research_testing_lab": 0.22,
+   "professional_services/business_process_outsourcing": 0.05,
+   "professional_services/management_consulting": 0.05
+  },
+  "551100": {
+   "professional_services/management_consulting": 0.45,
+   "financial_insurance/investment_firm": 0.42,
+   "professional_services/other": 0.07
+  },
+  "561100": {
+   "professional_services/business_process_outsourcing": 0.53,
+   "staffing_hr/peo_payroll_services": 0.21,
+   "staffing_hr/staffing_agency": 0.11,
+   "professional_services/other": 0.09
+  },
+  "561200": {
+   "construction_trades/facilities_services": 0.99
+  },
+  "561300": {
+   "staffing_hr/staffing_agency": 0.99
+  },
+  "561400": {
+   "professional_services/business_process_outsourcing": 0.62,
+   "professional_services/management_consulting": 0.09,
+   "staffing_hr/peo_payroll_services": 0.07,
+   "professional_services/marketing_agency": 0.06,
+   "financial_insurance/accounting_firm": 0.05
+  },
+  "561500": {
+   "hospitality_food/travel_agency_tour": 1
+  },
+  "561600": {
+   "construction_trades/facilities_services": 0.68,
+   "software_tech/cybersecurity": 0.14,
+   "professional_services/other": 0.08
+  },
+  "561700": {
+   "construction_trades/home_services": 0.54,
+   "construction_trades/facilities_services": 0.43
+  },
+  "561900": {
+   "professional_services/business_process_outsourcing": 0.3,
+   "professional_services/other": 0.19,
+   "construction_trades/facilities_services": 0.16,
+   "construction_trades/home_services": 0.08,
+   "staffing_hr/other": 0.06
+  },
+  "562100": {
+   "logistics_transport/other": 0.32,
+   "construction_trades/facilities_services": 0.31,
+   "public_nonprofit/other": 0.12,
+   "public_nonprofit/government_agency": 0.07,
+   "energy_agriculture/utility": 0.05
+  },
+  "562200": {
+   "construction_trades/facilities_services": 0.41,
+   "logistics_transport/other": 0.19,
+   "public_nonprofit/other": 0.1,
+   "energy_agriculture/utility": 0.05,
+   "manufacturing/chemicals_materials": 0.05
+  },
+  "562900": {
+   "construction_trades/facilities_services": 0.74,
+   "construction_trades/specialty_trade_contractor": 0.11,
+   "professional_services/other": 0.06,
+   "construction_trades/home_services": 0.05
+  },
+  "611100": {
+   "education/k12_school": 0.99
+  },
+  "611200": {
+   "education/higher_education": 0.9,
+   "education/vocational_training": 0.08
+  },
+  "611300": {
+   "education/higher_education": 1
+  },
+  "611400": {
+   "education/higher_education": 0.56,
+   "staffing_hr/training_provider": 0.27,
+   "education/vocational_training": 0.13
+  },
+  "611500": {
+   "education/vocational_training": 1
+  },
+  "611600": {
+   "education/vocational_training": 0.38,
+   "education/other": 0.37,
+   "education/higher_education": 0.09,
+   "education/tutoring_test_prep": 0.06
+  },
+  "611700": {
+   "education/other": 0.41,
+   "education/edtech": 0.23,
+   "staffing_hr/training_provider": 0.08,
+   "education/tutoring_test_prep": 0.07,
+   "education/vocational_training": 0.05
+  },
+  "621100": {
+   "healthcare/medical_practice_clinic": 1
+  },
+  "621200": {
+   "healthcare/dental_practice": 1
+  },
+  "621300": {
+   "healthcare/medical_practice_clinic": 0.83,
+   "healthcare/other": 0.14
+  },
+  "621400": {
+   "healthcare/medical_practice_clinic": 0.79,
+   "healthcare/other": 0.15,
+   "healthcare/hospital_health_system": 0.06
+  },
+  "621500": {
+   "professional_services/research_testing_lab": 0.61,
+   "healthcare/other": 0.24,
+   "healthcare/medical_practice_clinic": 0.11
+  },
+  "621600": {
+   "healthcare/home_health_senior_care": 1
+  },
+  "621900": {
+   "healthcare/other": 0.7,
+   "healthcare/medical_practice_clinic": 0.3
+  },
+  "622100": {
+   "healthcare/hospital_health_system": 1
+  },
+  "622200": {
+   "healthcare/hospital_health_system": 0.59,
+   "healthcare/behavioral_health": 0.4
+  },
+  "622300": {
+   "healthcare/hospital_health_system": 0.99
+  },
+  "623100": {
+   "healthcare/home_health_senior_care": 0.89,
+   "healthcare/hospital_health_system": 0.06
+  },
+  "623200": {
+   "healthcare/home_health_senior_care": 0.51,
+   "healthcare/behavioral_health": 0.39,
+   "healthcare/other": 0.09
+  },
+  "623300": {
+   "healthcare/home_health_senior_care": 0.98
+  },
+  "623900": {
+   "healthcare/home_health_senior_care": 0.55,
+   "healthcare/other": 0.39
+  },
+  "624100": {
+   "healthcare/home_health_senior_care": 0.35,
+   "public_nonprofit/nonprofit_charity": 0.25,
+   "professional_services/other": 0.12,
+   "construction_trades/home_services": 0.11,
+   "healthcare/other": 0.09
+  },
+  "624200": {
+   "public_nonprofit/nonprofit_charity": 0.92,
+   "public_nonprofit/other": 0.07
+  },
+  "624300": {
+   "education/vocational_training": 0.41,
+   "healthcare/other": 0.24,
+   "professional_services/other": 0.09,
+   "public_nonprofit/other": 0.05,
+   "healthcare/healthcare_staffing": 0.05
+  },
+  "624400": {
+   "healthcare/other": 0.32,
+   "education/other": 0.24,
+   "construction_trades/home_services": 0.13,
+   "public_nonprofit/nonprofit_charity": 0.07,
+   "healthcare/home_health_senior_care": 0.05,
+   "public_nonprofit/other": 0.05
+  },
+  "711100": {
+   "hospitality_food/entertainment_recreation": 0.6,
+   "media_publishing/film_music_production": 0.34
+  },
+  "711200": {
+   "hospitality_food/entertainment_recreation": 0.98
+  },
+  "711300": {
+   "hospitality_food/events_venue": 0.54,
+   "hospitality_food/entertainment_recreation": 0.4
+  },
+  "711400": {
+   "professional_services/other": 0.29,
+   "staffing_hr/recruitment_firm": 0.18,
+   "media_publishing/creator_influencer_business": 0.12,
+   "hospitality_food/entertainment_recreation": 0.11,
+   "professional_services/marketing_agency": 0.09,
+   "staffing_hr/staffing_agency": 0.08
+  },
+  "711500": {
+   "media_publishing/creator_influencer_business": 0.92
+  },
+  "712100": {
+   "public_nonprofit/other": 0.37,
+   "hospitality_food/entertainment_recreation": 0.27,
+   "public_nonprofit/nonprofit_charity": 0.22
+  },
+  "713100": {
+   "hospitality_food/entertainment_recreation": 1
+  },
+  "713200": {
+   "hospitality_food/entertainment_recreation": 0.98
+  },
+  "713900": {
+   "hospitality_food/entertainment_recreation": 0.99
+  },
+  "721100": {
+   "hospitality_food/hotel_lodging": 1
+  },
+  "721200": {
+   "hospitality_food/hotel_lodging": 0.98
+  },
+  "721300": {
+   "hospitality_food/hotel_lodging": 0.85,
+   "healthcare/home_health_senior_care": 0.09
+  },
+  "722300": {
+   "hospitality_food/restaurant": 0.67,
+   "hospitality_food/other": 0.19,
+   "hospitality_food/events_venue": 0.08,
+   "manufacturing/food_beverage_producer": 0.05
+  },
+  "722400": {
+   "hospitality_food/restaurant": 0.87,
+   "hospitality_food/other": 0.12
+  },
+  "722500": {
+   "hospitality_food/restaurant": 1
+  },
+  "811100": {
+   "construction_trades/specialty_trade_contractor": 0.41,
+   "sales_distribution/auto_dealer": 0.38,
+   "construction_trades/home_services": 0.19
+  },
+  "811200": {
+   "construction_trades/specialty_trade_contractor": 0.61,
+   "software_tech/it_services_msp": 0.22,
+   "construction_trades/home_services": 0.08,
+   "sales_distribution/equipment_dealer": 0.05
+  },
+  "811300": {
+   "construction_trades/specialty_trade_contractor": 0.4,
+   "sales_distribution/equipment_dealer": 0.26,
+   "sales_distribution/industrial_supply": 0.12,
+   "construction_trades/facilities_services": 0.12
+  },
+  "811400": {
+   "construction_trades/home_services": 0.93,
+   "construction_trades/specialty_trade_contractor": 0.05
+  },
+  "812100": {
+   "hospitality_food/fitness_wellness": 0.75,
+   "construction_trades/home_services": 0.2
+  },
+  "812200": {
+   "professional_services/other": 0.23,
+   "healthcare/other": 0.17,
+   "retail_consumer/other": 0.13,
+   "healthcare/home_health_senior_care": 0.12,
+   "public_nonprofit/nonprofit_charity": 0.09,
+   "construction_trades/home_services": 0.08
+  },
+  "812300": {
+   "construction_trades/home_services": 0.61,
+   "construction_trades/facilities_services": 0.26,
+   "healthcare/pharmacy": 0.05
+  },
+  "812900": {
+   "construction_trades/home_services": 0.61,
+   "retail_consumer/other": 0.1,
+   "professional_services/other": 0.09,
+   "hospitality_food/fitness_wellness": 0.06
+  },
+  "813100": {
+   "public_nonprofit/religious_organization": 1
+  },
+  "813200": {
+   "public_nonprofit/nonprofit_charity": 0.98
+  },
+  "813300": {
+   "public_nonprofit/nonprofit_charity": 0.72,
+   "public_nonprofit/other": 0.2
+  },
+  "813400": {
+   "public_nonprofit/association_membership": 0.53,
+   "public_nonprofit/nonprofit_charity": 0.23,
+   "public_nonprofit/other": 0.2
+  },
+  "813900": {
+   "public_nonprofit/association_membership": 0.97
+  },
+  "999100": {
+   "public_nonprofit/government_agency": 1
+  },
+  "999200": {
+   "public_nonprofit/government_agency": 1
+  },
+  "999300": {
+   "public_nonprofit/government_agency": 1
+  },
+  "3250A1": {
+   "manufacturing/chemicals_materials": 0.96
+  },
+  "3250A2": {
+   "manufacturing/chemicals_materials": 0.8,
+   "manufacturing/industrial_manufacturer": 0.12,
+   "manufacturing/medical_device_pharma": 0.07
+  },
+  "3320A1": {
+   "manufacturing/industrial_manufacturer": 1
+  },
+  "3320A2": {
+   "manufacturing/industrial_manufacturer": 0.98
+  },
+  "3330A1": {
+   "manufacturing/industrial_manufacturer": 1
+  },
+  "3370A1": {
+   "manufacturing/industrial_manufacturer": 0.58,
+   "manufacturing/consumer_goods_manufacturer": 0.39
+  },
+  "4230A1": {
+   "sales_distribution/wholesale_distributor": 0.93,
+   "sales_distribution/industrial_supply": 0.05
+  },
+  "4240A1": {
+   "sales_distribution/wholesale_distributor": 0.97
+  },
+  "4240A2": {
+   "sales_distribution/wholesale_distributor": 0.93
+  },
+  "4240A3": {
+   "sales_distribution/wholesale_distributor": 0.94
+  },
+  "4450A1": {
+   "retail_consumer/grocery_convenience": 0.9,
+   "retail_consumer/brick_and_mortar_retailer": 0.07
+  },
+  "4590A1": {
+   "retail_consumer/brick_and_mortar_retailer": 0.62,
+   "retail_consumer/other": 0.33
+  },
+  "5220A1": {
+   "financial_insurance/bank_credit_union": 0.83,
+   "financial_insurance/lender_specialty_finance": 0.15
+  },
+  "5320A1": {
+   "sales_distribution/equipment_rental": 0.69,
+   "real_estate/property_management": 0.14
+  }
+ }
+}

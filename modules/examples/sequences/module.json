@@ -1,0 +1,4501 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/sequences",
+  "version": "0.7.0",
+  "title": "Sequences",
+  "description": "Multi-step outreach from your own Gmail, LinkedIn and calls: steps on a schedule, A/B variants on emails, and a rep's task inbox. Canon does the sending, inside each sender's limits; a reply, bounce, unsubscribe, booked meeting or new deal stops the contact's sequence.",
+  "author": {
+    "org": "canon"
+  },
+  "engines": {
+    "moduleApi": "1"
+  },
+  "nav": {
+    "label": "Sequences",
+    "icon": "target",
+    "section": "Work",
+    "landing": {
+      "default": "sequences",
+      "rep": "tasks"
+    }
+  },
+  "collections": {
+    "schedules": {
+      "label": "Schedule",
+      "schema": {
+        "type": "object",
+        "value": {
+          "name": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "optional": false,
+            "label": "Name"
+          },
+          "days": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "union",
+                "value": [
+                  {
+                    "type": "literal",
+                    "value": "1"
+                  },
+                  {
+                    "type": "literal",
+                    "value": "2"
+                  },
+                  {
+                    "type": "literal",
+                    "value": "3"
+                  },
+                  {
+                    "type": "literal",
+                    "value": "4"
+                  },
+                  {
+                    "type": "literal",
+                    "value": "5"
+                  },
+                  {
+                    "type": "literal",
+                    "value": "6"
+                  },
+                  {
+                    "type": "literal",
+                    "value": "0"
+                  }
+                ],
+                "labels": {
+                  "1": "Mon",
+                  "2": "Tue",
+                  "3": "Wed",
+                  "4": "Thu",
+                  "5": "Fri",
+                  "6": "Sat",
+                  "0": "Sun"
+                }
+              }
+            },
+            "optional": false,
+            "label": "Days"
+          },
+          "start": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 5
+            },
+            "optional": false,
+            "label": "From",
+            "help": "HH:MM, the sender's time"
+          },
+          "end": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 5
+            },
+            "optional": false,
+            "label": "To",
+            "help": "HH:MM"
+          },
+          "timeZone": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "optional": false,
+            "label": "Time zone",
+            "help": "As America/New_York"
+          },
+          "holidays": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": true,
+            "label": "Holidays",
+            "help": "Dates with no sends, YYYY-MM-DD"
+          }
+        }
+      },
+      "key": "auto",
+      "title": "name",
+      "indexes": {},
+      "access": {
+        "rep": "all"
+      }
+    },
+    "sequences": {
+      "label": "Sequence",
+      "schema": {
+        "type": "object",
+        "value": {
+          "name": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "optional": false,
+            "label": "Name"
+          },
+          "owner": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "Owner"
+          },
+          "schedule": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "schedules"
+            },
+            "optional": true,
+            "label": "Schedule"
+          },
+          "intervalType": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "schedule_days"
+                },
+                {
+                  "type": "literal",
+                  "value": "calendar_days"
+                }
+              ],
+              "labels": {
+                "schedule_days": "Schedule days",
+                "calendar_days": "Calendar days"
+              }
+            },
+            "optional": true,
+            "label": "Count delays in"
+          },
+          "senders": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "channel": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "email"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "linkedin"
+                        }
+                      ],
+                      "labels": {
+                        "email": "Gmail",
+                        "linkedin": "LinkedIn"
+                      }
+                    },
+                    "optional": false,
+                    "label": "Channel"
+                  },
+                  "sender": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "optional": false,
+                    "label": "Sender",
+                    "help": "A linked Gmail address or LinkedIn account"
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Senders"
+          },
+          "dailyNewPerSender": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "First emails per sender a day"
+          },
+          "maxAddsPerDay": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Most people added a day"
+          },
+          "maxActivePerRep": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Most active people per rep"
+          },
+          "addPolicy": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "once"
+                },
+                {
+                  "type": "literal",
+                  "value": "if_not_active"
+                },
+                {
+                  "type": "literal",
+                  "value": "any"
+                }
+              ],
+              "labels": {
+                "once": "Once",
+                "if_not_active": "Again when not active",
+                "any": "Any time"
+              }
+            },
+            "optional": true,
+            "label": "Add a person"
+          },
+          "contactLatencyDays": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Days since last contacted"
+          },
+          "stopOnMeeting": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "Stop on a booked meeting"
+          },
+          "stopOnOpenDeal": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "Stop when they join an open deal"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "draft"
+                },
+                {
+                  "type": "literal",
+                  "value": "active"
+                },
+                {
+                  "type": "literal",
+                  "value": "paused"
+                },
+                {
+                  "type": "literal",
+                  "value": "archived"
+                }
+              ],
+              "labels": {
+                "draft": "Draft",
+                "active": "Active",
+                "paused": "Paused",
+                "archived": "Archived"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          }
+        }
+      },
+      "key": "auto",
+      "title": "name",
+      "owner": "owner",
+      "indexes": {
+        "byStatus": [
+          "status"
+        ],
+        "byOwnerStatus": [
+          "owner",
+          "status"
+        ]
+      },
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      }
+    },
+    "steps": {
+      "label": "Step",
+      "schema": {
+        "type": "object",
+        "value": {
+          "position": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Order"
+          },
+          "kind": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "auto_email"
+                },
+                {
+                  "type": "literal",
+                  "value": "manual_email"
+                },
+                {
+                  "type": "literal",
+                  "value": "linkedin_invite"
+                },
+                {
+                  "type": "literal",
+                  "value": "linkedin_message"
+                },
+                {
+                  "type": "literal",
+                  "value": "linkedin_task"
+                },
+                {
+                  "type": "literal",
+                  "value": "call"
+                },
+                {
+                  "type": "literal",
+                  "value": "task"
+                }
+              ],
+              "labels": {
+                "auto_email": "Automatic email",
+                "manual_email": "Manual email",
+                "linkedin_invite": "LinkedIn invite",
+                "linkedin_message": "LinkedIn message",
+                "linkedin_task": "LinkedIn task",
+                "call": "Call",
+                "task": "Task"
+              }
+            },
+            "optional": false,
+            "label": "Kind"
+          },
+          "delayDays": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Days after the step before"
+          },
+          "thread": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "Reply in the first email's thread"
+          },
+          "variants": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "id": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 8
+                    },
+                    "optional": false,
+                    "label": "Variant"
+                  },
+                  "weight": {
+                    "fieldType": {
+                      "type": "number"
+                    },
+                    "optional": false,
+                    "label": "Share (%)"
+                  },
+                  "subject": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "optional": true,
+                    "label": "Subject"
+                  },
+                  "body": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 5000
+                    },
+                    "optional": false,
+                    "label": "Body",
+                    "widget": "textarea",
+                    "help": "Merge fields: {{firstName | default \"there\"}}, {{company}}, {{custom.<field>}}"
+                  },
+                  "paused": {
+                    "fieldType": {
+                      "type": "boolean"
+                    },
+                    "optional": true,
+                    "label": "Paused"
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Email variants"
+          },
+          "note": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "optional": true,
+            "label": "Note for the rep",
+            "widget": "textarea"
+          },
+          "priority": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "high"
+                },
+                {
+                  "type": "literal",
+                  "value": "normal"
+                },
+                {
+                  "type": "literal",
+                  "value": "low"
+                }
+              ],
+              "labels": {
+                "high": "High",
+                "normal": "Normal",
+                "low": "Low"
+              }
+            },
+            "optional": true,
+            "label": "Priority"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {
+        "byPosition": [
+          "position"
+        ]
+      },
+      "access": {},
+      "setOf": {
+        "parent": "sequences"
+      },
+      "title": "{$doc.kind}"
+    },
+    "enrollRuns": {
+      "label": "Enroll",
+      "schema": {
+        "type": "object",
+        "value": {
+          "sequence": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "sequences"
+            },
+            "optional": false,
+            "label": "Sequence"
+          },
+          "snapshot": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Snapshot"
+          },
+          "audience": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Audience id"
+          },
+          "audienceName": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Audience"
+          },
+          "count": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "People"
+          },
+          "pages": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Pages"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "preview"
+                },
+                {
+                  "type": "literal",
+                  "value": "enrolling"
+                },
+                {
+                  "type": "literal",
+                  "value": "cancelled"
+                }
+              ],
+              "labels": {
+                "preview": "Preview",
+                "enrolling": "Enrolling",
+                "cancelled": "Cancelled"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "snapshot"
+        ]
+      },
+      "title": "audienceName",
+      "indexes": {
+        "bySequence": [
+          "sequence"
+        ]
+      },
+      "access": {
+        "rep": "all"
+      }
+    },
+    "enrollPages": {
+      "label": "Enroll page",
+      "schema": {
+        "type": "object",
+        "value": {
+          "run": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Enroll"
+          },
+          "page": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Page"
+          },
+          "ids": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": true,
+            "label": "Person ids"
+          },
+          "people": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "id": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": false
+                  },
+                  "name": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": true
+                  },
+                  "title": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": true
+                  },
+                  "email": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": true
+                  },
+                  "linkedinUrl": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": true
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "People"
+          },
+          "enroll": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": true,
+            "label": "To enroll"
+          },
+          "skipped": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "id": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": false
+                  },
+                  "name": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": true
+                  },
+                  "reason": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "suppressed"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "active_elsewhere"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "no_email"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "no_linkedin"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "enrolled_before"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "contacted_recently"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "unresolved_field"
+                        }
+                      ],
+                      "labels": {
+                        "suppressed": "Suppressed",
+                        "active_elsewhere": "In another sequence",
+                        "no_email": "No email",
+                        "no_linkedin": "No LinkedIn URL",
+                        "enrolled_before": "Enrolled before",
+                        "contacted_recently": "Contacted recently",
+                        "unresolved_field": "A merge field it can't fill"
+                      }
+                    },
+                    "optional": false
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Skipped"
+          },
+          "nPeople": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "People"
+          },
+          "nEnroll": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "To enroll"
+          },
+          "nSkipped": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Skipped"
+          },
+          "nEnrolled": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Enrolled"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "run",
+          "page"
+        ]
+      },
+      "indexes": {
+        "byRun": [
+          "run",
+          "page"
+        ]
+      },
+      "access": {
+        "rep": "all"
+      }
+    },
+    "enrollments": {
+      "label": "Enrollment",
+      "schema": {
+        "type": "object",
+        "value": {
+          "sequence": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "sequences"
+            },
+            "optional": false,
+            "label": "Sequence"
+          },
+          "contact": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Person"
+          },
+          "contactName": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Name"
+          },
+          "title": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Title"
+          },
+          "email": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Email"
+          },
+          "linkedinUrl": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "LinkedIn"
+          },
+          "rep": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "Rep"
+          },
+          "stepIndex": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Next step"
+          },
+          "lastDay": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Last step on"
+          },
+          "run": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Enroll"
+          },
+          "finishReason": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "completed"
+                },
+                {
+                  "type": "literal",
+                  "value": "replied"
+                },
+                {
+                  "type": "literal",
+                  "value": "bounced"
+                },
+                {
+                  "type": "literal",
+                  "value": "unsubscribed"
+                },
+                {
+                  "type": "literal",
+                  "value": "meeting"
+                },
+                {
+                  "type": "literal",
+                  "value": "opportunity"
+                },
+                {
+                  "type": "literal",
+                  "value": "manual"
+                },
+                {
+                  "type": "literal",
+                  "value": "failed"
+                }
+              ],
+              "labels": {
+                "completed": "Completed",
+                "replied": "Replied",
+                "bounced": "Bounced",
+                "unsubscribed": "Unsubscribed",
+                "meeting": "Meeting booked",
+                "opportunity": "Opportunity",
+                "manual": "Finished by hand",
+                "failed": "Failed"
+              }
+            },
+            "optional": true,
+            "label": "Finished because"
+          },
+          "state": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "pending"
+                },
+                {
+                  "type": "literal",
+                  "value": "active"
+                },
+                {
+                  "type": "literal",
+                  "value": "held"
+                },
+                {
+                  "type": "literal",
+                  "value": "paused"
+                },
+                {
+                  "type": "literal",
+                  "value": "finished"
+                }
+              ],
+              "labels": {
+                "pending": "Pending",
+                "active": "Active",
+                "held": "Out of office",
+                "paused": "Paused",
+                "finished": "Finished"
+              }
+            },
+            "optional": false,
+            "label": "State"
+          },
+          "nextAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Next step at"
+          },
+          "startDay": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "optional": true,
+            "label": "Started on"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "sequence",
+          "contact"
+        ]
+      },
+      "owner": "rep",
+      "title": "contactName",
+      "indexes": {
+        "bySequenceState": [
+          "sequence",
+          "state"
+        ],
+        "byContact": [
+          "contact",
+          "state"
+        ],
+        "byStateNext": [
+          "state",
+          "nextAt"
+        ],
+        "bySequenceContact": [
+          "sequence",
+          "contact"
+        ]
+      },
+      "access": {
+        "manager": "team",
+        "rep": "own"
+      },
+      "report": {
+        "dimensions": [
+          "sequence",
+          "state",
+          "finishReason",
+          "rep",
+          "rep.team"
+        ]
+      }
+    },
+    "tasks": {
+      "label": "Task",
+      "schema": {
+        "type": "object",
+        "value": {
+          "sequence": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "sequences"
+            },
+            "optional": false,
+            "label": "Sequence"
+          },
+          "contact": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Person"
+          },
+          "contactName": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Name"
+          },
+          "title": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Title"
+          },
+          "email": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Email"
+          },
+          "linkedinUrl": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "LinkedIn"
+          },
+          "stepIndex": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Step"
+          },
+          "kind": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "auto_email"
+                },
+                {
+                  "type": "literal",
+                  "value": "manual_email"
+                },
+                {
+                  "type": "literal",
+                  "value": "linkedin_invite"
+                },
+                {
+                  "type": "literal",
+                  "value": "linkedin_message"
+                },
+                {
+                  "type": "literal",
+                  "value": "linkedin_task"
+                },
+                {
+                  "type": "literal",
+                  "value": "call"
+                },
+                {
+                  "type": "literal",
+                  "value": "task"
+                }
+              ],
+              "labels": {
+                "auto_email": "Automatic email",
+                "manual_email": "Manual email",
+                "linkedin_invite": "LinkedIn invite",
+                "linkedin_message": "LinkedIn message",
+                "linkedin_task": "LinkedIn task",
+                "call": "Call",
+                "task": "Task"
+              }
+            },
+            "optional": false,
+            "label": "Kind"
+          },
+          "note": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "optional": true,
+            "label": "Note"
+          },
+          "priority": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "high"
+                },
+                {
+                  "type": "literal",
+                  "value": "normal"
+                },
+                {
+                  "type": "literal",
+                  "value": "low"
+                }
+              ],
+              "labels": {
+                "high": "High",
+                "normal": "Normal",
+                "low": "Low"
+              }
+            },
+            "optional": true,
+            "label": "Priority"
+          },
+          "dueDay": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 10
+            },
+            "optional": false,
+            "label": "Due",
+            "widget": "date"
+          },
+          "rep": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "Rep"
+          },
+          "doneAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Done at"
+          },
+          "state": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "open"
+                },
+                {
+                  "type": "literal",
+                  "value": "done"
+                },
+                {
+                  "type": "literal",
+                  "value": "skipped"
+                }
+              ],
+              "labels": {
+                "open": "Open",
+                "done": "Done",
+                "skipped": "Skipped"
+              }
+            },
+            "optional": false,
+            "label": "State"
+          },
+          "callActivity": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Call activity"
+          },
+          "callOutcome": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Call outcome"
+          },
+          "callAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Call time"
+          },
+          "callObservedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Call outcome observed at"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "sequence",
+          "contact",
+          "stepIndex"
+        ]
+      },
+      "owner": "rep",
+      "title": "contactName",
+      "indexes": {
+        "byStateDue": [
+          "state",
+          "dueDay"
+        ],
+        "bySequenceContact": [
+          "sequence",
+          "contact"
+        ],
+        "byRepKindStateDue": [
+          "rep",
+          "kind",
+          "state",
+          "dueDay"
+        ],
+        "byRepContactKindState": [
+          "rep",
+          "contact",
+          "kind",
+          "state"
+        ],
+        "byCallActivity": [
+          "callActivity"
+        ],
+        "byRepKindStateCall": [
+          "rep",
+          "kind",
+          "state",
+          "callAt"
+        ]
+      },
+      "access": {
+        "manager": "team",
+        "rep": "own"
+      },
+      "report": {
+        "dimensions": [
+          "sequence",
+          "kind",
+          "state",
+          "rep",
+          "rep.team",
+          "dueDay"
+        ]
+      }
+    }
+  },
+  "views": {
+    "schedules.all": {
+      "kind": "list",
+      "collection": "schedules",
+      "limit": 100
+    },
+    "schedules.one": {
+      "kind": "one",
+      "collection": "schedules",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "sequences.all": {
+      "kind": "list",
+      "collection": "sequences",
+      "order": "desc",
+      "limit": 200
+    },
+    "sequences.one": {
+      "kind": "one",
+      "collection": "sequences",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "steps.forSequence": {
+      "kind": "list",
+      "collection": "steps",
+      "args": {
+        "sequence": "string"
+      },
+      "parent": {
+        "arg": "sequence"
+      },
+      "index": "byPosition"
+    },
+    "enrollRuns.one": {
+      "kind": "one",
+      "collection": "enrollRuns",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "enrollRuns.forSequence": {
+      "kind": "list",
+      "collection": "enrollRuns",
+      "args": {
+        "sequence": "string"
+      },
+      "index": "bySequence",
+      "eq": [
+        {
+          "arg": "sequence"
+        }
+      ],
+      "order": "desc",
+      "limit": 50
+    },
+    "enrollPages.at": {
+      "kind": "list",
+      "collection": "enrollPages",
+      "args": {
+        "run": "string",
+        "page": "string"
+      },
+      "index": "byRun",
+      "eq": [
+        {
+          "arg": "run"
+        },
+        {
+          "arg": "page"
+        }
+      ],
+      "limit": 1
+    },
+    "enrollPages.forRun": {
+      "kind": "list",
+      "collection": "enrollPages",
+      "args": {
+        "run": "string"
+      },
+      "index": "byRun",
+      "eq": [
+        {
+          "arg": "run"
+        }
+      ],
+      "limit": 60
+    },
+    "enrollments.forSequence": {
+      "kind": "list",
+      "collection": "enrollments",
+      "args": {
+        "sequence": "string"
+      },
+      "index": "bySequenceState",
+      "eq": [
+        {
+          "arg": "sequence"
+        }
+      ],
+      "limit": 1000
+    },
+    "enrollments.forContacts": {
+      "kind": "list",
+      "collection": "enrollments",
+      "args": {
+        "contacts": "string[]"
+      },
+      "index": "byContact",
+      "eq": [
+        {
+          "arg": "contacts"
+        }
+      ],
+      "limit": 1000
+    },
+    "enrollments.at": {
+      "kind": "list",
+      "collection": "enrollments",
+      "args": {
+        "sequence": "string",
+        "contacts": "string[]"
+      },
+      "index": "bySequenceContact",
+      "eq": [
+        {
+          "arg": "sequence"
+        },
+        {
+          "arg": "contacts"
+        }
+      ],
+      "limit": 200
+    },
+    "enrollments.idle": {
+      "kind": "list",
+      "collection": "enrollments",
+      "args": {
+        "sequence": "string"
+      },
+      "index": "bySequenceState",
+      "eq": [
+        {
+          "arg": "sequence"
+        },
+        "active"
+      ],
+      "where": {
+        "field": "nextAt",
+        "in": [
+          null
+        ]
+      },
+      "limit": 500
+    },
+    "enrollments.pending": {
+      "kind": "list",
+      "collection": "enrollments",
+      "args": {
+        "sequence": "string"
+      },
+      "index": "bySequenceState",
+      "eq": [
+        {
+          "arg": "sequence"
+        },
+        "pending"
+      ],
+      "where": {
+        "field": "nextAt",
+        "in": [
+          null
+        ]
+      },
+      "limit": 500
+    },
+    "tasks.at": {
+      "kind": "list",
+      "collection": "tasks",
+      "args": {
+        "sequence": "string",
+        "contacts": "string[]"
+      },
+      "index": "bySequenceContact",
+      "eq": [
+        {
+          "arg": "sequence"
+        },
+        {
+          "arg": "contacts"
+        }
+      ],
+      "limit": 1000
+    },
+    "tasks.open": {
+      "kind": "list",
+      "collection": "tasks",
+      "index": "byStateDue",
+      "eq": [
+        "open"
+      ],
+      "limit": 500
+    },
+    "tasks.openForEnrollment": {
+      "kind": "list",
+      "collection": "tasks",
+      "args": {
+        "sequence": "string",
+        "contact": "string"
+      },
+      "index": "bySequenceContact",
+      "eq": [
+        {
+          "arg": "sequence"
+        },
+        {
+          "arg": "contact"
+        }
+      ],
+      "where": {
+        "field": "state",
+        "in": [
+          "open"
+        ]
+      },
+      "limit": 500
+    },
+    "steps.auto": {
+      "kind": "list",
+      "collection": "steps",
+      "args": {
+        "sequence": "string"
+      },
+      "parent": {
+        "arg": "sequence"
+      },
+      "where": {
+        "field": "kind",
+        "in": [
+          "auto_email",
+          "linkedin_invite",
+          "linkedin_message"
+        ]
+      }
+    },
+    "enrollments.forContact": {
+      "kind": "list",
+      "collection": "enrollments",
+      "args": {
+        "contact": "string"
+      },
+      "index": "byContact",
+      "eq": [
+        {
+          "arg": "contact"
+        }
+      ],
+      "limit": 50
+    },
+    "enrollments.all": {
+      "kind": "list",
+      "collection": "enrollments",
+      "limit": 1000
+    },
+    "tasks.forSequence": {
+      "kind": "list",
+      "collection": "tasks",
+      "args": {
+        "sequence": "string"
+      },
+      "index": "bySequenceContact",
+      "eq": [
+        {
+          "arg": "sequence"
+        }
+      ],
+      "limit": 1000
+    },
+    "tasks.callsDue": {
+      "kind": "list",
+      "collection": "tasks",
+      "index": "byRepKindStateDue",
+      "eq": [
+        {
+          "caller": "userId"
+        },
+        "call",
+        "open"
+      ],
+      "range": {
+        "lte": {
+          "now": "date"
+        }
+      },
+      "where": {
+        "ref": "sequence",
+        "where": {
+          "field": "status",
+          "in": [
+            "active"
+          ]
+        }
+      },
+      "order": "asc",
+      "limit": 500
+    },
+    "tasks.openCallsForContact": {
+      "kind": "list",
+      "collection": "tasks",
+      "args": {
+        "rep": "string",
+        "contact": "string"
+      },
+      "index": "byRepContactKindState",
+      "eq": [
+        {
+          "arg": "rep"
+        },
+        {
+          "arg": "contact"
+        },
+        "call",
+        "open"
+      ],
+      "limit": 500
+    },
+    "tasks.forCall": {
+      "kind": "list",
+      "collection": "tasks",
+      "args": {
+        "activity": "string"
+      },
+      "index": "byCallActivity",
+      "eq": [
+        {
+          "arg": "activity"
+        }
+      ],
+      "limit": 500
+    },
+    "tasks.loggedCalls": {
+      "kind": "list",
+      "collection": "tasks",
+      "index": "byRepKindStateCall",
+      "eq": [
+        {
+          "caller": "userId"
+        },
+        "call",
+        "done"
+      ],
+      "order": "desc",
+      "limit": 100,
+      "where": {
+        "field": "callActivity",
+        "neq": null
+      }
+    }
+  },
+  "ops": {
+    "schedules.create": {
+      "label": "New schedule",
+      "kind": "create",
+      "collection": "schedules",
+      "fields": [
+        "name",
+        "days",
+        "start",
+        "end",
+        "timeZone",
+        "holidays"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "schedules.update": {
+      "label": "Edit schedule",
+      "kind": "update",
+      "collection": "schedules",
+      "fields": [
+        "name",
+        "days",
+        "start",
+        "end",
+        "timeZone",
+        "holidays"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "sequences.create": {
+      "label": "New sequence",
+      "kind": "create",
+      "collection": "sequences",
+      "fields": [
+        "name",
+        "schedule",
+        "intervalType",
+        "senders",
+        "dailyNewPerSender",
+        "maxAddsPerDay",
+        "maxActivePerRep",
+        "addPolicy",
+        "contactLatencyDays",
+        "stopOnMeeting",
+        "stopOnOpenDeal"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "set": {
+        "owner": {
+          "caller": "userId"
+        }
+      }
+    },
+    "sequences.update": {
+      "label": "Settings",
+      "kind": "update",
+      "collection": "sequences",
+      "fields": [
+        "name",
+        "schedule",
+        "intervalType",
+        "senders",
+        "dailyNewPerSender",
+        "maxAddsPerDay",
+        "maxActivePerRep",
+        "addPolicy",
+        "contactLatencyDays",
+        "stopOnMeeting",
+        "stopOnOpenDeal"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "any": [
+              {
+                "caller": "isOwner"
+              },
+              {
+                "role": [
+                  "admin",
+                  "manager"
+                ]
+              }
+            ]
+          },
+          "message": "Only its owner, a manager or an admin edits a sequence."
+        },
+        {
+          "when": {
+            "field": "status",
+            "in": [
+              "draft",
+              "paused"
+            ]
+          },
+          "message": "Pause the sequence to change it."
+        }
+      ]
+    },
+    "steps.create": {
+      "label": "Add step",
+      "kind": "create",
+      "collection": "steps",
+      "fields": [
+        "kind",
+        "delayDays",
+        "thread",
+        "variants",
+        "note",
+        "priority"
+      ],
+      "set": {
+        "position": {
+          "now": "ms"
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "items": {
+              "list": "variants"
+            },
+            "atMost": 5
+          },
+          "message": "A step has at most 5 variants."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "items": {
+                  "list": "variants"
+                },
+                "atMost": 0
+              },
+              {
+                "sum": {
+                  "list": "variants",
+                  "field": "weight"
+                },
+                "eq": 100
+              }
+            ]
+          },
+          "message": "Variant shares add up to 100."
+        },
+        {
+          "when": {
+            "unique": {
+              "list": "variants",
+              "field": "id"
+            }
+          },
+          "message": "Each variant needs its own name."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "field": "kind",
+                "in": [
+                  "auto_email",
+                  "manual_email"
+                ]
+              },
+              {
+                "items": {
+                  "list": "variants"
+                },
+                "atMost": 0
+              }
+            ]
+          },
+          "message": "Only email steps have variants."
+        },
+        {
+          "when": {
+            "field": "delayDays",
+            "lte": 30
+          },
+          "message": "A step waits at most 30 days."
+        }
+      ]
+    },
+    "steps.update": {
+      "label": "Edit step",
+      "kind": "update",
+      "collection": "steps",
+      "fields": [
+        "position",
+        "kind",
+        "delayDays",
+        "thread",
+        "variants",
+        "note",
+        "priority"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "items": {
+              "list": "variants"
+            },
+            "atMost": 5
+          },
+          "message": "A step has at most 5 variants."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "items": {
+                  "list": "variants"
+                },
+                "atMost": 0
+              },
+              {
+                "sum": {
+                  "list": "variants",
+                  "field": "weight"
+                },
+                "eq": 100
+              }
+            ]
+          },
+          "message": "Variant shares add up to 100."
+        },
+        {
+          "when": {
+            "unique": {
+              "list": "variants",
+              "field": "id"
+            }
+          },
+          "message": "Each variant needs its own name."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "field": "kind",
+                "in": [
+                  "auto_email",
+                  "manual_email"
+                ]
+              },
+              {
+                "items": {
+                  "list": "variants"
+                },
+                "atMost": 0
+              }
+            ]
+          },
+          "message": "Only email steps have variants."
+        },
+        {
+          "when": {
+            "field": "delayDays",
+            "lte": 30
+          },
+          "message": "A step waits at most 30 days."
+        }
+      ]
+    },
+    "steps.delete": {
+      "label": "Delete step",
+      "kind": "delete",
+      "collection": "steps",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed"
+    },
+    "enrollRuns.create": {
+      "label": "Add people",
+      "kind": "create",
+      "collection": "enrollRuns",
+      "fields": [
+        "sequence",
+        "snapshot",
+        "audience",
+        "audienceName",
+        "count",
+        "pages"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "dirties": [
+        {
+          "job": "snap",
+          "key": [
+            {
+              "doc": "snapshot"
+            },
+            "0"
+          ]
+        }
+      ]
+    },
+    "tasks.snooze": {
+      "label": "Snooze",
+      "kind": "update",
+      "collection": "tasks",
+      "fields": [
+        "dueDay"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "field": "state",
+            "in": [
+              "open"
+            ]
+          },
+          "message": "Only an open task snoozes."
+        }
+      ]
+    }
+  },
+  "machines": {
+    "sequence": {
+      "collection": "sequences",
+      "field": "status",
+      "states": [
+        "draft",
+        "active",
+        "paused",
+        "archived"
+      ],
+      "initial": "draft",
+      "transitions": {
+        "archive": {
+          "label": "Archive",
+          "from": [
+            "draft",
+            "paused"
+          ],
+          "to": "archived",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed"
+        },
+        "restore": {
+          "label": "Restore",
+          "from": [
+            "archived"
+          ],
+          "to": "draft",
+          "roles": [
+            "admin",
+            "manager"
+          ],
+          "agent": "allowed"
+        },
+        "launch": {
+          "label": "Launch",
+          "from": [
+            "draft",
+            "paused"
+          ],
+          "to": "active",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "human",
+          "reason": "Launching starts the steps for everyone enrolled, as the sequence's senders.",
+          "guards": [
+            {
+              "when": {
+                "any": [
+                  {
+                    "caller": "isOwner"
+                  },
+                  {
+                    "role": [
+                      "admin",
+                      "manager"
+                    ]
+                  }
+                ]
+              },
+              "message": "Only its owner, a manager or an admin launches a sequence."
+            },
+            {
+              "when": {
+                "count": {
+                  "view": "steps.forSequence",
+                  "args": {
+                    "sequence": {
+                      "doc": "key"
+                    }
+                  }
+                },
+                "atLeast": 1
+              },
+              "message": "Add a step first."
+            },
+            {
+              "when": {
+                "count": {
+                  "view": "steps.auto",
+                  "args": {
+                    "sequence": {
+                      "doc": "key"
+                    }
+                  }
+                },
+                "atMost": 0
+              },
+              "message": "Automatic email and LinkedIn steps send once Canon's outbox lands. Until then, use manual email, call, LinkedIn task and task steps."
+            }
+          ],
+          "dirties": [
+            {
+              "job": "launch",
+              "key": [
+                {
+                  "doc": "key"
+                }
+              ]
+            }
+          ]
+        },
+        "pause": {
+          "label": "Pause",
+          "from": [
+            "active"
+          ],
+          "to": "paused",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed"
+        }
+      }
+    },
+    "enrollRun": {
+      "collection": "enrollRuns",
+      "field": "status",
+      "states": [
+        "preview",
+        "enrolling",
+        "cancelled"
+      ],
+      "initial": "preview",
+      "transitions": {
+        "enroll": {
+          "label": "Enroll them",
+          "from": [
+            "preview"
+          ],
+          "to": "enrolling",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "propose",
+          "dirties": [
+            {
+              "job": "enroll",
+              "key": [
+                {
+                  "doc": "snapshot"
+                },
+                "0"
+              ]
+            }
+          ]
+        },
+        "cancel": {
+          "label": "Cancel",
+          "from": [
+            "preview"
+          ],
+          "to": "cancelled",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed"
+        }
+      }
+    },
+    "enrollment": {
+      "collection": "enrollments",
+      "field": "state",
+      "states": [
+        "pending",
+        "active",
+        "held",
+        "paused",
+        "finished"
+      ],
+      "initial": "pending",
+      "transitions": {
+        "pause": {
+          "label": "Pause",
+          "from": [
+            "pending",
+            "active",
+            "held"
+          ],
+          "to": "paused",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed"
+        },
+        "resume": {
+          "label": "Resume",
+          "from": [
+            "paused"
+          ],
+          "to": "active",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "human",
+          "reason": "Resuming sends messages as the rep's senders.",
+          "dirties": [
+            {
+              "job": "advance",
+              "key": [
+                {
+                  "doc": "sequence"
+                },
+                {
+                  "doc": "contact"
+                }
+              ]
+            }
+          ]
+        },
+        "finish": {
+          "label": "Finish",
+          "from": [
+            "pending",
+            "active",
+            "held",
+            "paused"
+          ],
+          "to": "finished",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "set": {
+            "finishReason": "manual"
+          },
+          "effects": [
+            {
+              "machine": "task",
+              "transition": "skip",
+              "view": "tasks.openForEnrollment",
+              "args": {
+                "sequence": {
+                  "doc": "sequence"
+                },
+                "contact": {
+                  "doc": "contact"
+                }
+              },
+              "onlyFrom": [
+                "open"
+              ]
+            }
+          ]
+        },
+        "start": {
+          "label": "Start",
+          "from": [
+            "pending"
+          ],
+          "to": "active",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "at": "nextAt",
+          "guards": [
+            {
+              "when": {
+                "ref": {
+                  "collection": "sequences",
+                  "key": {
+                    "doc": "sequence"
+                  }
+                },
+                "where": {
+                  "field": "status",
+                  "in": [
+                    "active"
+                  ]
+                }
+              },
+              "message": "The sequence isn't running."
+            }
+          ],
+          "set": {
+            "nextAt": {
+              "unset": true
+            }
+          },
+          "dirties": [
+            {
+              "job": "advance",
+              "key": [
+                {
+                  "doc": "sequence"
+                },
+                {
+                  "doc": "contact"
+                }
+              ]
+            }
+          ]
+        },
+        "wake": {
+          "label": "Next step due",
+          "from": [
+            "active"
+          ],
+          "to": "active",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "at": "nextAt",
+          "guards": [
+            {
+              "when": {
+                "ref": {
+                  "collection": "sequences",
+                  "key": {
+                    "doc": "sequence"
+                  }
+                },
+                "where": {
+                  "field": "status",
+                  "in": [
+                    "active"
+                  ]
+                }
+              },
+              "message": "The sequence isn't running."
+            }
+          ],
+          "set": {
+            "nextAt": {
+              "unset": true
+            }
+          },
+          "dirties": [
+            {
+              "job": "advance",
+              "key": [
+                {
+                  "doc": "sequence"
+                },
+                {
+                  "doc": "contact"
+                }
+              ]
+            }
+          ]
+        },
+        "complete": {
+          "label": "Completed",
+          "from": [
+            "active"
+          ],
+          "to": "finished",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "set": {
+            "finishReason": "completed"
+          }
+        }
+      }
+    },
+    "task": {
+      "collection": "tasks",
+      "field": "state",
+      "states": [
+        "open",
+        "done",
+        "skipped"
+      ],
+      "initial": "open",
+      "transitions": {
+        "done": {
+          "label": "Done",
+          "from": [
+            "open"
+          ],
+          "to": "done",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "set": {
+            "doneAt": {
+              "now": "ms"
+            }
+          },
+          "dirties": [
+            {
+              "job": "advance",
+              "key": [
+                {
+                  "doc": "sequence"
+                },
+                {
+                  "doc": "contact"
+                }
+              ]
+            }
+          ],
+          "guards": [
+            {
+              "when": {
+                "not": {
+                  "field": "kind",
+                  "in": [
+                    "call"
+                  ]
+                }
+              },
+              "message": "Log a call with an outcome to complete a call task."
+            }
+          ]
+        },
+        "skip": {
+          "label": "Skip",
+          "from": [
+            "open"
+          ],
+          "to": "skipped",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "set": {
+            "doneAt": {
+              "now": "ms"
+            }
+          },
+          "dirties": [
+            {
+              "job": "advance",
+              "key": [
+                {
+                  "doc": "sequence"
+                },
+                {
+                  "doc": "contact"
+                }
+              ]
+            }
+          ]
+        },
+        "callLogged": {
+          "label": "Call logged",
+          "from": [
+            "open"
+          ],
+          "to": "done",
+          "roles": [],
+          "agent": "allowed",
+          "set": {
+            "doneAt": {
+              "now": "ms"
+            }
+          },
+          "dirties": [
+            {
+              "job": "advance",
+              "key": [
+                {
+                  "doc": "sequence"
+                },
+                {
+                  "doc": "contact"
+                }
+              ]
+            }
+          ],
+          "guards": [
+            {
+              "when": {
+                "field": "kind",
+                "in": [
+                  "call"
+                ]
+              },
+              "message": "Only a call task completes from a logged call."
+            }
+          ],
+          "system": true
+        }
+      }
+    }
+  },
+  "server": "dist/module.js",
+  "calls": {
+    "reorderSteps": {
+      "label": "Reorder steps",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "sequence": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "keys": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "steps": {
+          "view": "steps.forSequence",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            }
+          }
+        }
+      },
+      "writes": [
+        "steps"
+      ],
+      "returns": "value"
+    },
+    "timeline": {
+      "label": "When each step goes out",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "sequence": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "sequence": {
+          "view": "sequences.one",
+          "args": {
+            "key": {
+              "arg": "sequence"
+            }
+          }
+        },
+        "steps": {
+          "view": "steps.forSequence",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            }
+          }
+        },
+        "schedule": {
+          "view": "schedules.one",
+          "args": {
+            "key": {
+              "read": "sequence",
+              "field": "schedule"
+            }
+          }
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "table",
+        "rows": "rows",
+        "empty": "Add a step to see when it goes out.",
+        "columns": [
+          {
+            "label": "Step",
+            "value": "{$row.n|number}. {$row.kind}"
+          },
+          {
+            "label": "Goes out",
+            "value": "{$row.day|date}"
+          },
+          {
+            "label": "Who does it",
+            "value": "{$row.who}"
+          }
+        ]
+      }
+    },
+    "audienceList": {
+      "label": "Audiences",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "audiences": {
+          "canon": "audiences.all"
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "startEnroll": {
+      "label": "Add people",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "sequence": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "audience": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "sequence": {
+          "view": "sequences.one",
+          "args": {
+            "key": {
+              "arg": "sequence"
+            }
+          }
+        },
+        "audiences": {
+          "canon": "audiences.all"
+        },
+        "snapshot": {
+          "canon": "audiences.snapshot",
+          "args": {
+            "audience": {
+              "arg": "audience"
+            }
+          }
+        }
+      },
+      "writes": [
+        "enrollRuns"
+      ],
+      "returns": "value"
+    },
+    "snapPage": {
+      "label": "Read a page of an audience",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "run": {
+          "view": "enrollRuns.one",
+          "args": {
+            "key": {
+              "arg": "run"
+            }
+          }
+        },
+        "people": {
+          "canon": "audiences.members",
+          "args": {
+            "snapshot": {
+              "read": "run",
+              "field": "snapshot"
+            },
+            "page": {
+              "arg": "page"
+            }
+          },
+          "limit": 500
+        }
+      },
+      "writes": [
+        "enrollPages"
+      ],
+      "returns": "none"
+    },
+    "checkPage": {
+      "label": "Check a page for who to skip",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "run": {
+          "view": "enrollRuns.one",
+          "args": {
+            "key": {
+              "arg": "run"
+            }
+          }
+        },
+        "sheet": {
+          "view": "enrollPages.at",
+          "args": {
+            "run": {
+              "arg": "run"
+            },
+            "page": {
+              "arg": "page"
+            }
+          }
+        },
+        "sequence": {
+          "view": "sequences.one",
+          "args": {
+            "key": {
+              "read": "run",
+              "field": "sequence"
+            }
+          }
+        },
+        "steps": {
+          "view": "steps.forSequence",
+          "args": {
+            "sequence": {
+              "read": "run",
+              "field": "sequence"
+            }
+          }
+        },
+        "existing": {
+          "view": "enrollments.forContacts",
+          "args": {
+            "contacts": {
+              "read": "sheet",
+              "field": "ids"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [
+        "enrollPages"
+      ],
+      "returns": "none"
+    },
+    "enrollPage": {
+      "label": "Enroll a page",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "run": {
+          "view": "enrollRuns.one",
+          "args": {
+            "key": {
+              "arg": "run"
+            }
+          }
+        },
+        "sheet": {
+          "view": "enrollPages.at",
+          "args": {
+            "run": {
+              "arg": "run"
+            },
+            "page": {
+              "arg": "page"
+            }
+          }
+        },
+        "sequence": {
+          "view": "sequences.one",
+          "args": {
+            "key": {
+              "read": "run",
+              "field": "sequence"
+            }
+          }
+        },
+        "existing": {
+          "view": "enrollments.forContacts",
+          "args": {
+            "contacts": {
+              "read": "sheet",
+              "field": "enroll"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [
+        "enrollments",
+        "enrollPages"
+      ],
+      "returns": "none"
+    },
+    "launchSequence": {
+      "label": "Start a launched sequence's people",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "sequence": {
+          "view": "sequences.one",
+          "args": {
+            "key": {
+              "arg": "sequence"
+            }
+          }
+        },
+        "pending": {
+          "view": "enrollments.pending",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            }
+          },
+          "limit": 500
+        },
+        "idle": {
+          "view": "enrollments.idle",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            }
+          },
+          "limit": 500
+        }
+      },
+      "writes": [
+        "enrollments"
+      ],
+      "returns": "none"
+    },
+    "advance": {
+      "label": "Run each person's next step",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "sequence": {
+          "view": "sequences.one",
+          "args": {
+            "key": {
+              "arg": "sequence"
+            }
+          }
+        },
+        "steps": {
+          "view": "steps.forSequence",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            }
+          }
+        },
+        "schedule": {
+          "view": "schedules.one",
+          "args": {
+            "key": {
+              "read": "sequence",
+              "field": "schedule"
+            }
+          }
+        },
+        "enrollments": {
+          "view": "enrollments.at",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            },
+            "contacts": {
+              "arg": "contact"
+            }
+          }
+        },
+        "tasks": {
+          "view": "tasks.at",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            },
+            "contacts": {
+              "arg": "contact"
+            }
+          },
+          "limit": 1000
+        }
+      },
+      "writes": [
+        "enrollments",
+        "tasks"
+      ],
+      "returns": "none"
+    },
+    "enrollOne": {
+      "label": "Add to a sequence",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "propose",
+      "args": {
+        "type": "object",
+        "value": {
+          "sequence": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "contact": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "sequence": {
+          "view": "sequences.one",
+          "args": {
+            "key": {
+              "arg": "sequence"
+            }
+          }
+        },
+        "steps": {
+          "view": "steps.forSequence",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            }
+          }
+        },
+        "existing": {
+          "view": "enrollments.forContact",
+          "args": {
+            "contact": {
+              "arg": "contact"
+            }
+          }
+        },
+        "person": {
+          "canon": "people.byIds",
+          "args": {
+            "ids": {
+              "arg": "contact"
+            }
+          }
+        }
+      },
+      "writes": [
+        "enrollments"
+      ],
+      "returns": "value",
+      "confirm": "This adds the person to the sequence, as you."
+    },
+    "sequenceStats": {
+      "label": "Sequence figures",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "sequence": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "enrollments": {
+          "view": "enrollments.forSequence",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            }
+          },
+          "limit": 5000
+        },
+        "tasks": {
+          "view": "tasks.forSequence",
+          "args": {
+            "sequence": {
+              "arg": "sequence"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "onCalls": {
+      "label": "Hear logged call outcomes",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {},
+      "writes": [],
+      "returns": "none"
+    },
+    "completeCall": {
+      "label": "Complete a logged call task",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "tasks": {
+          "view": "tasks.openCallsForContact",
+          "args": {
+            "rep": {
+              "arg": "rep"
+            },
+            "contact": {
+              "arg": "contact"
+            }
+          }
+        },
+        "logged": {
+          "view": "tasks.forCall",
+          "args": {
+            "activity": {
+              "arg": "activity"
+            }
+          }
+        },
+        "enrollments": {
+          "view": "enrollments.forContact",
+          "args": {
+            "contact": {
+              "arg": "contact"
+            }
+          }
+        }
+      },
+      "writes": [
+        "tasks"
+      ],
+      "returns": "none"
+    },
+    "recentPeople": {
+      "label": "People from recent calls",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {}
+      },
+      "reads": {
+        "tasks": {
+          "view": "tasks.loggedCalls"
+        },
+        "people": {
+          "canon": "people.byIds",
+          "args": {
+            "ids": {
+              "read": "tasks",
+              "field": "contact"
+            }
+          }
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    }
+  },
+  "pages": [
+    {
+      "path": "tasks",
+      "title": "Tasks",
+      "tab": {
+        "label": "Tasks",
+        "order": 0
+      },
+      "bind": {
+        "tasks": {
+          "view": "tasks.open",
+          "limit": 500
+        },
+        "logged": {
+          "view": "tasks.loggedCalls"
+        },
+        "recentPeople": {
+          "call": "recentPeople"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Tasks",
+          "subtitle": "The calls, emails and other steps your sequences have due, oldest first."
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "Call tasks complete when Canon logs an outbound call with an outcome for the assigned rep and person after the task was created. Use Dialer to call. A later outcome edit updates the completed task. Skip advances without a call."
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "Open",
+              "count": "tasks"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "tasks",
+          "empty": "Nothing due. Tasks appear when a sequence reaches a step you do.",
+          "search": [
+            "contactName"
+          ],
+          "chips": [
+            {
+              "label": "Calls",
+              "when": {
+                "field": "kind",
+                "in": [
+                  "call"
+                ]
+              }
+            },
+            {
+              "label": "Emails",
+              "when": {
+                "field": "kind",
+                "in": [
+                  "manual_email"
+                ]
+              }
+            },
+            {
+              "label": "LinkedIn",
+              "when": {
+                "field": "kind",
+                "in": [
+                  "linkedin_task"
+                ]
+              }
+            },
+            {
+              "label": "Other",
+              "when": {
+                "field": "kind",
+                "in": [
+                  "task"
+                ]
+              }
+            }
+          ],
+          "columns": [
+            {
+              "label": "Due",
+              "value": "{$row.dueDay|date}"
+            },
+            {
+              "label": "Person",
+              "value": "{$row.contactName}"
+            },
+            {
+              "label": "Title",
+              "value": "{$row.title}",
+              "empty": "—"
+            },
+            {
+              "label": "Do",
+              "value": "{$row.kind}"
+            },
+            {
+              "label": "Sequence",
+              "value": "{$row.sequence|ref}"
+            },
+            {
+              "label": "Note",
+              "value": "{$row.note}",
+              "empty": "—"
+            },
+            {
+              "label": "Rep",
+              "value": "{$row.rep|user}"
+            }
+          ],
+          "rowActions": [
+            {
+              "transition": "done",
+              "machine": "task"
+            },
+            {
+              "transition": "skip",
+              "machine": "task"
+            },
+            {
+              "op": "tasks.snooze",
+              "label": "Snooze",
+              "aria": "Snooze the task for {$row.contactName}"
+            }
+          ]
+        },
+        {
+          "c": "header",
+          "title": "Logged calls",
+          "subtitle": "Your completed call steps and their latest logged outcome."
+        },
+        {
+          "c": "table",
+          "from": "logged",
+          "empty": "No call steps completed yet.",
+          "columns": [
+            {
+              "label": "Person",
+              "value": "{$row.contactName}"
+            },
+            {
+              "label": "Sequence",
+              "value": "{$row.sequence|ref}"
+            },
+            {
+              "label": "Called",
+              "value": "{$row.callAt|time}"
+            },
+            {
+              "label": "Outcome",
+              "value": "{$row.callOutcome}"
+            }
+          ]
+        },
+        {
+          "c": "header",
+          "title": "People from recent calls",
+          "subtitle": "Each person once across your last 100 completed call steps, most recent first. Names and titles come from the records you can read now. Company links use the linked company on that person; opening a record requires access."
+        },
+        {
+          "c": "table",
+          "from": "recentPeople",
+          "rows": "rows",
+          "empty": "No people you can read from your recent call steps.",
+          "columns": [
+            {
+              "label": "Person",
+              "value": "{$row.name}",
+              "link": {
+                "canon": "person",
+                "ref": "person"
+              }
+            },
+            {
+              "label": "Title",
+              "value": "{$row.title}",
+              "empty": "—"
+            },
+            {
+              "label": "Company",
+              "value": "{$row.companyLink}",
+              "empty": "—",
+              "link": {
+                "canon": "company",
+                "ref": "company"
+              }
+            },
+            {
+              "label": "Latest call step",
+              "value": "{$row.callAt|time}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "sequences",
+      "title": "Sequences",
+      "tab": {
+        "label": "Sequences",
+        "order": 1
+      },
+      "bind": {
+        "sequences": {
+          "view": "sequences.all",
+          "limit": 200
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Sequences",
+          "subtitle": "Steps your reps' contacts move through, sent from their own Gmail and LinkedIn.",
+          "actions": [
+            {
+              "op": "sequences.create",
+              "label": "New sequence",
+              "then": "sequences/:key",
+              "initial": {
+                "intervalType": "schedule_days",
+                "dailyNewPerSender": 10,
+                "addPolicy": "once",
+                "contactLatencyDays": 0,
+                "stopOnMeeting": true,
+                "stopOnOpenDeal": true
+              }
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "sequences",
+          "rowLink": "sequences/:key",
+          "empty": "No sequences yet.",
+          "search": [
+            "name"
+          ],
+          "columns": [
+            {
+              "label": "Sequence",
+              "value": "{$row.name}"
+            },
+            {
+              "label": "Owner",
+              "value": "{$row.owner|user}"
+            },
+            {
+              "label": "Status",
+              "value": "{$row.status}",
+              "tone": {
+                "by": "status",
+                "badge": true,
+                "cases": [
+                  {
+                    "in": [
+                      "active"
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "in": [
+                      "paused"
+                    ],
+                    "tone": "warn"
+                  },
+                  {
+                    "tone": "neutral"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "sequences/:key",
+      "title": "{$sequence.name}",
+      "bind": {
+        "sequence": {
+          "view": "sequences.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          }
+        },
+        "steps": {
+          "view": "steps.forSequence",
+          "args": {
+            "sequence": {
+              "route": "key"
+            }
+          }
+        },
+        "schedules": {
+          "view": "schedules.all"
+        },
+        "enrollments": {
+          "view": "enrollments.forSequence",
+          "args": {
+            "sequence": {
+              "route": "key"
+            }
+          }
+        },
+        "runs": {
+          "view": "enrollRuns.forSequence",
+          "args": {
+            "sequence": {
+              "route": "key"
+            }
+          }
+        },
+        "audiences": {
+          "call": "audienceList"
+        },
+        "stats": {
+          "call": "sequenceStats",
+          "args": {
+            "sequence": {
+              "route": "key"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$sequence.name}",
+          "subtitle": "Owned by {$sequence.owner|user}",
+          "actions": [
+            {
+              "navigate": "sequences",
+              "label": "All sequences"
+            }
+          ]
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "transition": "launch",
+              "machine": "sequence",
+              "target": "sequence"
+            },
+            {
+              "transition": "pause",
+              "machine": "sequence",
+              "target": "sequence"
+            },
+            {
+              "transition": "archive",
+              "machine": "sequence",
+              "target": "sequence"
+            },
+            {
+              "transition": "restore",
+              "machine": "sequence",
+              "target": "sequence"
+            }
+          ]
+        },
+        {
+          "c": "banner",
+          "tone": "warn",
+          "text": "Paused: no new tasks or sends.",
+          "when": {
+            "bind": "sequence",
+            "field": "status",
+            "in": [
+              "paused"
+            ]
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "Draft: build the steps and settings, add people, then Launch. Steps a rep does (calls, tasks, LinkedIn tasks, manual emails) run now; automatic email and LinkedIn steps come with Canon's outbox.",
+          "when": {
+            "bind": "sequence",
+            "field": "status",
+            "in": [
+              "draft"
+            ]
+          }
+        },
+        {
+          "c": "tabs",
+          "param": "view",
+          "tabs": [
+            {
+              "id": "steps",
+              "label": "Steps",
+              "body": [
+                {
+                  "c": "header",
+                  "title": "Steps"
+                },
+                {
+                  "c": "flow",
+                  "from": "steps",
+                  "title": "{$row.kind}",
+                  "action": "after {$row.delayDays|number} days",
+                  "card": "{$row.note}",
+                  "empty": "No steps yet. Add one below.",
+                  "details": [
+                    {
+                      "label": "Kind",
+                      "value": "{$row.kind}"
+                    },
+                    {
+                      "label": "Wait",
+                      "value": "{$row.delayDays|number} days after the step before"
+                    },
+                    {
+                      "label": "Note",
+                      "value": "{$row.note}"
+                    },
+                    {
+                      "label": "Priority",
+                      "value": "{$row.priority}"
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "steps",
+                  "empty": "No steps yet.",
+                  "reorder": {
+                    "by": "position",
+                    "call": "reorderSteps",
+                    "args": {
+                      "sequence": {
+                        "route": "key"
+                      }
+                    }
+                  },
+                  "columns": [
+                    {
+                      "label": "Kind",
+                      "value": "{$row.kind}"
+                    },
+                    {
+                      "label": "Wait",
+                      "value": "{$row.delayDays|number} days"
+                    },
+                    {
+                      "label": "Note",
+                      "value": "{$row.note}",
+                      "empty": "—"
+                    }
+                  ],
+                  "rowActions": [
+                    {
+                      "op": "steps.update",
+                      "label": "Edit",
+                      "aria": "Edit the {$row.kind} step"
+                    },
+                    {
+                      "op": "steps.delete",
+                      "label": "Delete",
+                      "aria": "Delete the {$row.kind} step"
+                    }
+                  ]
+                },
+                {
+                  "c": "form",
+                  "op": "steps.create",
+                  "parent": {
+                    "route": "key"
+                  },
+                  "submit": "Add step",
+                  "initial": {
+                    "delayDays": 2,
+                    "kind": "auto_email"
+                  },
+                  "fields": [
+                    {
+                      "field": "kind",
+                      "label": "Kind"
+                    },
+                    {
+                      "field": "delayDays",
+                      "label": "Days after the step before"
+                    },
+                    {
+                      "field": "thread",
+                      "label": "Reply in the first email's thread"
+                    },
+                    {
+                      "field": "variants",
+                      "label": "Email variants"
+                    },
+                    {
+                      "field": "note",
+                      "label": "Note for the rep"
+                    },
+                    {
+                      "field": "priority",
+                      "label": "Priority"
+                    }
+                  ]
+                },
+                {
+                  "c": "actions",
+                  "items": [
+                    {
+                      "call": "timeline",
+                      "label": "When each step goes out",
+                      "args": {
+                        "sequence": {
+                          "route": "key"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "people",
+              "label": "People",
+              "body": [
+                {
+                  "c": "header",
+                  "title": "People",
+                  "actions": [
+                    {
+                      "call": "startEnroll",
+                      "label": "Add people",
+                      "args": {
+                        "sequence": {
+                          "route": "key"
+                        }
+                      },
+                      "fields": [
+                        {
+                          "field": "audience",
+                          "label": "Audience",
+                          "options": {
+                            "from": "audiences",
+                            "list": "audiences",
+                            "value": "id",
+                            "label": "{$item.name} ({$item.size|number} people)"
+                          }
+                        }
+                      ],
+                      "dialog": {
+                        "title": "Add people from an audience",
+                        "description": "Canon reads the audience as it is now and checks who to skip before anyone is enrolled."
+                      },
+                      "toast": "Checking {$result.count|number} people",
+                      "then": "enrolls/:key"
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "enrollments",
+                  "empty": "No one is enrolled yet.",
+                  "search": [
+                    "contactName"
+                  ],
+                  "chips": [
+                    {
+                      "label": "Active",
+                      "when": {
+                        "field": "state",
+                        "in": [
+                          "pending",
+                          "active"
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Out of office",
+                      "when": {
+                        "field": "state",
+                        "in": [
+                          "held"
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Paused",
+                      "when": {
+                        "field": "state",
+                        "in": [
+                          "paused"
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Finished",
+                      "when": {
+                        "field": "state",
+                        "in": [
+                          "finished"
+                        ]
+                      }
+                    }
+                  ],
+                  "columns": [
+                    {
+                      "label": "Person",
+                      "value": "{$row.contactName}"
+                    },
+                    {
+                      "label": "Title",
+                      "value": "{$row.title}",
+                      "empty": "—"
+                    },
+                    {
+                      "label": "Rep",
+                      "value": "{$row.rep|user}"
+                    },
+                    {
+                      "label": "Next step",
+                      "value": "{$row.stepIndex|number}",
+                      "empty": "—"
+                    },
+                    {
+                      "label": "State",
+                      "value": "{$row.state}",
+                      "tone": {
+                        "by": "state",
+                        "badge": true,
+                        "cases": [
+                          {
+                            "in": [
+                              "active",
+                              "pending"
+                            ],
+                            "tone": "success"
+                          },
+                          {
+                            "in": [
+                              "held",
+                              "paused"
+                            ],
+                            "tone": "warn"
+                          },
+                          {
+                            "tone": "neutral"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Finished because",
+                      "value": "{$row.finishReason}",
+                      "empty": "—"
+                    }
+                  ],
+                  "rowActions": [
+                    {
+                      "transition": "pause",
+                      "machine": "enrollment"
+                    },
+                    {
+                      "transition": "resume",
+                      "machine": "enrollment"
+                    },
+                    {
+                      "transition": "finish",
+                      "machine": "enrollment"
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "runs",
+                  "rowLink": "enrolls/:key",
+                  "empty": "No one added yet.",
+                  "columns": [
+                    {
+                      "label": "Added from",
+                      "value": "{$row.audienceName}"
+                    },
+                    {
+                      "label": "People",
+                      "value": "{$row.count|number}"
+                    },
+                    {
+                      "label": "Status",
+                      "value": "{$row.status}"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "settings",
+              "label": "Settings",
+              "body": [
+                {
+                  "c": "form",
+                  "op": "sequences.update",
+                  "from": "sequence",
+                  "fields": [
+                    {
+                      "field": "name",
+                      "label": "Name"
+                    },
+                    {
+                      "field": "schedule",
+                      "label": "Schedule"
+                    },
+                    {
+                      "field": "intervalType",
+                      "label": "Count delays in"
+                    },
+                    {
+                      "field": "senders",
+                      "label": "Senders"
+                    },
+                    {
+                      "field": "dailyNewPerSender",
+                      "label": "First emails per sender a day"
+                    },
+                    {
+                      "field": "maxAddsPerDay",
+                      "label": "Most people added a day"
+                    },
+                    {
+                      "field": "maxActivePerRep",
+                      "label": "Most active people per rep"
+                    },
+                    {
+                      "field": "addPolicy",
+                      "label": "Add a person"
+                    },
+                    {
+                      "field": "contactLatencyDays",
+                      "label": "Days since last contacted"
+                    },
+                    {
+                      "field": "stopOnMeeting",
+                      "label": "Stop on a booked meeting"
+                    },
+                    {
+                      "field": "stopOnOpenDeal",
+                      "label": "Stop when they join an open deal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "report",
+              "label": "Report",
+              "body": [
+                {
+                  "c": "kpis",
+                  "items": [
+                    {
+                      "label": "Enrolled",
+                      "value": "{$stats.enrolled|number}"
+                    },
+                    {
+                      "label": "Active",
+                      "value": "{$stats.active|number}"
+                    },
+                    {
+                      "label": "Finished",
+                      "value": "{$stats.finished|number}"
+                    },
+                    {
+                      "label": "Tasks done",
+                      "value": "{$stats.tasksDone|number}"
+                    },
+                    {
+                      "label": "Tasks open",
+                      "value": "{$stats.tasksOpen|number}"
+                    },
+                    {
+                      "label": "Tasks overdue",
+                      "value": "{$stats.tasksOverdue|number}"
+                    }
+                  ]
+                },
+                {
+                  "c": "chart",
+                  "kind": "bar",
+                  "title": "People by state",
+                  "from": "stats",
+                  "rows": "byState",
+                  "x": "label",
+                  "y": "count",
+                  "order": "value"
+                },
+                {
+                  "c": "chart",
+                  "kind": "bar",
+                  "title": "Why people finished",
+                  "from": "stats",
+                  "rows": "byFinish",
+                  "x": "label",
+                  "y": "count",
+                  "order": "value"
+                },
+                {
+                  "c": "chart",
+                  "kind": "bar",
+                  "title": "Tasks by step",
+                  "from": "stats",
+                  "rows": "byStep",
+                  "x": "label",
+                  "y": "count"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "schedules",
+      "title": "Schedules",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "tab": {
+        "label": "Schedules",
+        "order": 5,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "bind": {
+        "schedules": {
+          "view": "schedules.all"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Schedules",
+          "subtitle": "The days and hours sends go out, in the sender's time zone.",
+          "actions": [
+            {
+              "op": "schedules.create",
+              "label": "New schedule",
+              "initial": {
+                "start": "08:00",
+                "end": "17:00",
+                "timeZone": "America/New_York"
+              }
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "schedules",
+          "empty": "No schedules yet.",
+          "columns": [
+            {
+              "label": "Schedule",
+              "value": "{$row.name}"
+            },
+            {
+              "label": "Days",
+              "value": "{$row.days}"
+            },
+            {
+              "label": "Hours",
+              "value": "{$row.start} to {$row.end}"
+            },
+            {
+              "label": "Time zone",
+              "value": "{$row.timeZone}"
+            }
+          ],
+          "rowActions": [
+            {
+              "op": "schedules.update",
+              "label": "Edit",
+              "aria": "Edit {$row.name}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "enrolls/:key",
+      "title": "Add people from {$run.audienceName}",
+      "bind": {
+        "run": {
+          "view": "enrollRuns.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          }
+        },
+        "sheets": {
+          "view": "enrollPages.forRun",
+          "args": {
+            "run": {
+              "route": "key"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Add people from {$run.audienceName}",
+          "subtitle": "{$run.count|number} people, checked {$run.pages|number} pages of 500 at a time."
+        },
+        {
+          "c": "jobStatus",
+          "job": "check",
+          "keyPrefix": [
+            {
+              "route": "key"
+            }
+          ],
+          "label": "Checking who to skip"
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "People",
+              "total": {
+                "from": "sheets",
+                "sum": "nPeople",
+                "format": "number"
+              }
+            },
+            {
+              "label": "To enroll",
+              "total": {
+                "from": "sheets",
+                "sum": "nEnroll",
+                "format": "number"
+              }
+            },
+            {
+              "label": "Skipped",
+              "total": {
+                "from": "sheets",
+                "sum": "nSkipped",
+                "format": "number"
+              }
+            },
+            {
+              "label": "Enrolled",
+              "total": {
+                "from": "sheets",
+                "sum": "nEnrolled",
+                "format": "number"
+              }
+            }
+          ]
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "transition": "enroll",
+              "machine": "enrollRun",
+              "target": "run"
+            },
+            {
+              "transition": "cancel",
+              "machine": "enrollRun",
+              "target": "run"
+            }
+          ]
+        },
+        {
+          "c": "jobStatus",
+          "job": "enroll",
+          "keyPrefix": [
+            {
+              "route": "key"
+            }
+          ],
+          "label": "Enrolling"
+        },
+        {
+          "c": "table",
+          "from": "sheets",
+          "empty": "Reading the audience…",
+          "columns": [
+            {
+              "label": "Page",
+              "value": "{$row.page}"
+            },
+            {
+              "label": "People",
+              "value": "{$row.nPeople|number}"
+            },
+            {
+              "label": "To enroll",
+              "value": "{$row.nEnroll|number}"
+            },
+            {
+              "label": "Skipped",
+              "value": "{$row.nSkipped|number}"
+            },
+            {
+              "label": "Enrolled",
+              "value": "{$row.nEnrolled|number}",
+              "empty": "—"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "team",
+      "title": "Team",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "tab": {
+        "label": "Team",
+        "order": 4,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Team",
+          "subtitle": "Each rep's people in sequences and their tasks.",
+          "actions": [
+            {
+              "export": "enrollments.csv",
+              "label": "Export people"
+            }
+          ]
+        },
+        {
+          "c": "report",
+          "id": "people",
+          "collection": "enrollments",
+          "title": "People in sequences by rep",
+          "rows": [
+            "rep"
+          ],
+          "columns": [
+            "state"
+          ],
+          "values": [
+            {
+              "fn": "count"
+            }
+          ],
+          "chart": "bar"
+        },
+        {
+          "c": "report",
+          "id": "work",
+          "collection": "tasks",
+          "title": "Tasks by rep",
+          "rows": [
+            "rep"
+          ],
+          "columns": [
+            "state"
+          ],
+          "values": [
+            {
+              "fn": "count"
+            }
+          ],
+          "chart": "bar"
+        }
+      ]
+    }
+  ],
+  "reads": {
+    "people": [
+      "name",
+      "title",
+      "email",
+      "linkedinUrl",
+      "companyId"
+    ],
+    "audiences": [
+      "name",
+      "size"
+    ],
+    "activities": [
+      "kind",
+      "ownerId",
+      "personId",
+      "direction",
+      "at",
+      "outcome"
+    ]
+  },
+  "jobs": {
+    "snap": {
+      "label": "Read the audience",
+      "call": "snapPage",
+      "key": [
+        "run",
+        "page"
+      ],
+      "batchBy": 2,
+      "batch": 1
+    },
+    "check": {
+      "label": "Check who to skip",
+      "call": "checkPage",
+      "key": [
+        "run",
+        "page"
+      ],
+      "batchBy": 2,
+      "batch": 1
+    },
+    "enroll": {
+      "label": "Enroll people",
+      "call": "enrollPage",
+      "key": [
+        "run",
+        "page"
+      ],
+      "batchBy": 2,
+      "batch": 1
+    },
+    "launch": {
+      "label": "Start the people of a launched sequence",
+      "call": "launchSequence",
+      "key": [
+        "sequence"
+      ],
+      "batchBy": 1,
+      "batch": 1
+    },
+    "advance": {
+      "label": "Run each person's next step",
+      "call": "advance",
+      "key": [
+        "sequence",
+        "contact"
+      ],
+      "batchBy": 1,
+      "batch": 50
+    },
+    "callLogged": {
+      "label": "Complete a logged call task",
+      "call": "completeCall",
+      "key": [
+        "rep",
+        "contact",
+        "activity",
+        "result"
+      ],
+      "batchBy": 4,
+      "batch": 1
+    }
+  },
+  "contributes": {
+    "personPage": {
+      "panels": [
+        {
+          "id": "sequences",
+          "title": "Sequences",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "bind": {
+            "enrollments": {
+              "view": "enrollments.forContact",
+              "args": {
+                "contact": {
+                  "query": "record"
+                }
+              }
+            },
+            "sequences": {
+              "view": "sequences.all",
+              "limit": 200
+            }
+          },
+          "body": [
+            {
+              "c": "actions",
+              "items": [
+                {
+                  "call": "enrollOne",
+                  "label": "Add to a sequence",
+                  "args": {
+                    "contact": {
+                      "query": "record"
+                    }
+                  },
+                  "fields": [
+                    {
+                      "field": "sequence",
+                      "label": "Sequence",
+                      "options": {
+                        "from": "sequences",
+                        "value": "key",
+                        "label": "{$item.name} ({$item.status})"
+                      }
+                    }
+                  ],
+                  "toast": "{$result.message}"
+                }
+              ]
+            },
+            {
+              "c": "table",
+              "from": "enrollments",
+              "empty": "Not in a sequence.",
+              "columns": [
+                {
+                  "label": "Sequence",
+                  "value": "{$row.sequence|ref}"
+                },
+                {
+                  "label": "State",
+                  "value": "{$row.state}",
+                  "tone": {
+                    "by": "state",
+                    "badge": true,
+                    "cases": [
+                      {
+                        "in": [
+                          "active",
+                          "pending"
+                        ],
+                        "tone": "success"
+                      },
+                      {
+                        "in": [
+                          "held",
+                          "paused"
+                        ],
+                        "tone": "warn"
+                      },
+                      {
+                        "tone": "neutral"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "label": "Next step",
+                  "value": "{$row.stepIndex|number}"
+                },
+                {
+                  "label": "Finished because",
+                  "value": "{$row.finishReason}",
+                  "empty": "—"
+                }
+              ],
+              "rowActions": [
+                {
+                  "transition": "pause",
+                  "machine": "enrollment"
+                },
+                {
+                  "transition": "resume",
+                  "machine": "enrollment"
+                },
+                {
+                  "transition": "finish",
+                  "machine": "enrollment"
+                }
+              ]
+            }
+          ],
+          "link": {
+            "label": "Sequences",
+            "path": "sequences"
+          }
+        }
+      ]
+    }
+  },
+  "exports": {
+    "enrollments.csv": {
+      "label": "Export people",
+      "filename": "sequence-enrollments",
+      "view": "enrollments.all",
+      "join": [
+        "sequence"
+      ],
+      "columns": [
+        {
+          "label": "Sequence",
+          "value": "{$row.sequence|ref}"
+        },
+        {
+          "label": "Person",
+          "value": "{$row.contactName}"
+        },
+        {
+          "label": "Email",
+          "value": "{$row.email}"
+        },
+        {
+          "label": "Rep",
+          "value": "{$row.rep|user}"
+        },
+        {
+          "label": "State",
+          "value": "{$row.state}"
+        },
+        {
+          "label": "Next step",
+          "value": "{$row.stepIndex|number}"
+        },
+        {
+          "label": "Finished because",
+          "value": "{$row.finishReason}"
+        }
+      ]
+    }
+  },
+  "provides": {
+    "callTasks.v1": {
+      "view": "tasks.callsDue",
+      "fields": [
+        "contact",
+        "contactName",
+        "dueDay",
+        "sequence"
+      ]
+    }
+  },
+  "watches": [
+    {
+      "object": "activities",
+      "call": "onCalls",
+      "fields": [
+        "kind",
+        "ownerId",
+        "personId",
+        "direction",
+        "at",
+        "outcome"
+      ]
+    }
+  ]
+}

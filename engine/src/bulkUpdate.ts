@@ -1,0 +1,699 @@
+/**
+ * Governed generic writes: `bulk-update` builds a dry-run patch plan from a
+ * filter over the canonical snapshot plus an action (field assignments, an
+ * archive directive, or a task to create). It NEVER writes — the plan flows
+ * through the same plans-approve → apply gate as audit plans.
+ *
+ * Safety model, in layers:
+ *  - every set_field captures the record's live value as `beforeValue`
+ *    (apply refuses the write if the written field drifted);
+ *  - every equality filter on a real record field becomes an automatic
+ *    PRECONDITION, re-verified at apply time (the plan's premise must still
+ *    hold — guards against drift on fields other than the one written);
+ *  - `--require field=value` adds explicit preconditions on top;
+ *  - all operations for one record share a groupId, so multi-field updates
+ *    are all-or-nothing per record.
+ *
+ * Filter grammar (each --where is AND-ed):
+ *   field=value     case-insensitive equality
+ *   field!=value    case-insensitive inequality
+ *   field~value     case-insensitive substring
+ *   field!~value    case-insensitive not-substring
+ *   field:empty     unset or empty string
+ *   field:notempty  set and non-empty
+ *   field<value     type-aware less-than (date or numeric)
+ *   field>value     type-aware greater-than
+ *   field<=value    type-aware less-than-or-equal
+ *   field>=value    type-aware greater-than-or-equal
+ *
+ * Comparison operators (`<` `>` `<=` `>=`) are type-aware, unlike the string
+ * operators above: if both the field value and the RHS parse as finite dates
+ * they compare as dates; else if both parse as finite numbers they compare
+ * numerically; otherwise the clause does not match (never throws at match
+ * time). The bare literal `today` on the RHS resolves to the policy/today date
+ * (`--today`, defaulting to the system date) and forces a date comparison —
+ * so `closeDate<today` is the canonical "past close date" filter.
+ *
+ * Fields are canonical (ownerId, stage, closeDate, amount, domain, name,
+ * email, isClosed, accountId, …). Relational pseudo-fields are available in
+ * filters: deals and contacts get `account.name`, `account.domain`,
+ * `account.ownerId`, `account.contactCount`; accounts get `contactCount`
+ * and `openDealCount`.
+ */
+import { recoverableFields } from "./dedupe.ts";
+import { normalizeDomain } from "./merge.ts";
+import { stableHash } from "./rules.ts";
+import type {
+  CanonicalGtmSnapshot,
+  GtmObjectType,
+  PatchOperation,
+  PatchPlan,
+  PlanGuard,
+} from "./types.ts";
+
+export type BulkUpdateOptions = {
+  objectType: "account" | "contact" | "deal";
+  /** raw --where expressions, AND-ed together; at least one is required */
+  where: string[];
+  /**
+   * canonical field → new value; one action only. A value of the form
+   * `from:<sourceField>` is resolved PER RECORD from the filter view at
+   * plan time (relational pseudo-fields like account.ownerId included);
+   * records whose source value is empty are skipped, not failed, and
+   * counted in the plan summary.
+   */
+  set?: Record<string, string>;
+  /** propose archive_record instead of field writes */
+  archive?: boolean;
+  /**
+   * bypass the archive duplicate guard: by default --archive refuses when a
+   * matched account/contact shares its identity key (normalized domain /
+   * lowercased email) with another record — those are duplicates, and
+   * archiving a duplicate discards its data where merging preserves it
+   */
+  forceArchiveDuplicates?: boolean;
+  /** propose create_task on each matched record with this subject/body text */
+  createTask?: string;
+  /** explicit preconditions (field=value), re-verified at apply time */
+  require?: string[];
+  /**
+   * plan-level guards, raw form "<objectType>:<where>[;<where>…]:<none|some>",
+   * re-evaluated against a fresh snapshot at apply time; failure aborts the
+   * entire plan
+   */
+  guard?: string[];
+  reason?: string;
+  /** refuse to build plans larger than this (default 500 operations) */
+  maxOperations?: number;
+  /**
+   * Date the comparison `today` literal resolves to (ISO yyyy-mm-dd). Set from
+   * the policy/--today date at the CLI; defaults to the system date. Stored on
+   * plan.filter so apply-time filter re-verification resolves `today`
+   * identically to plan time.
+   */
+  today?: string;
+};
+
+type WhereClause = {
+  field: string;
+  op: "eq" | "neq" | "contains" | "notcontains" | "empty" | "notempty" | "lt" | "gt" | "lte" | "gte";
+  value?: string;
+  raw: string;
+};
+
+const FIELD_PATTERN = "[a-zA-Z][a-zA-Z0-9_]*(?:\\.[a-zA-Z][a-zA-Z0-9_]*)?";
+
+/**
+ * Is a comparison RHS (a single `|`-alternative) authorable for comparison?
+ * Accept `today`, OR a plain number, OR a date-SHAPED string — using the exact
+ * same `isPlainNumber`/`isDateLike` predicates the match-time branch uses, so
+ * the parse-time authoring check and the runtime branch cannot diverge. The
+ * intentional asymmetry: parse-time validates one literal in isolation (EITHER
+ * number OR date is fine), whereas match-time's `compareValues` additionally
+ * requires the FIELD and the RHS to agree on type (BOTH number, or BOTH date).
+ * Requiring a date *shape* here (not bare `Date.parse`-finite) means a prose
+ * typo like `July 4` or a stray `<5` fails loudly at parse instead of silently
+ * matching nothing. `isDateLike`/`isPlainNumber` are hoisted function decls.
+ */
+function isComparableValue(rhs: string): boolean {
+  const trimmed = rhs.trim();
+  if (trimmed === "today") return true;
+  if (isPlainNumber(trimmed)) return true;
+  if (isDateLike(trimmed)) return true;
+  return false;
+}
+
+/**
+ * Catch the "multiple conditions crammed into one --where" footgun: a weak
+ * agent writes `--where 'stage!=closedwon AND stage!=closedlost'`, which the
+ * grammar would otherwise parse as a single neq clause whose VALUE is the
+ * literal string `closedwon AND stage!=closedlost` — matching almost nothing
+ * (or, with `!=`, almost EVERYTHING), so the gate faithfully applies a
+ * wildly-wrong-but-authorized plan.
+ *
+ * Fire only when a connector ` AND `/` OR ` is followed by a clause-LIKE
+ * structure (a field name + an operator), so incidental prose in a value —
+ * `name~Procter AND Gamble`, `name~research and development` — is NOT
+ * rejected (the word after the connector has no operator). Case-insensitive.
+ */
+const INLINE_CONJUNCTION = new RegExp(
+  `\\s(and|or)\\s+${FIELD_PATTERN}\\s*(!=|<=|>=|!~|=|<|>|~|:(empty|notempty)\\b)`,
+  "i",
+);
+
+export function parseWhere(expr: string): WhereClause {
+  if (INLINE_CONJUNCTION.test(expr)) {
+    throw new Error(
+      `Cannot parse "${expr}": looks like multiple conditions in one clause. ` +
+        `AND is implicit — use a SEPARATE --where for each condition ` +
+        `(e.g. --where stage!=closedwon --where stage!=closedlost). ` +
+        `For OR within one field, use value1|value2 (e.g. --where stage=closedwon|closedlost).`,
+    );
+  }
+  const empty = expr.match(new RegExp(`^(${FIELD_PATTERN}):(empty|notempty)$`));
+  if (empty) return { field: empty[1], op: empty[2] as "empty" | "notempty", raw: expr };
+  const neq = expr.match(new RegExp(`^(${FIELD_PATTERN})!=(.*)$`));
+  if (neq) return { field: neq[1], op: "neq", value: neq[2], raw: expr };
+  const notContains = expr.match(new RegExp(`^(${FIELD_PATTERN})!~(.*)$`));
+  if (notContains) return { field: notContains[1], op: "notcontains", value: notContains[2], raw: expr };
+  // Comparison operators: two-char tokens (`<=`/`>=`) MUST be tried before the
+  // one-char ones (`<`/`>`) so a prefix isn't stolen (`field<=5` → lte, not
+  // lt + stray `=`). They slot in after `!=`/`!~` and before `~`/`=` (different
+  // lead chars, no collision). The RHS is validated at parse time: an
+  // un-comparable literal (neither today, number, nor date) is a static
+  // authoring error and throws here, so a typo never silently matches nothing.
+  const lte = expr.match(new RegExp(`^(${FIELD_PATTERN})<=(.*)$`));
+  if (lte) return assertComparable({ field: lte[1], op: "lte", value: lte[2], raw: expr });
+  const gte = expr.match(new RegExp(`^(${FIELD_PATTERN})>=(.*)$`));
+  if (gte) return assertComparable({ field: gte[1], op: "gte", value: gte[2], raw: expr });
+  const lt = expr.match(new RegExp(`^(${FIELD_PATTERN})<(.*)$`));
+  if (lt) return assertComparable({ field: lt[1], op: "lt", value: lt[2], raw: expr });
+  const gt = expr.match(new RegExp(`^(${FIELD_PATTERN})>(.*)$`));
+  if (gt) return assertComparable({ field: gt[1], op: "gt", value: gt[2], raw: expr });
+  const contains = expr.match(new RegExp(`^(${FIELD_PATTERN})~(.*)$`));
+  if (contains) return { field: contains[1], op: "contains", value: contains[2], raw: expr };
+  const eq = expr.match(new RegExp(`^(${FIELD_PATTERN})=(.*)$`));
+  if (eq) return { field: eq[1], op: "eq", value: eq[2], raw: expr };
+  throw new Error(
+    `Cannot parse --where "${expr}". Use field=value, field!=value, field~substring, field!~substring, field:empty, field:notempty, field<value, field>value, field<=value, or field>=value.`,
+  );
+}
+
+/**
+ * Parse-time validity for a comparison clause: every `|`-alternative of the
+ * RHS must be a comparable literal (today / number / date). An un-comparable
+ * value (e.g. `amount>`, `closeDate<garbage`) throws here — a comparison that
+ * can never coerce is an authoring error, not a silent empty match.
+ */
+function assertComparable(clause: WhereClause): WhereClause {
+  const alternatives = (clause.value ?? "").split("|");
+  if (alternatives.some((a) => !isComparableValue(a))) {
+    throw new Error(
+      `Cannot parse --where "${clause.raw}": the comparison value must be a number, an ISO date, or "today" (got "${clause.value ?? ""}").`,
+    );
+  }
+  return clause;
+}
+
+function fieldValue(view: Record<string, unknown>, field: string): string {
+  const value = view[field];
+  if (value === undefined || value === null) return "";
+  return String(value);
+}
+
+/** System date as ISO yyyy-mm-dd — the default `today` when none is threaded. */
+function systemToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** A non-empty trimmed string that parses as a finite JS number. */
+function isPlainNumber(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed !== "" && Number.isFinite(Number(trimmed));
+}
+
+/**
+ * "Looks like a date": Date.parse-finite AND not a plain number. The guard
+ * against plain numbers is essential — `Date.parse("5000")` is finite (it reads
+ * as the YEAR 5000), so without it `closeDate<5000` and `amount>2026-04-30`
+ * would silently take the date branch and produce wrong, broad matches. Pure
+ * numbers are numbers; only date-SHAPED strings (with `-`/`/`/`T`, like the
+ * canonical ISO `2026-04-30`) are dates. Mirrors the ISO-date assumption the
+ * past-close-date rule already makes (rules.ts compareDate).
+ */
+function isDateLike(value: string): boolean {
+  // Require an ISO-ish date separator (`-`/`/`/`T`/`:`) in addition to a finite
+  // Date.parse: excludes plain numbers (`Date.parse("5000")` = year 5000) AND
+  // locale-fragile prose (`Date.parse("July 4")` is finite but is not a date we
+  // want to accept). Canonical dates are ISO (`2026-04-30`), so this never
+  // rejects real data; it only rejects authoring typos.
+  return !isPlainNumber(value) && /[-/T:]/.test(value) && Number.isFinite(Date.parse(value));
+}
+
+/**
+ * Type-aware comparison for a single (un-lowercased) field value against one
+ * resolved RHS alternative. Date-first, then numeric; any non-coercible side
+ * (including empty/unset, type mismatch) yields null (caller → no match). Never
+ * throws. `today` is already resolved to a date string by the caller.
+ * Returns a<0 / 0 / a>0 in the chosen type's space, or null when not comparable.
+ */
+function compareValues(rawField: string, rhs: string): number | null {
+  if (rawField.trim() === "") return null; // empty/unset is "not comparable", never epoch-0
+  // Date comparison when BOTH sides are date-shaped (mirrors compareDate in rules.ts).
+  if (isDateLike(rawField) && isDateLike(rhs)) {
+    return Date.parse(rawField) - Date.parse(rhs);
+  }
+  // Numeric comparison when BOTH sides are plain finite numbers.
+  if (isPlainNumber(rawField) && isPlainNumber(rhs)) {
+    return Number(rawField) - Number(rhs);
+  }
+  return null; // type mismatch / non-parseable → no match (caller returns false)
+}
+
+/**
+ * `today` is threaded from the policy/--today date (default: system date), so
+ * plan-time and apply-time re-verification resolve the literal identically.
+ */
+function matches(view: Record<string, unknown>, clause: WhereClause, today: string): boolean {
+  const actual = fieldValue(view, clause.field).toLowerCase();
+  // `|` alternation: eq/contains match ANY alternative; neq/notcontains
+  // must hold against ALL alternatives.
+  const alternatives = (clause.value ?? "").toLowerCase().split("|");
+  switch (clause.op) {
+    case "eq":
+      return alternatives.some((a) => actual === a);
+    case "neq":
+      return alternatives.every((a) => actual !== a);
+    case "contains":
+      return alternatives.some((a) => actual.includes(a));
+    case "notcontains":
+      return alternatives.every((a) => !actual.includes(a));
+    case "empty":
+      return actual === "";
+    case "notempty":
+      return actual !== "";
+    // Comparison ops are type-aware and use the RAW (un-lowercased) field
+    // value, not `actual` — lowercasing an ISO date still parses, but the
+    // helper must read from fieldValue() directly (see §6.3 risk 2). `today`
+    // resolves to the threaded policy date. Alternation is OR for all four
+    // (`some`): each alternative is coerced independently; one that fails
+    // coercion contributes false.
+    case "lt":
+    case "gt":
+    case "lte":
+    case "gte": {
+      const rawField = fieldValue(view, clause.field);
+      const rawAlternatives = (clause.value ?? "").split("|");
+      return rawAlternatives.some((a) => {
+        const rhs = a.trim() === "today" ? today : a;
+        const cmp = compareValues(rawField, rhs);
+        if (cmp === null) return false;
+        switch (clause.op) {
+          case "lt":
+            return cmp < 0;
+          case "gt":
+            return cmp > 0;
+          case "lte":
+            return cmp <= 0;
+          case "gte":
+            return cmp >= 0;
+        }
+      });
+    }
+  }
+}
+
+const COLLECTIONS: Record<BulkUpdateOptions["objectType"], keyof CanonicalGtmSnapshot> = {
+  account: "accounts",
+  contact: "contacts",
+  deal: "deals",
+};
+
+const RELATIONAL_FIELDS = ["account.name", "account.domain", "account.ownerId", "account.contactCount", "account.openDealStages"];
+/**
+ * Filterable fields per object type. Filters/requires/guards referencing any
+ * other field are rejected at plan time: a typo'd field silently evaluating
+ * to empty would make a ":none" guard pass vacuously — a safety assertion
+ * that never fires. Strictness turns typos into immediate, correctable
+ * errors.
+ */
+const VALID_FIELDS: Record<BulkUpdateOptions["objectType"], Set<string>> = {
+  account: new Set(["id", "crmId", "name", "domain", "industry", "ownerId", "employeeCount", "annualRevenue", "lastActivityAt", "lastSyncAt", "contactCount", "openDealCount", "openDealStages"]),
+  contact: new Set(["id", "crmId", "accountId", "firstName", "lastName", "email", "phone", "title", "ownerId", "lastSyncAt", ...RELATIONAL_FIELDS]),
+  deal: new Set(["id", "crmId", "accountId", "ownerId", "name", "amount", "currency", "stage", "closeDate", "dealType", "forecastCategory", "nextStep", "probability", "isClosed", "isWon", "lastActivityAt", "lastSyncAt", ...RELATIONAL_FIELDS]),
+};
+
+/** True when `field` is filterable for this object type (relational pseudo-fields included). */
+export function isFilterableField(
+  objectType: BulkUpdateOptions["objectType"],
+  field: string,
+): boolean {
+  return VALID_FIELDS[objectType].has(field);
+}
+
+function assertValidFields(objectType: BulkUpdateOptions["objectType"], clauses: WhereClause[], context: string): void {
+  for (const clause of clauses) {
+    if (!VALID_FIELDS[objectType].has(clause.field)) {
+      throw new Error(
+        `Unknown field "${clause.field}" in ${context} "${clause.raw}" for ${objectType}s. Valid fields: ${[...VALID_FIELDS[objectType]].join(", ")}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Fields that are derived in the canonical model (no provider property to
+ * re-read at apply time) or relational — excluded from auto-preconditions.
+ */
+const NON_READABLE_FIELDS = new Set([
+  // derived in the canonical model — no provider property to re-read
+  "isClosed", "isWon", "forecastCategory", "probability", "lastActivityAt", "lastSyncAt",
+  // identity/bookkeeping fields — preconditions on these are meaningless
+  "id", "crmId", "provider", "identities",
+]);
+
+/** Build the filter-evaluation view: record fields + relational pseudo-fields. */
+function buildViews(
+  snapshot: CanonicalGtmSnapshot,
+  objectType: BulkUpdateOptions["objectType"],
+): Array<{ record: Record<string, unknown>; view: Record<string, unknown> }> {
+  const accountsById = new Map(snapshot.accounts.map((a) => [a.id, a]));
+  const contactCountByAccount = new Map<string, number>();
+  for (const c of snapshot.contacts) {
+    if (c.accountId) contactCountByAccount.set(c.accountId, (contactCountByAccount.get(c.accountId) ?? 0) + 1);
+  }
+  const openDealCountByAccount = new Map<string, number>();
+  const openDealStagesByAccount = new Map<string, string[]>();
+  for (const d of snapshot.deals) {
+    if (d.accountId && !d.isClosed) {
+      openDealCountByAccount.set(d.accountId, (openDealCountByAccount.get(d.accountId) ?? 0) + 1);
+      const stages = openDealStagesByAccount.get(d.accountId) ?? [];
+      if (d.stage) stages.push(d.stage);
+      openDealStagesByAccount.set(d.accountId, stages);
+    }
+  }
+  const records = snapshot[COLLECTIONS[objectType]] as Array<Record<string, unknown>>;
+  return records.map((record) => {
+    const view: Record<string, unknown> = { ...record };
+    if (objectType === "account") {
+      view.contactCount = contactCountByAccount.get(String(record.id)) ?? 0;
+      view.openDealCount = openDealCountByAccount.get(String(record.id)) ?? 0;
+      view.openDealStages = (openDealStagesByAccount.get(String(record.id)) ?? []).join(",");
+    } else {
+      const account = record.accountId ? accountsById.get(String(record.accountId)) : undefined;
+      view["account.name"] = account?.name ?? "";
+      view["account.domain"] = account?.domain ?? "";
+      view["account.ownerId"] = account?.ownerId ?? "";
+      view["account.contactCount"] = account ? (contactCountByAccount.get(account.id) ?? 0) : 0;
+      view["account.openDealStages"] = account ? (openDealStagesByAccount.get(account.id) ?? []).join(",") : "";
+    }
+    return { record, view };
+  });
+}
+
+export function parseGuard(raw: string): PlanGuard {
+  const first = raw.indexOf(":");
+  const last = raw.lastIndexOf(":");
+  if (first === -1 || last === first) {
+    throw new Error(`Cannot parse --guard "${raw}". Use <account|contact|deal>:<where>[;<where>…]:<none|some>.`);
+  }
+  const objectType = raw.slice(0, first);
+  const expect = raw.slice(last + 1);
+  const where = raw.slice(first + 1, last).split(";").map((s) => s.trim()).filter(Boolean);
+  if (!["account", "contact", "deal"].includes(objectType) || !["none", "some"].includes(expect) || where.length === 0) {
+    throw new Error(`Cannot parse --guard "${raw}". Use <account|contact|deal>:<where>[;<where>…]:<none|some>.`);
+  }
+  // validate eagerly at plan time: a typo'd guard must fail loudly, never
+  // pass vacuously at apply time
+  assertValidFields(objectType as BulkUpdateOptions["objectType"], where.map(parseWhere), "--guard");
+  return { objectType: objectType as PlanGuard["objectType"], where, expect: expect as PlanGuard["expect"], description: raw };
+}
+
+/**
+ * Ids of records matching a filter — used for apply-time filter
+ * re-verification. `today` resolves the comparison `today` literal; apply-time
+ * callers pass the value the plan was built with (stored on plan.filter.today)
+ * so re-verification uses the SAME today, defaulting to the system date.
+ */
+export function eligibleIds(
+  snapshot: CanonicalGtmSnapshot,
+  objectType: BulkUpdateOptions["objectType"],
+  where: string[],
+  today: string = systemToday(),
+): Set<string> {
+  const clauses = where.map(parseWhere);
+  const views = buildViews(snapshot, objectType);
+  return new Set(
+    views.filter(({ view }) => clauses.every((c) => matches(view, c, today))).map(({ record }) => String(record.id)),
+  );
+}
+
+/** Evaluate a plan guard against a snapshot. Returns null when satisfied, else a failure detail. */
+export function evaluateGuard(snapshot: CanonicalGtmSnapshot, guard: PlanGuard, today: string = systemToday()): string | null {
+  const clauses = guard.where.map(parseWhere);
+  const views = buildViews(snapshot, guard.objectType);
+  const matchCount = views.filter(({ view }) => clauses.every((c) => matches(view, c, today))).length;
+  const ok = guard.expect === "none" ? matchCount === 0 : matchCount > 0;
+  if (ok) return null;
+  return `Guard failed: expected ${guard.expect === "none" ? "no" : "at least one"} ${guard.objectType}(s) matching [${guard.where.join(" AND ")}], found ${matchCount}.`;
+}
+
+export function buildBulkUpdatePlan(
+  snapshot: CanonicalGtmSnapshot,
+  options: BulkUpdateOptions,
+): PatchPlan {
+  const maxOperations = options.maxOperations ?? 500;
+  // Resolve `today` once: the comparison `today` literal in both --where and
+  // --guard binds to this value at plan time, and it is stored on plan.filter
+  // so apply-time re-verification (eligibleIds) resolves it identically.
+  const today = options.today ?? systemToday();
+  if (options.where.length === 0) {
+    throw new Error(
+      "bulk-update requires at least one --where filter — refusing to build an unscoped mass write.",
+    );
+  }
+  const hasSet = options.set && Object.keys(options.set).length > 0;
+  const actions = [hasSet, options.archive, options.createTask !== undefined].filter(Boolean).length;
+  if (actions !== 1) {
+    throw new Error("bulk-update needs exactly one action: --set <field>=<value> (repeatable), --archive, or --create-task <text>.");
+  }
+
+  const clauses = options.where.map(parseWhere);
+  assertValidFields(options.objectType, clauses, "--where");
+  // Whether any comparison clause references the `today` literal — drives
+  // whether the resolved `today` is persisted on plan.filter (see below).
+  const isComparisonOp = (op: WhereClause["op"]) => op === "lt" || op === "gt" || op === "lte" || op === "gte";
+  const referencesToday = clauses.some(
+    (c) => isComparisonOp(c.op) && (c.value ?? "").split("|").some((a) => a.trim() === "today"),
+  );
+  const WRITABLE_BLOCKLIST = new Set(["id", "crmId", "contactCount", "openDealCount", "openDealStages"]);
+  // `from:<sourceField>` values resolve per record from the filter view —
+  // the source is validated with the same strictness as filters (relational
+  // pseudo-fields allowed; the WRITTEN field still must be canonical).
+  const assignments: Array<{ field: string; literal?: string; fromField?: string }> = [];
+  for (const [field, value] of Object.entries(options.set ?? {})) {
+    if (!VALID_FIELDS[options.objectType].has(field) || WRITABLE_BLOCKLIST.has(field) || field.includes(".")) {
+      throw new Error(`Cannot --set "${field}" on ${options.objectType}s — not a writable canonical field.`);
+    }
+    if (value.startsWith("from:")) {
+      const fromField = value.slice("from:".length);
+      if (!VALID_FIELDS[options.objectType].has(fromField)) {
+        throw new Error(
+          `Cannot --set ${field}=from:${fromField} on ${options.objectType}s — unknown source field "${fromField}". Valid fields: ${[...VALID_FIELDS[options.objectType]].join(", ")}.`,
+        );
+      }
+      assignments.push({ field, fromField });
+    } else {
+      assignments.push({ field, literal: value });
+    }
+  }
+  const views = buildViews(snapshot, options.objectType);
+  const matched = views.filter(({ view }) => clauses.every((c) => matches(view, c, today)));
+  if (matched.length > maxOperations) {
+    throw new Error(
+      `Filter matched ${matched.length} ${COLLECTIONS[options.objectType]} — above the ${maxOperations}-record safety cap. Narrow the --where filter or raise --max-operations explicitly.`,
+    );
+  }
+
+  // Archive duplicate guard: archiving a record that shares its identity key
+  // with another active record discards data a merge would preserve. Refuse
+  // and point at `dedupe` unless explicitly overridden. Deals are exempt —
+  // they carry no identity key.
+  if (options.archive && options.objectType !== "deal" && !options.forceArchiveDuplicates) {
+    const keyName = options.objectType === "account" ? "domain" : "email";
+    const keyOf = (record: Record<string, unknown>): string | undefined =>
+      options.objectType === "account"
+        ? normalizeDomain(record.domain as string | undefined)
+        : ((record.email as string | undefined)?.trim().toLowerCase() || undefined);
+    const allRecords = snapshot[COLLECTIONS[options.objectType]] as Array<Record<string, unknown>>;
+    const byKey = new Map<string, Array<Record<string, unknown>>>();
+    for (const record of allRecords) {
+      const key = keyOf(record);
+      if (!key) continue;
+      const existing = byKey.get(key) ?? [];
+      existing.push(record);
+      byKey.set(key, existing);
+    }
+    const collisions: string[] = [];
+    for (const { record } of matched) {
+      const key = keyOf(record);
+      if (!key) continue;
+      const others = (byKey.get(key) ?? []).filter((other) => other.id !== record.id);
+      if (others.length === 0) continue;
+      const label = (record.name as string | undefined) ?? (record.email as string | undefined) ?? "";
+      collisions.push(
+        `${options.objectType} ${record.id}${label ? ` "${label}"` : ""} shares ${keyName} "${key}" with ${others
+          .map((other) => `${other.id}${other.name ? ` "${other.name}"` : ""}`)
+          .join(", ")}`,
+      );
+    }
+    if (collisions.length > 0) {
+      throw new Error(
+        `Refusing to archive: ${collisions.length} matched record(s) look like duplicates of other records — archiving a duplicate DISCARDS its data, merging preserves it. Use \`fullstackgtm dedupe ${options.objectType} --key ${keyName}\` (merge_records) instead, or pass --force-archive-duplicates to archive anyway.\n  - ${collisions.join("\n  - ")}`,
+      );
+    }
+  }
+
+  // Preconditions: explicit --require, plus every equality filter on a real
+  // (re-readable, non-relational) field. The premise the plan was built on
+  // is re-verified per record at apply time.
+  const writtenFields = new Set(Object.keys(options.set ?? {}));
+  const preconditionSpecs: Array<{ field: string; expectedValue: string }> = [];
+  for (const raw of options.require ?? []) {
+    const clause = parseWhere(raw);
+    if (clause.op !== "eq" || clause.field.includes(".") || (clause.value ?? "").includes("|")) {
+      throw new Error(`--require must be a direct single-value field equality (field=value), got "${raw}".`);
+    }
+    assertValidFields(options.objectType, [clause], "--require");
+    preconditionSpecs.push({ field: clause.field, expectedValue: clause.value ?? "" });
+  }
+  for (const clause of clauses) {
+    if (clause.op !== "eq") continue;
+    if ((clause.value ?? "").includes("|")) continue; // alternations are not single-value preconditions
+    if (clause.field.includes(".") || NON_READABLE_FIELDS.has(clause.field)) continue;
+    if (writtenFields.has(clause.field)) continue; // beforeValue already guards it
+    if (preconditionSpecs.some((p) => p.field === clause.field)) continue;
+    preconditionSpecs.push({ field: clause.field, expectedValue: clause.value ?? "" });
+  }
+
+  const whereText = options.where.join(" AND ");
+  const action = options.archive
+    ? `archive`
+    : options.createTask !== undefined
+      ? `create task "${options.createTask}"`
+      : `set ${Object.entries(options.set!).map(([k, v]) => `${k}=${v}`).join(", ")}`;
+  const reason = options.reason ?? `bulk-update: ${action} where ${whereText}`;
+
+  const operations: PatchOperation[] = [];
+  // records skipped because a from:<sourceField> value was empty, per source
+  const skippedBySource = new Map<string, number>();
+  for (const { record, view } of matched) {
+    const objectId = String(record.id);
+    const groupId = `grp_${options.objectType}_${objectId}`;
+    const preconditions = preconditionSpecs.map((p) => ({
+      field: p.field,
+      // expected value is the record's CURRENT canonical value, not the
+      // filter literal — preserves casing/format the provider will echo back
+      expectedValue: record[p.field] ?? p.expectedValue,
+    }));
+    const shared = {
+      objectType: options.objectType as GtmObjectType,
+      objectId,
+      reason,
+      approvalRequired: true as const,
+      sourceRuleOrPolicy: "bulk-update",
+      ...(preconditions.length > 0 ? { preconditions } : {}),
+      groupId,
+    };
+    if (options.archive) {
+      operations.push({
+        ...shared,
+        id: `op_${stableHash(`bulk-archive:${options.objectType}:${objectId}:${whereText}`)}`,
+        operation: "archive_record",
+        beforeValue: null,
+        afterValue: null,
+        riskLevel: "high",
+        // Carry the human's explicit force decision to the apply-time guard, and
+        // snapshot the record so it can be recreated if the archive was wrong.
+        ...(options.forceArchiveDuplicates ? { forceArchiveDuplicate: true } : {}),
+        recoverySnapshot: [recoverableFields(record)],
+        rollback: "Archived records can be restored from the provider's recycle bin within its retention window; recoverySnapshot also retains the field values.",
+      });
+      continue;
+    }
+    if (options.createTask !== undefined) {
+      operations.push({
+        ...shared,
+        id: `op_${stableHash(`bulk-task:${options.objectType}:${objectId}:${options.createTask}`)}`,
+        operation: "create_task",
+        field: "follow_up_task",
+        beforeValue: null,
+        afterValue: options.createTask,
+        riskLevel: "low",
+        rollback: "Delete the created task.",
+      });
+      continue;
+    }
+    // Resolve every assignment for this record BEFORE emitting any of its
+    // operations: a record whose from:<sourceField> resolves empty is
+    // skipped whole (its operations share a groupId — half a record's
+    // updates is exactly what grouping exists to prevent).
+    const resolved: Array<{ field: string; value: string }> = [];
+    let emptySource: string | null = null;
+    for (const assignment of assignments) {
+      if (assignment.fromField !== undefined) {
+        const value = fieldValue(view, assignment.fromField);
+        if (value === "") {
+          emptySource = assignment.fromField;
+          break;
+        }
+        resolved.push({ field: assignment.field, value });
+      } else {
+        resolved.push({ field: assignment.field, value: assignment.literal! });
+      }
+    }
+    if (emptySource !== null) {
+      skippedBySource.set(emptySource, (skippedBySource.get(emptySource) ?? 0) + 1);
+      continue;
+    }
+    for (const { field, value } of resolved) {
+      operations.push({
+        ...shared,
+        id: `op_${stableHash(`bulk-set:${options.objectType}:${objectId}:${field}:${value}`)}`,
+        operation: "set_field",
+        field,
+        beforeValue: record[field] ?? null,
+        afterValue: value,
+        riskLevel: "medium",
+        rollback: `Set ${field} back to ${JSON.stringify(record[field] ?? null)}.`,
+      });
+    }
+  }
+
+  const guards = (options.guard ?? []).map(parseGuard);
+  // guards must hold at plan time too — building a plan whose guard already
+  // fails is a footgun, surface it immediately
+  for (const guard of guards) {
+    const failure = evaluateGuard(snapshot, guard, today);
+    if (failure) throw new Error(`${failure} The guard already fails against the current snapshot — the plan would never apply.`);
+  }
+  // A `today` literal inside a --guard (not just --where) must also pin
+  // plan.filter.today: connector.ts re-evaluates guards at apply time and,
+  // without the persisted date, would resolve `today` to the apply-day system
+  // date — silently drifting a fail-closed guard. Persist `today` if EITHER a
+  // --where or a --guard clause references the literal.
+  const guardReferencesToday = guards.some((g) =>
+    g.where.some((raw) => {
+      const c = parseWhere(raw);
+      return isComparisonOp(c.op) && (c.value ?? "").split("|").some((a) => a.trim() === "today");
+    }),
+  );
+  const persistToday = referencesToday || guardReferencesToday;
+
+  const skippedText = [...skippedBySource.entries()]
+    .map(([sourceField, count]) => ` ${count} skipped: empty ${sourceField}.`)
+    .join("");
+  return {
+    id: `patch_plan_${stableHash(`bulk:${snapshot.provider}:${snapshot.generatedAt}:${options.objectType}:${whereText}:${action}:${operations.length}`)}`,
+    title: `Bulk update: ${options.objectType}s where ${whereText}`,
+    createdAt: snapshot.generatedAt,
+    status: operations.length > 0 ? "needs_approval" : "draft",
+    dryRun: true,
+    summary: `${matched.length} ${COLLECTIONS[options.objectType]} matched (${whereText}); ${operations.length} proposed dry-run operations (${action}).${skippedText}${guards.length > 0 ? ` ${guards.length} apply-time guard(s).` : ""}`,
+    findings: [],
+    operations,
+    // Persist the resolved `today` ONLY when a filter clause actually
+    // references the `today` literal, so apply-time re-verification (eligibleIds
+    // in connector.ts) resolves it to the same date the plan was built with —
+    // the apply command carries no --today of its own. Plans without `today`
+    // (the vast majority — equality filters, reassign, etc.) keep the original
+    // `{ objectType, where }` shape unchanged; eligibleIds defaults to the
+    // system date for them, which never affects a non-`today` filter.
+    filter: {
+      objectType: options.objectType,
+      where: options.where,
+      ...(persistToday ? { today } : {}),
+    },
+    ...(guards.length > 0 ? { guards } : {}),
+  };
+}

@@ -1,0 +1,20 @@
+{
+  "workspace": "Northwind",
+  "deals": {
+    "D1": { "name": "Acme expansion", "stage": "proposal", "dealType": "expansion", "industry": "Fintech", "personas": ["CFO"], "competitors": ["Clari"] },
+    "D2": { "name": "Birch new", "stage": "discovery", "dealType": "new_business", "industry": "Healthcare", "personas": ["VP Sales"] }
+  },
+  "items": [
+    { "key": "I1", "data": { "title": "CFO ROI deck", "status": "published", "stages": ["proposal"], "personas": ["CFO"], "industries": ["Fintech"] } },
+    { "key": "I2", "data": { "title": "Discovery guide", "status": "published", "stages": ["discovery"], "personas": ["VP Sales"] } },
+    { "key": "I3", "data": { "title": "Clari battle card", "status": "published", "stages": ["proposal", "negotiation"], "competitors": ["Clari"] } },
+    { "key": "I4", "data": { "title": "Healthcare one-pager", "status": "published", "industries": ["Healthcare"] } },
+    { "key": "I5", "data": { "title": "Old pricing", "status": "retired", "stages": ["proposal"] } }
+  ],
+  "expected": {
+    "D1": [["I1", 9], ["I3", 6]],
+    "D2": [["I2", 7], ["I4", 2]],
+    "D1UsedI1": [["I1", 8], ["I3", 6]],
+    "D1StageAndTypeOnly": [["I1", 4], ["I3", 4]]
+  }
+}

@@ -1,0 +1,461 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Class-based dark variant kept so stray `dark:` utilities never activate:
+   the app is light-only via :root and no element ever gets the class. */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--body-font);
+  --font-mono: var(--font-plex-mono);
+  --font-display: var(--heading-font);
+  --color-provenance: var(--provenance);
+  --color-provenance-tint: var(--provenance-tint);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-brand: var(--brand);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/*
+ * Ledger: light stone paper, warm ink, bottle-green actions, a little oxblood.
+ * Like an accounting ledger: green-ruled paper, corrections in red ink. Green
+ * does the work (buttons, links, won, focus); oxblood (--provenance) only marks
+ * values Canon filled in. Errors are orange and warnings ochre so red never
+ * means "error". IBM Plex throughout: Serif for headings and record names,
+ * Sans for the interface, Mono for IDs, sources and code only.
+ *   paper #eeeeeb · surface #fafaf8 · line #e6e6e4 · ink #1c1a1a · dim #6c6b6a
+ * These are what recipes/theme.ts derives for Ledger (tests/recipeTheme.test.ts keeps them equal); a workspace's
+ * theme recipe overrides them on <body> (src/components/shell/workspace-theme.tsx).
+ *   bottle #1e4d3a · oxblood #7a2232 · orange #b3401a · ochre #8f6400
+ * Exploration and market research: docs/brand-lab/.
+ */
+:root {
+  color-scheme: light;
+  --radius: 0.125rem;
+  --background: #fafaf8;
+  --foreground: #1c1a1a;
+  --card: #fafaf8;
+  --card-foreground: #1c1a1a;
+  --popover: #fdfdfc;
+  --popover-foreground: #1c1a1a;
+  --primary: #1e4d3a;
+  --primary-foreground: #ffffff;
+  --secondary: #eeeeec;
+  --secondary-foreground: #1c1a1a;
+  --muted: #ededeb;
+  --muted-foreground: #6c6b6a;
+  --accent: #ededeb;
+  --accent-foreground: #1c1a1a;
+  --destructive: #b3401a;
+  --warning: #8f6400;
+  --brand: #7a2232;
+  --provenance: #7a2232;
+  --provenance-tint: #e0cfd0;
+  --border: #e6e6e4;
+  --input: #d2d2d0;
+  --ring: #1e4d3a;
+  --chart-1: #1e4d3a;
+  --chart-2: #7a2232;
+  --chart-3: #8f6400;
+  --chart-4: #6c6b6a;
+  --chart-5: #819b90;
+  --sidebar: #eeeeeb;
+  --sidebar-foreground: #1c1a1a;
+  --sidebar-primary: #1e4d3a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #dfdfdc;
+  --sidebar-accent-foreground: #1c1a1a;
+  --sidebar-border: #ddddda;
+  --sidebar-ring: #1e4d3a;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    /* Headings and record names; a workspace theme can switch it to the sans (recipes/theme.ts). Set on body,
+       not :root, because next/font defines --font-plex-* on body. */
+    --heading-font: var(--font-plex-serif), Georgia, serif;
+    --body-font: var(--font-plex-sans), system-ui, sans-serif;
+    @apply bg-background text-foreground;
+    font-variant-numeric: tabular-nums;
+  }
+
+  h1,
+  h2,
+  .font-display {
+    font-family: var(--heading-font);
+    font-variant-numeric: proportional-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* Small h2s are section labels (text-xs/sm), not headings: keep them in the sans. */
+  h2:is(.text-xs, .text-sm) {
+    font-family: var(--body-font);
+    letter-spacing: 0;
+  }
+
+  ::selection {
+    background: #d7e4dc;
+    color: var(--foreground);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .operator-panel {
+    @apply border border-border/80 bg-card/95;
+  }
+
+  .operator-panel-subtle {
+    @apply bg-muted/35;
+  }
+
+  /* Section label: small sentence-case sans in the secondary ink. */
+  .eyebrow {
+    font-family: var(--body-font);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  /* A record's own name (company, person, deal): set in the serif, like an entry in the register. */
+  .record-name {
+    font-family: var(--heading-font);
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+
+  .dashboard-ui :is(.rounded-xl, .rounded-lg).border
+    :is(.rounded-xl, .rounded-lg).border {
+    border-color: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .dashboard-ui p.text-muted-foreground {
+    max-width: 58ch;
+  }
+
+  .dashboard-ui .text-center p.text-muted-foreground {
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* Every rounded utility takes the theme's one radius (2px in Ledger; recipes/theme.ts can change it). */
+.dashboard-ui :is(.rounded-xl, .rounded-lg, .rounded-md, .rounded-sm) {
+  border-radius: var(--radius) !important;
+}
+
+.dashboard-ui :is(.rounded-2xl, .rounded-3xl) {
+  border-radius: 0 !important;
+}
+
+.dashboard-ui .rounded-full {
+  border-radius: var(--radius) !important;
+}
+
+.dashboard-ui :is(.shadow, .shadow-sm) {
+  box-shadow: none !important;
+}
+
+/* Floating layers (menus, popovers, dialogs) get one soft shadow so they lift off the light paper. */
+.dashboard-ui :is(.shadow-md, .shadow-lg, .shadow-xl) {
+  box-shadow: 0 8px 24px rgb(28 26 26 / 0.1) !important;
+}
+
+.dashboard-ui :is(section, div).rounded-xl.border,
+.dashboard-ui :is(section, div).rounded-lg.border {
+  border-radius: 0 !important;
+}
+
+/* On a phone, a wide table scrolls sideways inside its box. Pin the first column so every row keeps its name in view, and give it room so names don't wrap one word per line. */
+@media (max-width: 767px) {
+  /* iOS Safari zooms the page into any field under 16px when it takes focus. */
+  :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea) {
+    font-size: 16px;
+  }
+
+  .dashboard-ui .overflow-x-auto table :is(th, td):first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    min-width: 9rem;
+    max-width: 60vw;
+    background-color: var(--background);
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+
+  /* A leading select-row checkbox pins narrow, and the name column after it pins too. */
+  .dashboard-ui .overflow-x-auto table tr:has(> :first-child :is(input[type="checkbox"], [role="checkbox"])) > :first-child {
+    width: 2.5rem;
+    min-width: 2.5rem;
+    max-width: 2.5rem;
+    box-shadow: none;
+  }
+
+  .dashboard-ui .overflow-x-auto table tr:has(> :first-child :is(input[type="checkbox"], [role="checkbox"])) > :nth-child(2) {
+    position: sticky;
+    left: 2.5rem;
+    z-index: 1;
+    min-width: 9rem;
+    max-width: 55vw;
+    background-color: var(--background);
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+}
+
+/* TAM treemap: neutral tiles (unknown, unsure, other) carry texture, not a hue. */
+.tam-hatch {
+  background-image: repeating-linear-gradient(45deg, var(--border) 0 1px, transparent 1px 7px);
+}
+
+.view-frame {
+  --view-gutter: 1.5rem;
+  min-width: 0;
+  padding-bottom: 2rem;
+}
+.view-frame-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 5rem;
+  padding: 1.5rem var(--view-gutter);
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+.view-frame-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.view-frame-identity { min-width: 0; overflow-wrap: anywhere; }
+.view-frame-description { margin-top: .5rem; }
+.view-frame-actions, .record-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .5rem;
+}
+.view-frame-actions { max-width: 70%; }
+.view-frame-actions > :is(button, a) { min-height: 2rem; }
+.view-action {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  gap: .375rem;
+  border: 1px solid var(--border);
+  padding: .375rem .75rem;
+  font-size: .75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.view-action:hover { background: var(--muted); }
+.view-action:disabled { opacity: .45; }
+.view-action-primary { border-color: var(--primary); background: var(--primary); color: var(--primary-foreground); }
+.view-action-primary:hover { background: color-mix(in srgb, var(--primary) 88%, var(--background)); }
+.view-frame-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .75rem;
+  padding: 1rem var(--view-gutter);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 95%, var(--muted));
+}
+.view-frame-filter-content { flex: 1; min-width: 0; }
+.view-frame-filter-content > div:last-child { margin-bottom: 0; }
+.view-frame-filter-reset { margin-left: auto; }
+.view-frame-controls :is(input:not([type="checkbox"]), [role="combobox"]) { min-height: 2rem; }
+.view-frame-content { min-width: 0; padding: 1.25rem var(--view-gutter); }
+.view-frame-content table tbody tr:hover { background: color-mix(in srgb, var(--muted) 40%, transparent); }
+.record-dialog-body { max-height: 90dvh; overflow-y: auto; }
+.record-frame { padding: 0 1.5rem 1.5rem; }
+.record-full-frame { padding-top: 1.5rem; }
+.record-full-page {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: flex-end;
+  gap: .25rem;
+  margin: 0 -1.5rem;
+  padding: 0 3rem 0 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  font-size: .75rem;
+  color: var(--muted-foreground);
+}
+.record-header {
+  position: sticky;
+  top: 2.75rem;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 -1.5rem 1.5rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+.record-full-frame .record-header { top: 0; }
+.record-header > div:first-child { min-width: 0; flex: 1; }
+.record-header h1 { overflow-wrap: anywhere; font-size: 1.75rem; }
+.record-dialog [data-slot="dialog-close"] { position: absolute; z-index: 40; }
+@media (max-width: 639px) {
+  .view-frame { --view-gutter: 1rem; }
+  .view-frame-title-row { flex-wrap: wrap; gap: .75rem; }
+  .view-frame-actions { width: 100%; max-width: none; }
+  .view-frame-filter-content { flex-basis: 100%; }
+  .record-header-actions { width: 100%; }
+}
+@media (max-width: 767px) {
+  .view-frame-header, .record-full-frame .record-header { top: 0; }
+}
+.view-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: .75rem;
+  padding: .5rem .75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  font-size: .75rem;
+  font-weight: 500;
+}
+
+.view-frame-compact > .view-frame-header { min-height: 0; padding-block: 1rem; }
+.view-frame-compact > .view-frame-controls { padding-block: .5rem; }
+.view-frame-compact > .view-frame-content { padding-top: .75rem; }
+
+/* A page printed as a document (a module's `print` action): the shell's chrome and the page's controls stay off paper. */
+@media print {
+  @page { margin: 14mm; }
+  body { background: #fff; }
+  .view-frame-header { position: static; }
+  .print-hidden, [data-sonner-toaster] { display: none !important; }
+  .print-document button:not(th button), .print-document input, .print-document form { display: none !important; }
+  .print-document table, .print-document tr { break-inside: avoid; }
+}
+
+/* Plain HTML (recipes/canon-plain-html): Craigslist-plain. Times on white, blue underlined links, and almost
+   nothing else: no icons, boxes, fills, rounding, shadows or motion; one weight, no capitals or tracking; buttons
+   read as links. Only text fields keep a border, and floating menus and dialogs a white ground and a hairline. */
+@layer components {
+  body[data-look="plain"] *,
+  body[data-look="plain"] *::before,
+  body[data-look="plain"] *::after {
+    border-color: transparent !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    backdrop-filter: none !important;
+    transition: none !important;
+    animation-duration: 0s !important;
+    background-image: none !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;
+    font-weight: normal !important;
+    font-style: normal !important;
+  }
+  body[data-look="plain"] { -webkit-font-smoothing: auto; }
+  body[data-look="plain"] :is(h1, h2, h3, h4, th, strong, b) { font-weight: bold !important; }
+  body[data-look="plain"] [class*="bg-"]:not(:is([role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="tooltip"], [data-slot$="-content"])) {
+    background-color: transparent !important;
+  }
+  body[data-look="plain"] :is([role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [role="tooltip"], [data-slot$="-content"]) {
+    background: #ffffff !important;
+    border: 1px solid #000000 !important;
+  }
+  /* No icons. An icon-only control shows its label as text instead. */
+  body[data-look="plain"] svg.lucide { display: none !important; }
+  body[data-look="plain"] :is(button, a)[aria-label]:not(:has(> :not(svg))) { width: auto !important; }
+  body[data-look="plain"] :is(button, a)[aria-label]:not(:has(> :not(svg)))::after { content: attr(aria-label); font-size: 13px; white-space: nowrap; }
+  /* Except quick-view shortcuts in tables: the row's own link already opens the record. */
+  body[data-look="plain"] td :is(button, a)[aria-label^="Quick view"] { display: none !important; }
+  /* A control labelled by an sr-only span (a dialog's Close) shows that label. */
+  body[data-look="plain"] :is(button, a) > .sr-only {
+    position: static !important; width: auto !important; height: auto !important;
+    margin: 0 !important; overflow: visible !important; clip: auto !important; white-space: nowrap !important;
+  }
+  /* Switches and checkboxes say their state in text, the way a plain page would. */
+  body[data-look="plain"] :is([role="switch"], [role="checkbox"]) {
+    width: auto !important; height: auto !important; color: #000000 !important; text-decoration: none !important;
+  }
+  body[data-look="plain"] :is([role="switch"], [role="checkbox"]) > * { display: none !important; }
+  body[data-look="plain"] [role="switch"]::after { content: "[off]"; }
+  body[data-look="plain"] [role="switch"][aria-checked="true"]::after { content: "[on]"; }
+  body[data-look="plain"] [role="checkbox"]::after { content: "[ ]"; white-space: pre; }
+  body[data-look="plain"] [role="checkbox"][aria-checked="true"]::after { content: "[x]"; }
+  body[data-look="plain"] [role="checkbox"][aria-checked="mixed"]::after { content: "[-]"; }
+  body[data-look="plain"] [role="radio"] { margin-right: 0.75em; }
+  body[data-look="plain"] :is(a, button, [role="button"], [role="tab"], [role="menuitem"], [role="radio"]) {
+    color: #0000ee !important;
+    text-decoration: underline !important;
+    background: transparent !important;
+    padding-inline: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+  }
+  body[data-look="plain"] a:visited { color: #551a8b !important; }
+  body[data-look="plain"] :is(a, button):active { color: #ff0000 !important; }
+  body[data-look="plain"] :is(button, a):disabled,
+  body[data-look="plain"] [aria-disabled="true"] { color: #777777 !important; text-decoration: none !important; }
+  body[data-look="plain"] :is([role="tab"][aria-selected="true"], [role="radio"][aria-checked="true"]) { color: #000000 !important; text-decoration: none !important; font-weight: bold !important; }
+  body[data-look="plain"] :is(input, textarea, select, [role="combobox"]) {
+    background: #ffffff !important;
+    border: 1px solid #767676 !important;
+    color: #000000 !important;
+    text-decoration: none !important;
+    padding-inline: 4px !important;
+  }
+  body[data-look="plain"] :focus-visible { outline: 1px dotted #000000 !important; outline-offset: 1px !important; }
+  body[data-look="plain"] ::selection { background: #000080; color: #ffffff; }
+}

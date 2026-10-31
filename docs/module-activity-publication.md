@@ -1,0 +1,97 @@
+# Module activity publication
+
+W3-P captures committed module activity changes and publishes immutable journal frames. Activity watches still consume the existing ledger feed. W3-C delivery and mixed-source freshness are held. Producer deployment alone does not complete the Work watch feature or advance the Work roadmap beyond 2/6.
+
+## Source transactions
+
+`activityCapture.ts` owns the mandatory `writeModuleState` boundary. The three document wrappers retain their definition, SQ1, role, evidence, CAS, approval, and effects checks. Their physical callbacks run inside `withModulePublication`. Source metadata, enablement, first installs, and pending-manifest cleanup enter the same boundary.
+
+The session belongs to the actual mutation DB object. Nested helpers share it. The outer helper flushes evidence in the original transaction. A second complete helper in that transaction can flush again while retaining the first preimage. There is no before-commit hook. An unwrapped physical writer refuses before writing.
+
+Each helper records its entry write generation. A pre-write refusal preserves its original error and earlier successful session evidence. Capture and physical writes mark an attempt before a helper can write. The captured op/transition/apply dispatch sites also mark proposal, audit-event, dirty, notification, and send attempts after their existing admission checks. These markers open no publication and grant no authority. They do not observe arbitrary database operations or change independently exposed helpers.
+
+An error after an attempted write poisons the session and propagates a private non-Convex error with a generic external message. A caught inner failure cannot allow an outer success flush. Audiences propagates that fatal error because its recoverable-row handler catches only ConvexError; patch-plan apply already rethrows failures. This claim applies to the censused callers, not to an uncatchable JavaScript error or universal rollback. Reentry preserves first OLD evidence and advances the retained revision only after a successful publication patch.
+
+The first root header survives an ordinary root edit followed by a sibling child write, deletion, or generation flip. Evidence identifies physical incarnations separately from the collision-free logical module activity ID. Inserts retain explicit absence when they join a publication. Delete and recreate compare initial and final logical state. Root creation followed by deletion can complete with no activity frame.
+
+A staged generation has no published activity. A stage-only write or cleanup of an inactive generation checks the source pin without opening a publication. If a publication already owns the transaction, sibling work joins its evidence. A root generation flip pins the retained physical generations and captures the initial root header. Retired cleanup can refuse until publication completes without changing the original `Applied.retired` result.
+
+Job WAIT, stale output, or failure stops further staging and apply. `stageAndApply` still attempts its original checked `dropAll` for known own generations. A pin can refuse that cleanup, leaving staged rows nonvisible. Publication completion does not reclaim those rows automatically. The existing checked `dropGeneration` can remove a known unreferenced generation only while its original source, epoch, and principal remain authorized. Crash, source-epoch change, uninstall, and role-loss leftovers have no automatic reclamation guarantee. Existing lifecycle cleanup retains its own authority and is not general garbage collection. P adds no staging ownership row, cleanup runner, background deletion, or cap increase.
+
+Descriptors retain the installed version, epoch, hashes, enabled and installed visibility, activity mappings, relevant parents, and scalar-versus-array target types. They contain no full manifest, raw module row, principal, admission token, private audit, or semantic operation list. Canonical sides retain typed target references in the source namespace. Their provenance records the physical version, source creation time, package and descriptor identity, and the initial or final root incarnation and live generation. Array targets never become an arbitrary scalar target.
+
+`moduleActivityDataOf` is the shared authority for encoded logical identity, declared scalar facts, date fallback, and typed refs. Journal images use those facts without invoking navigation. Their internal `sourceIdentity` contains module, collection, and key. Their provenance retains slug, declared detail path, and key separately. Semantic comparison includes this representation tuple so a slug or detail-path change emits a change without treating an unrelated manifest hash change as a fact change.
+
+The retained canonical field mask contains kind, activityKind, subject, at, a materialized date, declared ownerId/status/dueDate, and declared companyId/personId/dealId target categories. It contains neither public source nor href. Scalar refs and array targets stay distinct. Future C delivery must intersect retained facts with then-current grants and explicitly handle unavailable navigation; P grants no presentation capability.
+
+The existing `moduleActivityOf` compatibility adapter still adds its guarded href. Ordinary encoded links are unchanged, and it still rejects dot-segment keys. Those valid data keys can nevertheless publish canonical create, edit, and delete images. Their existing display limitation cannot make the producer skip an event, reject the business write, or hold the organization publication prefix.
+
+`imports`, `autoUpgrade`, and the existing report `projection` receipt are the enumerated operational package fields. They do not change the activity descriptor. Their writer functions are listed in the closed census test.
+
+## Lifecycle retention
+
+The package's optional `activityPublication` pointer is the source pin. A publication reserves an organization ordinal before destructive writes. Lifecycle workers join through a continuation of the actual current pending epoch, step, and cursor. The original lifecycle guards remain authoritative. Publication does not grant permission to migrate, cut over, approve, or replay an operation.
+
+An ordinary session member can also join a non-migrating backfill through an already authorized op, transition, or apply. This separate private binding checks the actual package, serving epoch and manifest, pending epoch, source pin, and lifecycle publication before each physical document write. Pending errors, cutover, migration work, or a publication outside lifecycle state refuse. Existing removed-collection, schema, role, CAS, effects, and SQ1 gates run first. This binding permits no package metadata or worker operation. Member writes retain the first OLD evidence, advance the same publication revision, and leave the lifecycle unpublished until activation seals it.
+
+Migration staging stays unpublished. Cutover captures first preimages across original batches. Activation retains the final descriptor before deleting pending-manifest storage. An error closes a publishable segment of actual committed data. Cancel does not reconstruct deleted or overwritten data. A stopped upgrade can be replaced only after its prior publication barrier drains and the existing admission checks permit replacement.
+
+The original operation, call, job lease acknowledgement, connector position, and dry-run rollback keep their existing transaction boundaries and result shapes. Publication workers only publish. They do not retain a historical human principal or replay member work.
+
+## Publication and recovery
+
+`moduleActivityPublications.run` runs bounded steps through internal mutations. A step reserves three reads for the publication, head, and pinned package, then spends at most the remaining 47 work units. Physical rows, evidence, root reads, chunks, and output frames share that budget. A run stops before the existing 3,000-fold ceiling or 60-second action budget. The existing 100-change consumer limit and ledger soft byte pages are unchanged.
+
+For an unchanged canonical activity descriptor, the publisher first walks retained evidence identities by collection and key. It then compares retained OLD root headers with pinned final roots. Only an actual root incarnation, presence, or collection-specific generation change opens bounded OLD and NEXT parent-generation ranges. Ordinary root data edits do not enumerate unchanged children. Each range excludes previously evidenced keys through a bounded indexed lookup. Equal OLD and NEXT generations are walked once. A physical child belongs to one parent-generation range, so the evidence and range passes cover each logical identity once.
+
+A descriptor change gets a full collection walk only when activity-relevant semantics differ. These include installed/enabled visibility, module identity, slug, path, declared activity fields and targets, scalar-array target shape, and the parent relationship. Unrelated code, version, manifest hash, or bundle hash changes do not force physical-row enumeration. First-before evidence overlays changed or deleted incarnations. Initial root headers decide OLD membership; pinned final rows decide NEXT membership. Typed resumable positions retain root, generation, range side, and physical/evidence anchors through failures instead of storing an unbounded key set.
+
+Raw chunks are at most 65,536 bytes. The two sides are separate. UTF-8 is decoded only after bytes are joined. Large frames can span steps. A staged frame stays above the readable prefix while its parts and side headers are assembled. It becomes immutable at append. Consumers must never read beyond `readableSeq`. Equal canonical sides discard the staged frame without manufacturing a change.
+
+Every publication appends a completion marker, including an eventless publication. After all final journal parts exist, bounded evidence cleanup runs. Completion atomically moves `publishedOrdinal` and `readableSeq`, releases the source pin, and marks the publication complete. Descriptors and final journal chunks are retained. This slice adds no truncation or cursor-reset policy.
+
+Revision checks make duplicate steps harmless. A failed step rolls back its publication progress. Failure recording preserves evidence, cursor positions, and pins, then schedules a bounded exponential retry. The existing minute sweep also starts paged recovery over pending heads, including disabled or uninstalled sources. No fault flag or temporary validator change ships.
+
+A source pin normally blocks later writes to that package until publication completes. Ordinary inactive document writes have one narrower exception. The fresh serving package and both digest-verified immutable descriptors must contain no activity declaration anywhere in the package. Pending lifecycle work and lifecycle publications still refuse. Disabled declarations, filters, empty collections, and declarations on another collection or parent do not qualify. This proof leaves the publication, evidence, revision, and pin unchanged. Metadata and lifecycle writes still wait. A later activity activation waits for marker completion and publishes a full walk that includes intervening data. Descriptor verification adds reads and byte work; it is not a universal headroom claim.
+
+Other packages can commit business data. Organization publication order creates a separate availability cost. A failed earliest publication blocks the readable activity prefix for every activity consumer in that organization, even when their own source packages remain writable. There is no organization-wide business-write lock.
+
+## Background callers wait without losing work
+
+Imports preflight the matching source pin before running the importer. WAIT leaves the current cursor, done flag, and error unchanged. Real publication completion schedules one bounded current-state import continuation. The continuation rechecks the installed source, declaration, cursor, and existing import policy. Genuine import errors remain terminal.
+
+Ordinary and bulk jobs carry the package identity and epoch/hash revision plus the exact job row, dirty sequence, lease sequence, monotonic generation, and expiry. Stage and apply validate that witness in the mutation that would write. A matching pin releases only that still-owned lease without consuming an attempt or acknowledging application. Completion wakes the existing runner, which recomputes from current inputs. Stale workers cannot finish, fail, or release recreated, renewed, invalidated, or expired leases. A real failure still consumes an attempt when the original lease remains exact, even if an unrelated pin exists. Report projection receipts keep their separate existing protocol.
+
+An actual semantic dirty increment revokes that row's old lease in the same transaction and preserves its lease generation. Serving-version activation invalidates active semantic leases by the previous and current declared job names, private schedules, and bulk job, with the existing bounded scan. Rows outside that scan expire normally. Report retry does not invoke activation invalidation. A successful self-dirty apply leaves its new dirty state available for the next normal lease; a failed apply rolls back the invalidation with its other effects.
+
+Schedules register one private current occurrence in the existing job table atomically with their original due stamp. Pending or leased occurrences are never overwritten by later sweeps. Execution rereads the current declaration and source. WAIT preserves the occurrence and its attempt count. Successful business apply and exact completion commit together. A genuine failure consumes that occurrence once; it does not receive ordinary automatic semantic retries. A later genuinely due occurrence may replace only a terminal unleased row. This does not replay every missed period. Already queued legacy schedule actions retain their original one-time behavior, without a retroactive exactly-once guarantee. Status distinguishes waiting, pending, running, and terminal failure.
+
+## Inactive watch baselines
+
+`ensureCursors` receives the actual previous and current manifests. An existing activity watch with existing ledger cursor identity and no activity baseline starts at journal origin zero. Disabled legacy watches receive the same treatment when the paged adoption sweep reaches them later. No timestamp heuristic resets a legacy watch to the current head.
+
+Install and version activation register only the inactive P activity baseline. They do not create legacy ledger or connector cursors while the module is off. Original enable/sweep initialization still chooses those cursors' actual heads. Existing activity baseline positions and backlog survive later version, disable, and re-enable changes.
+
+A genuinely new or retyped activity subscription snapshots the atomic stable `readableSeq` and `publishedOrdinal`. It does not skip a pending publication by taking `appendedSeq` or `committedOrdinal`. Existing positions survive epoch and read-grant changes. Their declaration fingerprint updates without consuming journal rows. Ledger cursors remain exactly 16 shards.
+
+The minute sweep schedules adoption in pages of 50 installed packages, including disabled packages. Job status exposes producer pending, generic failure, attempt, retry, and watermark evidence without another source's identity or error details. Job and prefix status also expose each activity baseline's position, epoch, fingerprint, or missing state with `inactive: true`. These fields describe producer progress. They do not claim mixed-source freshness.
+
+## Proof ownership and cost
+
+The producer tests invoke registered source and publication handlers. The capture-failure fixture injects an evidence-storage rejection after a business write and an earlier real capture write. Its checkpoint restoration models transaction rollback. It does not prove backend atomicity.
+
+The two-collection lifecycle fixture uses the original registered cutover handler twice. The Unicode case checks fragmented canonical fields with nonempty scalar and array targets. Revision, retention, staging, cascade, cancel, disable, reinstall, zero-diff, and legacy-baseline branches have focused cases rather than a benchmark sweep.
+
+Production evidence adds indexed headers, descriptors, head and pin writes, and canonical byte chunks. Temporary capture-storage probes do not measure those costs. Unchanged physical data stays pinned instead of being copied synchronously, but original transactions still pay for changed or destroyed declared images. Include-disabled maintenance can require exact enablement and root reads that its old path did not need. Reusing admitted packages and original row reads does not establish universal zero rereads or maximal transaction headroom.
+
+The parent owns official local regeneration, affected behavior and safety tests, static admission, and one managed local backend proof. The legacy module fixture advances real zero-delay namespaced publication tasks between requests. This quiescent test schedule preserves delayed retries and surfaces failures. Failed mutations roll back both scheduler queues. The producer suite separately keeps publication pending between requests and tests source refusal, failure, and recovery. Production business acknowledgements remain synchronous business commits without waiting for publication.
+
+A valid original operation that fails with the production capture representation is a design blocker to report with its exact caller, result, and cost. It is not permission to add a business cap or change acknowledgements.
+
+## Author proof status
+
+The integrated public-handler target passes 154 cases, including 21 producer cases, the 129 original module cases, and four writer/admission census cases. Producer cases cover capture, lifecycle publication, member backfill joins, modeled rollback, import completion wakes, exact job waits and invalidation, schedule occurrences, declaration-free retained descriptors, and explicit checked staged cleanup. The original concurrent-write upgrade, old-epoch and midrun dirty-input assertions remain intact. This does not establish real concurrent backend serializability.
+
+One public root delete with two live child collections of 408 rows committed on the owned local backend at the b890 source checkpoint with the production capture representation. Its deletion publication completed ordinal 5, released the package pin, and advanced the readable prefix to sequence 1639. Setup had completed ordinal 4 at sequence 821. The runtime warned of 3942 reads against its 4096 limit. This proves only that operation on that backend, without a cloud or universal headroom claim. Later member-binding and R1/R2 changes were not native-cascade-tested. Synthetic roots and children were removed, the fixture was disabled and uninstalled, and the owned server and managed stack stopped with zero owned processes.
+
+The optional native validator-negative attempt failed normal type admission. No semantic call ran under a rejecting schema. The exact validator was restored and officially regenerated before passing type checks. Native capture-failure rollback remains unproved. Fixture-injected failure covers its modeled boundary only. No P consumer delivery or full Work completion follows from producer proof.

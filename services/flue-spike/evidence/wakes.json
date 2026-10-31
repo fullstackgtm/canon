@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-22T13:58:15.440Z",
+  "host": "workerd via wrangler 4.151.3, service-binding WfP emulation",
+  "killedAfterMs": 2,
+  "restartedAfterMs": 9381,
+  "armed": {
+    "pending": 3
+  },
+  "fired": [
+    {
+      "label": "a",
+      "firedAt": 1792677492347,
+      "fires": 1,
+      "msAfterArm": 9351
+    },
+    {
+      "label": "b",
+      "firedAt": 1792677492347,
+      "fires": 1,
+      "msAfterArm": 9351
+    },
+    {
+      "label": "c",
+      "firedAt": 1792677492347,
+      "fires": 1,
+      "msAfterArm": 9351
+    }
+  ],
+  "pending": 0,
+  "orgBFired": 0,
+  "unsignedStatus": 401
+}

@@ -1,0 +1,13 @@
+{
+  "name": "canon-recipe-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Runs recipe play code in Cloudflare Dynamic Worker isolates for Convex (docs/recipes.md, R3).",
+  "scripts": {
+    "dev": "wrangler dev --local"
+  },
+  "devDependencies": {
+    "wrangler": "^4.150.0"
+  }
+}

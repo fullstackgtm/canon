@@ -1,0 +1,17 @@
+{
+  "name": "@fsgtm/sf-sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic Salesforce API simulator (REST, describe, SOQL subset, Bulk API 2.0, change events) for sync tests.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --no-warnings --test --test-concurrency=1 test/*.test.ts",
+    "start": "node --experimental-strip-types --no-warnings src/cli.ts"
+  }
+}

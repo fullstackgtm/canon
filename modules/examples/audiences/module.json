@@ -1,0 +1,1185 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/audiences",
+  "version": "0.4.0",
+  "title": "Audiences",
+  "description": "Saved sets of people for outbound: a contacts filter, plus people an agent adds one at a time. Each rep keeps their own and shares some with the team; admins and managers see every one.",
+  "author": {
+    "org": "canon"
+  },
+  "engines": {
+    "moduleApi": "1"
+  },
+  "nav": {
+    "label": "Audiences",
+    "icon": "target",
+    "section": "CRM",
+    "landing": "audiences"
+  },
+  "collections": {
+    "audiences": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "name": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "optional": false,
+            "label": "Name"
+          },
+          "filter": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "field": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": false
+                  },
+                  "op": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": false
+                  },
+                  "value": {
+                    "fieldType": {
+                      "type": "any"
+                    },
+                    "optional": true
+                  }
+                }
+              }
+            },
+            "optional": false,
+            "label": "Filter"
+          },
+          "shared": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false,
+            "label": "Shared with the team"
+          },
+          "owner": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Owner"
+          },
+          "lastSentAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Last used",
+            "widget": "time"
+          },
+          "imported": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "optional": true,
+            "label": "Copied from Canon's audience as"
+          }
+        }
+      },
+      "key": "auto",
+      "label": "Audience",
+      "title": "name",
+      "owner": "owner",
+      "indexes": {
+        "byOwner": [
+          "owner",
+          "name"
+        ],
+        "byShared": [
+          "shared",
+          "name"
+        ]
+      },
+      "access": {
+        "manager": "all",
+        "rep": {
+          "scope": "own",
+          "or": {
+            "field": "shared",
+            "in": [
+              true
+            ]
+          }
+        },
+        "other": {
+          "scope": "own",
+          "or": {
+            "field": "shared",
+            "in": [
+              true
+            ]
+          }
+        }
+      }
+    },
+    "additions": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "person": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "optional": false,
+            "label": "Person"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "person"
+        ]
+      },
+      "label": "Person added",
+      "setOf": {
+        "parent": "audiences"
+      },
+      "indexes": {},
+      "access": {}
+    },
+    "runs": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "target": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "optional": false,
+            "label": "Destination"
+          },
+          "at": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "When",
+            "widget": "time"
+          },
+          "sent": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Sent"
+          },
+          "exported": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Exported"
+          },
+          "skipped": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Skipped"
+          },
+          "by": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "By"
+          },
+          "imported": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "optional": true,
+            "label": "Copied from Canon as"
+          }
+        }
+      },
+      "key": "auto",
+      "label": "Audience run",
+      "title": "target",
+      "setOf": {
+        "parent": "audiences"
+      },
+      "indexes": {
+        "byAt": [
+          "at"
+        ]
+      },
+      "access": {}
+    }
+  },
+  "views": {
+    "audiences.mine": {
+      "kind": "list",
+      "collection": "audiences",
+      "index": "byOwner",
+      "eq": [
+        {
+          "caller": "userId"
+        }
+      ],
+      "limit": 100
+    },
+    "audiences.shared": {
+      "kind": "list",
+      "collection": "audiences",
+      "index": "byShared",
+      "eq": [
+        true
+      ],
+      "limit": 1000
+    },
+    "audiences.private": {
+      "kind": "list",
+      "collection": "audiences",
+      "index": "byShared",
+      "eq": [
+        false
+      ],
+      "limit": 1000
+    },
+    "audiences.one": {
+      "kind": "one",
+      "collection": "audiences",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "audiences.visible": {
+      "kind": "list",
+      "collection": "audiences",
+      "limit": 1000
+    },
+    "runs.recent": {
+      "kind": "list",
+      "collection": "runs",
+      "args": {
+        "audience": "string"
+      },
+      "parent": {
+        "arg": "audience"
+      },
+      "index": "byAt",
+      "order": "desc",
+      "limit": 20
+    },
+    "runs.one": {
+      "kind": "one",
+      "collection": "runs",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    }
+  },
+  "ops": {
+    "audiences.create": {
+      "label": "Save as audience",
+      "kind": "create",
+      "collection": "audiences",
+      "fields": [
+        "name",
+        "filter"
+      ],
+      "set": {
+        "shared": false
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "length": "name",
+            "atLeast": 1,
+            "atMost": 80
+          },
+          "message": "An audience name is 1 to 80 characters."
+        },
+        {
+          "when": {
+            "count": {
+              "view": "audiences.mine"
+            },
+            "atMost": 99
+          },
+          "message": "At most 100 audiences each."
+        }
+      ]
+    },
+    "audiences.rename": {
+      "label": "Rename",
+      "kind": "update",
+      "collection": "audiences",
+      "fields": [
+        "name"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "any": [
+              {
+                "caller": "isOwner"
+              },
+              {
+                "role": [
+                  "admin",
+                  "manager"
+                ]
+              }
+            ]
+          },
+          "message": "Only the audience's creator, an admin or a manager can change it."
+        },
+        {
+          "when": {
+            "length": "name",
+            "atLeast": 1,
+            "atMost": 80
+          },
+          "message": "An audience name is 1 to 80 characters."
+        }
+      ]
+    },
+    "audiences.setShared": {
+      "label": "Share with team",
+      "kind": "update",
+      "collection": "audiences",
+      "fields": [
+        "shared"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "any": [
+              {
+                "caller": "isOwner"
+              },
+              {
+                "role": [
+                  "admin",
+                  "manager"
+                ]
+              }
+            ]
+          },
+          "message": "Only the audience's creator, an admin or a manager can change it."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "field": "shared",
+                "in": [
+                  false
+                ]
+              },
+              {
+                "count": {
+                  "view": "audiences.shared"
+                },
+                "atMost": 99
+              }
+            ]
+          },
+          "message": "Your team already shares 100 audiences; unshare one first."
+        }
+      ]
+    },
+    "audiences.setFilter": {
+      "label": "Change the filter",
+      "kind": "update",
+      "collection": "audiences",
+      "fields": [
+        "filter"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "any": [
+              {
+                "caller": "isOwner"
+              },
+              {
+                "role": [
+                  "admin",
+                  "manager"
+                ]
+              }
+            ]
+          },
+          "message": "Only the audience's creator, an admin or a manager can change it."
+        }
+      ]
+    },
+    "audiences.import": {
+      "label": "Copy an audience from Canon",
+      "kind": "create",
+      "collection": "audiences",
+      "fields": [
+        "name",
+        "filter",
+        "shared",
+        "owner",
+        "lastSentAt",
+        "imported"
+      ],
+      "roles": [],
+      "system": true,
+      "agent": "human",
+      "reason": "Canon copies audiences that predate the module."
+    },
+    "audiences.sync": {
+      "label": "Update an audience copied from Canon",
+      "kind": "update",
+      "collection": "audiences",
+      "fields": [
+        "name",
+        "filter",
+        "shared",
+        "owner",
+        "lastSentAt",
+        "imported"
+      ],
+      "roles": [],
+      "system": true,
+      "agent": "human",
+      "reason": "Canon copies audiences that predate the module."
+    },
+    "runs.record": {
+      "label": "Record an audience export",
+      "kind": "create",
+      "collection": "runs",
+      "fields": [
+        "target",
+        "at",
+        "sent",
+        "exported",
+        "skipped",
+        "by"
+      ],
+      "roles": [],
+      "system": true,
+      "agent": "human",
+      "reason": "Canon records an aggregate after a successful export."
+    },
+    "runs.sync": {
+      "label": "Update a copied audience run",
+      "kind": "update",
+      "collection": "runs",
+      "fields": [
+        "sent",
+        "exported",
+        "skipped",
+        "imported"
+      ],
+      "roles": [],
+      "system": true,
+      "agent": "human",
+      "reason": "Canon follows legacy run counts while preserving edits in the module."
+    },
+    "audiences.used": {
+      "label": "Record audience use",
+      "kind": "update",
+      "collection": "audiences",
+      "fields": [
+        "lastSentAt"
+      ],
+      "roles": [],
+      "system": true,
+      "agent": "human",
+      "reason": "Canon records when an audience export returned people."
+    }
+  },
+  "provides": {
+    "audiences.v1": {
+      "view": "audiences.visible",
+      "fields": [
+        "name",
+        "owner",
+        "shared",
+        "lastSentAt",
+        "filter"
+      ],
+      "people": {
+        "filter": "filter",
+        "added": {
+          "set": "additions",
+          "field": "person"
+        }
+      }
+    }
+  },
+  "reads": {
+    "people": [
+      "name"
+    ]
+  },
+  "server": "dist/module.js",
+  "calls": {
+    "count": {
+      "label": "People in it",
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "audience": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "count": {
+          "canon": "people.count",
+          "args": {
+            "provide": "audiences.v1",
+            "key": {
+              "arg": "audience"
+            }
+          }
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "kpis",
+        "items": [
+          {
+            "label": "People",
+            "value": "{$result.count|number}"
+          },
+          {
+            "label": "With an email",
+            "value": "{$result.withEmail|number}"
+          },
+          {
+            "label": "Custom variables",
+            "value": "{$result.customVariablesLabel}"
+          },
+          {
+            "label": "Computed",
+            "value": "{$result.computedAt|time}"
+          }
+        ]
+      }
+    },
+    "icps": {
+      "label": "Active ICPs",
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {}
+      },
+      "reads": {
+        "icps": {
+          "module": "@canon/icps",
+          "provide": "icps.v1",
+          "limit": 25
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "result": {
+        "kind": "table",
+        "rows": "icps",
+        "columns": [
+          {
+            "label": "ICP",
+            "value": "{$row.name}"
+          }
+        ]
+      }
+    },
+    "fromIcp": {
+      "label": "New audience from ICP",
+      "roles": [
+        "admin",
+        "manager",
+        "rep",
+        "other"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "icp": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "ICP"
+          }
+        }
+      },
+      "reads": {
+        "icps": {
+          "module": "@canon/icps",
+          "provide": "icps.v1",
+          "limit": 25
+        }
+      },
+      "writes": [
+        "audiences"
+      ],
+      "returns": "value"
+    }
+  },
+  "pages": [
+    {
+      "path": "audiences",
+      "title": "Audiences",
+      "bind": {
+        "mine": {
+          "view": "audiences.mine"
+        },
+        "shared": {
+          "view": "audiences.shared"
+        },
+        "private": {
+          "view": "audiences.private"
+        },
+        "icps": {
+          "call": "icps"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Audiences",
+          "subtitle": "A saved set of contacts for outbound. Your audiences are yours until you share them with the team; admins and managers see everyone's.",
+          "actions": [
+            {
+              "canon": "people",
+              "label": "Build an audience",
+              "query": {
+                "filter": "[]",
+                "returnTo": "/dashboard/m/audiences/audiences/new"
+              }
+            },
+            {
+              "call": "fromIcp",
+              "label": "New audience from ICP",
+              "fields": [
+                {
+                  "field": "icp",
+                  "label": "ICP",
+                  "options": {
+                    "from": "icps",
+                    "list": "icps",
+                    "value": "key",
+                    "label": "{$item.name}"
+                  }
+                }
+              ],
+              "toast": "Audience created. Open it to narrow its People query."
+            }
+          ]
+        },
+        {
+          "c": "tabs",
+          "tabs": [
+            {
+              "label": "Yours",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "mine",
+                  "rowLink": "audiences/:key",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.name}"
+                    },
+                    {
+                      "label": "Last used",
+                      "value": "{$row.lastSentAt|time}",
+                      "empty": "Not used yet"
+                    },
+                    {
+                      "label": "Shared",
+                      "value": "{$row.shared}"
+                    }
+                  ],
+                  "sort": {
+                    "by": "name"
+                  },
+                  "search": [
+                    "name"
+                  ],
+                  "empty": "No audiences yet. Choose Build an audience, or use Modules \u2192 Audiences on the People list."
+                }
+              ]
+            },
+            {
+              "label": "Shared with the team",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "shared",
+                  "rowLink": "audiences/:key",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.name}"
+                    },
+                    {
+                      "label": "Owner",
+                      "value": "{$row.owner|user}"
+                    },
+                    {
+                      "label": "Last used",
+                      "value": "{$row.lastSentAt|time}",
+                      "empty": "Not used yet"
+                    }
+                  ],
+                  "sort": {
+                    "by": "name"
+                  },
+                  "search": [
+                    "name"
+                  ],
+                  "empty": "No one has shared an audience yet."
+                }
+              ]
+            },
+            {
+              "label": "Reps' audiences",
+              "roles": [
+                "admin",
+                "manager"
+              ],
+              "body": [
+                {
+                  "c": "table",
+                  "from": "private",
+                  "rowLink": "audiences/:key",
+                  "columns": [
+                    {
+                      "label": "Name",
+                      "value": "{$row.name}"
+                    },
+                    {
+                      "label": "Owner",
+                      "value": "{$row.owner|user}"
+                    },
+                    {
+                      "label": "Last used",
+                      "value": "{$row.lastSentAt|time}",
+                      "empty": "Not used yet"
+                    }
+                  ],
+                  "sort": {
+                    "by": "name"
+                  },
+                  "search": [
+                    "name"
+                  ],
+                  "empty": "No rep keeps a private audience."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "audiences/new",
+      "title": "Save an audience",
+      "body": [
+        {
+          "c": "header",
+          "title": "Save an audience",
+          "subtitle": "Keep this People query as your own private audience. You can share it later.",
+          "actions": [
+            {
+              "navigate": "audiences",
+              "label": "All audiences"
+            }
+          ]
+        },
+        {
+          "c": "form",
+          "op": "audiences.create",
+          "fixed": {
+            "filter": {
+              "query": "filter",
+              "json": true
+            }
+          },
+          "fields": [
+            {
+              "field": "name",
+              "label": "Name"
+            }
+          ],
+          "submit": "Save audience"
+        }
+      ]
+    },
+    {
+      "path": "audiences/:key",
+      "title": "{$aud.name}",
+      "bind": {
+        "aud": {
+          "view": "audiences.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          }
+        },
+        "count": {
+          "call": "count",
+          "args": {
+            "audience": {
+              "route": "key"
+            }
+          },
+          "refreshMinutes": 15
+        },
+        "history": {
+          "view": "runs.recent",
+          "args": {
+            "audience": {
+              "route": "key"
+            }
+          }
+        }
+      },
+      "fallback": {
+        "missing": "This audience doesn't exist, or it isn't yours to see.",
+        "back": {
+          "label": "All audiences",
+          "path": "audiences"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$aud.name}",
+          "subtitle": "{$aud.owner|user}",
+          "actions": [
+            {
+              "navigate": "audiences",
+              "label": "All audiences"
+            },
+            {
+              "canon": "people",
+              "label": "Edit filter",
+              "query": {
+                "filter": "{$aud.filter|json}",
+                "returnTo": "/dashboard/m/audiences/audiences/{$aud.key}/filter"
+              }
+            },
+            {
+              "op": "audiences.rename",
+              "label": "Rename",
+              "target": "aud",
+              "fields": [
+                {
+                  "field": "name",
+                  "label": "Name"
+                }
+              ],
+              "toast": "Renamed to {$doc.name}"
+            },
+            {
+              "op": "audiences.setShared",
+              "label": "Share with team",
+              "target": "aud",
+              "fixed": {
+                "shared": true
+              },
+              "when": {
+                "field": "shared",
+                "in": [
+                  false
+                ]
+              },
+              "toast": "{$doc.name} is shared with the team"
+            },
+            {
+              "op": "audiences.setShared",
+              "label": "Make private",
+              "target": "aud",
+              "fixed": {
+                "shared": false
+              },
+              "when": {
+                "field": "shared",
+                "in": [
+                  true
+                ]
+              },
+              "toast": "{$doc.name} is private again"
+            },
+            {
+              "op": "audiences.create",
+              "label": "Copy as mine",
+              "fixed": {
+                "filter": {
+                  "bind": "aud",
+                  "field": "filter"
+                }
+              },
+              "initial": {
+                "name": {
+                  "text": "{$aud.name} (Copy)"
+                }
+              },
+              "fields": [
+                {
+                  "field": "name",
+                  "label": "Name"
+                }
+              ],
+              "then": "audiences/:key",
+              "toast": "Saved {$doc.name} as your private audience"
+            },
+            {
+              "export": "audience.csv",
+              "args": {
+                "audience": {
+                  "route": "key"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "c": "detail",
+          "columns": 3,
+          "items": [
+            {
+              "label": "Owner",
+              "value": "{$aud.owner|user}"
+            },
+            {
+              "label": "Shared with the team",
+              "value": "{$aud.shared}"
+            },
+            {
+              "label": "Last used",
+              "value": "{$aud.lastSentAt|time}"
+            }
+          ],
+          "when": {
+            "bind": "aud",
+            "field": "lastSentAt",
+            "set": true
+          }
+        },
+        {
+          "c": "detail",
+          "columns": 3,
+          "items": [
+            {
+              "label": "Owner",
+              "value": "{$aud.owner|user}"
+            },
+            {
+              "label": "Shared with the team",
+              "value": "{$aud.shared}"
+            },
+            {
+              "label": "Last used",
+              "value": "Not used yet"
+            }
+          ],
+          "when": {
+            "bind": "aud",
+            "field": "lastSentAt",
+            "set": false
+          }
+        },
+        {
+          "c": "callResult",
+          "from": "count",
+          "label": "Who it holds now"
+        },
+        {
+          "c": "table",
+          "from": "history",
+          "columns": [
+            {
+              "label": "When",
+              "value": "{$row.at|time}"
+            },
+            {
+              "label": "Destination",
+              "value": "{$row.target}"
+            },
+            {
+              "label": "Sent",
+              "value": "{$row.sent|number}"
+            },
+            {
+              "label": "Exported",
+              "value": "{$row.exported|number}"
+            },
+            {
+              "label": "Skipped",
+              "value": "{$row.skipped|number}"
+            },
+            {
+              "label": "By",
+              "value": "{$row.by|user}"
+            }
+          ],
+          "empty": "No sends or exports yet."
+        }
+      ]
+    },
+    {
+      "path": "audiences/:key/filter",
+      "title": "Change the filter",
+      "bind": {
+        "aud": {
+          "view": "audiences.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          }
+        }
+      },
+      "fallback": {
+        "missing": "This audience doesn't exist, or it isn't yours to see.",
+        "back": {
+          "label": "All audiences",
+          "path": "audiences"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Change the filter for {$aud.name}",
+          "subtitle": "Review the People query, then save it to this audience.",
+          "actions": [
+            {
+              "navigate": "audiences/:key",
+              "label": "Back to audience"
+            }
+          ]
+        },
+        {
+          "c": "form",
+          "op": "audiences.setFilter",
+          "from": "aud",
+          "fixed": {
+            "filter": {
+              "query": "filter",
+              "json": true
+            }
+          },
+          "fields": [],
+          "submit": "Save filter"
+        }
+      ]
+    }
+  ],
+  "contributes": {
+    "people": {
+      "listActions": [
+        {
+          "id": "saveAudience",
+          "label": "Save as audience",
+          "path": "audiences/new",
+          "param": "filter"
+        }
+      ]
+    }
+  },
+  "imports": [
+    "audiences.legacy"
+  ],
+  "exports": {
+    "audience.csv": {
+      "label": "Export CSV",
+      "filename": "audience",
+      "people": {
+        "provide": "audiences.v1",
+        "key": {
+          "arg": "audience"
+        }
+      },
+      "record": {
+        "op": "runs.record",
+        "parent": {
+          "op": "audiences.used",
+          "field": "lastSentAt"
+        }
+      }
+    }
+  },
+  "uses": {
+    "@canon/icps": [
+      "icps.v1"
+    ]
+  }
+}

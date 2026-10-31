@@ -1,0 +1,194 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/notetaker",
+  "version": "0.2.0",
+  "title": "Notetaker",
+  "description": "Save personal meeting preferences and preview rules against hypothetical facts. Preview decisions are advisory only. They do not authorize recording, verify calendars or consent, or check Canon's private legal floor. Calendar capture and meeting recording are not available yet. Saving preferences starts no bot.",
+  "author": { "org": "canon" },
+  "engines": { "moduleApi": "1" },
+  "nav": { "label": "Notetaker", "icon": "clipboard", "section": "Activity", "landing": "rules" },
+  "collections": {
+    "prefs": {
+      "label": "Personal meeting preferences",
+      "key": { "from": ["user"] },
+      "owner": "user",
+      "schema": { "type": "object", "value": {
+        "user": { "fieldType": { "type": "ref", "to": "users" }, "optional": false },
+        "mode": { "fieldType": { "type": "union", "value": [
+          { "type": "literal", "value": "off" },
+          { "type": "literal", "value": "external" },
+          { "type": "literal", "value": "hosted" },
+          { "type": "literal", "value": "all" },
+          { "type": "literal", "value": "manual" }
+        ] }, "optional": false },
+        "includeDomains": { "fieldType": { "type": "array", "value": { "type": "string", "maxLength": 253 } }, "optional": false },
+        "excludeDomains": { "fieldType": { "type": "array", "value": { "type": "string", "maxLength": 253 } }, "optional": false },
+        "skipKeywords": { "fieldType": { "type": "array", "value": { "type": "string", "maxLength": 120 } }, "optional": false },
+        "botName": { "fieldType": { "type": "string", "maxLength": 120 }, "optional": true }
+      } },
+      "indexes": {},
+      "access": { "admin": "all", "manager": "own", "rep": "own" }
+    },
+    "meetings": {
+      "label": "Meeting plan",
+      "title": "title",
+      "key": { "from": ["eventId"] },
+      "owner": "rep",
+      "schema": { "type": "object", "value": {
+        "eventId": { "fieldType": { "type": "string", "maxLength": 200 }, "optional": false },
+        "rep": { "fieldType": { "type": "ref", "to": "users" }, "optional": false },
+        "title": { "fieldType": { "type": "string", "maxLength": 300 }, "optional": false },
+        "startAt": { "fieldType": { "type": "number" }, "widget": "time", "optional": false },
+        "endAt": { "fieldType": { "type": "number" }, "widget": "time", "optional": false },
+        "platform": { "fieldType": { "type": "string", "maxLength": 40 }, "optional": false },
+        "hosted": { "fieldType": { "type": "boolean" }, "optional": false },
+        "externalCount": { "fieldType": { "type": "number" }, "optional": false },
+        "companies": { "fieldType": { "type": "array", "value": { "type": "ref", "to": "companies" } }, "optional": false },
+        "deal": { "fieldType": { "type": "ref", "to": "deals" }, "optional": true },
+        "decision": { "fieldType": { "type": "union", "value": [
+          { "type": "literal", "value": "record" },
+          { "type": "literal", "value": "skip" },
+          { "type": "literal", "value": "blocked" }
+        ] }, "optional": false },
+        "reason": { "fieldType": { "type": "string", "maxLength": 500 }, "optional": false },
+        "status": { "fieldType": { "type": "union", "value": [
+          { "type": "literal", "value": "planned" },
+          { "type": "literal", "value": "scheduled" },
+          { "type": "literal", "value": "joining" },
+          { "type": "literal", "value": "recording" },
+          { "type": "literal", "value": "processing" },
+          { "type": "literal", "value": "ready" },
+          { "type": "literal", "value": "skipped" },
+          { "type": "literal", "value": "blocked" },
+          { "type": "literal", "value": "not_admitted" },
+          { "type": "literal", "value": "failed" },
+          { "type": "literal", "value": "cancelled" },
+          { "type": "literal", "value": "deleted" }
+        ] }, "optional": false }
+      } },
+      "indexes": { "byRepStart": ["rep", "startAt"], "byStatusStart": ["status", "startAt"] },
+      "access": { "admin": "all", "manager": "team", "rep": "own" }
+    }
+  },
+  "machines": {
+    "meeting": {
+      "collection": "meetings",
+      "field": "status",
+      "states": ["planned", "scheduled", "joining", "recording", "processing", "ready", "skipped", "blocked", "not_admitted", "failed", "cancelled", "deleted"],
+      "initial": "planned",
+      "transitions": {}
+    }
+  },
+  "views": {
+    "prefs.mine": { "kind": "one", "collection": "prefs", "key": { "caller": "userId" } }
+  },
+  "ops": {},
+  "reads": { "recording": ["consent", "internalRecording", "internalDomains", "retentionDays", "region"] },
+  "server": "dist/module.js",
+  "calls": {
+    "preferences": {
+      "label": "Read my meeting preferences",
+      "roles": ["admin", "manager", "rep"],
+      "agent": "allowed",
+      "reads": { "current": { "view": "prefs.mine" }, "policy": { "canon": "recording.policy" } },
+      "writes": [],
+      "returns": "value"
+    },
+    "previewDecision": {
+      "label": "Preview hypothetical meeting rules (advisory only)",
+      "args": { "type": "object", "value": {
+        "title": { "fieldType": { "type": "string", "maxLength": 300 }, "optional": false },
+        "cancelled": { "fieldType": { "type": "boolean" }, "optional": false },
+        "declined": { "fieldType": { "type": "boolean" }, "optional": false },
+        "hasVideoLink": { "fieldType": { "type": "boolean" }, "optional": false },
+        "hosted": { "fieldType": { "type": "boolean" }, "optional": false },
+        "attendeeDomains": { "fieldType": { "type": "array", "value": { "type": "string", "maxLength": 253 } }, "optional": false },
+        "override": { "fieldType": { "type": "union", "value": [
+          { "type": "literal", "value": "record" },
+          { "type": "literal", "value": "skip" }
+        ] }, "optional": true }
+      } },
+      "roles": ["admin", "manager", "rep"],
+      "agent": "allowed",
+      "reads": { "current": { "view": "prefs.mine" }, "policy": { "canon": "recording.policy" } },
+      "writes": [],
+      "returns": "value"
+    },
+    "savePreferences": {
+      "label": "Save my meeting preferences",
+      "args": { "type": "object", "value": {
+        "mode": { "fieldType": { "type": "union", "value": [
+          { "type": "literal", "value": "off" },
+          { "type": "literal", "value": "external" },
+          { "type": "literal", "value": "hosted" },
+          { "type": "literal", "value": "all" },
+          { "type": "literal", "value": "manual" }
+        ], "labels": { "off": "Off", "external": "External meetings", "hosted": "Meetings I host", "all": "All meetings", "manual": "Only meetings I choose" } }, "optional": false },
+        "includeDomains": { "fieldType": { "type": "array", "value": { "type": "string", "maxLength": 253 } }, "optional": false },
+        "excludeDomains": { "fieldType": { "type": "array", "value": { "type": "string", "maxLength": 253 } }, "optional": false },
+        "skipKeywords": { "fieldType": { "type": "array", "value": { "type": "string", "maxLength": 120 } }, "optional": false },
+        "botName": { "fieldType": { "type": "string", "maxLength": 120 }, "optional": true }
+      } },
+      "roles": ["admin", "manager", "rep"],
+      "agent": "human",
+      "reason": "Only you can change your personal meeting preferences.",
+      "reads": { "current": { "view": "prefs.mine" } },
+      "writes": ["prefs"],
+      "returns": "value"
+    }
+  },
+  "pages": [
+    {
+      "path": "rules",
+      "title": "My meeting preferences",
+      "tab": { "label": "My rules", "order": 0 },
+      "bind": { "prefs": { "call": "preferences" } },
+      "body": [
+        { "c": "header", "title": "My meeting preferences", "subtitle": "Personal preferences for future meetings.", "actions": [{ "navigate": "rules/edit", "label": "Edit my preferences" }] },
+        { "c": "banner", "tone": "info", "text": "Meeting recording and calendar capture are not available yet. Saving preferences starts no bot and joins no meeting." },
+        { "c": "detail", "when": { "bind": "prefs", "field": "mode", "set": true }, "items": [
+          { "label": "Future meeting mode", "value": "{$prefs.mode}" },
+          { "label": "Include domains", "value": "{$prefs.includeDomains}" },
+          { "label": "Exclude domains", "value": "{$prefs.excludeDomains}" },
+          { "label": "Excluded title keywords", "value": "{$prefs.skipKeywords}" },
+          { "label": "Bot display name", "value": "{$prefs.botName}" }
+        ] },
+        { "c": "header", "title": "Workspace recording policy", "subtitle": "Future meeting capture must follow Canon's policy. Personal preferences cannot relax it." },
+        { "c": "detail", "when": { "bind": "prefs", "field": "mode", "set": true }, "items": [
+          { "label": "Consent", "value": "{$prefs.policy.consent}" },
+          { "label": "Internal recording", "value": "{$prefs.policy.internalRecording}" },
+          { "label": "Internal domains", "value": "{$prefs.policy.internalDomains}" },
+          { "label": "Retention days", "value": "{$prefs.policy.retentionDays}" },
+          { "label": "Region", "value": "{$prefs.policy.region}" }
+        ] },
+        { "c": "banner", "roles": ["admin"], "tone": "info", "text": "Manage the workspace policy in Settings > Recording.", "actions": [{ "canon": "settings", "label": "Open Settings" }] }
+      ]
+    },
+    {
+      "path": "rules/edit",
+      "title": "Edit my meeting preferences",
+      "bind": { "prefs": { "call": "preferences" } },
+      "body": [
+        { "c": "header", "title": "Edit my meeting preferences", "actions": [{ "navigate": "rules", "label": "Back to my rules" }] },
+        { "c": "banner", "tone": "info", "text": "Meeting recording and calendar capture are not available yet. These are saved preferences for future meetings. Saving starts no bot." },
+        { "c": "wizard", "call": "savePreferences", "when": { "bind": "prefs", "field": "mode", "set": true }, "then": "rules", "submit": "Save my preferences", "toast": "Preferences saved. No bot started.",
+          "initial": {
+            "mode": { "bind": "prefs", "field": "mode" },
+            "includeDomains": { "bind": "prefs", "field": "includeDomains" },
+            "excludeDomains": { "bind": "prefs", "field": "excludeDomains" },
+            "skipKeywords": { "bind": "prefs", "field": "skipKeywords" },
+            "botName": { "bind": "prefs", "field": "botName" }
+          },
+          "steps": [{ "title": "Future meeting preferences", "fields": [
+            { "field": "mode", "label": "Future meeting mode", "help": "Off disables automatic joining. External selects meetings with outside attendees. Hosted selects meetings you host. All selects every meeting. Manual selects only meetings you choose. Capture is unavailable for every mode today." },
+            { "field": "includeDomains", "label": "Include attendee domains", "help": "Save domain names such as example.com for future meeting selection. An empty list adds no domain restriction." },
+            { "field": "excludeDomains", "label": "Exclude attendee domains", "help": "Save domains to exclude from future meeting selection." },
+            { "field": "skipKeywords", "label": "Excluded title keywords", "help": "Save words to exclude from future meeting titles." },
+            { "field": "botName", "label": "Bot display name", "help": "Optional display name for future capture. Saving a name starts no bot." }
+          ] }]
+        }
+      ]
+    }
+  ]
+}

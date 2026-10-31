@@ -1,0 +1,219 @@
+{
+  "version": "archetypes-v1",
+  "note": "Business-model archetypes for classifying every PDL company. Two levels: group, then archetype. Definitions are literal and short because Jev reads them literally and they are sent with every batch. 'other' in each group catches companies that fit the group but no archetype.",
+  "groups": {
+    "sales_distribution": {
+      "label": "Sales, distribution & dealers",
+      "definition": "Resells, distributes or brokers products made by others",
+      "archetypes": {
+        "equipment_dealer": "Sells, rents and services equipment made by others (farm, construction, industrial, forklifts)",
+        "auto_dealer": "Sells new or used cars, trucks, boats, RVs or motorcycles to consumers",
+        "wholesale_distributor": "Buys goods in bulk from manufacturers and resells to businesses",
+        "industrial_supply": "Distributes industrial parts, tools, fasteners, MRO or electrical supplies",
+        "building_materials_supply": "Sells lumber, roofing, plumbing, HVAC or building supplies to contractors",
+        "manufacturers_rep": "Independent sales agency selling manufacturers' products on commission",
+        "import_export_trading": "Trading company importing or exporting goods between countries",
+        "equipment_rental": "Rents equipment, tools, vehicles or party gear for short periods",
+        "other": "Distribution or resale business not listed above"
+      }
+    },
+    "staffing_hr": {
+      "label": "Staffing, recruiting & HR services",
+      "definition": "Places workers or provides people services to other companies",
+      "archetypes": {
+        "staffing_agency": "Places temporary or contract workers with client companies",
+        "recruitment_firm": "Recruits permanent hires for clients for a placement fee (incl. executive search)",
+        "peo_payroll_services": "Provides outsourced payroll, HR administration or PEO services",
+        "hr_consulting": "Advises companies on HR, compensation, benefits or organizational design",
+        "training_provider": "Sells corporate training, coaching or professional development",
+        "other": "People-services business not listed above"
+      }
+    },
+    "real_estate": {
+      "label": "Real estate",
+      "definition": "Buys, sells, leases, manages or develops property",
+      "archetypes": {
+        "residential_brokerage": "Real estate agency whose agents sell homes for commission",
+        "commercial_brokerage": "Brokers commercial property sales and leases for commission",
+        "property_management": "Manages rental properties, tenants and maintenance for owners",
+        "real_estate_developer": "Develops and builds residential or commercial property projects",
+        "mortgage_broker_lender": "Originates or brokers mortgages and home loans",
+        "title_escrow": "Provides title insurance, escrow or closing services",
+        "real_estate_investment": "Owns and invests in property portfolios (REIT, real estate fund)",
+        "other": "Real estate business not listed above"
+      }
+    },
+    "financial_insurance": {
+      "label": "Financial services & insurance",
+      "definition": "Provides money, credit, investment, insurance or payment services",
+      "archetypes": {
+        "insurance_agency": "Sells insurance policies from carriers to clients for commission",
+        "insurance_carrier": "Underwrites and issues insurance policies",
+        "bank_credit_union": "Bank or credit union taking deposits and making loans",
+        "lender_specialty_finance": "Non-bank lender: business loans, equipment finance, consumer credit",
+        "wealth_management": "Financial advisors managing investments for individuals for fees",
+        "investment_firm": "Asset manager, private equity, venture capital or hedge fund",
+        "accounting_firm": "Accounting, bookkeeping, audit or tax preparation practice",
+        "payments_fintech": "Technology company providing payments, banking or financial software",
+        "other": "Financial business not listed above"
+      }
+    },
+    "software_tech": {
+      "label": "Software & technology",
+      "definition": "Builds or sells software, internet or IT products and services",
+      "archetypes": {
+        "b2b_saas": "Sells subscription software to businesses",
+        "consumer_app": "Builds apps or internet products for consumers",
+        "marketplace_platform": "Online marketplace connecting buyers and sellers for a fee",
+        "it_services_msp": "Managed IT services, IT support or network management for businesses",
+        "software_consultancy": "Custom software development agency or systems integrator",
+        "cybersecurity": "Security software or security services company",
+        "hardware_devices": "Designs and sells electronics, devices or computer hardware",
+        "telecom_isp": "Telecom carrier, internet provider or communications infrastructure",
+        "data_ai": "Data, analytics or AI products and services",
+        "other": "Technology business not listed above"
+      }
+    },
+    "professional_services": {
+      "label": "Professional & business services",
+      "definition": "Sells expert advice or professional work billed by project or hour",
+      "archetypes": {
+        "law_firm": "Law practice providing legal services",
+        "management_consulting": "Strategy, operations or management consulting firm",
+        "marketing_agency": "Marketing, advertising, PR, SEO or digital agency serving clients",
+        "design_creative_studio": "Design, branding, video or creative production studio",
+        "architecture_engineering": "Architecture or engineering design firm",
+        "research_testing_lab": "Research, testing, inspection or certification services",
+        "business_process_outsourcing": "Call center, BPO or outsourced back-office services",
+        "translation_media_services": "Translation, publishing or media services for clients",
+        "other": "Professional services firm not listed above"
+      }
+    },
+    "construction_trades": {
+      "label": "Construction & trades",
+      "definition": "Builds, installs, repairs or maintains physical structures and systems",
+      "archetypes": {
+        "general_contractor": "General contractor managing commercial or residential construction projects",
+        "home_builder": "Builds new homes or residential communities",
+        "specialty_trade_contractor": "Electrical, plumbing, HVAC, roofing, painting or other trade contractor",
+        "home_services": "Residential repair, cleaning, pest control, landscaping or remodeling services",
+        "solar_energy_installer": "Sells and installs solar panels, batteries or energy upgrades",
+        "civil_infrastructure": "Roads, utilities, excavation or civil engineering construction",
+        "facilities_services": "Commercial cleaning, security guards or facility maintenance services",
+        "other": "Construction or trades business not listed above"
+      }
+    },
+    "manufacturing": {
+      "label": "Manufacturing & industrial",
+      "definition": "Makes physical products in its own facilities",
+      "archetypes": {
+        "industrial_manufacturer": "Makes machinery, equipment, components or industrial products",
+        "consumer_goods_manufacturer": "Makes consumer products, apparel, cosmetics or household goods",
+        "food_beverage_producer": "Produces food or beverages, including breweries and wineries",
+        "chemicals_materials": "Makes chemicals, plastics, metals, paper or raw materials",
+        "medical_device_pharma": "Makes medical devices, pharmaceuticals or biotech products",
+        "electronics_manufacturer": "Makes electronic components, semiconductors or electronics",
+        "contract_manufacturer": "Manufactures products for other brands under contract",
+        "other": "Manufacturer not listed above"
+      }
+    },
+    "logistics_transport": {
+      "label": "Logistics & transportation",
+      "definition": "Moves or stores goods or people",
+      "archetypes": {
+        "trucking_carrier": "Trucking company hauling freight with its own fleet",
+        "freight_broker_3pl": "Freight broker, forwarder or third-party logistics provider",
+        "warehousing_fulfillment": "Warehousing, storage or order fulfillment services",
+        "courier_delivery": "Courier, last-mile or local delivery service",
+        "passenger_transport": "Airline, bus, limo, taxi or passenger transport operator",
+        "moving_company": "Residential or commercial moving and relocation services",
+        "other": "Logistics business not listed above"
+      }
+    },
+    "retail_consumer": {
+      "label": "Retail & consumer brands",
+      "definition": "Sells products directly to consumers",
+      "archetypes": {
+        "brick_and_mortar_retailer": "Physical retail stores selling goods to consumers",
+        "ecommerce_brand": "Sells its own branded products online direct to consumers",
+        "ecommerce_retailer": "Online store reselling products from many brands",
+        "franchise_operator": "Operates franchised retail, restaurant or service locations",
+        "grocery_convenience": "Grocery, supermarket, convenience store or gas station",
+        "other": "Consumer retail business not listed above"
+      }
+    },
+    "hospitality_food": {
+      "label": "Hospitality, food service & leisure",
+      "definition": "Serves food, lodging, travel or entertainment to customers",
+      "archetypes": {
+        "restaurant": "Restaurant, cafe, bar or quick-service food business",
+        "hotel_lodging": "Hotel, resort, vacation rental or lodging operator",
+        "travel_agency_tour": "Travel agency, tour operator or travel booking business",
+        "events_venue": "Event venue, event planning or catering company",
+        "fitness_wellness": "Gym, fitness studio, spa or wellness center",
+        "entertainment_recreation": "Entertainment, gaming, sports or recreation business",
+        "other": "Hospitality or leisure business not listed above"
+      }
+    },
+    "healthcare": {
+      "label": "Healthcare",
+      "definition": "Provides medical, dental, mental health or care services",
+      "archetypes": {
+        "medical_practice_clinic": "Physician practice, clinic or outpatient care provider",
+        "dental_practice": "Dental or orthodontic practice",
+        "hospital_health_system": "Hospital or multi-site health system",
+        "home_health_senior_care": "Home health, hospice, assisted living or senior care",
+        "behavioral_health": "Mental health, therapy or addiction treatment provider",
+        "pharmacy": "Retail or specialty pharmacy",
+        "veterinary": "Veterinary clinic or animal hospital",
+        "healthcare_staffing": "Places nurses, physicians or allied health workers with facilities",
+        "other": "Healthcare business not listed above"
+      }
+    },
+    "education": {
+      "label": "Education",
+      "definition": "Teaches or trains students or learners",
+      "archetypes": {
+        "k12_school": "Primary or secondary school (public, private or charter)",
+        "higher_education": "College or university",
+        "edtech": "Education technology or online learning company",
+        "tutoring_test_prep": "Tutoring, test prep or private lessons business",
+        "vocational_training": "Trade school, bootcamp or vocational training provider",
+        "other": "Education organization not listed above"
+      }
+    },
+    "public_nonprofit": {
+      "label": "Government, nonprofit & associations",
+      "definition": "Non-commercial organization serving a public or member mission",
+      "archetypes": {
+        "nonprofit_charity": "Charity or nonprofit funded by donations and grants",
+        "government_agency": "Government department, municipality or public agency",
+        "association_membership": "Trade association, professional body or membership organization",
+        "religious_organization": "Church or religious organization",
+        "other": "Public or nonprofit organization not listed above"
+      }
+    },
+    "energy_agriculture": {
+      "label": "Energy, utilities & agriculture",
+      "definition": "Produces energy, resources or agricultural products",
+      "archetypes": {
+        "utility": "Electric, gas or water utility",
+        "oil_gas_mining": "Oil and gas, mining or resource extraction",
+        "renewable_energy_developer": "Develops or operates renewable energy projects",
+        "farm_agribusiness": "Farm, ranch or agricultural producer",
+        "other": "Energy or agriculture business not listed above"
+      }
+    },
+    "media_publishing": {
+      "label": "Media & publishing",
+      "definition": "Creates and distributes content, news or entertainment",
+      "archetypes": {
+        "publisher_news": "Newspaper, magazine or digital publisher",
+        "broadcast_streaming": "TV, radio, podcast or streaming media company",
+        "film_music_production": "Film, music or content production company",
+        "creator_influencer_business": "Individual creator, influencer or personal brand business",
+        "other": "Media business not listed above"
+      }
+    }
+  }
+}

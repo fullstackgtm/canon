@@ -1,0 +1,725 @@
+// Extracted verbatim from src/cli.ts (mechanical split, no behavior change).
+
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+import { DEFAULT_LOOPBACK_PORT, openInBrowser, runHubspotLoopbackLogin, validateHubspotToken } from "../connectors/hubspotAuth.ts";
+import { pollSalesforceDeviceLogin, startSalesforceDeviceLogin, validateSalesforceOrigin, validateSalesforceToken } from "../connectors/salesforceAuth.ts";
+import { activeProfile, credentialsPath, DEFAULT_PROFILE, deleteCredential, getCredential, storeCredential, type StoredCredential } from "../credentials.ts";
+import { activeWorkspaceProfile, readHealthTimeline, summarizeHealth } from "../health.ts";
+import { resolveLlmCredential, validateLlmKey } from "../llm.ts";
+import { createFilePlanStore, type StoredPlan } from "../planStore.ts";
+import { validateClayApiKey } from "../connectors/clay.ts";
+import { isOptionValue, numericOption, option, readPackageInfo, readSecret } from "./shared.ts";
+import { box, colorEnabled, paint, scoreColor, sparkline } from "./ui.ts";
+
+
+/**
+ * Provider error bodies can echo request parameters (including secrets) and
+ * land in logs. Surface only the status and, when present, a known-safe error
+ * description field — never the raw body.
+ */
+function safeStatus(response: Response): string {
+  return `HTTP ${response.status} ${response.statusText}`.trim();
+}
+
+function rejectArgvSecret(args: string[], ...flags: string[]) {
+  for (const flag of flags) {
+    if (args.includes(flag)) {
+      throw new Error(
+        `${flag} no longer accepts a value on the command line (argv secrets leak via \`ps\` and ` +
+          `shell history). Pipe the secret on stdin instead, e.g. \`echo "$SECRET" | fullstackgtm login ...\`.`,
+      );
+    }
+  }
+}
+
+/**
+ * The broker channel carries a long-lived pairing bearer and receives freshly
+ * minted live-CRM tokens, so it must be TLS unless it's an explicit localhost
+ * dev target. Refuse http:// (and non-http schemes) otherwise — single-quote
+ * shell escaping does nothing for a token sent in cleartext.
+ */
+export function assertSecureBrokerUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`--via must be a full URL (e.g. https://gtm.yourco.com), got "${raw}".`);
+  }
+  const isLocalhost =
+    url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "[::1]";
+  if (url.protocol === "https:") return url;
+  if (url.protocol === "http:" && isLocalhost) return url; // local dev only
+  throw new Error(
+    `Refusing to pair over ${url.protocol}//${url.host}: the broker exchanges a long-lived token and mints live CRM ` +
+      "credentials, so it must use https (http is allowed only for localhost dev).",
+  );
+}
+
+const DEFAULT_HOSTED_BASE_URL = "https://canoncrm.com";
+
+type CrmProvider = "hubspot" | "salesforce";
+
+async function brokerLogin(baseUrl: string) {
+  const viaUrl = assertSecureBrokerUrl(baseUrl);
+  const base = baseUrl.replace(/\/$/, "");
+  const os = await import("node:os");
+  // Self-reported, shown to the approver so they can recognize this request
+  // and refuse one they didn't initiate.
+  const requesterLabel = `${os.hostname()} (${process.platform}, ${os.userInfo().username})`;
+  let startResponse: Response;
+  try {
+    startResponse = await fetch(`${base}/api/cli/auth/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requesterLabel }),
+    });
+  } catch (error) {
+    const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : "";
+    throw new Error(`Cannot reach the hosted deployment at ${base}${cause}. Check the --via URL and network access.`);
+  }
+  if (!startResponse.ok) {
+    throw new Error(
+      `Could not start pairing with ${base} (${startResponse.status}). Is this a CanonCRM deployment?`,
+    );
+  }
+  const start = await startResponse.json();
+  // Only auto-open a verification URL that belongs to the --via origin the user
+  // typed — a malicious/typo'd deployment cannot redirect the browser elsewhere.
+  let sameOrigin = false;
+  try {
+    sameOrigin = new URL(start.verificationUrl).origin === viaUrl.origin;
+  } catch {
+    sameOrigin = false;
+  }
+  console.error(
+    `\nPairing code: ${start.userCode}\n\nApprove this CLI ("${requesterLabel}") in your dashboard:\n\n  ${start.verificationUrl}\n`,
+  );
+  if (sameOrigin) {
+    void openInBrowser(start.verificationUrl);
+  } else {
+    console.error(`(Not auto-opening: the verification URL is not on ${viaUrl.origin}. Open it manually only if you trust it.)`);
+  }
+
+  const deadline = Date.now() + (start.expiresInSeconds ?? 600) * 1000;
+  const intervalMs = Math.max(0, (start.intervalSeconds ?? 3) * 1000);
+  while (Date.now() < deadline) {
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, intervalMs));
+    const pollResponse = await fetch(`${base}/api/cli/auth/poll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceCode: start.deviceCode }),
+    });
+    if (!pollResponse.ok) {
+      throw new Error(`Pairing poll failed (${pollResponse.status}).`);
+    }
+    const poll = await pollResponse.json();
+    if (poll.status === "pending") continue;
+    if (poll.status === "approved" && poll.cliToken) {
+      const now = new Date().toISOString();
+      storeCredential("broker", {
+        kind: "broker",
+        accessToken: poll.cliToken,
+        baseUrl: base,
+        createdAt: now,
+        updatedAt: now,
+      });
+      console.log(`Paired with ${base}. Credentials stored in ${credentialsPath()}.`);
+      console.log(
+        "Provider commands now use the organization's stored sync credentials via the deployment.",
+      );
+      return;
+    }
+    throw new Error(`Pairing was ${poll.status}.`);
+  }
+  throw new Error("Pairing timed out before it was approved.");
+}
+
+export async function hostedProviderLogin(provider: CrmProvider, baseUrl: string) {
+  const viaUrl = assertSecureBrokerUrl(baseUrl);
+  const base = baseUrl.replace(/\/$/, "");
+  const os = await import("node:os");
+  const requesterLabel = `${os.hostname()} (${process.platform}, ${os.userInfo().username})`;
+  let startResponse: Response;
+  try {
+    startResponse = await fetch(`${base}/api/cli/oauth/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, requesterLabel }),
+    });
+  } catch (error) {
+    const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : "";
+    throw new Error(`Cannot reach the hosted deployment at ${base}${cause}. Check the --via URL and network access.`);
+  }
+  if (!startResponse.ok) {
+    throw new Error(`Could not start ${provider} OAuth with ${base} (${startResponse.status}). Is this a CanonCRM deployment?`);
+  }
+  const start = await startResponse.json();
+  let sameOrigin = false;
+  try {
+    sameOrigin = new URL(start.verificationUrl).origin === viaUrl.origin;
+  } catch {
+    sameOrigin = false;
+  }
+  console.error(
+    `\n${provider} OAuth code: ${start.userCode}\n\nApprove this CLI ("${requesterLabel}") in your hosted CanonCRM dashboard:\n\n  ${start.verificationUrl}\n`,
+  );
+  if (sameOrigin) {
+    void openInBrowser(start.verificationUrl);
+  } else {
+    console.error(`(Not auto-opening: the verification URL is not on ${viaUrl.origin}. Open it manually only if you trust it.)`);
+  }
+
+  const deadline = Date.now() + (start.expiresInSeconds ?? 600) * 1000;
+  const intervalMs = Math.max(0, (start.intervalSeconds ?? 3) * 1000);
+  while (Date.now() < deadline) {
+    await new Promise((resolveSleep) => setTimeout(resolveSleep, intervalMs));
+    const pollResponse = await fetch(`${base}/api/cli/auth/poll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceCode: start.deviceCode }),
+    });
+    if (!pollResponse.ok) throw new Error(`Pairing poll failed (${pollResponse.status}).`);
+    const poll = await pollResponse.json();
+    if (poll.status === "pending") continue;
+    if (poll.status === "approved" && poll.cliToken) {
+      const now = new Date().toISOString();
+      storeCredential("broker", {
+        kind: "broker",
+        accessToken: poll.cliToken,
+        baseUrl: base,
+        createdAt: now,
+        updatedAt: now,
+      });
+      console.log(`Logged in to ${provider} via hosted OAuth at ${base}. Credentials stored in ${credentialsPath()}.`);
+      console.log("Provider tokens are minted server-side by the hosted app; no provider app secret is stored in this CLI.");
+      return;
+    }
+    throw new Error(`Pairing was ${poll.status}.`);
+  }
+  throw new Error("Pairing timed out before it was approved.");
+}
+
+function hostedBase(args: string[]): string {
+  return option(args, "--via") ?? process.env.FULLSTACKGTM_HOSTED_URL ?? DEFAULT_HOSTED_BASE_URL;
+}
+
+async function guidedProviderLogin(provider: CrmProvider, args: string[], reason: string) {
+  const command = `fullstackgtm login ${provider} --hosted`;
+  if (!process.stdin.isTTY || process.env.CI) {
+    console.error(`${reason}\nNext command: ${command}`);
+    throw new Error(reason);
+  }
+  console.error(
+    `\n${provider} login options:\n` +
+      `  1) Hosted OAuth (default): no provider app needed; browser approval via CanonCRM.\n` +
+      `  2) BYO ${provider === "salesforce" ? "Connected App" : "HubSpot app"}: advanced OAuth/device flow.\n` +
+      `  3) Paste token: read from stdin/prompt; never from argv.\n`,
+  );
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  const answer = (await rl.question("Choose [1]: ")).trim();
+  rl.close();
+  if (answer === "" || answer === "1") return hostedProviderLogin(provider, hostedBase(args));
+  if (answer === "2") {
+    throw new Error(
+      provider === "salesforce"
+        ? "Advanced BYO Salesforce: run `fullstackgtm login salesforce --device --client-id <consumer key>` or pipe a token with `--instance-url <url>`."
+        : `Advanced BYO HubSpot: run \`fullstackgtm login hubspot --oauth --client-id <id>\` (redirect http://localhost:${numericOption(args, "--port") ?? DEFAULT_LOOPBACK_PORT}/callback).`,
+    );
+  }
+  if (answer === "3") {
+    throw new Error(
+      provider === "salesforce"
+        ? "Paste-token Salesforce: pipe the token with `fullstackgtm login salesforce --instance-url <url>`."
+        : "Paste-token HubSpot: pipe the token with `fullstackgtm login hubspot --private-token`.",
+    );
+  }
+  return hostedProviderLogin(provider, hostedBase(args));
+}
+
+async function salesforceLogin(args: string[]) {
+  const now = new Date().toISOString();
+  rejectArgvSecret(args, "--token");
+
+  if (args.includes("--hosted") || (!args.includes("--device") && !args.includes("--instance-url"))) {
+    await hostedProviderLogin("salesforce", hostedBase(args));
+    return;
+  }
+
+  if (args.includes("--device")) {
+    const clientId = option(args, "--client-id");
+    if (!clientId) {
+      await guidedProviderLogin("salesforce", args, "--device requires --client-id (the consumer key of a Connected App with device flow enabled).");
+      return;
+    }
+    const loginUrlInput = option(args, "--login-url") ?? undefined;
+    const loginUrl = loginUrlInput
+      ? validateSalesforceOrigin(loginUrlInput, "Salesforce --login-url")
+      : undefined;
+    const authorization = await startSalesforceDeviceLogin({ clientId, loginUrl });
+    console.error(
+      `\nPairing code: ${authorization.userCode}\n\nConfirm this code at:\n\n  ${authorization.verificationUri}\n`,
+    );
+    void openInBrowser(authorization.verificationUri);
+    const tokens = await pollSalesforceDeviceLogin({
+      clientId,
+      deviceCode: authorization.deviceCode,
+      intervalSeconds: authorization.intervalSeconds,
+      loginUrl,
+    });
+    storeCredential("salesforce", {
+      kind: "oauth",
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      instanceUrl: tokens.instanceUrl,
+      expiresAt: tokens.expiresAt,
+      clientId,
+      loginUrl,
+      createdAt: now,
+      updatedAt: now,
+    });
+    console.log(
+      `Logged in to Salesforce (${tokens.instanceUrl}). Credentials stored in ${credentialsPath()}.`,
+    );
+    console.log("Tokens refresh silently; no further browser interaction is needed.");
+    return;
+  }
+
+  const instanceUrlInput = option(args, "--instance-url");
+  if (!instanceUrlInput) {
+    await guidedProviderLogin(
+      "salesforce",
+      args,
+      "Salesforce login needs hosted OAuth, --device --client-id <consumer key>, or --instance-url <https://yourorg.my.salesforce.com> with the access token piped on stdin.",
+    );
+    return;
+  }
+  const instanceUrl = validateSalesforceOrigin(instanceUrlInput, "Salesforce --instance-url");
+  const token = await readSecret("Salesforce access token");
+  if (!token) throw new Error("No access token provided.");
+  if (!args.includes("--no-validate")) {
+    const result = await validateSalesforceToken(token, instanceUrl);
+    if (!result.ok) throw new Error(result.detail);
+    console.log(result.detail);
+  }
+  storeCredential("salesforce", {
+    kind: "private_app",
+    accessToken: token,
+    instanceUrl,
+    createdAt: now,
+    updatedAt: now,
+  });
+  console.log(`Logged in to Salesforce. Credentials stored in ${credentialsPath()}.`);
+}
+
+export async function login(args: string[]) {
+  const provider = args.find((arg) => !arg.startsWith("--") && !isOptionValue(args, arg));
+  const via = option(args, "--via");
+  if (via && !provider) {
+    await brokerLogin(via);
+    return;
+  }
+  if (provider === "salesforce") {
+    await salesforceLogin(args);
+    return;
+  }
+  if (provider === "stripe") {
+    rejectArgvSecret(args, "--token");
+    const key = await readSecret("Stripe secret key (sk_...)");
+    if (!key) throw new Error("No Stripe key provided.");
+    if (!args.includes("--no-validate")) {
+      const response = await fetch("https://api.stripe.com/v1/customers?limit=1", {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      if (!response.ok) {
+        throw new Error(`Stripe rejected the key (${response.status}): ${safeStatus(response)}`);
+      }
+      console.log("Key accepted by the Stripe API.");
+    }
+    const stamp = new Date().toISOString();
+    storeCredential("stripe", {
+      kind: "private_app",
+      accessToken: key,
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    console.log(`Logged in to Stripe. Credentials stored in ${credentialsPath()}.`);
+    return;
+  }
+  if (provider === "anthropic" || provider === "openai" || provider === "openrouter") {
+    rejectArgvSecret(args, "--token", "--key", "--api-key");
+    const key = await readSecret(`${provider} API key (${provider === "anthropic" ? "sk-ant-..." : provider === "openrouter" ? "sk-or-..." : "sk-..."})`);
+    if (!key) throw new Error(`No ${provider} key provided.`);
+    if (!args.includes("--no-validate")) {
+      if (provider === "openrouter") {
+        const response = await fetch("https://openrouter.ai/api/v1/key", { headers: { Authorization: `Bearer ${key}` } });
+        if (!response.ok) throw new Error(`openrouter rejected the key: ${safeStatus(response)}`);
+        console.log("Key accepted by OpenRouter.");
+      } else {
+        const validation = await validateLlmKey(provider, key);
+        if (!validation.ok) throw new Error(`${provider} rejected the key: ${validation.detail}`);
+        console.log(validation.detail);
+      }
+    }
+    const stamp = new Date().toISOString();
+    storeCredential(provider, { kind: "api_key", accessToken: key, createdAt: stamp, updatedAt: stamp });
+    console.log(`Stored ${provider} API key in ${credentialsPath()}. \`fullstackgtm icp derive\` uses it automatically${provider === "openrouter" ? "." : "; call parse/score use it too."}`);
+    return;
+  }
+  if (provider === "apollo") {
+    rejectArgvSecret(args, "--token", "--key", "--api-key");
+    const key = await readSecret("Apollo API key");
+    if (!key) throw new Error("No Apollo key provided.");
+    if (!args.includes("--no-validate")) {
+      const response = await fetch("https://api.apollo.io/api/v1/auth/health", {
+        headers: { "X-Api-Key": key, Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`Apollo rejected the key: ${safeStatus(response)}`);
+      }
+      console.log("Key accepted by the Apollo API.");
+    }
+    const stamp = new Date().toISOString();
+    storeCredential("apollo", { kind: "api_key", accessToken: key, createdAt: stamp, updatedAt: stamp });
+    console.log(`Stored Apollo API key in ${credentialsPath()}. \`fullstackgtm enrich append|refresh\` use it automatically.`);
+    return;
+  }
+  if (provider === "clay") {
+    rejectArgvSecret(args, "--token", "--key", "--api-key");
+    const key = await readSecret("Clay Public API key");
+    if (!key) throw new Error("No Clay Public API key provided.");
+    if (!args.includes("--no-validate")) {
+      const validation = await validateClayApiKey(key);
+      if (!validation.ok) throw new Error(validation.detail);
+      console.log(validation.detail);
+    }
+    const stamp = new Date().toISOString();
+    storeCredential("clay", { kind: "api_key", accessToken: key, createdAt: stamp, updatedAt: stamp });
+    console.log(`Stored Clay Public API key in ${credentialsPath()}. Clay connector commands resolve it automatically.`);
+    return;
+  }
+  if (provider === "pipe0" || provider === "explorium" || provider === "heyreach" || provider === "theirstack" || provider === "exa") {
+    rejectArgvSecret(args, "--token", "--key", "--api-key");
+    const key = await readSecret(`${provider} API key`);
+    if (!key) throw new Error(`No ${provider} key provided.`);
+    // No free auth-health endpoint; validating would spend credits, so the key
+    // is stored as-is and validated on the first pull.
+    const stamp = new Date().toISOString();
+    storeCredential(provider, { kind: "api_key", accessToken: key, createdAt: stamp, updatedAt: stamp });
+    const usedBy =
+      provider === "theirstack" ? "`fullstackgtm tam estimate --source theirstack`" :
+      provider === "exa" ? "`fullstackgtm signals discover`" : "`fullstackgtm enrich acquire`";
+    console.log(`Stored ${provider} API key in ${credentialsPath()}. ${usedBy} uses it automatically (validated on first pull).`);
+    return;
+  }
+  if (provider !== "hubspot") {
+    throw new Error(
+      "login supports: hubspot, salesforce, stripe, anthropic, openai, openrouter, apollo, clay, pipe0, explorium, heyreach, theirstack, exa, or --via <hosted url>. Usage: fullstackgtm login <provider> | fullstackgtm login --via https://gtm.example.com",
+    );
+  }
+  const now = new Date().toISOString();
+  rejectArgvSecret(args, "--token");
+
+  if (args.includes("--hosted") || (!args.includes("--oauth") && !args.includes("--private-token"))) {
+    await hostedProviderLogin("hubspot", hostedBase(args));
+    return;
+  }
+
+  if (args.includes("--oauth")) {
+    rejectArgvSecret(args, "--client-secret");
+    const clientId = option(args, "--client-id");
+    if (!clientId) {
+      await guidedProviderLogin(
+        "hubspot",
+        args,
+        "--oauth requires --client-id from your own HubSpot app " +
+          `(register http://localhost:${numericOption(args, "--port") ?? DEFAULT_LOOPBACK_PORT}/callback as a redirect URL).`,
+      );
+      return;
+    }
+    const clientSecret = await readSecret("HubSpot app client secret");
+    if (!clientSecret) throw new Error("No client secret provided.");
+    const scopes = option(args, "--scopes")?.split(",").map((scope) => scope.trim());
+    const tokens = await runHubspotLoopbackLogin({
+      clientId,
+      clientSecret,
+      port: numericOption(args, "--port"),
+      scopes,
+    });
+    storeCredential("hubspot", {
+      kind: "oauth",
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresAt: tokens.expiresAt,
+      clientId,
+      clientSecret,
+      scopes,
+      createdAt: now,
+      updatedAt: now,
+    });
+    console.log(`Logged in to HubSpot via OAuth. Credentials stored in ${credentialsPath()}.`);
+    console.log("Tokens refresh silently; no further browser interaction is needed.");
+    return;
+  }
+
+  const token = await readSecret("HubSpot private app token");
+  if (!token) throw new Error("No token provided.");
+  if (!args.includes("--no-validate")) {
+    const result = await validateHubspotToken(token);
+    if (!result.ok) throw new Error(result.detail);
+    console.log(result.detail);
+  }
+  storeCredential("hubspot", {
+    kind: "private_app",
+    accessToken: token,
+    createdAt: now,
+    updatedAt: now,
+  });
+  console.log(`Logged in to HubSpot. Credentials stored in ${credentialsPath()}.`);
+}
+
+export function logout(args: string[]) {
+  const provider = args.find((arg) => !arg.startsWith("--"));
+  if (!provider) throw new Error("Usage: fullstackgtm logout hubspot");
+  if (!getCredential(provider)) {
+    console.log(`No stored credentials for ${provider}.`);
+    return;
+  }
+  deleteCredential(provider);
+  console.log(`Removed stored ${provider} credentials.`);
+}
+
+type ProviderDoctorStatus = {
+  source: "env" | "stored" | "broker" | "none";
+  detail: string;
+};
+
+export function doctorReport(env: Record<string, string | undefined> = process.env) {
+  const packageInfo = readPackageInfo();
+  const nodeMajor = Number(process.versions.node.split(".")[0]);
+  const storePath = credentialsPath();
+  const configPath = resolve("fullstackgtm.config.json");
+  const broker = getCredential("broker");
+
+  const providers: Record<string, ProviderDoctorStatus> = {
+    hubspot: env.HUBSPOT_ACCESS_TOKEN
+      ? { source: "env", detail: "HUBSPOT_ACCESS_TOKEN" }
+      : providerStatus("hubspot", broker),
+    salesforce:
+      env.SALESFORCE_ACCESS_TOKEN && env.SALESFORCE_INSTANCE_URL
+        ? { source: "env", detail: "SALESFORCE_ACCESS_TOKEN + SALESFORCE_INSTANCE_URL" }
+        : providerStatus("salesforce", broker),
+    stripe: env.STRIPE_SECRET_KEY
+      ? { source: "env", detail: "STRIPE_SECRET_KEY" }
+      : providerStatus("stripe", broker),
+    clay: env.CLAY_API_KEY
+      ? { source: "env", detail: "CLAY_API_KEY" }
+      : providerStatus("clay", null),
+    openrouter: env.OPENROUTER_API_KEY
+      ? { source: "env", detail: "OPENROUTER_API_KEY" }
+      : providerStatus("openrouter", null),
+  };
+
+  const llm = resolveLlmCredential(env);
+  const missingPeers = ["@modelcontextprotocol/sdk", "zod"].filter((name) => {
+    try {
+      import.meta.resolve(name);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+
+  const connectedCrm = ["hubspot", "salesforce"].filter((provider) => providers[provider].source !== "none");
+  const nextSteps =
+    connectedCrm.length === 0
+      ? [
+          "fullstackgtm audit --demo            # no credentials needed",
+          "fullstackgtm login hubspot           # hosted browser OAuth (default; or: login salesforce)",
+        ]
+      : [`fullstackgtm audit --provider ${connectedCrm[0]}`];
+
+  return {
+    package: packageInfo,
+    node: { version: process.versions.node, ok: nodeMajor >= 20, required: ">=20" },
+    profile: activeProfile(),
+    credentialStore: { path: storePath, exists: existsSync(storePath) },
+    config: { path: configPath, exists: existsSync(configPath) },
+    providers,
+    broker: broker ? { paired: true, baseUrl: broker.baseUrl ?? "unknown" } : { paired: false },
+    llm: llm
+      ? { configured: true, provider: llm.provider, source: llm.source }
+      : { configured: false, detail: "call parse/score will prompt once, or set ANTHROPIC_API_KEY / OPENAI_API_KEY" },
+    mcp: { peersInstalled: missingPeers.length === 0, missing: missingPeers },
+    nextSteps,
+  };
+}
+
+function providerStatus(provider: string, broker: StoredCredential | null): ProviderDoctorStatus {
+  const stored = getCredential(provider);
+  if (stored) {
+    return { source: "stored", detail: `${stored.kind} login, updated ${stored.updatedAt}` };
+  }
+  if (broker) {
+    return { source: "broker", detail: `via ${broker.baseUrl ?? "hosted deployment"}` };
+  }
+  return { source: "none", detail: provider === "hubspot" || provider === "salesforce" ? `fullstackgtm login ${provider} (hosted OAuth default)` : `fullstackgtm login ${provider}` };
+}
+
+export type WorkspaceDoctor = {
+  profile: string;
+  healthScore: number | null;
+  scoreDelta: number | null;
+  lastAuditAt: string | null;
+  auditCount: number;
+  pendingPlans: Array<{ id: string; summary: string; operations: number; approved: number }>;
+};
+
+/**
+ * The workspace slice of doctor: current health + plans awaiting approval.
+ * Folded into doctor (rather than adding a separate triage verb) so a single
+ * call returns environment + workspace state + copy-pasteable next commands —
+ * previously an agent needed three round-trips (doctor, health, plans list)
+ * to orient itself.
+ */
+export async function workspaceDoctor(): Promise<WorkspaceDoctor> {
+  const profile = activeWorkspaceProfile();
+  const rollup = summarizeHealth(readHealthTimeline(), profile);
+  let pending: StoredPlan[] = [];
+  try {
+    pending = await createFilePlanStore().list("needs_approval");
+  } catch {
+    // A malformed plans dir must not take doctor down — doctor is the verb
+    // that diagnoses broken installs. The plans slice just comes back empty.
+  }
+  return {
+    profile,
+    healthScore: rollup?.current.score ?? null,
+    scoreDelta: rollup?.scoreDelta ?? null,
+    lastAuditAt: rollup?.latest ?? null,
+    auditCount: rollup?.auditCount ?? 0,
+    pendingPlans: pending
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.plan.id.localeCompare(b.plan.id))
+      .slice(0, 10)
+      .map((stored) => ({
+        id: stored.plan.id,
+        summary: stored.plan.summary,
+        operations: stored.plan.operations.length,
+        approved: stored.approvedOperationIds.length,
+      })),
+  };
+}
+
+/**
+ * State-aware next steps: a plan awaiting approval outranks the generic
+ * "run an audit" advice — the exact show → approve → apply chain, ready to
+ * paste, with the connected provider filled in when there is one.
+ */
+/**
+ * Rich-only sparkline of the profile's score history, e.g. "  ▂▄▅▇". Empty
+ * string in plain mode or with fewer than two readings, so the plain doctor
+ * line is byte-identical to the pre-TUI CLI.
+ */
+function healthSparkline(profile: string, rich: boolean): string {
+  if (!rich) return "";
+  const history = summarizeHealth(readHealthTimeline(), profile)?.history ?? [];
+  if (history.length < 2) return "";
+  return `  ${sparkline(history.map((point) => point.score))}`;
+}
+
+function nextStepsWithWorkspace(report: ReturnType<typeof doctorReport>, workspace: WorkspaceDoctor): string[] {
+  if (workspace.pendingPlans.length === 0) return report.nextSteps;
+  const [first] = workspace.pendingPlans;
+  const connected = Object.entries(report.providers).find(([, status]) => status.source !== "none");
+  const providerHint = connected ? connected[0] : "<hubspot|salesforce|stripe>";
+  return [
+    `fullstackgtm plans show ${first.id}`,
+    `fullstackgtm plans approve ${first.id} --operations <ids|all>`,
+    `fullstackgtm apply --plan-id ${first.id} --provider ${providerHint}`,
+  ];
+}
+
+export async function doctorCommand(args: string[]) {
+  const report = doctorReport();
+  const workspace = await workspaceDoctor();
+  const nextSteps = nextStepsWithWorkspace(report, workspace);
+  if (args.includes("--json")) {
+    console.log(JSON.stringify({ ...report, workspace, nextSteps }, null, 2));
+    return;
+  }
+
+  // Styling contract: with color off (piped/NO_COLOR/CI) every painter is the
+  // identity function and the rich-only extras are skipped, so the plain
+  // output stays byte-identical to the unstyled CLI.
+  const p = paint(colorEnabled(process.stdout));
+  const mark = (ok: boolean) => (ok ? p.green("ok") : p.red("MISSING"));
+  const delta =
+    workspace.scoreDelta === null
+      ? ""
+      : ` (Δ ${
+          workspace.scoreDelta >= 0
+            ? p.green(`+${workspace.scoreDelta}`)
+            : p.red(`${workspace.scoreDelta}`)
+        })`;
+  const healthLine =
+    workspace.auditCount === 0
+      ? p.dim("no saved audits yet (fullstackgtm audit --provider <name> --save starts the timeline)")
+      : `${scoreColor(workspace.healthScore ?? 0, p)}/100${delta} — ${workspace.auditCount} audit(s) saved, last ${workspace.lastAuditAt}${healthSparkline(workspace.profile, p.enabled)}`;
+  const connectedProviders = Object.entries(report.providers).filter(([, provider]) => provider.source !== "none");
+  const blockers = [
+    ...(!report.node.ok ? [`Node v${report.node.version} is unsupported; install ${report.node.required}.`] : []),
+    ...(connectedProviders.length === 0 ? ["No CRM connected."] : []),
+    ...(workspace.pendingPlans.length > 0 ? [`${workspace.pendingPlans.length} plan${workspace.pendingPlans.length === 1 ? "" : "s"} awaiting approval.`] : []),
+  ];
+  if (!args.includes("--verbose")) {
+    const ready = report.node.ok && connectedProviders.length > 0;
+    const compact = [
+      `${ready ? p.green("Ready") : p.yellow("Setup needed")} · ${report.package.name} ${report.package.version} · profile ${report.profile}`,
+      `CRM       ${connectedProviders.length > 0 ? connectedProviders.map(([name]) => name).join(", ") : "not connected"}`,
+      `Health    ${healthLine}`,
+      `Plans     ${workspace.pendingPlans.length === 0 ? "none awaiting approval" : `${workspace.pendingPlans.length} awaiting approval · ${workspace.pendingPlans[0].id}`}`,
+      ...(blockers.length > 0 ? ["", "Attention", ...blockers.map((blocker) => `  ${blocker}`)] : []),
+      "",
+      "Next",
+      ...nextSteps.map((step) => `  ${step}`),
+      "",
+      "Run `fullstackgtm doctor --verbose` for credential paths and optional tooling checks.",
+    ];
+    console.log(p.enabled ? box(compact, p, "Workspace readiness").join("\n") : compact.join("\n"));
+    if (!report.node.ok) process.exitCode = 1;
+    return;
+  }
+  const lines = [
+    `Package:    ${p.bold(`${report.package.name} ${report.package.version}`)}`,
+    `Node:       v${report.node.version} (${report.node.required} required) ${mark(report.node.ok)}`,
+    `Profile:    ${report.profile}${report.profile === DEFAULT_PROFILE ? "" : " (named profile — credentials and plans are scoped to it)"}`,
+    `Cred store: ${report.credentialStore.path} (${report.credentialStore.exists ? "present" : "not created yet — created on first login"})`,
+    `Config:     ${report.config.exists ? report.config.path : "none — defaults apply"}`,
+    "",
+    "Providers:",
+    ...Object.entries(report.providers).map(([provider, status]) =>
+      `  ${provider.padEnd(11)} ${status.source === "none" ? p.dim(`not connected (${status.detail})`) : `${p.green(status.source)}: ${status.detail}`}`,
+    ),
+    `  ${"broker".padEnd(11)} ${report.broker.paired ? `${p.green("paired")} with ${report.broker.baseUrl}` : p.dim("not paired (fullstackgtm login --via <hosted url>)")}`,
+    `  ${"llm".padEnd(11)} ${report.llm.configured ? `${p.green(`${report.llm.provider}`)} key (${report.llm.source}) — call parse/score ready` : p.dim(`not configured (${report.llm.detail})`)}`,
+    "",
+    report.mcp.peersInstalled
+      ? `MCP:        ${p.green("peers installed")} — \`fullstackgtm-mcp\` is ready`
+      : `MCP:        ${p.yellow("optional peers missing")} (${report.mcp.missing.join(", ")}) — needed only for \`fullstackgtm-mcp\``,
+    "",
+    "Workspace:",
+    `  ${"health".padEnd(11)} ${healthLine}`,
+    `  ${"plans".padEnd(11)} ${
+      workspace.pendingPlans.length === 0
+        ? "none awaiting approval"
+        : `${p.yellow(`${workspace.pendingPlans.length} awaiting approval`)}: ${workspace.pendingPlans.map((plan) => plan.id).join(", ")}`
+    }`,
+    "",
+    ...(p.enabled
+      ? box(nextSteps, p, "Next step")
+      : ["Next step:", ...nextSteps.map((step) => `  ${step}`)]),
+  ];
+  console.log(lines.join("\n"));
+  if (!report.node.ok) process.exitCode = 1;
+}

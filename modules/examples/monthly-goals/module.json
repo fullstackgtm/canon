@@ -1,0 +1,67 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/monthly-goals",
+  "version": "1.1.0",
+  "title": "Monthly goals",
+  "description": "Set each rep a won-deal goal per month and see it against Field visits' monthly tallies: an example of one module reading another's published interface (tallies.v1), as each person may read it there.",
+  "author": { "org": "canon" },
+  "engines": { "moduleApi": "1" },
+  "nav": { "label": "Monthly goals", "icon": "target", "section": "Work", "landing": "goals" },
+  "collections": {
+    "goals": {
+      "schema": { "type": "object", "value": {
+        "month": { "fieldType": { "type": "string", "maxLength": 7 }, "optional": false, "label": "Month", "help": "YYYY-MM", "placeholder": "2026-10" },
+        "rep": { "fieldType": { "type": "ref", "to": "users" }, "optional": false, "label": "Rep" },
+        "won": { "fieldType": { "type": "number" }, "optional": false, "label": "Won deals goal" }
+      } },
+      "key": { "from": ["month", "rep"] },
+      "label": "Goal",
+      "owner": "rep",
+      "indexes": { "byMonth": ["month", "rep"] },
+      "access": { "manager": "all", "rep": "own" }
+    }
+  },
+  "views": {
+    "goals.all": { "kind": "list", "collection": "goals", "index": "byMonth", "order": "desc", "limit": 500 }
+  },
+  "ops": {
+    "goals.create": { "label": "Set a goal", "kind": "create", "collection": "goals", "fields": ["month", "rep", "won"], "roles": ["admin", "manager"], "agent": "allowed",
+      "guards": [{ "when": { "length": "month", "atLeast": 7, "atMost": 7 }, "message": "Write the month as YYYY-MM." }] },
+    "goals.update": { "label": "Change the goal", "kind": "update", "collection": "goals", "fields": ["won"], "roles": ["admin", "manager"], "agent": "allowed" },
+    "goals.delete": { "label": "Delete", "kind": "delete", "collection": "goals", "roles": ["admin", "manager"], "agent": "allowed" }
+  },
+  "uses": { "@canon/field-visits": ["tallies.v1"] },
+  "server": "dist/module.js",
+  "calls": {
+    "progress": {
+      "label": "Goals against tallies", "roles": ["admin", "manager", "rep"], "agent": "allowed",
+      "reads": {
+        "goals": { "view": "goals.all", "limit": 1000 },
+        "tallies": { "module": "@canon/field-visits", "provide": "tallies.v1", "args": { "months": { "read": "goals", "field": "month" } }, "limit": 5000 }
+      },
+      "writes": [], "returns": "value",
+      "result": { "kind": "table", "rows": "rows", "empty": "{$result.message}", "columns": [
+        { "label": "Month", "value": "{$row.month}" },
+        { "label": "Rep", "value": "{$row.rep|user}" },
+        { "label": "Goal", "value": "{$row.goal|number}", "align": "end" },
+        { "label": "Won", "value": "{$row.won}", "align": "end" },
+        { "label": "Won revenue", "value": "{$row.amount|money}", "align": "end" },
+        { "label": "Status", "value": "{$row.status}" }
+      ] }
+    }
+  },
+  "pages": [
+    {
+      "path": "goals", "title": "Monthly goals",
+      "bind": { "goals": { "view": "goals.all" }, "progress": { "call": "progress" } },
+      "body": [
+        { "c": "header", "title": "Monthly goals", "subtitle": "Each rep's won-deal goal, against the monthly tallies Field visits keeps.", "actions": [{ "op": "goals.create", "label": "Set a goal" }] },
+        { "c": "callResult", "from": "progress", "label": "Goals against Field visits' tallies" },
+        { "c": "table", "from": "goals", "empty": "No goals yet.", "columns": [
+          { "label": "Month", "value": "{$row.month}" }, { "label": "Rep", "value": "{$row.rep|user}" }, { "label": "Won deals goal", "value": "{$row.won|number}", "align": "end" }
+        ], "rowActions": [{ "op": "goals.update", "label": "Change" }, { "op": "goals.delete", "label": "Delete" }] }
+      ]
+    }
+  ]
+}

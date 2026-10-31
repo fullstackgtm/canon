@@ -1,0 +1,172 @@
+/**
+ * Slack for agent turns. The org's incoming-webhook URL is stored like
+ * Instantly's key: encrypted on its `integrations` row, read only by the
+ * functions here, never returned to a client or written to a log or error.
+ * Delivery is best effort: a turn never waits for it and never fails because of
+ * it; the outcome (sent, or failed with the HTTP status) is recorded on the turn.
+ */
+import { can, refusal } from "./lib/capabilities";
+import { ConvexError, v } from "convex/values";
+import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { getCurrentUser, requireUser } from "./lib";
+import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
+import { appUrl } from "./lib/operatorConfig";
+import { postToSlack, shouldNotify, slackMessage, webhookUrlProblem, type SlackDelivery } from "./lib/agents/slack";
+import { withEventDefinition } from "./lib/agents/definitions";
+
+/** A local stack (its own site URL is loopback) may point the webhook at a local receiver; a deployment may not. */
+const allowLoopback = () => /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.CONVEX_SITE_URL ?? "");
+
+const slackRow = (ctx: QueryCtx, orgId: Id<"organizations">) =>
+  ctx.db.query("integrations").withIndex("by_orgId_provider", (q) => q.eq("orgId", orgId).eq("provider", "slack")).first();
+
+/** Whether Slack is connected: never the URL. */
+export const status = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    const row = user && (await slackRow(ctx, user.orgId));
+    return { connected: Boolean(row?.isActive), connectedAt: row?.connectedAt ?? null };
+  },
+});
+
+export const storeUrl = internalMutation({
+  args: { orgId: v.id("organizations"), userId: v.id("users"), url: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const encrypted = await encryptForStorage(args.url);
+    const existing = await slackRow(ctx, args.orgId);
+    if (existing) {
+      await ctx.db.patch(existing._id, { accessToken: encrypted, isActive: true, connectedBy: args.userId, connectedAt: now, updatedAt: now });
+      return;
+    }
+    await ctx.db.insert("integrations", {
+      orgId: args.orgId, provider: "slack", accessToken: encrypted, refreshToken: await encryptForStorage(""),
+      isActive: true, connectedBy: args.userId, connectedAt: now, createdAt: now, updatedAt: now,
+    });
+  },
+});
+
+export const disconnect = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
+    const row = await slackRow(ctx, user.orgId);
+    if (row) await ctx.db.patch(row._id, { isActive: false, accessToken: await encryptForStorage(""), updatedAt: Date.now() });
+  },
+});
+
+/** The encrypted URL, for the functions here only. */
+export const urlCipher = internalQuery({
+  args: { orgId: v.id("organizations") },
+  handler: async (ctx, args) => {
+    const row = await slackRow(ctx, args.orgId);
+    return row && row.isActive ? row.accessToken : null;
+  },
+});
+
+async function manager(ctx: ActionCtx) {
+  const caller = await ctx.runQuery(internal.audiences.caller, {});
+  if (!caller) throw new ConvexError("Not authenticated");
+  if (!can(caller, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
+  return caller;
+}
+
+/** Connect Slack: the URL is checked for shape (nothing is sent), then stored encrypted. */
+export const connect = action({
+  args: { url: v.string() },
+  handler: async (ctx, args): Promise<{ ok: true }> => {
+    const caller = await manager(ctx);
+    const url = args.url.trim();
+    const problem = webhookUrlProblem(url, allowLoopback());
+    if (problem) throw new ConvexError(problem);
+    await ctx.runMutation(internal.agentSlack.storeUrl, { orgId: caller.orgId, userId: caller.userId, url });
+    return { ok: true };
+  },
+});
+
+/** Post a test message to the connected webhook. */
+export const sendTest = action({
+  args: {},
+  handler: async (ctx): Promise<SlackDelivery> => {
+    const caller = await manager(ctx);
+    const cipher: string | null = await ctx.runQuery(internal.agentSlack.urlCipher, { orgId: caller.orgId });
+    if (!cipher) throw new ConvexError("Slack is not connected. Add a webhook URL first.");
+    return postToSlack(await decryptFromStorage(cipher), "Canon test message: this channel will get agent turn notifications.");
+  },
+});
+
+/**
+ * After a turn reaches an end state (and, for a routed turn, after its routing
+ * is recorded): queue a message if its agent opted in for this kind of turn.
+ */
+export async function notifyTurn(ctx: MutationCtx, turnId: Id<"agentTurns">): Promise<void> {
+  const turn = await ctx.db.get(turnId);
+  const principal = turn && (await ctx.db.get(turn.agentId));
+  const agent = principal && turn && principal.orgId === turn.orgId ? await withEventDefinition(ctx, principal) : null;
+  if (!turn || turn.slack || !agent?.slack) return;
+  if (!shouldNotify(agent.slack.mode, { status: turn.status, routing: turn.routing, hasRoute: Boolean(agent.route) })) return;
+  await ctx.scheduler.runAfter(0, internal.agentSlack.send, { turnId });
+}
+
+/** Claim the turn's one notification and build its message. Null when there is nothing to send. */
+export const prepare = internalMutation({
+  args: { turnId: v.id("agentTurns") },
+  handler: async (ctx, args): Promise<{ cipher: string; text: string } | null> => {
+    const turn = await ctx.db.get(args.turnId);
+    const principal = turn && (await ctx.db.get(turn.agentId));
+    const agent = principal && turn && principal.orgId === turn.orgId ? await withEventDefinition(ctx, principal) : null;
+    if (!turn || turn.slack || !agent?.slack) return null;
+    const hasRoute = Boolean(agent.route);
+    if (!shouldNotify(agent.slack.mode, { status: turn.status, routing: turn.routing, hasRoute })) return null;
+    const row = await slackRow(ctx, turn.orgId);
+    const cipher = row && row.isActive ? row.accessToken : null;
+    if (!cipher) {
+      await ctx.db.patch(turn._id, { slack: { status: "failed", error: "Slack is not connected", at: Date.now() } });
+      return null;
+    }
+    const audience = turn.routing?.audienceId ? await ctx.db.get(turn.routing.audienceId) : null;
+    const origin = appUrl();
+    await ctx.db.patch(turn._id, { slack: { status: "sending", at: Date.now() } });
+    return {
+      cipher,
+      text: slackMessage({
+        // The account only as the turn found it through its owner's reads (CP14). A webhook's domain is the sender's;
+        // a deal event's is the deal's account, which a turn kept before CP14 even when its owner could not see it.
+        agentLabel: agent.label, trigger: turn.trigger, status: turn.status, account: turn.account,
+        subjectDomain: turn.trigger === "crm_event" ? undefined : turn.subject.domain,
+        skipMessage: turn.skip?.message, error: turn.error, outputs: turn.outputs, routing: turn.routing,
+        audienceName: audience && audience.orgId === turn.orgId ? audience.name : null,
+        link: origin ? `${origin}/dashboard/agents#turn-${turn._id}` : null,
+      }),
+    };
+  },
+});
+
+export const record = internalMutation({
+  args: { turnId: v.id("agentTurns"), ok: v.boolean(), httpStatus: v.optional(v.number()), error: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.turnId, {
+      slack: { status: args.ok ? "sent" : "failed", at: Date.now(), ...(args.httpStatus ? { httpStatus: args.httpStatus } : {}), ...(args.error ? { error: args.error } : {}) },
+    });
+  },
+});
+
+export const send = internalAction({
+  args: { turnId: v.id("agentTurns") },
+  handler: async (ctx, args): Promise<null> => {
+    const job: { cipher: string; text: string } | null = await ctx.runMutation(internal.agentSlack.prepare, args);
+    if (!job) return null;
+    let result: SlackDelivery;
+    try {
+      result = await postToSlack(await decryptFromStorage(job.cipher), job.text);
+    } catch {
+      result = { ok: false, error: "could not read the stored URL" };
+    }
+    await ctx.runMutation(internal.agentSlack.record, { turnId: args.turnId, ...result });
+    return null;
+  },
+});

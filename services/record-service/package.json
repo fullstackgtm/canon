@@ -1,0 +1,28 @@
+{
+  "name": "fsgtm-record-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CanonCRM record service: one DuckDB file per workspace behind an authenticated HTTP API.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types --no-warnings src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --no-warnings ../../scripts/dev/node-test.mjs --default-concurrency=1 -- test/durability.test.ts && node --no-warnings ../../scripts/dev/node-test.mjs --default-concurrency=4 -- $(ls test/*.test.ts | grep -v durability)",
+    "backup": "node --experimental-strip-types --no-warnings scripts/backup.ts",
+    "restore": "node --experimental-strip-types --no-warnings scripts/restore.ts",
+    "load-pdl": "node --experimental-strip-types --no-warnings scripts/load-pdl.ts",
+    "bench": "node --experimental-strip-types --no-warnings bench/bench.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1145.0",
+    "@duckdb/node-api": "^1.5.6-r.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^7.0.2"
+  }
+}
