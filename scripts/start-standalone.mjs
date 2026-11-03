@@ -75,6 +75,7 @@ ensureSymlink(resolve(projectDir, ".next/static"), resolve(projectDir, ".next/st
 ensureSymlink(resolve(projectDir, "public"), resolve(projectDir, ".next/standalone/public"));
 
 if (
+  process.env.CANON_AUTH !== "local" &&
   !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
   process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS !== "true"
 ) {

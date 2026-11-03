@@ -4,6 +4,12 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:net";
+import { verifyDeployment } from "./verify.mjs";
+
+if (process.argv[2] === "--url") {
+  try { await verifyDeployment(process.argv[3], `${process.argv[3]}/convex`, process.argv[4] === "--bootstrap-owner"); }
+  catch (error) { console.error(error.message); process.exitCode = 1; }
+} else {
 
 const image = process.argv[2] || "canoncrm-selfhost:railway-amd64";
 const platform = process.argv[3] || "linux/amd64";
@@ -117,6 +123,7 @@ try {
   assert.deepEqual(convex("action", "records:list"), records);
   assert.equal(fingerprint(), keys);
   assert.match(request("/dashboard"), /CanonCRM/);
+  await verifyDeployment(site, `${site}/convex`, false, { SELFHOST_SMOKE_EMAIL: owner.email, SELFHOST_SMOKE_PASSWORD: owner.password });
   console.log(JSON.stringify({ image, platform, imageId: docker("image", "inspect", image, "--format", "{{.Id}}"),
     imageBytes: Number(docker("image", "inspect", image, "--format", "{{.Size}}")), coldStartSeconds, restartSeconds,
     stats, rootOwnedVolume: true, ownerSignupAndSignIn: true, dashboard: true, websocketUpgrade: true,
@@ -128,4 +135,5 @@ try {
     try { docker("rm", "-f", name); } catch {}
     try { docker("volume", "rm", volume); } catch {}
   } else console.log(`Kept ${name} and ${volume}`);
+}
 }
