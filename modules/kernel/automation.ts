@@ -91,6 +91,25 @@ export const ruleDocValidator = v.object({
 export type RuleDoc = Infer<typeof ruleDocValidator>;
 
 /**
+ * What a replay found, as a proposal keeps it: how often the rule would have run over the window (`since` to `at`)
+ * and on which records (the first ones, with when), how many changes it would have skipped and why, whether it read
+ * the whole window (`partial`, read `through` when not), and what it read as it is now rather than as it was.
+ */
+export const replaySummaryValidator = v.object({
+  at: v.number(),
+  by: v.id("users"),
+  since: v.number(),
+  wouldRun: v.number(),
+  runs: v.array(v.object({ streamId: v.string(), at: v.number(), title: v.string() })),
+  skipped: v.array(v.object({ reason: v.string(), count: v.number() })),
+  partial: v.boolean(),
+  through: v.union(v.number(), v.null()),
+  scanned: v.number(),
+  notes: v.array(v.string()),
+});
+export type ReplaySummary = Infer<typeof replaySummaryValidator>;
+
+/**
  * A version's life: `proposed` waits for an admin; `approved` is the one in force; `superseded` was in force before a
  * later approval; `rejected` was turned down, with a reason.
  */

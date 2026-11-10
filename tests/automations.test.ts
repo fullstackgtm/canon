@@ -253,9 +253,9 @@ test("an agent's proposal waits and does nothing; every decision refuses an agen
   assert.deepEqual([rules(w).length, versions(w).map((v) => [v.status, v.author.agent, v.ruleId ?? null])], [0, [["proposed", "claude", null]]]);
   await inPerson(w, RILEY);
   const ruleId = (await automations.approve.handler(w.ctx, { versionId: proposed.versionId })).ruleId;
-  // Every public write in convex/automations.ts but propose (stores a proposal) and preview (reads) is a decision.
+  // Every public write in convex/automations.ts but propose (stores a proposal), preview and replay (read) is a decision.
   const source = readFileSync(new URL("../convex/automations.ts", import.meta.url), "utf8");
-  const writes = [...source.matchAll(/^export const (\w+) = (?:mutation|action)\(/gm)].map((m) => m[1]).filter((n) => !["propose", "preview"].includes(n));
+  const writes = [...source.matchAll(/^export const (\w+) = (?:mutation|action)\(/gm)].map((m) => m[1]).filter((n) => !["propose", "preview", "replay"].includes(n));
   assert.deepEqual(writes.sort(), ["approve", "reject", "remove", "retryRun", "setStatus"]);
   await asAgent(w, RILEY);
   const again = await automations.propose.handler(w.ctx, { ...TAG, ruleId, name: "Tag again" });
@@ -299,6 +299,64 @@ test("the admin who approves an agent's rule is who it acts as, with that admin'
   await write(w, { lastName: "Hidden", ownerId: AVERY });
   await fanout(w);
   assert.deepEqual(plain(runs(w).map((r) => [r.status, r.reason ?? null])), [["done", null], ["skipped", "Outside the creator's access"]]);
+});
+
+// ───────────────────────────── Replay: what a rule would have done ─────────────────────────────
+
+/** An action's context over the workspace: its runQuery and runMutation call this module's handlers by their path. */
+const actionCtx = (w: W) => {
+  const call = (ref: unknown, args: Record<string, unknown>) => automations[String(ref).split(".").pop()!].handler(w.ctx, args);
+  return { ...w.ctx, runQuery: call, runMutation: call };
+};
+/** runReplay is a plain function the module exports, not a registered handler. */
+const runReplay = automations.runReplay as unknown as (ctx: unknown, job: Record<string, unknown>, foldBudget?: number) => Promise<Record<string, any>>;
+const QUALIFIED = { object: "lead", trigger: { kind: "updated", field: "status", to: ["qualified"] }, conditions: [{ field: "company", op: "eq", value: "Orbit Labs" }] };
+
+test("a replay of past changes finds the runs the fan-out then makes from the same entries, and skips the same ones", async () => {
+  const w = workspace();
+  await inPerson(w, RILEY);
+  const { ruleId } = await automations.propose.handler(w.ctx, { ...QUALIFIED, name: "Qualified Orbit", actions: [{ kind: "set_field", field: "leadSource", value: "rule" }] });
+  const a = await write(w, { lastName: "Okafor", company: "Orbit Labs", status: "new" });
+  const b = await write(w, { lastName: "Lindqvist", company: "Fjord AI", status: "new" });
+  const c = await write(w, { lastName: "Moreau", company: "Orbit Labs", status: "new" });
+  await write(w, { status: "qualified" }, a.streamId);
+  await write(w, { status: "qualified" }, b.streamId);
+  await write(w, { status: "working" }, c.streamId);
+  const replay = await runReplay(actionCtx(w), { orgId: ORG, userId: RILEY, userName: "Riley", ruleId, ...QUALIFIED });
+  await fanout(w);
+  assert.deepEqual(plain({ wouldRun: replay.runs.map((r: { streamId: string }) => r.streamId), skipped: replay.skipped, partial: replay.partial }), { wouldRun: [a.streamId], skipped: [{ reason: "Conditions not met", count: 1 }], partial: false });
+  const made = plain(runs(w).map((r) => [r.streamId, r.status, r.reason ?? null])).sort((x: string[], y: string[]) => x[1].localeCompare(y[1]));
+  assert.deepEqual(made, [[a.streamId, "pending", null], [b.streamId, "skipped", "Conditions not met"]]);
+  assert.equal(w.db.rows("automationVersions").length, 1, "a replay writes nothing");
+});
+
+test("a replay that stops at its read limit says it is partial", async () => {
+  const w = workspace();
+  await inPerson(w, RILEY);
+  for (const name of ["A", "B", "C"]) await write(w, { lastName: name, company: "Orbit Labs", status: "new" }).then((x) => write(w, { status: "qualified" }, x.streamId));
+  const replay = await runReplay(actionCtx(w), { orgId: ORG, userId: RILEY, userName: "Riley", ...QUALIFIED }, 1);
+  assert.deepEqual([replay.partial, replay.wouldRun < 3, replay.through !== null], [true, true, true]);
+});
+
+test("an agent's proposal is replayed as the member whose token it used, and never names a record they can't see", async () => {
+  const w = workspace();
+  await asAgent(w, RILEY);
+  const proposed = await automations.propose.handler(w.ctx, { ...QUALIFIED, name: "Qualified Orbit", actions: [{ kind: "set_field", field: "leadSource", value: "rule" }] });
+  agentClient = null;
+  assert.ok(w.scheduled.some((s) => s.ref.endsWith("replayVersion")), "the proposal's replay is queued");
+  const mine = await write(w, { lastName: "Mine", company: "Orbit Labs", status: "new", ownerId: RILEY });
+  await as(w, AVERY);
+  const hidden = await write(w, { lastName: "Hidden", company: "Orbit Labs", status: "new", ownerId: AVERY });
+  await write(w, { status: "qualified" }, hidden.streamId);
+  await as(w, RILEY);
+  await write(w, { status: "qualified" }, mine.streamId);
+  // Riley becomes a rep who sees only their own leads.
+  await w.db.patch(RILEY, { role: "rep" });
+  await w.db.insert("rolePermissions", { orgId: ORG, role: "rep", rules: [{ object: "lead", visibility: "own", unowned: false }] });
+  await automations.replayVersion.handler(actionCtx(w), { versionId: proposed.versionId });
+  const kept = plain(versions(w)[0].replay);
+  assert.deepEqual([kept.wouldRun, kept.runs.map((r: { streamId: string; title: string }) => [r.streamId, r.title]), kept.skipped], [1, [[mine.streamId, "Mine"]], [{ reason: "A record Riley can't see", count: 1 }]]);
+  assert.ok(!JSON.stringify(kept).includes(hidden.streamId) && !JSON.stringify(kept).includes("Hidden"));
 });
 
 test("a run started under one version does its actions as the admin who approved that version, not a later approver", async () => {

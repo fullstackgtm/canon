@@ -33,7 +33,7 @@
  */
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { agentClientOf, getCurrentUser, requireUser } from "./lib";
@@ -59,7 +59,7 @@ import {
   scheduleProblem, triggerFires, weightedCycle, type AutomationMark,
 } from "./lib/automations";
 import {
-  ACTIONS_MAX, AUTOMATION_OBJECTS, RULES_MAX, actionValidator, conditionValidator, describe, isAutomationObject, triggerValidator,
+  ACTIONS_MAX, AUTOMATION_OBJECTS, MAX_DEPTH, RULES_MAX, actionValidator, replaySummaryValidator, conditionValidator, describe, isAutomationObject, triggerValidator,
   type AutomationAction, type Condition, type OwnerChoice, type RuleNames, type Step, type Trigger,
 } from "../modules/kernel/automation";
 
@@ -325,7 +325,11 @@ export const propose = mutation({
     const p = await inPerson(ctx, admin);
     const row = await proposeVersion(ctx, admin, doc, { ruleId, note, agent: p ? null : await agentClientOf(ctx) });
     const sentence = describe(row.spec, await namesFor(ctx, admin.orgId, row.spec.object));
-    if (!p) return { versionId: row._id, version: row.version, ruleId: row.ruleId ?? null, status: "proposed" as const, sentence };
+    if (!p) {
+      // The approver sees what it would have done over the last two weeks without asking for it.
+      if (row.spec.trigger.kind !== "schedule") await ctx.scheduler.runAfter(0, internal.automations.replayVersion, { versionId: row._id });
+      return { versionId: row._id, version: row.version, ruleId: row.ruleId ?? null, status: "proposed" as const, sentence };
+    }
     return { versionId: row._id, version: row.version, ruleId: await approveVersion(ctx, p, row), status: "approved" as const, sentence };
   },
 });
@@ -428,8 +432,21 @@ async function namesFor(ctx: QueryCtx, orgId: Id<"organizations">, object: strin
   };
 }
 
-/** A version as the proposals list and an agent read it: the document, who wrote it and why, and how it was decided. */
-const versionView = async (ctx: QueryCtx, row: Doc<"automationVersions">, head: Doc<"automationRules"> | null) => ({
+/** A replay's listed runs that `access` sees now: a summary kept on a proposal never names a record its reader can't see. */
+async function seenRuns(ctx: QueryCtx, access: Access, runs: ReadonlyArray<{ streamId: string; at: number; title: string }>) {
+  const out = [];
+  for (const run of runs) {
+    const id = ctx.db.normalizeId("canonEntities", run.streamId);
+    const entity = id ? await ctx.db.get(id) : null;
+    const sight = entity ? await entitySight(ctx, [access], entity) : { seen: false };
+    if ("seen" in sight && sight.seen) out.push(run);
+  }
+  return out;
+}
+
+/** A version as the proposals list and an agent read it: the document, who wrote it and why, its replay, and how it was decided. */
+const versionView = async (ctx: QueryCtx, access: Access, row: Doc<"automationVersions">, head: Doc<"automationRules"> | null) => ({
+  replay: row.replay ? { ...row.replay, by: await nameOf(ctx, row.replay.by), runs: await seenRuns(ctx, access, row.replay.runs) } : null,
   id: row._id, ruleId: row.ruleId ?? null, version: row.version, parent: row.parent, spec: row.spec, note: row.note, status: row.status,
   author: { name: await nameOf(ctx, row.author.userId), agent: row.author.agent ?? null },
   // A proposal written against a version that is no longer in force can't be approved.
@@ -450,7 +467,7 @@ export const proposals = query({
       ctx.db.query("automationVersions").withIndex("by_orgId_and_status", (q) => q.eq("orgId", orgId).eq("status", status)).order("desc").take(n);
     const view = async (row: Doc<"automationVersions">) => {
       const head = row.ruleId ? await ctx.db.get(row.ruleId) : null;
-      return { ...(await versionView(ctx, row, head)), current: head ? { name: head.name, object: head.object, trigger: head.trigger, conditions: head.conditions, actions: head.actions, version: head.version ?? 0 } : null };
+      return { ...(await versionView(ctx, admin.access, row, head)), current: head ? { name: head.name, object: head.object, trigger: head.trigger, conditions: head.conditions, actions: head.actions, version: head.version ?? 0 } : null };
     };
     const open = await Promise.all((await rowsOf("proposed", OPEN_MAX)).map(view));
     const decided = [...(await rowsOf("approved", 10)), ...(await rowsOf("rejected", 10))].sort((a, b) => (b.decidedAt ?? 0) - (a.decidedAt ?? 0)).slice(0, 10);
@@ -468,7 +485,7 @@ export const get = query({
     const versions = await ctx.db.query("automationVersions").withIndex("by_ruleId_and_version", (q) => q.eq("ruleId", rule._id)).order("desc").take(20);
     return {
       ...(await ruleView(ctx, rule)), sentence: describe(rule, await namesFor(ctx, rule.orgId, rule.object)),
-      versions: await Promise.all(versions.map((row) => versionView(ctx, row, rule))),
+      versions: await Promise.all(versions.map((row) => versionView(ctx, admin.access, row, rule))),
     };
   },
 });
@@ -619,6 +636,65 @@ async function dealOwner(ctx: QueryCtx, streamId: Id<"canonEntities">): Promise<
   return deal?.primaryRepId ?? null;
 }
 
+const TOO_LONG = "The record's history is too long to compare";
+const OUTSIDE = "Outside the creator's access";
+const NOT_MET = "Conditions not met";
+
+/** What judging entries reads, cached across one pass: object definitions, records folded around an entry (counting what that read), the time zone. */
+function reader(ctx: QueryCtx, orgId: Id<"organizations">) {
+  const defs = new Map<string, ResolvedObjectDef>();
+  const states = new Map<string, StreamStates>();
+  let tz: string | undefined;
+  const r = {
+    folded: 0,
+    defOf: async (object: string) => defs.get(object) ?? defs.set(object, await loadDef(ctx, orgId, object)).get(object)!,
+    /** The record before and after the entry's save: after is through the last entry the same save wrote (a deal's create and its values). */
+    statesAt: async (streamId: Id<"canonEntities">, version: number, observedAt: number): Promise<StreamStates> => {
+      const key = `${streamId}@${version}`;
+      if (states.has(key)) return states.get(key)!;
+      const out = await statesAround(ctx, streamId, version, observedAt);
+      r.folded += out.read;
+      return states.set(key, out.states).get(key)!;
+    },
+    tz: async () => (tz ??= await timezoneOf(ctx, orgId)),
+  };
+  return r;
+}
+type Reader = ReturnType<typeof reader>;
+
+type Change = { field: string; from: ReturnType<typeof stored>; to: ReturnType<typeof stored> };
+/** One rule against one entry: not its trigger's change; the member it acts as is gone; a run that is skipped; or a run, with whether the record met the conditions. */
+type Verdict = { kind: "none" } | { kind: "gone" } | { kind: "skipped"; reason: string } | { kind: "run"; matched: boolean; title: string; change?: Change };
+
+/**
+ * Whether a ledger entry starts a rule's run, and what the run is. The fan-out writes the verdict as a run, and a
+ * replay over past entries counts it: the same checks in the same order. `access` is whose sight decides (the member
+ * the rule acts as; for a replay, who asked for it), null once that member left; `now` is when `{today}` is read.
+ * Who wrote the entry (entryOrigin) and the rule's own start are the caller's to check first.
+ */
+async function judge(
+  ctx: QueryCtx, r: Reader, rule: { object: string; trigger: Trigger; conditions: Condition[] }, row: Doc<"ledgerEntries">, body: EntryBody,
+  access: () => Promise<Access | null>, now: number,
+): Promise<Verdict> {
+  const def = await r.defOf(rule.object);
+  if (!mayTrigger(rule.trigger, def, row.version, body)) return { kind: "none" };
+  const st = await r.statesAt(row.streamId, row.version, row.observedAt);
+  if (!st) return { kind: "none" };
+  if (st === "too_long") return { kind: "skipped", reason: TOO_LONG };
+  const owner = row.object === "deal" ? { ownerId: await dealOwner(ctx, row.streamId) } : undefined;
+  const after = rowOf(def, st.after, owner);
+  const fired = triggerFires(rule.trigger, def, st.before ? project(def, st.before).values : null, after.values);
+  if (!fired.fires) return { kind: "none" };
+  const sees = await access();
+  if (!sees) return { kind: "gone" };
+  const entity = await ctx.db.get(row.streamId);
+  const sight = entity ? await entitySight(ctx, [sees], entity) : { seen: false };
+  // A record the rule's member cannot see does not run it (CP14). The run says so, without the record's name.
+  if (!("seen" in sight) || !sight.seen) return { kind: "skipped", reason: OUTSIDE };
+  const change = rule.trigger.kind === "updated" && fired.to !== undefined ? { change: { field: rule.trigger.field ?? "", from: stored(fired.from ?? null), to: stored(fired.to) } } : {};
+  return { kind: "run", matched: conditionsMet(def, after, rule.conditions, now, await r.tz()), title: after.title.slice(0, 200), ...change };
+}
+
 export const fanout = internalMutation({
   args: { orgId: v.id("organizations") },
   handler: async (ctx, { orgId }) => {
@@ -630,24 +706,11 @@ export const fanout = internalMutation({
       return null;
     }
     const cursors = { ...cursorRow.cursors };
-    const defs = new Map<string, ResolvedObjectDef>();
-    const defOf = async (object: string) => defs.get(object) ?? defs.set(object, await loadDef(ctx, orgId, object)).get(object)!;
+    const r = reader(ctx, orgId);
     const principals = new Map<string, Principal | null>();
-    const states = new Map<string, StreamStates>();
     const toRun: Id<"automationRuns">[] = [];
-    let folded = 0;
     let more = false;
-    let tz: string | undefined;
     const now = Date.now();
-
-    /** The record before and after the entry's save: after is through the last entry the same save wrote (a deal's create and its values). */
-    async function statesAt(streamId: Id<"canonEntities">, version: number, observedAt: number): Promise<StreamStates> {
-      const key = `${streamId}@${version}`;
-      if (states.has(key)) return states.get(key)!;
-      const out = await statesAround(ctx, streamId, version, observedAt);
-      folded += out.read;
-      return states.set(key, out.states).get(key)!;
-    }
 
     async function consider(row: Doc<"ledgerEntries">) {
       if (row.redactedAt !== undefined) return;
@@ -659,43 +722,29 @@ export const fanout = internalMutation({
         if (rule.object !== row.object || row.observedAt < rule.activeSince || row.seq <= (rule.startSeqs[String(row.shard)] ?? 0)) continue;
         // A rule's own writes never start it again: an action that sets its own trigger field runs once.
         if (origin.mark?.ruleId === rule._id) continue;
-        const def = await defOf(rule.object);
-        if (!mayTrigger(rule.trigger, def, row.version, body)) continue;
-        const st = await statesAt(row.streamId, row.version, row.observedAt);
-        if (!st) continue;
+        const access = async () => {
+          if (!principals.has(rule._id)) principals.set(rule._id, await principalOf(ctx, rule));
+          return principals.get(rule._id)?.access ?? null;
+        };
+        const verdict = await judge(ctx, r, rule, row, body, access, now);
+        if (verdict.kind === "none") continue;
+        if (verdict.kind === "gone") {
+          await pause(ctx, rule, CREATOR_GONE);
+          rules = rules.filter((x) => x._id !== rule._id);
+          continue;
+        }
         const base = {
           orgId, ruleId: rule._id, shard: row.shard, seq: row.seq, streamId: row.streamId, object: row.object, event: rule.trigger.kind, depth: origin.depth, triggeredAt: row.observedAt, createdAt: now,
           ...(rule.version !== undefined ? { version: rule.version } : {}), actsAs: actsAsOf(rule),
         };
-        if (st === "too_long") {
-          await ctx.db.insert("automationRuns", { ...base, title: "", matched: false, status: "skipped", reason: "The record's history is too long to compare", steps: [], leaseUntil: now, finishedAt: now });
+        if (verdict.kind === "skipped") {
+          await ctx.db.insert("automationRuns", { ...base, title: "", matched: false, status: "skipped", reason: verdict.reason, steps: [], leaseUntil: now, finishedAt: now });
           continue;
         }
-        const owner = row.object === "deal" ? { ownerId: await dealOwner(ctx, row.streamId) } : undefined;
-        const after = rowOf(def, st.after, owner);
-        const fired = triggerFires(rule.trigger, def, st.before ? project(def, st.before).values : null, after.values);
-        if (!fired.fires) continue;
-        if (!principals.has(rule._id)) principals.set(rule._id, await principalOf(ctx, rule));
-        const principal = principals.get(rule._id)!;
-        if (!principal) {
-          await pause(ctx, rule, CREATOR_GONE);
-          rules = rules.filter((r) => r._id !== rule._id);
-          continue;
-        }
-        const change = rule.trigger.kind === "updated" && fired.to !== undefined
-          ? { change: { field: rule.trigger.field ?? "", from: stored(fired.from ?? null), to: stored(fired.to) } }
-          : {};
-        const entity = await ctx.db.get(row.streamId);
-        const sight = entity ? await entitySight(ctx, [principal.access], entity) : { seen: false };
-        // A record the rule's creator cannot see does not run it (CP14). The run says so, without the record's name.
-        if (!("seen" in sight) || !sight.seen) {
-          await ctx.db.insert("automationRuns", { ...base, title: "", matched: false, status: "skipped", reason: "Outside the creator's access", steps: [], leaseUntil: now, finishedAt: now });
-          continue;
-        }
-        const matched = conditionsMet(def, after, rule.conditions, now, tz ??= await timezoneOf(ctx, orgId));
+        const { matched } = verdict;
         const id = await ctx.db.insert("automationRuns", {
-          ...base, ...change, title: after.title.slice(0, 200), matched,
-          status: matched ? "pending" : "skipped", ...(matched ? {} : { reason: "Conditions not met", finishedAt: now }),
+          ...base, ...(verdict.change ? { change: verdict.change } : {}), title: verdict.title, matched,
+          status: matched ? "pending" : "skipped", ...(matched ? {} : { reason: NOT_MET, finishedAt: now }),
           steps: matched ? initialSteps(rule.actions) : [], ...(matched ? { actions: rule.actions } : {}), leaseUntil: matched ? now + LEASE_MS : now,
         });
         if (matched) toRun.push(id);
@@ -708,7 +757,7 @@ export const fanout = internalMutation({
         .withIndex("by_orgId_shard_seq", (q) => q.eq("orgId", orgId).eq("shard", shard).gt("seq", after)), { limit: BATCH, maxBytes: SHARD_BYTES });
       for (const row of page.items) {
         if (row.seq <= after) continue;
-        if (folded >= FOLD_BUDGET || !rules.length) {
+        if (r.folded >= FOLD_BUDGET || !rules.length) {
           more = rules.length > 0;
           break outer;
         }
@@ -1025,6 +1074,205 @@ export const preview = action({
     if (!job) throw new ConvexError("Only admins manage automation rules");
     const page = await callerClient(ctx, caller).listObjects(job.orgId, args.object, { filter: job.filter as ListFilter[], sort: { field: "createdAt", dir: "asc" }, limit: PREVIEW_ROWS });
     return { total: page.total, rows: page.rows.map((r) => ({ streamId: r.id, title: r.title })), nextSlotAt: job.nextSlotAt, capped: page.total > SLOT_CAP };
+  },
+});
+
+// ───────────────────────────── Replay ─────────────────────────────
+//
+// What a rule would have done over the last two weeks of its object's ledger, before it goes live: the fan-out's own
+// checks (judge) on each past entry, writing nothing and running no action. It runs as one member, with their access
+// now: whoever asks, or for an agent's proposal, the member whose token the agent used. A record they can't see is
+// counted, never named. A schedule acts on what matches at each slot, so it has the dry run (preview) instead.
+
+const REPLAY_DAYS = 14;
+const DAY_MS = 86_400_000;
+/** Entries one page reads; pages one replay reads before it says it is partial; runs it lists. */
+const REPLAY_PAGE = 100;
+const REPLAY_PAGES = 10;
+const REPLAY_LISTED = 50;
+
+/** Why a past change would not have run the rule, in words. `who` names the member the replay ran as. */
+const REPLAY_REASONS = {
+  conditions: () => NOT_MET,
+  outside: (who: string) => `A record ${who} can't see`,
+  tooLong: () => TOO_LONG,
+  integration: () => "Brought in by an import or a CRM sync, which never starts a rule",
+  depth: () => `Written by a chain of ${MAX_DEPTH} rules, where rules stop`,
+} as const;
+type ReplayReason = keyof typeof REPLAY_REASONS;
+
+const replayDoc = { object: v.string(), trigger: triggerValidator, conditions: v.array(conditionValidator) };
+type ReplayRun = { streamId: string; at: number; title: string; change?: Change };
+type ReplayPageOut = { runs: ReplayRun[]; skipped: Array<{ reason: ReplayReason; at: number }>; scanned: number; through: number | null; cursor: string | null; done: boolean };
+
+/**
+ * One page of a replay: the object's entries from `since` on, each judged as the fan-out judges it, as `userId` sees
+ * records now. It stops early at `foldBudget` stream entries read, and then can't continue (`cursor` null).
+ */
+export const replayPage = internalQuery({
+  args: {
+    orgId: v.id("organizations"), userId: v.id("users"), ruleId: v.optional(v.id("automationRules")), ...replayDoc,
+    since: v.number(), cursor: v.union(v.string(), v.null()), foldBudget: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<ReplayPageOut | null> => {
+    const accesses = await principalAccess(ctx, args.orgId, [args.userId]);
+    if (!accesses) return null;
+    const r = reader(ctx, args.orgId);
+    const budget = Math.min(args.foldBudget ?? FOLD_BUDGET, FOLD_BUDGET);
+    const page = await ctx.db.query("ledgerEntries")
+      .withIndex("by_orgId_object_observedAt", (q) => q.eq("orgId", args.orgId).eq("object", args.object).gte("observedAt", args.since))
+      .paginate({ numItems: REPLAY_PAGE, cursor: args.cursor });
+    const out: ReplayPageOut = { runs: [], skipped: [], scanned: 0, through: null, cursor: page.isDone ? null : page.continueCursor, done: page.isDone };
+    const def = await r.defOf(args.object);
+    for (const row of page.page) {
+      if (r.folded >= budget) return { ...out, cursor: null, done: false };
+      out.scanned++;
+      out.through = row.observedAt;
+      if (row.redactedAt !== undefined) continue;
+      const body = fromStored<EntryBody>(row.body);
+      const origin = entryOrigin(row.source, row.actor);
+      if (!origin.ok) {
+        // Only an entry that is the trigger's kind of change is worth saying was skipped.
+        if (mayTrigger(args.trigger, def, row.version, body)) out.skipped.push({ reason: origin.reason === "depth" ? "depth" : "integration", at: row.observedAt });
+        continue;
+      }
+      // A rule's own writes never start it again.
+      if (args.ruleId && origin.mark?.ruleId === args.ruleId) continue;
+      const verdict = await judge(ctx, r, args, row, body, async () => accesses[0], row.observedAt);
+      if (verdict.kind === "none" || verdict.kind === "gone") continue;
+      if (verdict.kind === "skipped") out.skipped.push({ reason: verdict.reason === OUTSIDE ? "outside" : "tooLong", at: row.observedAt });
+      else if (!verdict.matched) out.skipped.push({ reason: "conditions", at: row.observedAt });
+      else out.runs.push({ streamId: row.streamId, at: row.observedAt, title: verdict.title, ...(verdict.change ? { change: verdict.change } : {}) });
+    }
+    return out;
+  },
+});
+
+/** What a replay found: how often the rule would have run and on what, what it would have skipped and why, and whether it read the whole window. */
+export type ReplayResult = {
+  schedule: false; since: number; until: number; wouldRun: number; runs: ReplayRun[]; skipped: Array<{ reason: string; count: number }>;
+  partial: boolean; through: number | null; scanned: number; notes: string[]; asked: string;
+};
+type ReplayJob = { orgId: Id<"organizations">; userId: Id<"users">; userName: string; ruleId?: Id<"automationRules">; versionId?: Id<"automationVersions">; object: string; trigger: Trigger; conditions: Condition[] };
+
+/** What the replay reads now rather than as it was at each change, in words: the caveats an approver should know. */
+function replayNotes(job: Pick<ReplayJob, "object" | "trigger" | "conditions">): string[] {
+  const notes = ["Each change is checked against the record as it was right after it, and \"today\" as of that day. Nothing was written and no action ran."];
+  const owner = job.conditions.some((c) => c.field === "ownerId") || (job.trigger.kind === "updated" && job.trigger.field === "ownerId");
+  if (job.object === "deal" && owner) notes.push("A deal's owner is read as it is now, not as it was at each change.");
+  return notes;
+}
+
+/** Read the window page by page, up to REPLAY_PAGES, and sum it up. */
+export async function runReplay(ctx: ActionCtx, job: ReplayJob, foldBudget?: number): Promise<ReplayResult> {
+  const until = Date.now();
+  const since = until - REPLAY_DAYS * DAY_MS;
+  const runs: ReplayRun[] = [];
+  const reasons = new Map<ReplayReason, number>();
+  let cursor: string | null = null;
+  let scanned = 0;
+  let through: number | null = null;
+  let partial = true;
+  for (let i = 0; i < REPLAY_PAGES; i++) {
+    const page: ReplayPageOut | null = await ctx.runQuery(internal.automations.replayPage, {
+      orgId: job.orgId, userId: job.userId, ...(job.ruleId ? { ruleId: job.ruleId } : {}), object: job.object, trigger: job.trigger, conditions: job.conditions, since, cursor,
+      ...(foldBudget !== undefined ? { foldBudget } : {}),
+    });
+    if (!page) throw new ConvexError(`${job.userName} is no longer a member of this workspace`);
+    runs.push(...page.runs);
+    for (const sk of page.skipped) reasons.set(sk.reason, (reasons.get(sk.reason) ?? 0) + 1);
+    scanned += page.scanned;
+    through = page.through ?? through;
+    if (page.done) {
+      partial = false;
+      break;
+    }
+    if (!page.cursor) break;
+    cursor = page.cursor;
+  }
+  return {
+    schedule: false, since, until, wouldRun: runs.length, runs: runs.slice(0, REPLAY_LISTED), partial, through, scanned, notes: replayNotes(job), asked: job.userName,
+    skipped: [...reasons].map(([reason, count]) => ({ reason: REPLAY_REASONS[reason](job.userName), count })),
+  };
+}
+
+/** Who asks for a replay (an admin), and the rule document it reads: a proposal's, a rule's, or one given inline. */
+export const replayJob = internalQuery({
+  args: { versionId: v.optional(v.id("automationVersions")), ruleId: v.optional(v.id("automationRules")), object: v.optional(v.string()), trigger: v.optional(triggerValidator), conditions: v.optional(v.array(conditionValidator)) },
+  handler: async (ctx, args): Promise<ReplayJob | null> => {
+    const admin = await adminReader(ctx);
+    if (!admin) return null;
+    const orgId = admin.user.orgId;
+    const asked = { orgId, userId: admin.user._id, userName: admin.user.name };
+    if (args.versionId) {
+      const row = await ctx.db.get(args.versionId);
+      if (!row || row.orgId !== orgId) throw new ConvexError("Proposal not found");
+      return { ...asked, ...(row.ruleId ? { ruleId: row.ruleId } : {}), ...(row.status === "proposed" ? { versionId: row._id } : {}), object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions };
+    }
+    if (args.ruleId) {
+      const rule = await ownRule(ctx, orgId, args.ruleId);
+      return { ...asked, ruleId: rule._id, object: rule.object, trigger: rule.trigger, conditions: rule.conditions };
+    }
+    if (!args.object || !args.trigger) throw new ConvexError("Name a proposal (versionId), a rule (ruleId), or a rule's object, trigger and conditions");
+    if (!isAutomationObject(args.object)) throw new ConvexError(`Rules do not run on ${args.object} records yet`);
+    const problem = conditionsProblem(await loadDef(ctx, orgId, args.object), args.conditions ?? []);
+    if (problem) throw new ConvexError(problem);
+    return { ...asked, object: args.object, trigger: args.trigger, conditions: args.conditions ?? [] };
+  },
+});
+
+/** The replay an agent's proposal gets when it arrives: as the member whose token the agent used, with their access. */
+export const replayVersionJob = internalQuery({
+  args: { versionId: v.id("automationVersions") },
+  handler: async (ctx, args): Promise<ReplayJob | null> => {
+    const row = await ctx.db.get(args.versionId);
+    if (!row || row.status !== "proposed") return null;
+    return {
+      orgId: row.orgId, userId: row.author.userId, userName: await nameOf(ctx, row.author.userId), ...(row.ruleId ? { ruleId: row.ruleId } : {}), versionId: row._id,
+      object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions,
+    };
+  },
+});
+
+const replaySummary = (result: ReplayResult, by: Id<"users">) => ({
+  at: result.until, by, since: result.since, wouldRun: result.wouldRun, skipped: result.skipped, partial: result.partial, through: result.through, scanned: result.scanned,
+  notes: result.notes, runs: result.runs.slice(0, REPLAY_LISTED).map((x) => ({ streamId: x.streamId, at: x.at, title: x.title })),
+});
+
+/** Keep a replay on the proposal it was run for, so the approver sees it without running it again. A decided proposal keeps the one it had. */
+export const saveReplay = internalMutation({
+  args: { versionId: v.id("automationVersions"), replay: replaySummaryValidator },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.versionId);
+    if (row?.status === "proposed") await ctx.db.patch(row._id, { replay: args.replay });
+    return null;
+  },
+});
+
+export const replayVersion = internalAction({
+  args: { versionId: v.id("automationVersions") },
+  handler: async (ctx, args): Promise<void> => {
+    const job: ReplayJob | null = await ctx.runQuery(internal.automations.replayVersionJob, args);
+    if (!job || job.trigger.kind === "schedule") return;
+    await ctx.runMutation(internal.automations.saveReplay, { versionId: args.versionId, replay: replaySummary(await runReplay(ctx, job), job.userId) });
+  },
+});
+
+/**
+ * Replay a proposal (`versionId`), a rule (`ruleId`) or a rule document over the last 14 days of its object's
+ * history, as the caller sees records. Writes nothing but the summary on a proposal. A schedule answers
+ * `{ schedule: true }`: use the dry run (preview) for what it would act on.
+ */
+export const replay = action({
+  args: { versionId: v.optional(v.id("automationVersions")), ruleId: v.optional(v.id("automationRules")), object: v.optional(v.string()), trigger: v.optional(triggerValidator), conditions: v.optional(v.array(conditionValidator)) },
+  handler: async (ctx, args): Promise<ReplayResult | { schedule: true }> => {
+    await requireCaller(ctx, { read: true });
+    const job: ReplayJob | null = await ctx.runQuery(internal.automations.replayJob, args);
+    if (!job) throw new ConvexError("Only admins manage automation rules");
+    if (job.trigger.kind === "schedule") return { schedule: true };
+    const result = await runReplay(ctx, job);
+    if (job.versionId) await ctx.runMutation(internal.automations.saveReplay, { versionId: job.versionId, replay: replaySummary(result, job.userId) });
+    return result;
   },
 });
 

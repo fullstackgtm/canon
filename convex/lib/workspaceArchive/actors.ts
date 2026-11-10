@@ -255,7 +255,7 @@ export const CENSUS: readonly Mechanism[] = [
   },
   {
     key: "automation", does: "run an automation rule's actions on record changes or on its schedule",
-    gate: "convex/automations.ts:625 (active rules), :659 (activeSince and startSeqs), :833 (still active at each step), requirePerson (only a person approves a proposal or turns a rule on)",
+    gate: "convex/automations.ts:701 (active rules), :722 (activeSince and startSeqs), :882 (still active at each step), requirePerson (only a person approves a proposal or turns a rule on)",
     arrives: "paused, with activeSince and startSeqs at the end of the import; turning one on starts both again from that moment",
     imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" }],
     here: [],
@@ -263,7 +263,7 @@ export const CENSUS: readonly Mechanism[] = [
   },
   {
     key: "routing", does: "assign owners from a routing rule's members",
-    gate: "convex/automations.ts:757 (the routing rule is on)",
+    gate: "convex/automations.ts:806 (the routing rule is on)",
     arrives: "turned off",
     imported: [{ table: "routingRules", index: "by_orgId", open: (r) => r.isActive === true }],
     here: [],
