@@ -97,6 +97,7 @@ import type * as devAuth from "../devAuth.js";
 import type * as devChatgpt from "../devChatgpt.js";
 import type * as devObjects from "../devObjects.js";
 import type * as devOnboarding from "../devOnboarding.js";
+import type * as devPerfSeed from "../devPerfSeed.js";
 import type * as devSeed from "../devSeed.js";
 import type * as devWorkspaces from "../devWorkspaces.js";
 import type * as dialer from "../dialer.js";
@@ -708,6 +709,7 @@ declare const fullApi: ApiFromModules<{
   devChatgpt: typeof devChatgpt;
   devObjects: typeof devObjects;
   devOnboarding: typeof devOnboarding;
+  devPerfSeed: typeof devPerfSeed;
   devSeed: typeof devSeed;
   devWorkspaces: typeof devWorkspaces;
   dialer: typeof dialer;

@@ -492,7 +492,8 @@ function fakeHubspotServe(portal: FakePortal) {
       const start = Number(body.after ?? 0);
       // HubSpot's search pages by offset and refuses one past 10,000 results.
       if (start + limit > 10_000) return json({ status: "error", message: "Search results are capped at 10,000" }, 400);
-      return json({ total: rows.length, results: rows.slice(start, start + limit), ...(start + limit < rows.length ? { paging: { next: { after: String(start + limit) } } } : {}) });
+      return json({ total: rows.length, // Like the list endpoint, search never returns history the request did not ask for.
+      results: rows.slice(start, start + limit).map(({ propertiesWithHistory: _history, ...row }) => row), ...(start + limit < rows.length ? { paging: { next: { after: String(start + limit) } } } : {}) });
     }
     const batch = /^\/crm\/v4\/associations\/(\w+)\/(\w+)\/batch\/read$/.exec(path);
     if (batch && method === "POST") {
