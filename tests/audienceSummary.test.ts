@@ -19,7 +19,7 @@ const stubs: Record<string, unknown> = {
   "./permissions": { accessFor: async () => ({ userId: "user", role: "admin", teamOwners: ["user"], rules: {} }) },
   "./savedViews": { listedDef: async () => ({}) },
   "./lib/objects/listSpec": { compileListRequest: () => ({}) },
-  "./lib/objects/validators": { listFilter: require("convex/values").v.any() },
+  "../modules/kernel/reportValidators": { listFilter: require("convex/values").v.any() },
   "./lib/tokenHelpers": {},
   "./lib/outbound/audience": {},
   "./lib/outbound/sequencers": {},

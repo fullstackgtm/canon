@@ -2,8 +2,8 @@ import type { ConditionChoice, EditorOptions, RecordEditorValue, TokenChange, Va
 import { parseQuery, type Clause, type IcpQuery, type NodeKind } from "../../../convex/lib/icpQuery.ts";
 import { sentence, withClause, withValues, type AiField, type ClausePath } from "../../../src/lib/icp-sentence.ts";
 import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS } from "../../../convex/lib/icpVocabulary.ts";
-import { INDUSTRIES } from "../../../services/record-service/src/industries.ts";
-import { REGIONS } from "../../../services/record-service/src/dimensions.ts";
+import { INDUSTRIES } from "../../kernel/industries.ts";
+import { REGIONS } from "../../kernel/dimensions.ts";
 
 type Addable = { label: string; clause: Clause; where: { has?: number; newHas?: { neg: boolean } } };
 const options = {

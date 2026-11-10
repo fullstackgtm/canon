@@ -45,8 +45,8 @@ import type {
 } from "./recordContract.ts";
 import { EDITABLE_ACCOUNT_FIELDS, EDITABLE_CONTACT_FIELDS, editRequestKey, reusedEditKeyMessage } from "./recordContract.ts";
 import type { AnnotateRecord, AnnotateResponse, FacetDimension, FacetGroup, FacetsRequest, FacetsResponse } from "./recordContract.ts";
-import { NONE, regionOf, sizeBandOf } from "../../services/record-service/src/dimensions.ts";
-import { industryFilterKeys, industryKey, industryWeight } from "../../services/record-service/src/industries.ts";
+import { NONE, regionOf, sizeBandOf } from "../../modules/kernel/dimensions.ts";
+import { industryFilterKeys, industryKey, industryWeight } from "../../modules/kernel/industries.ts";
 import { indexObjectDef, resolveObjectDef, STANDARD_OBJECTS, type ObjectDef } from "./objects/registry.ts";
 import {
   compileSearch, IN_VALUES_MAX, isRegisterObject, LIST_LIMIT_MAX, listRowsInMemory, ListRequestError, ownerAdmitted, rankSearchHits, registerListDef, searchAdmits, registerListRow, searchRowsInMemory,
@@ -60,7 +60,8 @@ export type TerritoryTreeRequest = TerritoryTreeBody & { accountScope?: { field:
 export type { TerritoryTreeResult };
 import { sameProjection, type ActivityAggregateReceipt, type ActivityAggregateRequest, type ModuleAggregateRequest, type ModuleProjection, type ModuleSyncRequest, type ModuleSyncResponse } from "./objects/moduleReport.ts";
 import { canonicalJson } from "../../modules/kernel/integrity.ts";
-import { ACTIVITY_OBJECT, ACTIVITY_TYPES, activityReportDef, aggregateRowsInMemory, compileAggregateRequest, type AggregateResponse } from "./objects/reportSpec.ts";
+import { ACTIVITY_TYPES, activityReportDef, aggregateRowsInMemory, compileAggregateRequest, type AggregateResponse } from "./objects/reportSpec.ts";
+import { ACTIVITY_OBJECT } from "../../modules/kernel/reportLanguage.ts";
 import { findDuplicates, type DuplicateGroup, type DuplicateObject } from "./objects/duplicates.ts";
 
 export type RecordClient = {

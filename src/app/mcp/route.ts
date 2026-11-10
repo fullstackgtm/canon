@@ -28,7 +28,7 @@ const lastRecorded = new Map<string, number>();
 async function buildHandler(): Promise<RouteHandler> {
   // Imported lazily so the module graph (mcp-handler, Clerk server SDK) only
   // loads when the feature is actually enabled.
-  const [{ createMcpHandler, withMcpAuth }, { verifyClerkToken }, { auth }, tools, { canonTools, toolErrorMessage, toolResultText }, jwt, { ConvexHttpClient }, { api }] =
+  const [{ createMcpHandler, withMcpAuth }, { verifyClerkToken }, { auth }, tools, { canonTools, toolErrorMessage, toolResultText }, jwt, { ConvexHttpClient }, { api }, limits] =
     await Promise.all([
       import("mcp-handler"),
       import("@clerk/mcp-tools/next"),
@@ -38,6 +38,7 @@ async function buildHandler(): Promise<RouteHandler> {
       import("../../lib/canonServiceJwt.ts"),
       import("convex/browser"),
       import("../../../convex/_generated/api.js"),
+      import("../api/v1/_rateLimit.ts"),
     ]);
   const convexUrl = () => {
     const url = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -92,11 +93,25 @@ async function buildHandler(): Promise<RouteHandler> {
             inputSchema: tool.inputSchema,
             annotations: { readOnlyHint: !tool.writes, destructiveHint: tool.destructive ?? false, openWorldHint: false },
           },
-          async (args: Record<string, unknown>, extra: { authInfo?: { clientId?: string; extra?: Record<string, unknown> } }) => {
+          async (args: Record<string, unknown>, extra: { authInfo?: { token?: string; clientId?: string; extra?: Record<string, unknown> } }) => {
             const config = jwt.serviceJwtConfig();
             const who = extra.authInfo?.extra as { clerkUserId?: string; clerkOrgId?: string | null } | undefined;
             if (!config || !who?.clerkUserId) {
               return { isError: true, content: [{ type: "text" as const, text: "Canon tools are not configured on this deployment." }] };
+            }
+            // The record API's budgets (api/v1/_rateLimit.ts): a paired token shares one budget across /mcp and
+            // /api/v1; an OAuth connection counts as its user. The second ceiling is the user's, as an OAuth token
+            // carries no workspace.
+            const kind = tool.writes ? "write" : "read";
+            const budget = limits.limitsFrom(process.env);
+            const token = extra.authInfo?.token;
+            const credential = token?.startsWith("fsgtm_") ? limits.tokenKey(token) : `mcp:${who.clerkUserId}:${extra.authInfo?.clientId ?? ""}`;
+            const decision = limits.apiLimiter.admit([
+              { key: `${credential}:${kind}`, limit: budget.token[kind] },
+              { key: `user:${who.clerkUserId}:${kind}`, limit: budget.workspace[kind] },
+            ], Date.now());
+            if (!decision.allowed) {
+              return { isError: true, content: [{ type: "text" as const, text: `Rate limited: ${decision.limit} ${kind}s a minute for this connection. Retry after ${decision.resetSeconds} s.` }] };
             }
             const convex = new ConvexHttpClient(convexUrl());
             convex.setAuth(jwt.signServiceJwt(config, { clerkUserId: who.clerkUserId, clerkOrgId: who.clerkOrgId, clientId: extra.authInfo?.clientId }));

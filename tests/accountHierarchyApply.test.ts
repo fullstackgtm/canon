@@ -10,7 +10,7 @@ const parentItem = (accountId: string, from: string | null, to: string | null) =
   ({ op: "set_parent", accountId, from, to, why: "researched", citations: [], warn: [], key: `ah:parent:${accountId}:${to}` });
 
 let client = createFakeRecordClient({ store: createMemoryRecordStore() });
-const files = loadConvex(["accountHierarchy.ts", "associations.ts"], { "records.ts": (real) => ({ ...real, callerClient: () => client }) });
+const files = loadConvex(["accountHierarchy.ts", "associations.ts", "hubspotImport.ts"], { "records.ts": (real) => ({ ...real, callerClient: () => client }) });
 
 async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: string[] } = {}) {
   const store = createMemoryRecordStore();
@@ -44,8 +44,11 @@ async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: st
   const decision = async (key = args().itemKey) => plain((await h.group.handler(ctx(), { groupId: "group" })).decisions[key] ?? null);
   const approve = (a = args()) => h.approveParent.handler(actionCtx, a).then(plain);
   const undo = (a = args()) => h.undoParent.handler(actionCtx, a).then(plain);
+  const hubspotParent = (accountId: string, parentId: string) =>
+    files["hubspotImport.ts"].writeLinks.handler(ctx(), { orgId: "org", userId: "admin", links: [{ kind: "parent", ref: `hs-${accountId}`, accountId, parentId }] });
+  const useCrmParent = (accountId: string, crmRef: string) => files["associations.ts"].useCrmParent.handler(actionCtx, { accountId, crmRef }).then(plain);
   await setParent("child", "old");
-  return { db, h, ctx, parentOf, setParent, args, decision, approve, undo };
+  return { db, h, ctx, parentOf, setParent, args, decision, approve, undo, hubspotParent, useCrmParent };
 }
 
 test("approving a Canon parent move links the company under its new parent as the approver, and approving again changes nothing", async () => {
@@ -137,4 +140,20 @@ test("rejecting writes nothing, and other items and Salesforce scans record the 
   assert.equal(sf.db.rows("ledgerEntries").length, before);
   assert.equal((await sf.decision()).decision, "approved");
   assert.equal((await sf.decision()).appliedAt, undefined);
+});
+
+test("an approved move holds against the next CRM import, whose parent the group page shows; using it hands the parent back to the CRM", async () => {
+  const f = await fixture();
+  await f.approve();
+  await f.hubspotParent("child", "old");
+  assert.deepEqual(await f.parentOf("child"), ["top"]);
+  const group = plain(await f.h.group.handler(f.ctx(), { groupId: "group" }));
+  assert.deepEqual(group.crmParents.child.map((c: { ref: string; parentId: string }) => [c.ref, c.parentId]), [["hubspot:hs-child", "old"]]);
+
+  assert.deepEqual(await f.useCrmParent("child", "hubspot:hs-child"), { status: "applied" });
+  assert.deepEqual(await f.parentOf("child"), ["old"]);
+  assert.deepEqual(plain(f.db.rows("ledgerEntries").at(-1)?.source), { kind: "hubspot", ref: "hubspot:hs-child" });
+  assert.deepEqual(plain((await f.h.group.handler(f.ctx(), { groupId: "group" })).crmParents), {});
+  await f.hubspotParent("child", "top");
+  assert.deepEqual(await f.parentOf("child"), ["top"]);
 });

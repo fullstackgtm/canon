@@ -6,7 +6,7 @@
 import type { IcpSpec } from "./icpSpec.ts";
 import type { MarketFilter } from "./recordContract.ts";
 import { icpGeosToCountries } from "./researchPipeline.ts";
-import { canonIndustry } from "../../services/record-service/src/industries.ts";
+import { canonIndustry } from "../../modules/kernel/industries.ts";
 
 /** A gap smaller than this isn't worth a fill. */
 export const MIN_GAP = 25;

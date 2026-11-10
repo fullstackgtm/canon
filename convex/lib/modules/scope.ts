@@ -61,7 +61,7 @@ import { BULK_JOB, REPORT_JOB, ensureActivityBaselines, invalidateActivatedJobLe
 import { canonSourceFields, DEAL_ACCOUNT, isCanonSource, projectedCollections, recordObjectOf, reportFields, WEIGHTED_AMOUNT, type AggregateSpec, type ReportField } from "../../../modules/kernel/reports.ts";
 import { recordSourcePlan } from "./recordSources";
 import type { ModuleDocRow, ModuleDocScope, ModuleWhere } from "../objects/moduleReport";
-import type { ReportSpec } from "../objects/validators";
+import type { ReportSpec } from "../../../modules/kernel/reportValidators";
 import { agentModeOf, dateToMs, dirtyKey, fiscalYearStart, holds, msToDate, namesArgs, namesArgsBeyond, namesFields, targetState, valueOf, type Env, type Subject } from "../../../modules/kernel/machines.ts";
 import { defaultSlots, holdsWrites, migrates, type SlotMap } from "../../../modules/kernel/upgrade.ts";
 import { outputSchema, type AiDecl } from "../../../modules/kernel/ai.ts";

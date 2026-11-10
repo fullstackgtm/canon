@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { touchCliToken } from "./cliAuth";
 import type { Id } from "./_generated/dataModel";
 
 const keyArgs = {
@@ -23,7 +24,7 @@ async function authenticate(ctx: any, cliToken: string): Promise<AuthenticatedCl
   const tokenHash = createHash("sha256").update(cliToken).digest("hex");
   const token: AuthenticatedCli | null = await ctx.runQuery(internal.cliAuth.getTokenByHash, { tokenHash });
   if (!token) throw new ConvexError("Invalid or revoked CLI token");
-  await ctx.runMutation(internal.cliAuth.touchToken, { cliTokenId: token._id });
+  await touchCliToken(ctx, token);
   return token;
 }
 

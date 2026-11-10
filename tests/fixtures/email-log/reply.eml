@@ -1,0 +1,13 @@
+Message-ID: <pilot-2@mail.example.com>
+In-Reply-To: <pilot-1@mail.example.com>
+References: <pilot-1@mail.example.com>
+Date: Tue, 3 Nov 2026 08:00:00 -0800
+From: Ada Lovelace <ada@example.com>
+To: Grace Hopper <grace@example.org>
+Subject: Re: Pilot plan - next steps
+Content-Type: text/plain; charset=utf-8
+
+Following up: the 16th is booked.
+
+On Mon, Nov 2, 2026 at 11:40 AM Grace Hopper <grace@example.org> wrote:
+> The 16th works.

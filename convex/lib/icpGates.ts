@@ -6,7 +6,7 @@
  * Dependency-free.
  */
 import type { IcpGate, IcpTreeAccount, IcpTreeCounts, IcpTreeNode, IcpTreePerson } from "./recordContract.ts";
-import { industryWeight, sameIndustry } from "../../services/record-service/src/industries.ts";
+import { industryWeight, sameIndustry } from "../../modules/kernel/industries.ts";
 import { DEPARTMENT, SENIORITY, classifyTitle } from "../../services/record-service/src/titles.ts";
 import { passes } from "../../services/record-service/src/territoryTree.ts";
 

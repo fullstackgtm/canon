@@ -5,8 +5,9 @@
 // one from LinkedIn's rename. Matching is on a normalized form (lowercase, "&", "/", ",",
 // "_" and "-" as spaces, "and" dropped), never on patterns: a value no table names stays
 // itself, marked unmapped (UNMAPPED_PREFIX), and is never folded into a neighbour.
-// Pure and import-free: the service turns it into SQL (industryKeySql); Convex and the UI
-// import it directly, like dimensions.ts.
+// Pure and import-free: the module kernel owns it, Convex and the UI import it directly, like
+// dimensions.ts, and the record service turns its generated copy into SQL (industryKeySql;
+// scripts/sync-object-core.ts).
 
 export type IndustryKey = string;
 

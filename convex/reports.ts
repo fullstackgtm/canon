@@ -15,10 +15,11 @@ import { getCurrentUser, requireUser } from "./lib";
 import { callerClient, requireCaller } from "./records";
 import { asListError } from "./objects";
 import { listedDef } from "./savedViews";
-import { ACTIVITY_OBJECT, activityReportDef, compileAggregateRequest, relationsOf, type AggregateResponse } from "./lib/objects/reportSpec";
+import { activityReportDef, compileAggregateRequest, relationsOf, type AggregateResponse } from "./lib/objects/reportSpec";
+import { ACTIVITY_OBJECT } from "../modules/kernel/reportLanguage";
 import { ListRequestError } from "./lib/objects/listSpec";
 import { plainMeasures, plainSpec } from "./lib/objects/metricSplit";
-import { reportSpec, type ReportSpec } from "./lib/objects/validators";
+import { reportSpec, type ReportSpec } from "../modules/kernel/reportValidators";
 
 const NAME_MAX = 80;
 /** Reports a user may save, and reports an org may share: the list shows them all. */

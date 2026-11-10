@@ -28,7 +28,8 @@ export type SettingsSummary = {
 export function useSettingsAccess() {
   const org = useQuery(api.organizations.context)?.organization;
   const role = org?.currentUserRole;
-  return { loading: org === undefined, isAdmin: role === "admin", canEdit: role === "admin" || role === "manager" };
+  const features = useQuery(api.integrationsAvailable.status);
+  return { loading: org === undefined, isAdmin: role === "admin", canEdit: role === "admin" || role === "manager", features };
 }
 
 /** One line per area for the table, and the facts its rail shows. */
@@ -46,6 +47,7 @@ export function useSettingsSummaries(): Record<SettingsKey, SettingsSummary> {
   const pipelines = useQuery(api.pipelines.list);
   const tokens = useQuery(api.cliAuth.list);
   const targets = useQuery(api.targets.get, {});
+  const emailLog = useQuery(api.emailLog.mine);
   const liveTokens = (tokens ?? []).filter((t) => !t.revokedAt && !t.expired);
 
   const members = users?.filter((u) => u.isActive && !u.isHidden);
@@ -144,6 +146,9 @@ export function useSettingsSummaries(): Record<SettingsKey, SettingsSummary> {
           ],
         }
       : { value: feeds === null ? "" : undefined, facts: [] },
+    emailLog: emailLog
+      ? { value: emailLog.address ? "Address ready" : "No address yet", facts: [["Address", emailLog.address ?? "Not made yet"], ["Not logged lately", num(emailLog.held.length)]] }
+      : { value: emailLog === null ? "" : undefined, facts: [] },
     outbound: outbound
       ? {
           value: `${plural(outbound.modules.reduce((n, m) => n + m.channels.filter((c) => c.on).length, 0), "channel")} on${outbound.local ? " · local sink" : ""}`,

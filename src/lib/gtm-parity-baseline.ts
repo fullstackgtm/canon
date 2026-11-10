@@ -73,11 +73,7 @@ export const gtmParityBaseline: Readonly<Record<string, GtmParityReason>> = {
   "api.objects.bulk": "todo",
   "api.paidRuns.start": "todo",
   "api.providerTests.run": "todo",
-  "api.records.bulkRegister": "todo",
   "api.salesforceActions.syncAll": "todo",
-  "api.savedViews.create": "todo",
-  "api.savedViews.remove": "todo",
-  "api.savedViews.update": "todo",
   "api.tamSuggestions.add": "todo",
   "api.tamSuggestions.start": "todo",
 };

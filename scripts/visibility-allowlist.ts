@@ -52,6 +52,9 @@ export const ALLOWLIST: Record<string, string[]> = {
   "Anonymous waitlist opt-in: an opaque research-session token permits a rate-limited submission and returns only a saved flag, never workspace records": [
     "researchSessions.joinWaitlist",
   ],
+  "Workspace import: importCaller admits only an import key a human admin created for their own workspace, on a deployment with import switched on; writes that one empty workspace from the uploaded archive and returns counts and refusals, never an existing record": [
+    "workspaceImport.begin", "workspaceImport.importPage", "workspaceImport.importPlan",
+  ],
   "Dev tools: refused unless the dev auth bypass is on (local stacks only)": [
     "devSeed.ensureWorkspace", "devSeed.seedConversations", "devSeed.seedLinkedinEnrollment", "devSeed.seedSignalHistory",
   ],

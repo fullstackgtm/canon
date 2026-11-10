@@ -4,7 +4,7 @@
  * saved view's filter as it was when the run started.
  */
 import { v, type Infer } from "convex/values";
-import { listFilter } from "./objects/validators.ts";
+import { listFilter } from "../../modules/kernel/reportValidators.ts";
 
 const statusValidator = v.union(v.literal("new"), v.literal("working"), v.literal("qualified"), v.literal("disqualified"));
 export const filterValidator = v.object({

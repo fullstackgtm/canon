@@ -17,6 +17,7 @@ import { SelectField } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { recordHref } from "@/components/records/record-target";
+import { CrmParentNote } from "@/components/records/crm-note";
 import { hierarchyHref } from "./list-page";
 
 const CHECK_LABEL: Record<CitationCheck["result"], string> = {
@@ -62,6 +63,16 @@ export function AccountHierarchyGroup() {
               )}
               {parentOf(a) && <span className="ml-1 text-xs text-muted-foreground">under {nameOf.get(parentOf(a)!) ?? "a company outside this group"}</span>}
               {a.shell && <span className="ml-1 text-xs text-warning">shell</span>}
+              {data.crmParents?.[a.id]?.map((c) => (
+                <CrmParentNote
+                  key={c.ref}
+                  accountId={a.id}
+                  provider={c.provider}
+                  crmRef={c.ref}
+                  parent={c.parentId ? <Link href={recordHref("account", c.parentId)} className="record-name hover:underline">{nameOf.get(c.parentId) ?? "a company outside this group"}</Link> : null}
+                  canonHasParent={Boolean(parentOf(a))}
+                />
+              ))}
             </li>
           ))}
         </ul>

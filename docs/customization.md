@@ -57,7 +57,7 @@ doesn't compile until it has one.
 | Sidebar and command palette | Pages hidden from everyone or from reps; the page Canon opens on | `workspace.nav` |
 | Theme | Colours, heading type, corners | `workspace.theme` |
 | Deal, account and contact pages | Sections, their order and folding, buttons | `deal.page`, `account.page`, `contact.page` |
-| Record lists at `/dashboard/records/<object>` | Saved views: filters, sort, columns, table or board; private or shared | `savedViews` |
+| Record lists at `/dashboard/records/<object>` | Saved views: filters, sort, columns, grouping, table, board or calendar; private or shared | `savedViews` |
 | Revenue | Forecast weights and coverage, the closing-soon window | `forecast.model` |
 | Reports | Saved reports and dashboards, private or shared; targets by fiscal year | Workspace data, `templates.*` |
 | Customer health, lead scoring, ICP fit, signal heat | Every weight, band and threshold | Their model points |

@@ -30,3 +30,8 @@ execution; modules that declare server code are unavailable. Declarative modules
 Reports remain available. Installing executable packages requires the runtime. Missing
 vendor keys hide controls or show a needs-key note. Scheduled vendor workers
 skip unavailable capabilities.
+
+Logging email by BCC or forward needs `EMAIL_LOG_DOMAIN` and
+`EMAIL_LOG_SECRET`, and something that receives mail for that domain and
+posts it to Canon. [Logging email by BCC or forward](email-logging.md) shows
+how to wire a Cloudflare Email Worker, a mail server or Postmark.

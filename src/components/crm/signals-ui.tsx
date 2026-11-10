@@ -89,13 +89,19 @@ const LINKEDIN_LABEL: Record<Exclude<LinkedinEvent["kind"], "message">, string> 
 /** The text of LinkedIn messages and emails conversation intake read, by timeline key, as the reader may see it (observations.forContact). */
 const MessageTexts = createContext<Readonly<Record<string, MessageText>>>({});
 
+/** Text longer than this shows its start until the reader opens it. */
+const LINE_TEXT_PREVIEW = 600;
+
 /** A line's text: the one it carries, else what intake read when the reader may see it, else whose it is. */
 function LineText({ itemKey, text, userName }: { itemKey: string; text: string | undefined; userName: (id: string) => string }) {
   const read = useContext(MessageTexts)[itemKey];
+  const [open, setOpen] = useState(false);
   const shown = text || (read && "text" in read ? read.text : undefined);
+  const long = Boolean(shown && shown.length > LINE_TEXT_PREVIEW);
   return (
     <>
-      {shown && <blockquote className="mt-1 whitespace-pre-wrap border-l-2 border-border pl-3 text-xs text-muted-foreground">{shown}</blockquote>}
+      {shown && <blockquote className="mt-1 whitespace-pre-wrap border-l-2 border-border pl-3 text-xs text-muted-foreground">{long && !open ? `${shown.slice(0, LINE_TEXT_PREVIEW)}…` : shown}</blockquote>}
+      {long && <button type="button" className="mt-1 text-xs underline" onClick={() => setOpen(!open)}>{open ? "Show less" : "Show all"}</button>}
       {!shown && read && "hidden" in read && <div className="text-xs text-muted-foreground">Only {userName(read.ownerUserId)} and roles that read their activity see this message</div>}
     </>
   );

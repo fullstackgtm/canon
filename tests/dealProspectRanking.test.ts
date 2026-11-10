@@ -45,6 +45,7 @@ function fixture() {
         case "internal.dealPlays.load": return { recipe: firstPartyRef("fsgtm-enterprise-deal"), page: [], canEdit: state.canEdit, deal: {}, play: { context: state.product }, items: [], steps: [], people: [{ contactId: "a", angle: state.evidence }] };
         case "internal.dealCommittee.dealPeople": return { members: [] };
         case "internal.dealPlays.touchLogs": return {};
+        case "internal.associations.claimsOf": return [];
         case "internal.icps.pointsOfView": return [{ id: "icp", name: "Sales", pointOfView: "Planning", buyer: { titles: ["sales"], exclude: [], levels: [], departments: [], topics: [] } }];
         case "internal.dealPlays.cachedProspectRanking": return handlers.cachedProspectRanking.handler({ db }, args);
         default: throw new Error(`Unexpected query ${String(ref)}`);

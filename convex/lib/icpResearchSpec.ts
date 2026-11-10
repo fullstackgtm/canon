@@ -2,7 +2,7 @@ import type { Icp } from "../../engine/src/icp.ts";
 import type { IcpSpec } from "./icpSpec.ts";
 import { COUNTRIES, canonDepartments } from "./icpVocabulary.ts";
 import { icpIndustriesToLeadsforge } from "./icpIndustries.ts";
-import { icpGeosToIso } from "./icpGeography.ts";
+import { icpGeosToIso } from "../../modules/kernel/icpGeography.ts";
 
 const KNOWN_COUNTRIES = new Set(COUNTRIES.map((c) => c.value));
 

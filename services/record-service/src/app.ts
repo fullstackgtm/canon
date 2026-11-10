@@ -6,7 +6,7 @@ import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
-  PrepareResearchBody, CommitResearchBody, ActivityAggregateBody, AggregateBody, AnnotateAccountsBody, ChangesQuery, CONTRACT_VERSION, FacetsBody, DefineObjectsBody, EditBody, EditObjectBody, GetAccountBody, GetContactBody, GetObjectBody, HistoryBody, ListAccountsBody,
+  PrepareResearchBody, CommitResearchBody, ExportPageBody, ImportPageBody, ActivityAggregateBody, AggregateBody, AnnotateAccountsBody, ChangesQuery, CONTRACT_VERSION, FacetsBody, DefineObjectsBody, EditBody, EditObjectBody, GetAccountBody, GetContactBody, GetObjectBody, HistoryBody, ListAccountsBody,
   ListContactsBody, ListObjectsBody, OBJECT_NAME_RE, ProspectFacetsBody, ProspectLookupBody, ProspectSearchBody, RescoreBody, IcpTreeCountsBody, TerritoryTreeBody, SegmentCountBody, UpsertAccountsBody, UpsertContactsBody,
   UpsertObjectsBody, WORKSPACE_ID_RE, ProjectionListBody, ProjectionSearchBody, ProjectorNudgeBody, ProjectorRebuildBody, DuplicatesBody, ModuleAggregateBody, ModuleSyncBody,
 } from "./contract.ts";
@@ -23,6 +23,7 @@ import { aggregateModuleDocs, syncModuleDocs } from "./moduleDocs.ts";
 import { inboundMatchInput } from "./core/objects/inboundMatch.ts";
 import { registerInboundMatch } from "./inboundMatch.ts";
 import { registerDuplicates } from "./duplicates.ts";
+import { exportCounts, exportRows, importRows, type ExportTable } from "./export.ts";
 import type { RegisterObject } from "./core/objects/listSpec.ts";
 import { httpLedgerSource, projectedThrough, Projector, type ProjectorOptions } from "./projector.ts";
 import { Registry } from "./registry.ts";
@@ -44,8 +45,10 @@ export type Config = {
   allowCrash?: boolean;
   /**
    * Where the projector pulls the ledger from (Convex's HTTP site). Optional:
-   * Convex sends its URL with every nudge. The service's own token is the
-   * bearer for both directions.
+   * Convex sends its URL with every nudge. When set, it wins over the nudged and
+   * saved URL: Convex sends its public URL, which a service beside it on a
+   * private network may not reach (the self-hosted container). The service's own
+   * token is the bearer for both directions.
    */
   projector?: { sourceUrl?: string } & Partial<ProjectorOptions>;
 };
@@ -71,7 +74,10 @@ export function configFromEnv(env = process.env): Config {
 }
 
 function projectorFromEnv(env: NodeJS.ProcessEnv): Config["projector"] {
-  return env.PROJECTOR_POLL_MS ? { pollMs: Number(env.PROJECTOR_POLL_MS) } : {};
+  return {
+    ...(env.PROJECTOR_POLL_MS ? { pollMs: Number(env.PROJECTOR_POLL_MS) } : {}),
+    ...(env.PROJECTOR_SOURCE_URL ? { sourceUrl: env.PROJECTOR_SOURCE_URL } : {}),
+  };
 }
 
 /** The ledger URL learned from an earlier nudge, if any. */
@@ -291,9 +297,21 @@ export function createApp(cfg: Config) {
     const b = parse(DuplicatesBody, await body());
     return registry.with(ws, (w) => registerDuplicates(w, params[0] as RegisterObject, b.limit ?? 200, b.scope));
   });
+  wsRoute("POST", "export/(accounts|contacts|field_history)", "export.page", async ({ ws, params, body }) => {
+    const b = parse(ExportPageBody, await body());
+    return registry.exists(ws) ? registry.with(ws, (w) => exportRows(w, params[0] as ExportTable, b.after, b.limit)) : { rows: [], next: null };
+  });
+  wsRoute("POST", "import/(accounts|contacts|field_history)", "import.page", async ({ ws, params, body }) => {
+    const b = parse(ImportPageBody, await body());
+    return registry.with(ws, (w) => importRows(w, params[0] as ExportTable, b.rows), true);
+  });
+  wsRoute("POST", "export/counts", "export.counts", async ({ ws, body }) => {
+    parse(z.object({}).strict(), await body());
+    return registry.exists(ws) ? registry.with(ws, exportCounts) : { accounts: 0, contacts: 0, field_history: 0 };
+  });
   wsRoute("POST", "projector/nudge", "projector.nudge", async ({ ws, body }) => {
     const b = parse(ProjectorNudgeBody, await body());
-    if (b.source && b.source !== ledgerUrl) {
+    if (b.source && !sourceUrl && b.source !== ledgerUrl) {
       ledgerUrl = b.source;
       await writeFile(ledgerUrlFile, JSON.stringify({ url: ledgerUrl }));
     }

@@ -12,8 +12,8 @@ import { accessFor } from "./permissions";
 import { narrowsReads } from "./lib/access";
 
 import { edgeStore } from "./associations";
-import { setDealRoles } from "./dealCommittee";
-import { applyEdgeCommand } from "./lib/objects/associations";
+import { dealOfStream, legacyRolesOf } from "./dealCommittee";
+import { applyEdgeCommand, seedDealRoles, type EdgeCommand } from "./lib/objects/associations";
 import { DEAL_ROLES, STANDARD_OBJECTS, resolveObjectDef, type DealRole, type OrgObjectExtension } from "./lib/objects/registry";
 import { fromStored, toStored } from "./lib/objects/validators";
 import { ID } from "./lib/canon/identity";
@@ -88,7 +88,7 @@ export const start = mutation({
     if (running?.status === "running" && !isStale(running)) throw new ConvexError("An import is already running");
     const now = Date.now();
     const runId = await ctx.db.insert("crmImports", {
-      orgId: user.orgId, provider: "hubspot", status: "running", startedBy: user._id, startedAt: now, heartbeatAt: now,
+      orgId: user.orgId, provider: "hubspot", status: "running", startedBy: user._id, startedAt: now, heartbeatAt: now, parentLinksAs: "hubspot", linksAs: "hubspot",
       objects, phase: "owners", cursor: null, lease: 1, results: [], failures: [], owners: [], notices: [],
     });
     await ctx.scheduler.runAfter(0, internal.hubspotImportActions.step, { runId, lease: 1 });
@@ -275,26 +275,32 @@ const linkArg = v.union(
 );
 
 /**
- * Write a page's associations as edges, as the record pages make them: a person at each of their companies (the
- * first one primary), a company under its parent, people on a deal in their roles. An edge that is already there
- * is unchanged, so a re-run writes nothing new. Returns the HubSpot records whose edges were refused.
+ * Write a page's associations as edges, as HubSpot's (each its HubSpot record's source ref): a person at each of their
+ * companies (the first one primary), a company under its parent, people on a deal in their roles. The edge writer's
+ * CRM rule (EdgeWriter.crm) keeps what a person decided in Canon, and records what HubSpot says instead. An edge that
+ * is already there is unchanged, so a re-run writes nothing new. Returns the HubSpot records whose edges were refused.
  */
 export const writeLinks = internalMutation({
   args: { orgId: v.id("organizations"), userId: v.id("users"), links: v.array(linkArg) },
   handler: async (ctx, a) => {
     const store = edgeStore(ctx);
-    const edgeCtx = { orgId: a.orgId, source: { kind: "user" as const, ref: `user:${a.userId}` }, actor: { kind: "user" as const, id: a.userId }, now: Date.now() };
+    const now = Date.now();
     const out = { applied: 0, failed: [] as Array<{ ref: string; message: string }> };
     for (const l of a.links) {
+      const edgeCtx = hubspotEdges(a.orgId, `hubspot:${l.ref}`, now);
       if (l.kind === "people") {
-        const res = await setDealRoles(ctx, a.orgId, a.userId, l.streamId, l.members as Array<{ contactId: string; role: DealRole }>);
-        if (res.error) out.failed.push({ ref: l.ref, message: res.error });
-        else out.applied += res.changed;
-        continue;
+        const deal = await dealOfStream(ctx, a.orgId, l.streamId);
+        if (!deal) { out.failed.push({ ref: l.ref, message: "Deal not found" }); continue; }
+        await seedDealRoles(store, a.orgId, l.streamId, await legacyRolesOf(ctx, deal._id));
       }
-      const cmds = l.kind === "parent"
-        ? [{ op: "setParent" as const, accountId: l.accountId, parentId: l.parentId }]
-        : l.companyIds.map((toId, i) => ({ op: "link" as const, fromId: l.contactId, toId, ...(i === 0 ? { primary: true } : {}) }));
+      const cmds: EdgeCommand[] = l.kind === "parent"
+        ? [{ op: "setParent", accountId: l.accountId, parentId: l.parentId }]
+        : l.kind === "people"
+          ? l.members.map((m) => ({ op: "setRole" as const, dealId: l.streamId, contactId: m.contactId, role: m.role as DealRole }))
+          : [
+            ...l.companyIds.map((toId, i) => ({ op: "link" as const, fromId: l.contactId, toId, ...(i === 0 ? { primary: true } : {}) })),
+            { op: "keepOnly" as const, association: "contact_account" as const, fromId: l.contactId, toIds: l.companyIds },
+          ];
       for (const cmd of cmds) {
         const res = await applyEdgeCommand(store, edgeCtx, cmd, l.kind === "companies" ? l.seed : undefined);
         if (res.status === "invalid") {
@@ -307,6 +313,10 @@ export const writeLinks = internalMutation({
     return out;
   },
 });
+
+/** A HubSpot record's edge writes: its source ref, the integration as actor. */
+const hubspotEdges = (orgId: Id<"organizations">, ref: string, now: number) =>
+  ({ orgId, source: { kind: "hubspot" as const, ref }, actor: { kind: "integration" as const, id: "hubspot" }, now });
 
 const activityArg = v.object({
   hubspotId: v.string(), object: v.union(v.literal("call"), v.literal("meeting"), v.literal("note"), v.literal("task")),
@@ -327,7 +337,6 @@ export const writeActivities = internalMutation({
     const store = convexObjectStore(ctx);
     const edges = edgeStore(ctx);
     const out = { created: 0, updated: 0, unchanged: 0, failed: [] as Array<{ ref: string; message: string }> };
-    const edgeCtx = { orgId: a.orgId, source: { kind: "user" as const, ref: `user:${a.userId}` }, actor: { kind: "user" as const, id: a.userId }, now: Date.now() };
     for (const r of a.rows) {
       const def = await loadDef(ctx, a.orgId, r.object);
       const provider = engagementProvider(r.object);
@@ -345,7 +354,7 @@ export const writeActivities = internalMutation({
       }
       let changed = res.status !== "unchanged";
       if (r.targets.length) {
-        const edge = await applyEdgeCommand(edges, edgeCtx, { op: "target", activityId: res.streamId, toIds: r.targets });
+        const edge = await applyEdgeCommand(edges, hubspotEdges(a.orgId, `${provider}:${r.hubspotId}`, Date.now()), { op: "target", activityId: res.streamId, toIds: r.targets });
         if (edge.status === "invalid") {
           out.failed.push({ ref: r.hubspotId, message: edge.message });
           continue;

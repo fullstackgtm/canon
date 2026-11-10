@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { touchCliToken } from "./cliAuth";
 
 export type MintedProviderConnection = {
   accessToken: string;
@@ -26,7 +27,7 @@ export const mintProviderToken = action({
     const token = await ctx.runQuery(internal.cliAuth.getTokenByHash, { tokenHash });
     if (!token) throw new ConvexError("Invalid or revoked CLI token");
 
-    await ctx.runMutation(internal.cliAuth.touchToken, { cliTokenId: token._id });
+    await touchCliToken(ctx, token);
 
     if (args.provider === "salesforce") {
       const connection: { accessToken: string; instanceUrl: string; fieldMappings: unknown } =

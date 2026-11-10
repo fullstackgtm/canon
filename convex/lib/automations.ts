@@ -16,7 +16,8 @@
 import { v, type Infer } from "convex/values";
 import { sameValue } from "./canon/policy.ts";
 import type { EntryBody, EntrySource, EntryActor, FoldState } from "./objects/fold.ts";
-import { compileListRequest, listRowOf, matchesFilter, FILTER_OPS, type ListFilter, type ListRow } from "./objects/listSpec.ts";
+import { compileListRequest, listRowOf, matchesFilter, type ListFilter, type ListRow } from "./objects/listSpec.ts";
+import { FILTER_OPS } from "../../modules/kernel/reportLanguage.ts";
 import type { FieldValue, ResolvedObjectDef } from "./objects/registry.ts";
 import { localTime } from "./linkedin/limits.ts";
 

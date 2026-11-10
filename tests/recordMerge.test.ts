@@ -86,6 +86,7 @@ function memory() {
     async edgesFrom(_o, association, fromId, limit) { return range((e) => e.association === association && e.fromId === fromId, limit); },
     async edgesTo(_o, association, toId, limit) { return range((e) => e.association === association && e.toId === toId, limit); },
     async putEdge(_o, row) { edges.set(row.streamId, row); },
+    async lastEntry(id, match) { return (await s.objects.readEntries(id, 0, 1000)).reverse().find(match) ?? null; },
   };
   const account = resolveObjectDef(STANDARD_OBJECTS.account);
   /** What a person sees: each company's values and lifecycle, the active edges with their primary flags, the deals' companies. */

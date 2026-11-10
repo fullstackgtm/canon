@@ -1,4 +1,4 @@
-import { COUNTRY_NAME_BY_ISO } from "../../services/record-service/src/dimensions.ts";
+import { COUNTRY_NAME_BY_ISO } from "./dimensions.ts";
 
 const ISO_TO_COUNTRY: Record<string, string> = { ...COUNTRY_NAME_BY_ISO, uk: "united kingdom" };
 const REGION_TO_COUNTRIES: Record<string, string[]> = {

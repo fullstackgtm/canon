@@ -5,9 +5,10 @@
  * what they measure (currency in cents). Pure, so the table, the charts and
  * the tests read one presentation.
  */
-import type { AggregateGroup, AggregateResponse, ReportBucket } from "../../../convex/lib/objects/reportSpec";
+import type { AggregateGroup, AggregateResponse } from "../../../convex/lib/objects/reportSpec";
+import type { ReportBucket } from "../../../modules/kernel/reportLanguage";
 import type { Scalar } from "../../../convex/lib/objects/listSpec";
-import type { ReportSpec } from "../../../convex/lib/objects/validators";
+import type { ReportSpec } from "../../../modules/kernel/reportValidators";
 
 /** What presenting needs to know about a field: its label, type and options. */
 export type FieldInfo = { label: string; type: string; returns?: string; options?: readonly { value: string; label: string }[] };

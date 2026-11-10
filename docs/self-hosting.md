@@ -80,6 +80,17 @@ For this machine, open `http://localhost:3000/sign-in` and create the owner,
 or let the verification command below create it before opening public access.
 Choose a password with at least 12 characters. No email provider is required.
 
+The record API (`/api/v1`) and the MCP tools limit each token to 600 reads and
+300 writes a minute, and each workspace to 1,200 and 600. To change a limit, add
+`CANON_API_TOKEN_READS_PER_MINUTE`, `CANON_API_TOKEN_WRITES_PER_MINUTE`,
+`CANON_API_WORKSPACE_READS_PER_MINUTE` or `CANON_API_WORKSPACE_WRITES_PER_MINUTE`
+to `.env` and run `docker compose up -d`. `0` turns a limit off.
+[Rate limits](record-api.md#rate-limits) explains the defaults.
+
+Optional integrations need their own keys, listed in
+[Optional integrations](selfhost-integrations.md). To log members' email by BCC
+or forward, follow [Logging email by BCC or forward](email-logging.md).
+
 ## Use a remote server privately through SSH
 
 Without a domain, leave `SITE_URL=http://localhost:3000` on the server. From
@@ -141,7 +152,7 @@ for access and verification after the change. If HTTPS fails, inspect
 Use Node.js 22.6 or newer on the machine running this command. The verifier
 uses built-in Node APIs and needs no `npm ci`. The URL can be local, an SSH
 tunnel, or a remote HTTPS origin. It creates a labeled verification company,
-person, and deal and leaves them in the owner's workspace for inspection.
+person, note, and deal and leaves them in the owner's workspace for inspection.
 It prints a PASS or FAIL line for each check and exits nonzero on failure.
 
 Store the local owner's email and password in a private file outside the
@@ -178,7 +189,8 @@ node scripts/selfhost/verify.mjs http://localhost:3000 --bootstrap-owner --resta
 On later runs, omit `--bootstrap-owner`. That flag requires registration to
 succeed and fails if the installation already has an owner. The command checks
 the app and backend, `/sign-in`, local owner authentication, company, person,
-and deal creation and read-back, the dashboard, WebSocket upgrades, and sign-out.
+and deal creation and read-back, the note on the company's timeline, the
+dashboard, WebSocket upgrades, and sign-out.
 Replace the URL with `https://crm.example.com` for a public install.
 
 To also prove persistence across a container restart, run from the Compose
@@ -208,11 +220,18 @@ tunnel open and use its localhost URL instead.
 
 The Compose `data` volume mounts at `/data`. It contains both databases, file
 storage, and generated credentials. Keep the whole volume together. Never share
-it between running containers. Back up the entire volume while Canon is stopped
-so both databases close their files. Restore into an empty volume while stopped.
+it between running containers. `npm run selfhost:backup` stops Canon so both
+databases close their files, archives the whole volume with a checksum for every
+file, and starts Canon again. `npm run selfhost:restore` puts an archive back.
+[Back up and restore](updating.md#back-up-and-restore) covers both, including
+which secrets the archive holds.
+To keep one workspace's records in a file you can check, rather than the whole
+volume, use [Export a workspace](workspace-export.md).
 
-To upgrade, stop Canon, back up its volume, check out the new release, and run
-`docker compose up -d --build`. Run verification again with the existing owner.
+To upgrade, take a backup, check out the new release, and run
+`docker compose up -d --build`. The container pushes the backend functions when
+the image or `SITE_URL` changed, so the first boot after an upgrade takes longer
+than a restart. Run verification again with the existing owner.
 `npm run selfhost:releases` lists the signed releases newer than your checkout.
 [updating.md](updating.md) gives the steps, including merging a release into
 your own changes.

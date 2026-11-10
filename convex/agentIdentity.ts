@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { touchCliToken } from "./cliAuth";
 
 export const resolveCliToken = action({
   args: { cliToken: v.string() },
@@ -17,7 +18,7 @@ export const resolveCliToken = action({
     const tokenHash = createHash("sha256").update(args.cliToken).digest("hex");
     const token = await ctx.runQuery(internal.cliAuth.getTokenByHash, { tokenHash });
     if (!token) return null;
-    await ctx.runMutation(internal.cliAuth.touchToken, { cliTokenId: token._id });
+    await touchCliToken(ctx, token);
     return ctx.runQuery(internal.agentIdentityData.clerkIdentity, { userId: token.userId, orgId: token.orgId });
   },
 });

@@ -39,14 +39,16 @@ import { callerClient, principalClient, requireCaller } from "./records";
 import { validTimezone } from "./lib/linkedin/limits";
 import type { ListFilter } from "./lib/objects/listSpec";
 import { shardHeads } from "./ledgerFeed";
-import { asEntry, LEAD_READ_ONLY, loadDef, recordVisibleTo, requireWritable, saveAsCaller, saveDealAsCaller } from "./objects";
+import { asEntry, loadDef, recordVisibleTo, requireWritable, saveAsCaller, saveDealAsCaller } from "./objects";
+import { LEAD_READ_ONLY } from "./lib/objects/describe";
 import { attachTargets } from "./activityTargets";
 import { boundedPage } from "./lib/objects/tail";
 import { foldAll, project, type EntryBody, type FoldState } from "./lib/objects/fold";
 import { fromStored } from "./lib/objects/validators";
 import type { Provenance } from "../recipes/templates.ts";
 import { SHARDS } from "./lib/objects/write";
-import { coerce, isCustomObjectName, type FieldValue, type ResolvedObjectDef } from "./lib/objects/registry";
+import { coerce, type FieldValue, type ResolvedObjectDef } from "./lib/objects/registry";
+import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { archivedObjectNames } from "./lib/objects/orgDefs";
 import {
   ACTIONS_MAX, AUTOMATION_OBJECTS, RULES_MAX, SLOT_CAP, actionProblem, actionValidator, conditionValidator, conditionsMet, conditionsProblem, dueDate,

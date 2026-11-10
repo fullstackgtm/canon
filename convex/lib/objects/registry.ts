@@ -8,6 +8,7 @@
 import type { ComputedType, RollupDef } from "./formula.ts";
 import { parseSplits, type SplitAllocation } from "./splits.ts";
 import { checkRules, RULE_NAMES, type FieldRule, type RuleKind } from "./rules.ts";
+import { isCustomObjectName } from "../../../modules/kernel/reportLanguage.ts";
 
 export type FieldType =
   | "text"
@@ -161,10 +162,6 @@ export type ObjectLabels = { label: string; pluralLabel: string };
 
 /** `custom.<slug>`: the apiName of an org-defined field. */
 export const CUSTOM_FIELD_API_NAME = /^custom\.[a-z][a-z0-9_]{0,62}$/;
-
-/** `custom_<slug>`: the apiName of an org-defined object, stable like a field's. It is a safe SQL identifier (the projection table is `p_custom_<slug>`). */
-export const CUSTOM_OBJECT_API_NAME = /^custom_[a-z][a-z0-9_]{0,39}$/;
-export const isCustomObjectName = (name: string): boolean => CUSTOM_OBJECT_API_NAME.test(name);
 
 /** The icons an admin picks from for a custom object (lucide names, mapped in src/components/records/object-icons.ts). */
 export const OBJECT_ICONS = ["folder", "briefcase", "box", "calendar", "flag", "star", "heart", "file", "users", "building", "tag", "wrench"] as const;

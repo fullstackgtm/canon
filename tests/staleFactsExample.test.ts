@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { buildModule } from "../scripts/module-build.ts";
+import { buildModule } from "../modules/kernel/tools/build.ts";
 import type { CallContext, ReadValue } from "../modules/kernel/calls.ts";
 import type { ProposalOutcome } from "../modules/kernel/proposals.ts";
 import { calls } from "../examples/modules/stale-facts/server.ts";

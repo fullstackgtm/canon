@@ -10,7 +10,7 @@ import ts from "typescript";
 const require = createRequire(import.meta.url);
 const empty = () => null;
 const field = { slug: "primary-goal", label: "Primary goal", question: "What is their goal?" };
-const data = { canEdit: true, members: [{ contactId: "person-1", name: "Alex", title: "VP", role: "champion" }] };
+const data = { canEdit: true, members: [{ contactId: "person-1", name: "Alex", title: "VP", role: "champion" }], crmRoles: [] };
 let members = data.members;
 let requested: string[] | undefined;
 function render() {
@@ -28,6 +28,7 @@ function render() {
     "@/lib/utils": { getErrorMessage: String },
     "@/components/ui/select": { SelectField: ({ options, value, disabled, "aria-label": label }: { options: { value: string; label: ReactNode }[]; value: string; disabled?: boolean; "aria-label"?: string }) => createElement("button", { type: "button", role: "combobox", "aria-label": label, disabled }, options.find((o) => o.value === value)?.label) },
     "./lookup-field": { RecordPicker: empty, recordHref: (_: string, id: string) => `/contact/${id}` },
+    "./crm-note": { CrmParentNote: empty, CrmNote: empty, CrmRoleNotes: empty, CRM_NAME: {} },
     "./record-context": { RecordLink: ({ children }: { children: ReactNode }) => createElement("a", null, children) },
     "@/components/crm/find-contact-info": { FindContactInfo: empty },
     "@/components/research/ai-cell": {

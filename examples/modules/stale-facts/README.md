@@ -1,7 +1,7 @@
 # Stale facts
 
 An example module built the way a module outside Canon is built. It uses only the module contract
-([docs/modules.md](../../../docs/modules.md)) and type imports from `modules/kernel/`.
+([docs/modules.md](../../../docs/modules.md)) and type imports from the module kit, `@fullstackgtm/canon-module-kit`.
 
 For the deals closing from 30 days ago to 90 days out, and the companies a member watches, it reads Canon's fact
 ledger with `facts.forRecords`. It lists the contested fields first, then the ones confirmed longest ago. A member
@@ -10,16 +10,22 @@ the fact review queue, and the page shows each proposal's outcome from `proposal
 
 ## Build
 
+In a copy of this directory in its own repository, with the module kit installed (docs/modules.md, "Install the kit"):
+
+```sh
+npx canon-module-kit check
+npx canon-module-kit build
+```
+
 From a Canon checkout:
 
 ```sh
 npm run module:build -- examples/modules/stale-facts
 ```
 
-This checks `module.json` and writes `dist/module.js`. Commit both. `server.ts` imports only types from
-`modules/kernel/`, so the bundle needs nothing from Canon at run time. A copy of this directory in its own repository
-builds the same way, `npm run module:build -- <path to it>` run from a Canon checkout. Its type imports then need a
-path to that checkout.
+Each checks `module.json` and writes `dist/module.js`. Commit both. `server.ts` imports only types from the kit, so
+the bundle needs nothing from Canon at run time, and both builds write the same bytes. Inside Canon, a `paths` entry in
+`tsconfig.json` points the kit's package name at `modules/kernel/`.
 
 ## Install
 

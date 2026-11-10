@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { COUNTRIES, LEVELS } from "../../../convex/lib/addRecords";
-import { industryLabel } from "../../../services/record-service/src/industries";
+import { industryLabel } from "../../../modules/kernel/industries";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { drillToSpec } from "@/lib/drill-to-icp";
 import type { Pivot } from "@/lib/tam-levels";

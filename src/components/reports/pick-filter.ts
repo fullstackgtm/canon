@@ -3,8 +3,8 @@
  * the mark carries (a stage, an owner, a close month), so the records panel lists exactly the records behind the
  * number. Pure, so the builder, the dashboard tiles and the tests share it.
  */
-import type { ReportBucket } from "../../../convex/lib/objects/reportSpec";
-import type { ReportSpec } from "../../../convex/lib/objects/validators";
+import type { ReportBucket } from "../../../modules/kernel/reportLanguage";
+import type { ReportSpec } from "../../../modules/kernel/reportValidators";
 
 /** A list filter as a report or a list request carries it. */
 export type ListFilter = ReportSpec["filter"][number];

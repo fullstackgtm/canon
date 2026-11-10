@@ -18,7 +18,7 @@
  * Pure: written against EdgeStore so it runs in a Convex mutation
  * (convex/associations.ts) and in tests.
  */
-import { project, type EntryActor, type EntrySource } from "./fold.ts";
+import { project, type EntryActor, type EntrySource, type LedgerEntry } from "./fold.ts";
 import { associationDef, associationObjectDef, DEAL_ROLES, DEAL_SINGLE_ROLES, edgeOf, type AssociationName, type DealRole, type Edge, type ResolvedObjectDef } from "./registry.ts";
 import { save, type ObjectStore, type SaveCommand, type SaveContext } from "./write.ts";
 
@@ -34,14 +34,75 @@ export interface EdgeStore extends ObjectStore {
   edgesTo(orgId: string, association: AssociationName, toId: string, limit: number): Promise<EdgeRow[]>;
   /** Write an edge's index row, keyed by its stream. */
   putEdge(orgId: string, row: EdgeRow): Promise<void>;
+  /** A stream's newest entry that `match` accepts, read back from its latest entry; null when none does. */
+  lastEntry(streamId: string, match: (e: LedgerEntry) => boolean): Promise<LedgerEntry | null>;
+  /** Where a CRM's value is kept when it differs from what a person decided in Canon. A CRM write of a CLAIMED association needs it. */
+  disagreements?: DisagreementStore;
+  /**
+   * Whether an edge write attributed to a person (`userId`, at `at`) was a HubSpot import that person started, from
+   * before the import wrote `association` as HubSpot (legacy attribution).
+   */
+  legacyHubspotImport?(orgId: string, association: AssociationName, userId: string, at: number): Promise<boolean>;
 }
+
+/** A CRM provider whose import or sync writes links. */
+export type CrmProvider = "salesforce" | "hubspot";
+const CRM_PROVIDERS: ReadonlySet<string> = new Set<CrmProvider>(["salesforce", "hubspot"]);
+
+/**
+ * The associations whose differing CRM values are kept, each with a page where a person sees and settles them.
+ * Activity targets follow the same rule but keep none: no page edits what an activity is about.
+ */
+export const CLAIMED: ReadonlySet<AssociationName> = new Set<AssociationName>(["account_parent", "contact_account", "deal_contact"]);
+
+/**
+ * What one CRM record says about a link, kept because a person decided it otherwise in Canon (EdgeWriter.disagree).
+ * `fromId` is the record the link is from: a company, a person or a deal. `toId` is the far end the CRM names: a
+ * company's parent (null: none), a company the person is at (`primary`: as their primary company), a person on the
+ * deal in role `label`.
+ */
+export type Disagreement = {
+  association: "account_parent" | "contact_account" | "deal_contact";
+  fromId: string;
+  toId: string | null;
+  primary?: true;
+  label?: DealRole;
+  provider: CrmProvider;
+  ref: string;
+  seenAt: number;
+};
+export type StoredDisagreement = Disagreement & { id: string };
+
+/**
+ * One kept disagreement per claim: a company's parent per CRM record; per CRM record and person, each company they are
+ * at and their primary company; per CRM record and deal, each person's role.
+ */
+export const sameClaim = (a: Disagreement, b: Disagreement) =>
+  a.association === b.association && a.fromId === b.fromId && a.ref === b.ref && Boolean(a.primary) === Boolean(b.primary)
+  && (a.association === "account_parent" || a.primary === true || a.toId === b.toId);
+
+export interface DisagreementStore {
+  /** The disagreements kept for links from `fromId`, from every CRM record. */
+  of(orgId: string, fromId: string): Promise<StoredDisagreement[]>;
+  /** Keep `d`, in place of the stored one with the same claim (`replaces`). */
+  put(orgId: string, d: Disagreement, replaces: string | null): Promise<void>;
+  remove(orgId: string, id: string): Promise<void>;
+}
+
+/**
+ * Who decides one facet of a link (EdgeWriter.crm): a CRM record (its source ref), Canon (a person on a record page,
+ * an approved hierarchy move, a merge, an agent), or nobody yet (null: never decided, or the register's company a
+ * contact's first edge was seeded with, which an import or CRM sync put there).
+ */
+export type LinkOwner = { by: "crm"; provider: CrmProvider; ref: string } | { by: "canon" } | null;
 
 /** Edges one record may have per association; a read of them is one bounded index range. */
 export const EDGES_PER_RECORD_MAX = 200;
 /** How far up a company's parents a new parent is checked for a cycle. */
 const PARENT_DEPTH_MAX = 32;
 
-export type EdgeContext = { orgId: string; source: EntrySource; actor: EntryActor; now: number };
+/** `createdAt`: when the source made a link, for an edge this creates (a CRM import's own date); its writes are dated `now`. */
+export type EdgeContext = { orgId: string; source: EntrySource; actor: EntryActor; now: number; createdAt?: number };
 
 export type EdgeCommand =
   /** Link a contact to a company. The contact's first company is its primary; `primary` makes this one primary. */
@@ -62,7 +123,13 @@ export type EdgeCommand =
   /** Make a new activity (its stream id) about each of these records: companies, people or deals, by id. */
   | { op: "target"; activityId: string; toIds: readonly string[] }
   /** Make an activity no longer about these records (a CRM import that moved it). */
-  | { op: "untarget"; activityId: string; toIds: readonly string[] };
+  | { op: "untarget"; activityId: string; toIds: readonly string[] }
+  /**
+   * A CRM's only: the links from `fromId` this CRM record names, all of them (a re-import). Links it made and no
+   * longer names are removed, except a person's companies, which a CRM only adds; what it said about the others is no
+   * longer kept.
+   */
+  | { op: "keepOnly"; association: "contact_account" | "deal_contact" | "activity_target"; fromId: string; toIds: readonly string[] };
 
 export type EdgeResult = { status: "applied" | "unchanged" } | { status: "invalid"; message: string };
 
@@ -71,39 +138,15 @@ export type EdgeResult = { status: "applied" | "unchanged" } | { status: "invali
  * (its `accountId`), read just before: when the contact has no edges yet, it
  * becomes the contact's first, primary edge before the command runs, as an
  * import from the register row.
+ *
+ * A command whose actor is an integration is a CRM's and goes through the CRM rule (EdgeWriter.crm): it writes only
+ * what no person decided in Canon, and keeps the rest as a disagreement. Every other actor is Canon's.
  */
 export async function applyEdgeCommand(store: EdgeStore, ctx: EdgeContext, cmd: EdgeCommand, seed?: string): Promise<EdgeResult> {
   const w = new EdgeWriter(store, ctx);
-  if (cmd.op === "setParent") return w.setParent(cmd.accountId, cmd.parentId);
-  if (cmd.op === "setRole") return w.setRole(cmd.dealId, cmd.contactId, cmd.role, cmd.reason ?? null);
-  if (cmd.op === "removeFromDeal") return w.removeFromDeal(cmd.dealId, cmd.contactId);
-  if (cmd.op === "target") return w.target(cmd.activityId, cmd.toIds);
-  if (cmd.op === "untarget") return w.untarget(cmd.activityId, cmd.toIds);
-  if (cmd.fromId === "" || cmd.toId === "") return { status: "invalid", message: "Name a contact and a company" };
-  if (seed) await w.seedContactAccount(cmd.fromId, seed);
-  switch (cmd.op) {
-    case "link": return w.link(cmd.fromId, cmd.toId, cmd.primary === true);
-    case "unlink": return w.unlink(cmd.fromId, cmd.toId);
-    case "makePrimary": return w.makePrimary(cmd.fromId, cmd.toId);
-  }
-}
-
-/**
- * The far ends of `fromId`'s active edges that a source created and that it
- * no longer names: what a CRM re-import removes. An edge is the source's when
- * its stream was created from that source kind, so edges a person or an agent
- * made are never in the list.
- */
-export async function edgesFromSourceNotIn(
-  store: EdgeStore, orgId: string, association: AssociationName, fromId: string, keep: readonly string[], sourceKind: EntrySource["kind"],
-): Promise<string[]> {
-  const out: string[] = [];
-  for (const e of await store.edgesFrom(orgId, association, fromId, EDGES_PER_RECORD_MAX)) {
-    if (!e.active || keep.includes(e.toId)) continue;
-    const [first] = await store.readEntries(e.streamId, 0, 1);
-    if (first?.source.kind === sourceKind) out.push(e.toId);
-  }
-  return out;
+  if ("fromId" in cmd && cmd.op !== "keepOnly" && (cmd.fromId === "" || cmd.toId === "")) return { status: "invalid", message: "Name a contact and a company" };
+  if (seed && "fromId" in cmd && cmd.op !== "keepOnly") await w.seedContactAccount(cmd.fromId, seed);
+  return ctx.actor.kind === "integration" ? w.crm(cmd) : w.canon(cmd);
 }
 
 /** An edge's state as a merge's undo puts it back. */
@@ -173,13 +216,19 @@ export async function seedDealRoles(store: EdgeStore, orgId: string, dealId: str
   return true;
 }
 
-const CONTACT_ACCOUNT: AssociationName = "contact_account";
-const ACCOUNT_PARENT: AssociationName = "account_parent";
-const DEAL_CONTACT: AssociationName = "deal_contact";
-const ACTIVITY_TARGET: AssociationName = "activity_target";
+const CONTACT_ACCOUNT = "contact_account" satisfies AssociationName;
+const ACCOUNT_PARENT = "account_parent" satisfies AssociationName;
+const DEAL_CONTACT = "deal_contact" satisfies AssociationName;
+const ACTIVITY_TARGET = "activity_target" satisfies AssociationName;
 /** Records one activity may be about. */
 export const ACTIVITY_TARGETS_MAX = 8;
 const applied: EdgeResult = { status: "applied" };
+/**
+ * The edge to `toId` among a record's edges, active or removed, read as one range (null: it has none). Undefined
+ * when the range was cut at its cap, so the edge must be looked up.
+ */
+const known = (all: readonly EdgeRow[], toId: string): EdgeRow | null | undefined =>
+  all.find((e) => e.toId === toId) ?? (all.length < EDGES_PER_RECORD_MAX ? null : undefined);
 const unchanged: EdgeResult = { status: "unchanged" };
 
 class EdgeWriter {
@@ -222,7 +271,10 @@ class EdgeWriter {
   private async write(cmd: SaveCommand, source: Pick<SaveContext, "source" | "actor"> = this.ctx): Promise<EdgeRow> {
     const saveCtx: SaveContext = { orgId: this.ctx.orgId, def: this.def, source: source.source, actor: source.actor, now: this.ctx.now };
     if (this.touched && cmd.op !== "create" && !this.touched.has(cmd.streamId)) this.touched.set(cmd.streamId, await this.stateOf(cmd.streamId));
-    const r = await save(this.store, saveCtx, cmd);
+    // An edge's flag or label is written only when it differs from what the edge shows, so it is always a new fact, even
+    // when this source said the same before (a person putting back their primary after a CRM moved it).
+    const dated = cmd.op === "create" && this.ctx.createdAt !== undefined ? { ...cmd, createdAt: this.ctx.createdAt } : cmd.op === "update" ? { ...cmd, reassert: true as const } : cmd;
+    const r = await save(this.store, saveCtx, dated);
     if (this.touched && cmd.op === "create" && "streamId" in r && !this.touched.has(r.streamId)) this.touched.set(r.streamId, null);
     if (r.status === "invalid" || r.status === "conflict") throw new Error(`association save ${cmd.op} failed: ${JSON.stringify(r)}`);
     if (r.status === "applied" || r.status === "proposed") this.changed = true;
@@ -236,14 +288,20 @@ class EdgeWriter {
   }
 
   /** Make (association, from, to) an active edge with `primary`, creating or re-adding its stream. */
-  private async ensure(association: AssociationName, fromId: string, toId: string, primary: boolean, source?: Pick<SaveContext, "source" | "actor">): Promise<EdgeRow> {
-    const existing = await this.store.findEdge(this.ctx.orgId, association, fromId, toId);
+  private async ensure(association: AssociationName, fromId: string, toId: string, primary: boolean, source?: Pick<SaveContext, "source" | "actor">, known?: EdgeRow | null): Promise<EdgeRow> {
+    const existing = known !== undefined ? known : await this.store.findEdge(this.ctx.orgId, association, fromId, toId);
     const flag = associationDef(association).primary ? { primary } : {};
     if (!existing) return this.write({ op: "create", values: { association, fromId, toId, ...flag } }, source);
     let row = existing;
     if (!row.active) row = await this.write({ op: "restore", streamId: row.streamId }, source);
     if (associationDef(association).primary && row.primary !== primary) row = await this.write({ op: "update", streamId: row.streamId, values: { primary } }, source);
     return row;
+  }
+
+  /** The edge (from, to), from the record's edges already read when they hold it. */
+  private async edgeIn(all: readonly EdgeRow[], association: AssociationName, fromId: string, toId: string): Promise<EdgeRow | null> {
+    const k = known(all, toId);
+    return k !== undefined ? k : this.store.findEdge(this.ctx.orgId, association, fromId, toId);
   }
 
   private async setPrimaryFlag(row: EdgeRow, primary: boolean) {
@@ -358,15 +416,17 @@ class EdgeWriter {
     }
   }
 
-  async link(contactId: string, accountId: string, primary: boolean): Promise<EdgeResult> {
-    const edges = this.active(await this.store.edgesFrom(this.ctx.orgId, CONTACT_ACCOUNT, contactId, EDGES_PER_RECORD_MAX));
+  /** `all`: the contact's edges, active or removed, when already read. */
+  async link(contactId: string, accountId: string, primary: boolean, all?: EdgeRow[]): Promise<EdgeResult> {
+    all ??= await this.store.edgesFrom(this.ctx.orgId, CONTACT_ACCOUNT, contactId, EDGES_PER_RECORD_MAX);
+    const edges = this.active(all);
     const current = edges.find((e) => e.toId === accountId);
     if (current) return primary && !current.primary ? this.makePrimary(contactId, accountId) : this.result();
     if (edges.length >= EDGES_PER_RECORD_MAX) return { status: "invalid", message: `A contact can have at most ${EDGES_PER_RECORD_MAX} companies` };
     const makePrimary = primary || !edges.some((e) => e.primary);
     // Demote first, so the contact never shows two primaries, even inside the transaction.
     if (makePrimary) for (const e of edges) await this.setPrimaryFlag(e, false);
-    await this.ensure(CONTACT_ACCOUNT, contactId, accountId, makePrimary);
+    await this.ensure(CONTACT_ACCOUNT, contactId, accountId, makePrimary, undefined, known(all, accountId));
     return this.result();
   }
 
@@ -410,20 +470,250 @@ class EdgeWriter {
     return this.result();
   }
 
-  async setParent(accountId: string, parentId: string | null): Promise<EdgeResult> {
+  /** A Canon command: written as asked. */
+  async canon(cmd: EdgeCommand): Promise<EdgeResult> {
+    switch (cmd.op) {
+      case "link": return this.link(cmd.fromId, cmd.toId, cmd.primary === true);
+      case "unlink": return this.unlink(cmd.fromId, cmd.toId);
+      case "makePrimary": return this.makePrimary(cmd.fromId, cmd.toId);
+      case "setParent": return (await this.parentRefusal(cmd.accountId, cmd.parentId)) ?? this.writeParent(cmd.accountId, cmd.parentId);
+      case "setRole": return this.setRole(cmd.dealId, cmd.contactId, cmd.role, cmd.reason ?? null);
+      case "removeFromDeal": return this.removeFromDeal(cmd.dealId, cmd.contactId);
+      case "target": return this.target(cmd.activityId, cmd.toIds);
+      case "untarget": return this.untarget(cmd.activityId, cmd.toIds);
+      case "keepOnly": return { status: "invalid", message: "Only a CRM import removes the links it no longer names" };
+    }
+  }
+
+  /**
+   * The CRM rule: the one place a CRM import or sync (actor `integration`, source the CRM record) writes links. A
+   * person's intervention has priority. Each command is judged on the facets a person can decide about its links:
+   * - a company's parent (`parent`): many-to-one, so one value, decided over all the company's parent links;
+   * - whether a link exists (`link`), for each company a person is at, person on a deal and record an activity is about;
+   * - which of a person's companies is primary (`primary`), and a person's role on a deal (`role`): the field on the link.
+   * A facet Canon decides (linkOwner, fieldOwner) is not written over: what the CRM says instead is kept as a
+   * disagreement, once per value, for a person to take or leave, and is cleared when the CRM agrees. A facet a CRM
+   * decides, or nobody yet, follows the CRM. A CRM removes only a link it made itself: for a parent, that CRM record
+   * (several CRM records can be one Canon company); otherwise, that CRM.
+   */
+  async crm(cmd: EdgeCommand): Promise<EdgeResult> {
+    if (!CRM_PROVIDERS.has(this.ctx.source.kind)) throw new Error(`an integration's link write needs a CRM source, not ${this.ctx.source.kind}`);
+    switch (cmd.op) {
+      case "link": return this.crmLink(cmd.fromId, cmd.toId, cmd.primary === true);
+      case "makePrimary": return this.crmLink(cmd.fromId, cmd.toId, true);
+      case "unlink": return (await this.crmOwns(CONTACT_ACCOUNT, cmd.fromId, cmd.toId)) ? this.unlink(cmd.fromId, cmd.toId) : this.result();
+      case "setParent": return (await this.parentRefusal(cmd.accountId, cmd.parentId)) ?? this.crmSetParent(cmd.accountId, cmd.parentId);
+      case "setRole": return this.crmSetRole(cmd.dealId, cmd.contactId, cmd.role);
+      case "removeFromDeal": return (await this.crmOwns(DEAL_CONTACT, cmd.dealId, cmd.contactId)) ? this.removeFromDeal(cmd.dealId, cmd.contactId) : this.result();
+      case "target": return this.crmTarget(cmd.activityId, cmd.toIds);
+      case "untarget":
+        for (const toId of new Set(cmd.toIds)) if (await this.crmOwns(ACTIVITY_TARGET, cmd.activityId, toId)) await this.untarget(cmd.activityId, [toId]);
+        return this.result();
+      case "keepOnly": return this.crmKeepOnly(cmd.association, cmd.fromId, cmd.toIds);
+    }
+  }
+
+  private get provider(): CrmProvider {
+    return this.ctx.source.kind as CrmProvider;
+  }
+
+  /** Who a source is, as an owner: a CRM record, nobody (the register's seeded company), or Canon. */
+  private async ownerBy(association: AssociationName, source: EntrySource, at: number): Promise<LinkOwner> {
+    if (CRM_PROVIDERS.has(source.kind)) return { by: "crm", provider: source.kind as CrmProvider, ref: source.ref };
+    if (source.kind === "import") return null;
+    const userId = source.kind === "user" && source.ref.startsWith("user:") ? source.ref.slice("user:".length) : null;
+    if (userId && (await this.store.legacyHubspotImport?.(this.ctx.orgId, association, userId, at))) return { by: "crm", provider: "hubspot", ref: "hubspot:legacy" };
+    return { by: "canon" };
+  }
+
+  /**
+   * Who decides whether an edge exists: the source of its latest create or restore when active, of its latest removal
+   * when not. One read back from the stream's latest entry to its latest lifecycle entry (or its first).
+   */
+  private async linkOwner(edge: EdgeRow): Promise<LinkOwner> {
+    const entry = await this.store.lastEntry(edge.streamId, (e) => e.body.kind === "lifecycle" || e.version === 1);
+    return entry ? this.ownerBy(edge.association, entry.source, entry.observedAt) : null;
+  }
+
+  /** Who decides a field on an edge (a contact's primary flag, a deal role): the source of the value it shows, from its hot row. */
+  private async fieldOwner(edge: EdgeRow, field: "primary" | "label"): Promise<LinkOwner> {
+    const state = await this.store.getHotRow(edge.streamId);
+    const factId = state && project(this.def, state).meta[field]?.factId;
+    const fact = factId ? state.fields[field]?.candidates.find((c) => c.factId === factId) : undefined;
+    return fact ? this.ownerBy(edge.association, { kind: fact.sourceKind, ref: fact.sourceRef }, fact.observedAt) : null;
+  }
+
+  /** Whether this CRM made the active edge (from, to), so it may remove it. */
+  private async crmOwns(association: AssociationName, fromId: string, toId: string): Promise<boolean> {
+    const edge = await this.store.findEdge(this.ctx.orgId, association, fromId, toId);
+    if (!edge?.active) return false;
+    const owner = await this.linkOwner(edge);
+    return owner?.by === "crm" && owner.provider === this.provider;
+  }
+
+  private claim(c: Pick<Disagreement, "association" | "fromId" | "toId" | "primary" | "label">): Disagreement {
+    return { ...c, provider: this.provider, ref: this.ctx.source.ref, seenAt: this.ctx.now };
+  }
+
+  private disagreementStore(): DisagreementStore {
+    if (!this.store.disagreements) throw new Error("a CRM write of a claimed association needs a disagreement store");
+    return this.store.disagreements;
+  }
+
+  /** Keep what the CRM says instead of what Canon decided, unless it is already kept with the same value. */
+  private async disagree(d: Disagreement): Promise<void> {
+    const store = this.disagreementStore();
+    const kept = (await store.of(this.ctx.orgId, d.fromId)).find((k) => sameClaim(k, d));
+    if (kept && kept.toId === d.toId && kept.label === d.label) return;
+    await store.put(this.ctx.orgId, d, kept?.id ?? null);
+  }
+
+  /** The CRM agrees with Canon on this claim: nothing is kept for it. */
+  private async agree(d: Disagreement): Promise<void> {
+    const store = this.disagreementStore();
+    for (const k of await store.of(this.ctx.orgId, d.fromId)) if (sameClaim(k, d)) await store.remove(this.ctx.orgId, k.id);
+  }
+
+  /**
+   * A CRM lists a person at a company, first (`primary`) when it is their primary. A company a person removed them from
+   * stays removed; a primary company a person chose stays primary. The person's first company is primary when they
+   * have none, as on the record page.
+   */
+  private async crmLink(contactId: string, accountId: string, primary: boolean): Promise<EdgeResult> {
+    const all = await this.store.edgesFrom(this.ctx.orgId, CONTACT_ACCOUNT, contactId, EDGES_PER_RECORD_MAX);
+    const edges = this.active(all);
+    const at = this.claim({ association: CONTACT_ACCOUNT, fromId: contactId, toId: accountId });
+    if (!edges.some((e) => e.toId === accountId)) {
+      const removed = await this.edgeIn(all, CONTACT_ACCOUNT, contactId, accountId);
+      if (removed && (await this.linkOwner(removed))?.by === "canon") {
+        await this.disagree(at);
+        return this.result();
+      }
+    }
+    const primaryNow = edges.find((e) => e.primary);
+    const asPrimary = { ...at, primary: true as const };
+    const takesPrimary = primary && (!primaryNow || primaryNow.toId === accountId || (await this.fieldOwner(primaryNow, "primary"))?.by !== "canon");
+    const result = await this.link(contactId, accountId, takesPrimary, all);
+    if (result.status === "invalid") return result;
+    await this.agree(at);
+    if (primary) await (takesPrimary ? this.agree(asPrimary) : this.disagree(asPrimary));
+    return result;
+  }
+
+  /**
+   * A CRM puts a person on a deal in a role. A person a person removed from the deal stays off it, and a role a person
+   * gave stays: the CRM's role is kept as a disagreement. A single-holder role a person gave someone else stays theirs,
+   * and a newcomer the CRM gives it joins as involved.
+   */
+  private async crmSetRole(dealId: string, contactId: string, role: DealRole): Promise<EdgeResult> {
+    if (!dealId || !contactId) return { status: "invalid", message: "Name a deal and a person" };
+    if (!DEAL_ROLES.includes(role)) return { status: "invalid", message: `Unknown role ${role}` };
+    const all = await this.store.edgesFrom(this.ctx.orgId, DEAL_CONTACT, dealId, EDGES_PER_RECORD_MAX);
+    const edges = this.active(all);
+    const current = edges.find((e) => e.toId === contactId);
+    const said = this.claim({ association: DEAL_CONTACT, fromId: dealId, toId: contactId, label: role });
+    if (current?.label === role) {
+      await this.agree(said);
+      return this.result();
+    }
+    const removed = current ? null : await this.edgeIn(all, DEAL_CONTACT, dealId, contactId);
+    const holder = DEAL_SINGLE_ROLES.has(role) ? edges.find((e) => e.toId !== contactId && e.label === role) : undefined;
+    const keptOff = removed !== null && (await this.linkOwner(removed))?.by === "canon";
+    const keptRole = !keptOff && current !== undefined && (await this.fieldOwner(current, "label"))?.by === "canon";
+    const keptHolder = !keptOff && !keptRole && holder !== undefined && (await this.fieldOwner(holder, "label"))?.by === "canon";
+    if (!keptOff && !keptRole && !keptHolder) {
+      const result = await this.setRole(dealId, contactId, role, null, all);
+      if (result.status !== "invalid") await this.agree(said);
+      return result;
+    }
+    await this.disagree(said);
+    // Only the single role was a person's (someone else holds it): the CRM's newcomer still joins the deal, as involved.
+    return keptHolder && !current ? this.setRole(dealId, contactId, "involved", null, all) : this.result();
+  }
+
+  /** A CRM makes an activity about these records. One a person took it off stays off. */
+  private async crmTarget(activityId: string, toIds: readonly string[]): Promise<EdgeResult> {
+    const allowed: string[] = [];
+    for (const toId of new Set(toIds.filter(Boolean))) {
+      const edge = await this.store.findEdge(this.ctx.orgId, ACTIVITY_TARGET, activityId, toId);
+      if (edge && !edge.active && (await this.linkOwner(edge))?.by === "canon") continue;
+      allowed.push(toId);
+    }
+    if (!allowed.length) return toIds.length ? this.result() : this.target(activityId, toIds);
+    return this.target(activityId, allowed);
+  }
+
+  /** See `keepOnly`. Links a person made or put back stay. */
+  private async crmKeepOnly(association: "contact_account" | "deal_contact" | "activity_target", fromId: string, keep: readonly string[]): Promise<EdgeResult> {
+    for (const e of association === CONTACT_ACCOUNT ? [] : await this.store.edgesFrom(this.ctx.orgId, association, fromId, EDGES_PER_RECORD_MAX)) {
+      if (!e.active || keep.includes(e.toId)) continue;
+      const owner = await this.linkOwner(e);
+      if (owner?.by !== "crm" || owner.provider !== this.provider) continue;
+      await (association === DEAL_CONTACT ? this.removeFromDeal(fromId, e.toId) : this.untarget(fromId, [e.toId]));
+    }
+    if (CLAIMED.has(association)) {
+      const store = this.disagreementStore();
+      for (const k of await store.of(this.ctx.orgId, fromId)) {
+        if (k.association === association && k.provider === this.provider && k.toId !== null && !keep.includes(k.toId)) await store.remove(this.ctx.orgId, k.id);
+      }
+    }
+    return this.result();
+  }
+
+  /** Why a company cannot have this parent, or null. */
+  private async parentRefusal(accountId: string, parentId: string | null): Promise<EdgeResult | null> {
     if (!accountId) return { status: "invalid", message: "Name a company" };
     if (parentId === accountId) return { status: "invalid", message: "A company cannot be its own parent" };
     if (parentId && (await this.isAncestor(accountId, parentId))) return { status: "invalid", message: "That company is already below this one" };
+    return null;
+  }
+
+  private async writeParent(accountId: string, parentId: string | null): Promise<EdgeResult> {
     const parents = this.active(await this.store.edgesFrom(this.ctx.orgId, ACCOUNT_PARENT, accountId, EDGES_PER_RECORD_MAX));
     for (const p of parents) if (p.toId !== parentId) await this.write({ op: "delete", streamId: p.streamId });
     if (parentId && !parents.some((p) => p.toId === parentId)) await this.ensure(ACCOUNT_PARENT, accountId, parentId, false);
     return this.result();
   }
 
-  async setRole(dealId: string, contactId: string, role: DealRole, reason: string | null): Promise<EdgeResult> {
+  /**
+   * A company's parent now and who decides it: the owner of its active parent link, or with none active, of the one
+   * removed last. Null when the company never had a parent.
+   */
+  private async parentOwner(accountId: string): Promise<{ current: string | null; owner: LinkOwner }> {
+    const rows = await this.store.edgesFrom(this.ctx.orgId, ACCOUNT_PARENT, accountId, EDGES_PER_RECORD_MAX);
+    const active = rows.find((r) => r.active);
+    if (active) return { current: active.toId, owner: await this.linkOwner(active) };
+    let latest: { row: EdgeRow; at: number } | null = null;
+    for (const r of rows) {
+      const life = (await this.store.getHotRow(r.streamId))?.lifecycle;
+      const at = life?.status === "deleted" ? life.at : r.createdAt;
+      if (!latest || at >= latest.at) latest = { row: r, at };
+    }
+    return { current: null, owner: latest ? await this.linkOwner(latest.row) : null };
+  }
+
+  /** A CRM sets or clears a company's parent (see crm). HubSpot never clears one; a CRM record clears only a link it made itself. */
+  private async crmSetParent(accountId: string, parentId: string | null): Promise<EdgeResult> {
+    const { current, owner } = await this.parentOwner(accountId);
+    const said = this.claim({ association: ACCOUNT_PARENT, fromId: accountId, toId: parentId });
+    if (current === parentId) {
+      await this.agree(said);
+      return unchanged;
+    }
+    if (owner?.by === "canon") {
+      await this.disagree(said);
+      return unchanged;
+    }
+    if (parentId === null && owner?.ref !== this.ctx.source.ref) return unchanged;
+    return this.writeParent(accountId, parentId);
+  }
+
+  /** `all`: the deal's edges, active or removed, when already read. */
+  async setRole(dealId: string, contactId: string, role: DealRole, reason: string | null, all?: EdgeRow[]): Promise<EdgeResult> {
     if (!dealId || !contactId) return { status: "invalid", message: "Name a deal and a person" };
     if (!DEAL_ROLES.includes(role)) return { status: "invalid", message: `Unknown role ${role}` };
-    const edges = this.active(await this.store.edgesFrom(this.ctx.orgId, DEAL_CONTACT, dealId, EDGES_PER_RECORD_MAX));
+    all ??= await this.store.edgesFrom(this.ctx.orgId, DEAL_CONTACT, dealId, EDGES_PER_RECORD_MAX);
+    const edges = this.active(all);
     const current = edges.find((e) => e.toId === contactId);
     if (!current && edges.length >= EDGES_PER_RECORD_MAX) return { status: "invalid", message: `A deal can have at most ${EDGES_PER_RECORD_MAX} people` };
     if (DEAL_SINGLE_ROLES.has(role)) {
@@ -436,7 +726,7 @@ class EdgeWriter {
       if (current.label !== role || current.reason !== reason) await this.write({ op: "update", streamId: current.streamId, values });
       return this.result();
     }
-    const removed = await this.store.findEdge(this.ctx.orgId, DEAL_CONTACT, dealId, contactId);
+    const removed = await this.edgeIn(all, DEAL_CONTACT, dealId, contactId);
     if (!removed) {
       await this.write({ op: "create", values: { association: DEAL_CONTACT, fromId: dealId, toId: contactId, ...values } });
       return this.result();

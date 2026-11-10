@@ -7,26 +7,22 @@
  */
 import { api } from "../../../../convex/_generated/api.js";
 import type { Id } from "../../../../convex/_generated/dataModel.js";
-import { AGENT_SOURCES } from "../../../../convex/lib/canon/gate.ts";
-import { FILTER_OPS, type FilterOp } from "../../../../convex/lib/objects/listSpec.ts";
+import { FILTER_OPS, type FilterOp, type ReportBucket } from "../../../../modules/kernel/reportLanguage.ts";
 import { ConvexError } from "convex/values";
 import { V1Error, toV1Error, type V1Client, type V1Result } from "./_lib.ts";
 import type { FieldValue as RegistryValue } from "../../../../convex/lib/objects/registry.ts";
 import type { Stored } from "../../../../convex/lib/objects/validators.ts";
 import { parseSplits } from "../../../../convex/lib/objects/splits.ts";
+import { setRecordLifecycle, type LifecycleOp } from "../../mcp/_recordLifecycle.ts";
+import { isGenericObject } from "../../../../convex/lib/objects/describe.ts";
+import { GROUP_QUERY, LIST_QUERY, readQuery, VERSION_QUERY, WRITE_MESSAGES, WriteBody, type ApiRecord } from "./_contract.ts";
 
 type FieldValue = Stored<RegistryValue>;
 type Field = { fieldId: string; apiName: string; type: string; system?: boolean };
 type Described = { fields: Field[]; readOnlyFields?: string[]; register: boolean; canCreate: boolean; canDelete: boolean; writable: boolean };
 
-/** A record as the API returns it: `values` keyed by field apiName. */
-export type ApiRecord = {
-  id: string; object: string; version: number; status: string; title: string;
-  values: Record<string, FieldValue>; createdAt: number; updatedAt: number; deletedAt: number | null;
-};
+export type { ApiRecord };
 
-const SOURCES: readonly string[] = ["user", ...AGENT_SOURCES];
-const isObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 const isFieldValue = (x: unknown): x is FieldValue =>
   x === null || ["string", "number", "boolean"].includes(typeof x) || (Array.isArray(x) && (x.every((i) => typeof i === "string") || parseSplits(x).ok));
 
@@ -39,17 +35,15 @@ async function describe(client: V1Client, object: string): Promise<Described> {
 function toApiRecord(def: Described, r: { id: string; object: string; version: number; status: string; title: string; values: Record<string, unknown>; createdAt: number; updatedAt: number; deletedAt: number | null }): ApiRecord {
   const names = new Map(def.fields.map((f) => [f.fieldId, f.apiName]));
   const values = Object.fromEntries(Object.entries(r.values).map(([k, v]) => [names.get(k) ?? k, v])) as Record<string, FieldValue>;
-  return { id: r.id, object: r.object, version: r.version, status: r.status, title: r.title, values, createdAt: r.createdAt, updatedAt: r.updatedAt, deletedAt: r.deletedAt };
+  return { id: r.id, object: r.object, version: r.version, status: r.status as ApiRecord["status"], title: r.title, values, createdAt: r.createdAt, updatedAt: r.updatedAt, deletedAt: r.deletedAt };
 }
 
 // ---- list ----
 
-const LIST_PARAMS = ["filter", "sort", "limit", "cursor", "deleted"];
-
 /** `field:op:value`, a list value comma-separated, typed by the field. `empty` and `notEmpty` take no value. */
 function parseFilter(def: Described, text: string) {
   const [field, op, ...rest] = text.split(":");
-  if (!field || !op || !(FILTER_OPS as readonly string[]).includes(op)) throw new V1Error("invalid_request", `filter must be field:op:value with op one of ${FILTER_OPS.join(", ")}`);
+  if (!field || !op || !(FILTER_OPS as readonly string[]).includes(op)) throw new V1Error("invalid_request", LIST_QUERY[0]!.message);
   if (op === "empty" || op === "notEmpty") return { field, op: op as FilterOp };
   const type = def.fields.find((f) => f.apiName === field)?.type;
   const scalar = (s: string): string | number | boolean => {
@@ -68,15 +62,12 @@ function parseFilter(def: Described, text: string) {
 }
 
 export async function listRecords(client: V1Client, object: string, params: URLSearchParams): Promise<V1Result> {
-  for (const key of params.keys()) if (!LIST_PARAMS.includes(key)) throw new V1Error("invalid_request", `Unknown query parameter ${key}`);
+  readQuery(LIST_QUERY, params);
   const def = await describe(client, object);
   const limit = params.get("limit");
-  if (limit !== null && !/^\d+$/.test(limit)) throw new V1Error("invalid_request", "limit must be a whole number");
   const deleted = params.get("deleted");
-  if (deleted !== null && deleted !== "true" && deleted !== "false") throw new V1Error("invalid_request", "deleted must be true or false");
   const sort = params.get("sort");
   const [sortField, sortDir = "asc"] = sort ? sort.split(":") : [];
-  if (sort && (!sortField || (sortDir !== "asc" && sortDir !== "desc"))) throw new V1Error("invalid_request", "sort must be field or field:asc|desc");
   const page = await client.action(api.objects.list, {
     object: object as never,
     filter: params.getAll("filter").map((f) => parseFilter(def, f)),
@@ -87,6 +78,25 @@ export async function listRecords(client: V1Client, object: string, params: URLS
   } as never);
   return { status: 200, body: { data: page.rows.map((r) => toApiRecord(def, r)), nextCursor: page.nextCursor, total: page.total } };
 }
+
+/** An object's records grouped by `field` (a date by `bucket`), as `objects.groups` counts them for a grouped list. */
+export async function groupRecords(client: V1Client, object: string, params: URLSearchParams): Promise<V1Result> {
+  readQuery(GROUP_QUERY, params);
+  const def = await describe(client, object);
+  const field = params.get("field")!;
+  const bucket = params.get("bucket");
+  const res = await client.action(api.objects.groups, {
+    object, filter: params.getAll("filter").map((f) => parseFilter(def, f)), group: { field, ...(bucket ? { bucket: bucket as ReportBucket } : {}) },
+  });
+  return { status: 200, body: { data: res.groups, rows: res.rows, sum: res.sum, summed: res.summed, truncated: res.truncated } };
+}
+
+/**
+ * Objects whose records the API creates, archives and restores (the ledger's, deals, companies and people). For
+ * these a caller whose role may not is refused by the Convex function, as on the dashboard (403), not told the verb
+ * does not exist (405).
+ */
+const hasRecordWrites = (def: Described, object: string) => def.register || object === "deal" || isGenericObject(object);
 
 /** The body a write needs, with the object's own field names, so a caller can fix it in one try. */
 function missingValues(def: Described, object: string): V1Error {
@@ -106,11 +116,13 @@ async function byId<T>(object: string, id: string, run: () => Promise<T>): Promi
   }
 }
 
-async function fetchRecord(client: V1Client, def: Described, object: string, id: string): Promise<ApiRecord> {
+/** `archived`: look among archived records first (just after an archive), else active ones first. */
+async function fetchRecord(client: V1Client, def: Described, object: string, id: string, archived = false): Promise<ApiRecord> {
   if (def.register) {
     // Accounts and contacts live in the register under their record id; the list is the one read that serves both.
-    const page = await client.action(api.objects.list, { object: object as never, filter: [{ field: "id", op: "eq", value: id }], limit: 1 });
-    const row = page.rows[0];
+    const read = (deleted: boolean) => client.action(api.objects.list, { object: object as never, filter: [{ field: "id", op: "eq", value: id }], limit: 1, ...(deleted ? { deleted: true } : {}) });
+    // An archived company or person reads as archived, as an archived ledger record does, not as missing.
+    const row = (await read(archived)).rows[0] ?? (await read(!archived)).rows[0];
     if (!row) throw new V1Error("not_found", `No ${object} ${id}`);
     return toApiRecord(def, row);
   }
@@ -135,17 +147,13 @@ export async function getRecord(client: V1Client, object: string, id: string): P
 // ---- writes ----
 
 function parseBody(body: unknown) {
-  if (!isObject(body)) throw new V1Error("invalid_request", "Send a JSON object body");
-  const values = body.values;
-  if (values !== undefined && (!isObject(values) || !Object.values(values).every(isFieldValue))) {
-    throw new V1Error("invalid_request", "values must map field apiNames to scalar values, string lists or valid credit splits");
+  const parsed = WriteBody.safeParse(body);
+  const values = parsed.success ? parsed.data.values : undefined;
+  if (!parsed.success || (values !== undefined && !Object.values(values).every(isFieldValue))) {
+    const field = parsed.success ? "values" : String(parsed.error.issues[0]!.path[0] ?? "");
+    throw new V1Error("invalid_request", WRITE_MESSAGES[field] ?? WRITE_MESSAGES[""]!);
   }
-  const { expectedVersion, source, evidence, confidence } = body;
-  if (expectedVersion !== undefined && (!Number.isInteger(expectedVersion) || (expectedVersion as number) < 0)) throw new V1Error("invalid_request", "expectedVersion must be a non-negative integer");
-  if (source !== undefined && (typeof source !== "string" || !SOURCES.includes(source))) throw new V1Error("invalid_request", `source must be one of ${SOURCES.join(", ")}`);
-  if (evidence !== undefined && typeof evidence !== "string") throw new V1Error("invalid_request", "evidence must be text");
-  if (confidence !== undefined && (typeof confidence !== "number" || confidence < 0 || confidence > 1)) throw new V1Error("invalid_request", "confidence must be a number from 0 to 1");
-  return { values: values as Record<string, FieldValue> | undefined, expectedVersion: expectedVersion as number | undefined, source: source as string | undefined, evidence: evidence as string | undefined, confidence: confidence as number | undefined };
+  return { ...parsed.data, values: values as Record<string, FieldValue> | undefined };
 }
 
 type SaveResult =
@@ -185,16 +193,17 @@ async function registerWrite<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-export async function createRecord(client: V1Client, object: string, body: unknown, idempotencyKey?: string | null): Promise<V1Result> {
+/** Every create the record API makes; with a key, each kind runs it through convex/lib/idempotency.ts once. */
+export async function createRecord(client: V1Client, object: string, body: unknown, idempotencyKey?: string): Promise<V1Result> {
   const def = await describe(client, object);
   const b = parseBody(body);
   if (!b.values) throw missingValues(def, object);
   if (b.expectedVersion !== undefined) throw new V1Error("invalid_request", "expectedVersion applies to updates");
-  if (!def.canCreate && !def.register) throw new V1Error("unsupported", `${object} records cannot be created through the API`);
+  if (!def.canCreate && !hasRecordWrites(def, object)) throw new V1Error("unsupported", `${object} records cannot be created through the API`);
   if (def.register) {
     // Companies and people are added to the register fill-only (dedupe by domain or person), not written to the ledger.
     if (b.source) throw new V1Error("invalid_request", "source applies to ledger objects, not companies and people");
-    const key = idempotencyKey?.trim() || globalThis.crypto.randomUUID();
+    const key = idempotencyKey ?? globalThis.crypto.randomUUID();
     const res = (await registerWrite(() => client.action(api.records.upsert, { object: object as "account" | "contact", [object === "account" ? "accounts" : "contacts"]: [b.values], idempotencyKey: key } as never))) as { upserted: number; ids: string[]; rejected?: Array<{ reason: string }> };
     if (!res.ids.length) throw new V1Error("validation_failed", "The record was rejected", { errors: (res.rejected ?? []).map((r) => ({ field: "values", message: r.reason })) });
     return { status: 201, body: { status: "applied", id: res.ids[0] } };
@@ -206,10 +215,10 @@ export async function createRecord(client: V1Client, object: string, body: unkno
     const entries = Object.entries(b.values);
     const custom = Object.fromEntries(entries.filter(([k]) => k.startsWith("custom.")));
     const standard = Object.fromEntries(entries.filter(([k]) => !k.startsWith("custom.")));
-    const res = await client.action(api.deals.createScoped, { ...standard, ...(Object.keys(custom).length ? { custom } : {}) } as never);
+    const res = await client.action(api.deals.createScoped, { ...standard, ...(Object.keys(custom).length ? { custom } : {}), ...(idempotencyKey ? { idempotencyKey } : {}) } as never);
     return { status: 201, body: { status: "applied", id: res.streamId } };
   }
-  return saved(client, def, object, (await client.mutation(api.objects.write, { object: object as never, values: b.values, ...agentOptions(b) })) as SaveResult, true);
+  return saved(client, def, object, (await client.mutation(api.objects.write, { object: object as never, values: b.values, ...agentOptions(b), ...(idempotencyKey ? { idempotencyKey } : {}) })) as SaveResult, true);
 }
 
 export async function updateRecord(client: V1Client, object: string, id: string, body: unknown): Promise<V1Result> {
@@ -246,14 +255,25 @@ export async function updateRecord(client: V1Client, object: string, id: string,
   return saved(client, def, object, result as SaveResult, false);
 }
 
-async function lifecycle(client: V1Client, object: string, id: string, searchParams: URLSearchParams, op: "remove" | "restore"): Promise<V1Result> {
+/**
+ * Archive or restore, through the dashboard's function for the object (src/lib/recordLifecycle.ts). A role that may
+ * not archive is refused by that function (403), as on the dashboard; 405 is for an object with no archive at all.
+ */
+async function lifecycle(client: V1Client, object: string, id: string, searchParams: URLSearchParams, op: LifecycleOp): Promise<V1Result> {
   const def = await describe(client, object);
-  if (!def.canDelete) throw new V1Error("unsupported", `${object} records cannot be deleted or restored through the API`);
+  if (!def.canDelete && !hasRecordWrites(def, object)) throw new V1Error("unsupported", `${object} records cannot be deleted or restored through the API`);
+  readQuery(VERSION_QUERY, searchParams, false);
   const raw = searchParams.get("expectedVersion");
-  if (raw !== null && !/^\d+$/.test(raw)) throw new V1Error("invalid_request", "expectedVersion must be a non-negative integer");
-  const result = await byId(object, id, () => client.mutation(api.objects[op], { object: object as never, streamId: id as Id<"canonEntities">, ...(raw !== null ? { expectedVersion: Number(raw) } : {}) }));
-  return saved(client, def, object, result as SaveResult, false);
+  if (def.register && raw !== null) throw new V1Error("unsupported", "Companies and people have no version check; omit expectedVersion");
+  const result = await byId(object, id, () => setRecordLifecycle(client, { object, id, op, ...(raw !== null ? { expectedVersion: Number(raw) } : {}) }));
+  if (!def.register) return saved(client, def, object, result as SaveResult, false);
+  if (result.status === "invalid") {
+    const message = result.errors.map((e) => e.message).join("; ");
+    throw /not found/i.test(message) ? new V1Error("not_found", `No ${object} ${id}`) : new V1Error("validation_failed", message, { errors: result.errors });
+  }
+  const record = await fetchRecord(client, def, object, id, op === "delete");
+  return { status: 200, body: { status: result.status, id, version: record.version, data: record } };
 }
 
-export const deleteRecord = (client: V1Client, object: string, id: string, params: URLSearchParams) => lifecycle(client, object, id, params, "remove");
+export const deleteRecord = (client: V1Client, object: string, id: string, params: URLSearchParams) => lifecycle(client, object, id, params, "delete");
 export const restoreRecord = (client: V1Client, object: string, id: string, params: URLSearchParams) => lifecycle(client, object, id, params, "restore");

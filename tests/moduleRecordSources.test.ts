@@ -7,7 +7,8 @@ import { ListRequestError } from "../convex/lib/objects/listSpec.ts";
 import { createFakeRecordClient, createMemoryRecordStore } from "../convex/lib/recordClient.ts";
 import type { AccountRow, ContactRow } from "../convex/lib/recordContract.ts";
 import { parseModuleManifest } from "../modules/kernel/manifest.ts";
-import { reportSource, canonSourceFields, grantsSource, expandSources, canonReportRequest, standardListDef, recordReportFields, standardRecordFields } from "../modules/kernel/reports.ts";
+import { reportSource, canonSourceFields, grantsSource, expandSources, standardRecordFields } from "../modules/kernel/reports.ts";
+import { canonReportRequest, standardListDef, recordReportFields } from "../convex/lib/modules/recordReportFields.ts";
 import { defaultSlots, planUpgrade } from "../modules/kernel/upgrade.ts";
 
 const account = (id: string, industry: string, employees: number, ownerId: string) =>

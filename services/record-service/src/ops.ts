@@ -5,8 +5,8 @@ import type {
   GetAccountResult, GetContactResult, IcpGate, IcpStatsResult, IcpWeights, ListAccountsBody, ListAccountsResult, ListContactsBody, ListContactsResult, RescoreResult,
 } from "./contract.ts";
 import { all, compact, lit, one, type Params } from "./db.ts";
-import { NONE, REGION_OF_COUNTRY, SIZE_BANDS } from "./dimensions.ts";
-import { industryFilterKeys, industryKey, industryKeySql } from "./industries.ts";
+import { NONE, REGION_OF_COUNTRY, SIZE_BANDS } from "./core/kernel/dimensions.ts";
+import { industryFilterKeys, industryKey, industryKeySql } from "./core/kernel/industries.ts";
 import { HttpError } from "./errors.ts";
 import { accountSql } from "./icpTree.ts";
 import { LEDGER_OWNED } from "./register.ts";

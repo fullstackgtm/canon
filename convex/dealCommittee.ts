@@ -19,8 +19,9 @@ import { callerClient, requireCaller } from "./records";
 import { isRestricted, may, type Access } from "./lib/access";
 import { dealVisible } from "./permissions";
 import { edgeStore, peopleOfCompany, rowsById } from "./associations";
-import { applyEdgeCommand, EDGES_PER_RECORD_MAX, seedDealRoles, type EdgeResult, type LegacyDealRole } from "./lib/objects/associations";
+import { applyEdgeCommand, EDGES_PER_RECORD_MAX, seedDealRoles, type EdgeResult, type LegacyDealRole, type StoredDisagreement } from "./lib/objects/associations";
 import { DEAL_ROLES, type DealRole } from "./lib/objects/registry";
+import type { RecordClient } from "./lib/recordClient";
 
 /** Rows one deal's legacy committee held (#225's cap). */
 const LEGACY_MAX = 50;
@@ -49,6 +50,9 @@ const legacyRows = (ctx: QueryCtx, dealId: Id<"deals">) =>
   ctx.db.query("dealContacts").withIndex("by_dealId", (q) => q.eq("dealId", dealId)).take(LEGACY_MAX);
 
 const asLegacy = (r: Doc<"dealContacts">): LegacyDealRole => ({ contactId: r.contactId, role: r.slot, reason: r.reason ?? null, setBy: r.setBy, at: r.updatedAt });
+
+/** A deal's roles from before edges (`dealContacts` rows), which seed its first edges (seedDealRoles). */
+export const legacyRolesOf = async (ctx: QueryCtx, dealId: Id<"deals">) => (await legacyRows(ctx, dealId)).map(asLegacy);
 
 /** One person on a deal. `snapshot` is the name and title a legacy row kept, for a contact the register no longer lists. */
 type Member = { contactId: string; role: DealRole; reason: string | null; snapshot: { name: string; title: string | null } | null };
@@ -123,9 +127,13 @@ const edgeResult = v.union(
   v.object({ status: v.literal("invalid"), message: v.string() }),
 );
 
-/** One person's change to a deal's people, in one transaction; a deal still on legacy rows is converted first. */
+/**
+ * One person's change to a deal's people, in one transaction; a deal still on legacy rows is converted first. With
+ * `crm`, the change is a CRM's role the person takes (useCrmRole): written with that CRM record as its source while
+ * the CRM still says it, so the role is the CRM's again, and the claim is no longer kept.
+ */
 export const apply = internalMutation({
-  args: { orgId: v.id("organizations"), userId: v.id("users"), streamId: v.string(), command },
+  args: { orgId: v.id("organizations"), userId: v.id("users"), streamId: v.string(), command, crm: v.optional(v.string()) },
   returns: edgeResult,
   handler: async (ctx, args): Promise<EdgeResult> => {
     const user = await ctx.db.get(args.userId);
@@ -134,11 +142,20 @@ export const apply = internalMutation({
     if (!mayEdit(user, deal)) throw new ConvexError("Only admins, managers and the deal's owner can change its people");
     const store = edgeStore(ctx);
     await seedDealRoles(store, args.orgId, args.streamId, (await legacyRows(ctx, deal._id)).map(asLegacy));
-    const edgeCtx = { orgId: args.orgId, source: { kind: "user" as const, ref: `user:${args.userId}` }, actor: { kind: "user" as const, id: args.userId }, now: Date.now() };
     const { contactId } = args.command;
-    return applyEdgeCommand(store, edgeCtx, args.command.op === "setRole"
+    const claimId = args.crm ? ctx.db.normalizeId("parentDisagreements", args.crm) : null;
+    const claim = claimId ? await ctx.db.get(claimId) : null;
+    if (args.crm && (!claim || claim.orgId !== args.orgId || claim.association !== "deal_contact" || claim.accountId !== args.streamId
+      || claim.crmParentId !== contactId || args.command.op !== "setRole" || claim.crmLabel !== args.command.role)) {
+      return { status: "invalid", message: "What the CRM says changed. Reload the page." };
+    }
+    const source = claim ? { kind: claim.provider, ref: claim.crmRef } : { kind: "user" as const, ref: `user:${args.userId}` };
+    const edgeCtx = { orgId: args.orgId, source, actor: { kind: "user" as const, id: args.userId }, now: Date.now() };
+    const result = await applyEdgeCommand(store, edgeCtx, args.command.op === "setRole"
       ? { op: "setRole", dealId: args.streamId, contactId, role: args.command.role, ...(args.command.reason ? { reason: args.command.reason } : {}) }
       : { op: "removeFromDeal", dealId: args.streamId, contactId });
+    if (claim && result.status !== "invalid") await ctx.db.delete(claim._id);
+    return result;
   },
 });
 
@@ -165,7 +182,7 @@ export async function setDealRoles(
   return { changed, error: null };
 }
 
-async function change(ctx: ActionCtx, streamId: string, cmd: { op: "setRole"; contactId: string; role: DealRole; reason?: string } | { op: "removeFromDeal"; contactId: string }): Promise<EdgeResult> {
+async function change(ctx: ActionCtx, streamId: string, cmd: { op: "setRole"; contactId: string; role: DealRole; reason?: string } | { op: "removeFromDeal"; contactId: string }, crm?: string): Promise<EdgeResult> {
   const caller = await requireCaller(ctx);
   // A deal's people are the deal's: the caller edits deals and sees this one (CP14). A person added must be one they see.
   if (!may(caller.access, "deal", "edit")) throw new ConvexError("Your role cannot edit deal records");
@@ -176,7 +193,7 @@ async function change(ctx: ActionCtx, streamId: string, cmd: { op: "setRole"; co
     throw new ConvexError("Contact not found");
   }
   const result = await ctx.runMutation(internal.dealCommittee.apply, {
-    orgId: caller.orgId as Id<"organizations">, userId: caller.userId as Id<"users">, streamId, command: cmd,
+    orgId: caller.orgId as Id<"organizations">, userId: caller.userId as Id<"users">, streamId, command: cmd, ...(crm ? { crm } : {}),
   });
   if (result.status === "invalid") throw new ConvexError(result.message);
   return result;
@@ -200,8 +217,41 @@ export const removeFromDeal = action({
   handler: (ctx, args): Promise<EdgeResult> => change(ctx, args.streamId, { op: "removeFromDeal", contactId: args.contactId }),
 });
 
+/**
+ * Use what a CRM record says a person's role on a deal is (or that they are on it), where a person's choice in Canon
+ * held against it. The change is the deal page's, written as that CRM record, so the role follows the CRM again.
+ */
+export const useCrmRole = action({
+  args: { id: v.string() },
+  returns: edgeResult,
+  handler: async (ctx, args): Promise<EdgeResult> => {
+    const caller = await requireCaller(ctx);
+    const d: StoredDisagreement | null = await ctx.runQuery(internal.associations.claim, { orgId: caller.orgId as Id<"organizations">, id: args.id });
+    if (!d || d.association !== "deal_contact" || !d.toId || !d.label) throw new ConvexError("Canon already follows the CRM here");
+    return change(ctx, d.fromId, { op: "setRole", contactId: d.toId, role: d.label }, d.id);
+  },
+});
+
+/** A CRM's role for a person on a deal, where a person's choice held against it (EdgeWriter.crm): `onDeal` false when a person took them off. */
+export type CrmRole = { id: string; provider: "salesforce" | "hubspot"; contactId: string; name: string; role: DealRole; onDeal: boolean };
+
+/**
+ * The CRM roles kept for a deal while Canon still differs (the person is off the deal, or holds another role), for
+ * the people the caller sees. Read by the deal's people panel and its play's account map.
+ */
+export async function crmRolesOf(ctx: ActionCtx, client: RecordClient, orgId: Id<"organizations">, streamId: string, members: ReadonlyArray<{ contactId: string; role: DealRole }>): Promise<CrmRole[]> {
+  const kept: StoredDisagreement[] = await ctx.runQuery(internal.associations.claimsOf, { orgId, fromId: streamId });
+  const claims = kept.filter((d) => d.association === "deal_contact" && d.toId && d.label && !members.some((m) => m.contactId === d.toId && m.role === d.label));
+  if (!claims.length) return [];
+  const contacts = await rowsById(client, orgId, "contact", claims.map((d) => d.toId!));
+  return claims.flatMap((d) => {
+    const row = contacts.get(d.toId!);
+    return row ? [{ id: d.id, provider: d.provider, contactId: d.toId!, name: row.title || d.toId!, role: d.label!, onDeal: members.some((m) => m.contactId === d.toId) }] : [];
+  });
+}
+
 export type DealPerson = { contactId: string; name: string; title: string | null; role: DealRole; reason: string | null; atCompany: boolean };
-export type DealPeople = { companyId: string | null; canEdit: boolean; members: DealPerson[]; companyPeople: Array<{ id: string; fullName: string; title?: string }> };
+export type DealPeople = { companyId: string | null; canEdit: boolean; members: DealPerson[]; companyPeople: Array<{ id: string; fullName: string; title?: string }>; crmRoles: CrmRole[] };
 
 /**
  * A deal's people for its record page, named from the register, and the
@@ -218,9 +268,10 @@ export const forDeal = action({
     // A person the caller does not see is left out, not shown by the name a legacy row kept (CP14).
     const restricted = isRestricted(caller.access);
     if (!data) return null;
-    const [contacts, people] = await Promise.all([
+    const [contacts, people, crmRoles] = await Promise.all([
       rowsById(client, orgId, "contact", data.members.map((m) => m.contactId)),
       data.companyId ? peopleOfCompany(ctx, client, orgId, data.companyId) : Promise.resolve([]),
+      crmRolesOf(ctx, client, orgId, args.streamId, data.members),
     ]);
     const atCompany = new Set(people.map((p) => p.id));
     const members = data.members.flatMap((m): DealPerson[] => {
@@ -233,6 +284,7 @@ export const forDeal = action({
     return {
       companyId: data.companyId, canEdit: data.canEdit, members,
       companyPeople: people.map((p) => ({ id: p.id, fullName: p.name, ...(p.title ? { title: p.title } : {}) })),
+      crmRoles,
     };
   },
 });

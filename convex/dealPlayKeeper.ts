@@ -207,11 +207,12 @@ async function editor(ctx: ActionCtx, streamId: string) {
   return caller;
 }
 
-/** Run the keeper now, as the caller and on their plan: drafts the steps due in the next few days. Never notifies. */
+/** Run the keeper now, as the caller and on their plan: drafts the steps due in the next few days. Never notifies. Turns on an imported play's daily check. */
 export const checkNow = action({
   args: { streamId: v.string() },
   handler: async (ctx, args): Promise<{ drafted: number; error: string | null }> => {
     const caller = await editor(ctx, args.streamId);
+    await ctx.runMutation(internal.dealPlays.resumeKeeper, { orgId: caller.orgId as Id<"organizations">, streamId: args.streamId });
     const out = await check(ctx, caller, args.streamId, { llmUserId: caller.userId as Id<"users">, notify: false });
     if (!out) throw new ConvexError("Deal not found");
     return { drafted: out.drafted, error: out.error };

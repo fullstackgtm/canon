@@ -15,7 +15,7 @@ export function AgentOwnerLine({ agent }: { agent: AgentView }) {
   const setOwner = useMutation(api.agents.setOwner);
   const candidates = useQuery(api.agents.ownerCandidates, agent.canReassign ? {} : "skip");
   const guard = (p: Promise<unknown>) => void p.catch((e) => toast.error(getErrorMessage(e)));
-  const canResume = agent.status === "paused" && (agent.reason === "paused_by_user" ? agent.canManage : agent.canReassign && agent.ownerEligible);
+  const canResume = agent.status === "paused" && (agent.reason === "paused_by_user" || agent.reason === "imported" ? agent.canManage : agent.canReassign && agent.ownerEligible);
   const ownerListed = candidates?.some((c) => c.id === agent.owner?.id) ?? false;
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

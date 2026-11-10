@@ -3,7 +3,7 @@ import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { isEnabled, manifestOf, packageRow } from "../modules/packages";
 import { recordObjectName, reportSource, reportsTakeover } from "../../../modules/kernel/reports.ts";
-import type { ReportSpec } from "../objects/validators";
+import type { ReportSpec } from "../../../modules/kernel/reportValidators";
 
 export const REPORTS_MODULE = "@canon/reports";
 

@@ -13,11 +13,47 @@ the end, lists what each milestone added.
 
 ## Build a module from your own repository
 
+A module is a directory in your own repository. It needs the module kit,
+`@fullstackgtm/canon-module-kit`, and nothing else from Canon. The kit holds the
+contract's types and a command that checks and builds a module. Use Node.js
+22.6 or newer.
+
+### Install the kit
+
+The kit isn't on npm yet, so build its package from a Canon clone and install
+that file. npm can't install a package from a subdirectory of a Git repository.
+It installs the whole repository, unbuilt. From the directory that will hold
+`hello/`:
+
+```sh
+mkdir hello && cd hello && npm init -y && cd ..
+git clone https://github.com/fullstackgtm/canon
+cd canon/modules/kernel
+npm install --no-package-lock
+npm pack --pack-destination ../../..
+cd ../../../hello
+npm install --save-dev ../fullstackgtm-canon-module-kit-1.0.0.tgz typescript
+```
+
+`npm pack` builds the kit and writes `fullstackgtm-canon-module-kit-1.0.0.tgz`
+next to `hello/`. Its version is the one in `canon/modules/kernel/package.json`.
+When the kit is on npm, `npm install --save-dev @fullstackgtm/canon-module-kit typescript`
+in `hello/` replaces these steps.
+
+pnpm installs a subdirectory of a Git repository and builds it, once you let the
+kit and esbuild run their build scripts. In `hello/`:
+
+```sh
+printf 'onlyBuiltDependencies:\n  - "@fullstackgtm/canon-module-kit"\n  - esbuild\n' > pnpm-workspace.yaml
+pnpm add -D "github:fullstackgtm/canon#path:/modules/kernel" typescript
+```
+
+Then run the commands below with `pnpm exec` in place of `npx`.
+
 ### Write the smallest module
 
-A module is a directory that holds a `module.json`. A module with calls also
-holds a `server.ts` and the bundle built from it. This one keeps notes and counts
-them. Put it in a directory next to your Canon checkout, here `hello/`.
+A module holds a `module.json`. A module with calls also holds a `server.ts`
+and the bundle built from it. This one keeps notes and counts them.
 
 `hello/module.json`:
 
@@ -71,7 +107,7 @@ them. Put it in a directory next to your Canon checkout, here `hello/`.
 `hello/server.ts`:
 
 ```ts
-import type { CallFunctions, ReadDoc } from "@canon/kernel/calls.ts";
+import type { CallFunctions, ReadDoc } from "@fullstackgtm/canon-module-kit/calls";
 
 export const calls: CallFunctions = {
   count(_ctx, reads) {
@@ -81,60 +117,46 @@ export const calls: CallFunctions = {
 };
 ```
 
-### Build it from a Canon checkout
+`hello/tsconfig.json` lets TypeScript check `server.ts` against the kit's types:
 
-The build runs Canon's own manifest checker, so it runs from a Canon checkout.
-Use Node.js 22.6 or newer.
+```json
+{
+  "compilerOptions": { "target": "es2022", "module": "nodenext", "moduleResolution": "nodenext", "strict": true, "noEmit": true },
+  "include": ["server.ts"]
+}
+```
+
+### Check and build it
+
+From `hello/`:
 
 ```sh
-git clone https://github.com/fullstackgtm/canon
-cd canon
-npm ci
-npm run module:build -- ../hello
+npx tsc
+npx canon-module-kit check
+npx canon-module-kit build
 ```
 
-The build checks `module.json`, bundles `server.ts` into the file `server` names,
-and checks that the bundle exports a function for every call `module.json`
-declares. It prints the bundle's path, size and hash:
+`tsc` checks the types. `check` reads `module.json` whole, then every source
+file in the directory. It fails on an import that leaves the module. A module
+imports only its own files, the kit and npm packages. `build` checks
+`module.json`, bundles `server.ts` into the file `server` names, and checks
+that the bundle exports a function for every call `module.json` declares. It
+prints the bundle's path, size and hash:
 
 ```
-wrote ../hello/dist/module.js (142 bytes, 44fa25e8ac4c08380bb134783bfee556)
+wrote dist/module.js (142 bytes, 44fa25e8ac4c08380bb134783bfee556)
 ```
 
 A failed check prints every problem with its path in `module.json`, for example
 `pages[0].body[1].from names count, whose call count declares no result to draw`.
 Commit `dist/module.js` beside the source. Install reads the committed bundle.
 
-### Import the kernel's types
-
-`modules/kernel/` in the checkout holds the contract's types: `CallFunctions`,
-`CallContext`, `ReadDoc` and `Intent` in `calls.ts`, fact rows in `facts.ts` and
-proposal outcomes in `proposals.ts`. The kernel is not an installable package
-yet. Point a path alias at your checkout instead, in `hello/tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "target": "es2022", "module": "esnext", "moduleResolution": "bundler", "strict": true, "noEmit": true,
-    "allowImportingTsExtensions": true, "skipLibCheck": true,
-    "paths": { "@canon/kernel/*": ["../canon/modules/kernel/*"] }
-  },
-  "include": ["server.ts"]
-}
-```
-
-Check the types with the checkout's TypeScript, from `canon/`:
-
-```sh
-./node_modules/.bin/tsgo --noEmit -p ../hello/tsconfig.json
-```
-
-Import types with `import type`. The build drops a type-only import, so the
-bundle holds none of Canon's code, and the build succeeds even without the alias.
-A value import, such as `migration` from `calls.ts`, is copied into your bundle.
-The build finds it through the same alias. `examples/modules/stale-facts/` sits
-inside the checkout, so it imports the kernel by relative path
-(`../../../modules/kernel/calls.ts`) and needs no alias.
+Import the kit's types with `import type`. The build drops a type-only import,
+so the bundle holds none of the kit's code. A value import, such as `migration`
+from `@fullstackgtm/canon-module-kit/calls`, is copied into the bundle. Each
+file of Canon's `modules/kernel/` is a subpath of the kit: `CallFunctions`,
+`CallContext`, `ReadDoc` and `Intent` are in `calls`, fact rows in `facts` and
+proposal outcomes in `proposals`.
 
 ### Install it from GitHub
 
@@ -146,8 +168,8 @@ enable" has the details.
 
 ### Change it and install again
 
-1. Edit `module.json` or `server.ts`, then run `npm run module:build -- ../hello`
-   again. The checker needs no Canon backend.
+1. Edit `module.json` or `server.ts`, then run `npx canon-module-kit build`
+   again. The kit needs no Canon backend.
 2. Test each call as a function. A call takes a context and the reads its plan
    names, so a test passes both and checks what it returns.
    `tests/staleFactsExample.test.ts` tests Stale facts this way and checks that
@@ -162,10 +184,13 @@ enable" has the details.
 covers one part of the contract. These examples ship with this repository:
 
 - `examples/modules/stale-facts/` reads the fact ledger and proposes corrections
-  for review (see "Facts" and "Writes to Canon records"). Its README has its
-  build and install steps.
+  for review (see "Facts" and "Writes to Canon records"). It imports the kit by
+  its package name, as a module in its own repository does. Inside Canon, a
+  `paths` entry in `tsconfig.json` points that name at `modules/kernel/`. Its
+  README has its build and install steps.
 - `modules/examples/<slug>/` holds Canon's open modules, which "Modules Canon
-  ships" describes.
+  ships" describes. Inside Canon, `npm run module:build -- <dir>` runs the kit's
+  `build` on one of them.
 
 ## The package
 
@@ -1066,7 +1091,7 @@ enforce it, and Convex stops waiting after 15 s.
 the functions by name:
 
 ```ts
-import type { CallFunctions, Intent, ReadDoc } from "<canon>/modules/kernel/calls.ts";
+import type { CallFunctions, Intent, ReadDoc } from "@fullstackgtm/canon-module-kit/calls";
 export const calls: CallFunctions = {
   summarize(ctx, reads) {
     const visits = reads.mine as ReadDoc[];
@@ -1076,7 +1101,7 @@ export const calls: CallFunctions = {
 };
 ```
 
-`npm run module:build -- <dir>` checks `module.json`, bundles `server.ts` with
+`npx canon-module-kit build <dir>` checks `module.json`, bundles `server.ts` with
 its imports into one file at the `server` path, and checks the bundle exports a
 function for every call. The bundle names no file path, so the same source
 builds the same bytes, and the same hash, in any checkout. Commit the bundle with the manifest: install fetches

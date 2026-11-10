@@ -6,7 +6,7 @@
  * stored score. Pure and free of Node imports: the UI calls it too.
  */
 import type { IcpGate, IcpWeights } from "./recordContract";
-import { industryWeight, sameIndustry } from "../../services/record-service/src/industries.ts";
+import { industryWeight, sameIndustry } from "../../modules/kernel/industries.ts";
 
 export type FitDimension = "base" | "industry" | "country" | "employees";
 export type FitReason = {

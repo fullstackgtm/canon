@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { ListRow } from "../../../convex/lib/objects/listSpec";
-import type { ReportSpec } from "../../../convex/lib/objects/validators";
+import type { ReportSpec } from "../../../modules/kernel/reportValidators";
 import { LoadingRows } from "@/components/dashboard";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { recordHref } from "@/components/records/record-target";

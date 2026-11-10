@@ -20,11 +20,16 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   // docs/conversation-intake.md: reading a person's messages needs that person's own consent. Agents list and read
   // conversations and stop intake on their own person's account through canon_conversations (conversationsApi.stopIntake).
   "api.conversations.setIntake": "only the account's owner consents to Canon reading their messages; an agent never turns it on (it may turn it off with canon_conversations stop_intake)",
+  // convex/emailLog.ts: the address is a secret that logs mail as its member; replacing it breaks their mail filters.
+  "api.emailLog.regenerate": "a member's logging address logs mail as them; only that member makes or replaces it, in the app",
   "api.conversations.deleteRead": "erasing what was read cannot be undone and is the owner's decision about their own messages, made in the app",
   // docs/account-hierarchy-manager.md: a person approves proposed merges and parent moves, and owns the hard rules.
   "api.accountHierarchy.decide": "approving a proposed merge, parent move or field fix is a person's decision; an agent never approves its own research",
   "api.accountHierarchy.approveParent": "approving a parent move changes Canon's hierarchy as the approver; the hierarchy page is its only approval, and an agent never approves its own research",
   "api.accountHierarchy.undoParent": "undoing an applied parent move reverses a person's approval; it stays with the person who decides",
+  "api.associations.useCrmParent": "taking a CRM's parent over the one a person set in Canon is that person's call on the record page or the hierarchy page; an agent sets parents with set_parent",
+  "api.associations.useCrmCompany": "taking a CRM's company over what a person chose for someone in Canon is that person's call on the record page; an agent links a person's companies with canon_associations",
+  "api.dealCommittee.useCrmRole": "taking a CRM's deal role over the one a person set in Canon is that person's call on the deal page; an agent sets deal roles with canon_deal_roles",
   "api.accountHierarchy.savePolicy": "the hierarchy policy holds the hard rules (owners never change, active contracts flagged); an agent never relaxes its own guardrails",
   // Admin settings that change what every record accepts or where data is sent.
   "api.dataModel.createField": "field definitions are admin settings: they change what every record, import and API write accepts",
@@ -35,6 +40,11 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.customObjects.edit": "object definitions are admin settings: they add or retire whole objects every page, import and API write resolves",
   "api.customObjects.setArchived": "object definitions are admin settings: they add or retire whole objects every page, import and API write resolves",
   "api.pipelines.save": "pipeline stages are admin settings that every deal and report depends on",
+  // Workspace export (convex/workspaceTransfer.ts): a key reads every record of the workspace for an hour.
+  "api.workspaceTransfer.createExportKey": "an export key lets whoever holds it read the whole workspace for an hour; an admin creates it in Settings, never an agent",
+  "api.workspaceImport.createImportKey": "an import key lets whoever holds it write a whole archive into an empty workspace; an admin creates it in Settings, never an agent",
+  "api.workspaceTransfer.revokeExportKey": "export keys are an admin's, made and revoked in Settings",
+  "api.workspaceImport.revokeImportKey": "import keys are an admin's, made and revoked in Settings",
   "api.users.createMember": "adding a member decides who can own deals and who an invite signs in as; an admin's call, never an agent's",
   "api.users.invite": "it sends an invite email from Clerk to a person; an agent never invites people",
   "api.localAuth.invite": "it creates a login link that lets a person into the workspace; an admin decides who joins, never an agent",

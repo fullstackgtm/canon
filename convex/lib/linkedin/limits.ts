@@ -174,40 +174,9 @@ export function validateWindow(w: SendWindow): string | null {
   return null;
 }
 
-export function validTimezone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { localTime } from "../timeZone.ts";
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-/** The local date, weekday and minute of the day at `nowMs` in `tz`. */
-const formatters = new Map<string, Intl.DateTimeFormat>();
-const formatterFor = (tz: string) => {
-  let f = formatters.get(tz);
-  if (!f) {
-    f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit" });
-    formatters.set(tz, f);
-  }
-  return f;
-};
-
-export function localTime(nowMs: number, tz: string): { date: string; weekday: number; minute: number } {
-  const parts = Object.fromEntries(
-    formatterFor(tz)
-      .formatToParts(new Date(nowMs))
-      .map((p) => [p.type, p.value]),
-  );
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    weekday: WEEKDAYS.indexOf(parts.weekday),
-    minute: Number(parts.hour) * 60 + Number(parts.minute),
-  };
-}
+export { localTime, validTimezone } from "../timeZone.ts";
 
 export function inWindow(nowMs: number, window: SendWindow, tz: string): boolean {
   const t = localTime(nowMs, tz);

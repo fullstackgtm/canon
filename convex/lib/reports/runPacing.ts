@@ -1,9 +1,9 @@
 import { ConvexError } from "convex/values";
 import { asListError } from "../../objects";
 import { atLeastVersion, type RecordClient } from "../recordClient";
-import type { ViewFilter } from "../objects/validators";
+import type { ViewFilter } from "../../../modules/kernel/reportValidators";
 import type { ListFilter } from "../objects/listSpec";
-import type { ReportBucket } from "../objects/reportSpec";
+import type { ReportBucket } from "../../../modules/kernel/reportLanguage";
 import { cohorts, dayOf, periodOf, shiftPeriod, PACING_COMPARE_MAX, type Grain, type Period } from "./pacing";
 import type { Roster } from "../../targets";
 

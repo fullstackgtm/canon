@@ -2,9 +2,9 @@
  * Stale facts: reads the fact ledger with facts.forRecords, proposes a correction with facts.propose and reads each
  * proposal's outcome with proposals.byIds (docs/modules.md, "Facts" and "Proposing facts").
  */
-import type { CallContext, CallFunctions, Intent, ReadDoc } from "../../../modules/kernel/calls.ts";
-import type { FactObject, FactsForRecordsRow, FactValue, FieldState } from "../../../modules/kernel/facts.ts";
-import type { ProposalOutcome } from "../../../modules/kernel/proposals.ts";
+import type { CallContext, CallFunctions, Intent, ReadDoc } from "@fullstackgtm/canon-module-kit/calls";
+import type { FactObject, FactsForRecordsRow, FactValue, FieldState } from "@fullstackgtm/canon-module-kit/facts";
+import type { ProposalOutcome } from "@fullstackgtm/canon-module-kit/proposals";
 
 /** The attributes this module may propose, as module.json's facts.<object>.propose declares them. */
 const PROPOSABLE: Record<FactObject, readonly string[]> = {

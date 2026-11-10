@@ -1,7 +1,7 @@
 import type { Id } from "../../_generated/dataModel";
 import type { MutationCtx } from "../../_generated/server";
 import type { ModuleManifest } from "../../../modules/kernel/manifest.ts";
-import type { ReportSpec } from "../objects/validators";
+import type { ReportSpec } from "../../../modules/kernel/reportValidators";
 
 export const shippedPoint = (table: "reports" | "dashboards") => `module.templates.${table}`;
 

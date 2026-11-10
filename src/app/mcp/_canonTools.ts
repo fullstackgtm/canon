@@ -19,7 +19,8 @@ import { canonModuleTools } from "./_canonModuleTools.ts";
 import { canonRelationTools } from "./_canonRelationTools.ts";
 import { canonReportTools } from "./_canonReportTools.ts";
 import { explainConvexError } from "../../lib/convexErrorText.ts";
-import { FILTER_OPS, type FilterOp } from "../../../convex/lib/objects/listSpec.ts";
+import { setRecordLifecycle } from "./_recordLifecycle.ts";
+import { FILTER_OPS, type FilterOp } from "../../../modules/kernel/reportLanguage.ts";
 
 export type CanonTool = {
   name: string;
@@ -286,19 +287,19 @@ export const canonRecordTools: CanonTool[] = [
   },
   {
     name: "canon_create_record",
-    description: "Create a lead, task, note, call, meeting, product, deal line item or a record of a custom object. Line items require dealId and productId stream ids, positive integer quantity and an explicit totalPrice in integer hundredths; name is derived from the product. Link an activity to a company, contact or deal with accountId, contactId or dealId. Returns its stream id and version.",
-    inputSchema: { object: ledgerObject, values: fieldValues },
+    description: "Create a lead, task, note, call, meeting, product, deal line item or a record of a custom object. Line items require dealId and productId stream ids, positive integer quantity and an explicit totalPrice in integer hundredths; name is derived from the product. Link an activity to a company, contact or deal with accountId, contactId or dealId. Returns its stream id and version. Pass an idempotencyKey to retry a create safely: the same key and values return the first answer.",
+    inputSchema: { object: ledgerObject, values: fieldValues, idempotencyKey: z.string().min(1).max(200).optional() },
     writes: true,
-    run: (convex, args) => convex.mutation(api.objects.write, { object: args.object as never, values: args.values as never }),
+    run: (convex, args) => convex.mutation(api.objects.write, { object: args.object as never, values: args.values as never, ...(args.idempotencyKey ? { idempotencyKey: String(args.idempotencyKey) } : {}) }),
   },
   {
     name: "canon_create_deal",
-    description: "Create a deal (admins and managers). stage is one of the deal stage options (canon_describe_object deal) and puts the deal in that stage's pipeline. amount is in cents; closeDate is YYYY-MM-DD. primaryRepId is a Canon user id (see canon_whoami) and defaults to you. companyId is the company's record id (acc_…, from canon_search_records).",
+    description: "Create a deal (admins and managers). stage is one of the deal stage options (canon_describe_object deal) and puts the deal in that stage's pipeline. amount is in cents; closeDate is YYYY-MM-DD. primaryRepId is a Canon user id (see canon_whoami) and defaults to you. companyId is the company's record id (acc_…, from canon_search_records). Pass an idempotencyKey to retry safely: the same key and arguments return the first deal.",
     inputSchema: {
       name: z.string().min(1).max(200), amount: z.number().int().nonnegative().optional(), currency: z.string().length(3).optional(), closeDate: z.string(),
       stage: z.string(),
       dealType: z.enum(["new_business", "expansion", "renewal", "one_time"]).optional(), revenueType: z.enum(["one_time", "recurring"]).optional(),
-      primaryRepId: z.string().optional(), companyId: z.string().optional(),
+      primaryRepId: z.string().optional(), companyId: z.string().optional(), idempotencyKey: z.string().min(1).max(200).optional(),
     },
     writes: true,
     run: (convex, args) => convex.action(api.deals.createScoped, args as never),
@@ -342,12 +343,17 @@ export const canonRecordTools: CanonTool[] = [
   },
   {
     name: "canon_delete_record",
-    description: "Archive a deal, lead, task, note, call, meeting, product or custom object record (restore: true brings it back). An archived record leaves lists, search, reports and agents; nothing is erased.",
-    inputSchema: { object: z.union([ledgerObject, z.literal("deal")]), streamId: z.string(), restore: z.boolean().optional(), expectedVersion: z.number().int().nonnegative().optional() },
+    description: "Archive a company, person, deal, lead, task, note, call, meeting, product or custom object record (restore: true brings it back). An archived record leaves lists, search, reports and agents; nothing is erased. Only admins and managers archive companies, people and deals. Companies and people take no expectedVersion.",
+    inputSchema: {
+      object: z.union([ledgerObject, z.enum(["deal", "account", "contact"])]),
+      streamId: z.string().describe("The record's id: a company's or person's register id (acc_…, con_…), else its stream id"),
+      restore: z.boolean().optional(),
+      expectedVersion: z.number().int().nonnegative().optional(),
+    },
     writes: true,
     destructive: true,
-    run: (convex, args) => convex.mutation(args.restore === true ? api.objects.restore : api.objects.remove, {
-      object: args.object as never, streamId: args.streamId as Id<"canonEntities">,
+    run: (convex, args) => setRecordLifecycle(convex, {
+      object: String(args.object), id: String(args.streamId), op: args.restore === true ? "restore" : "delete",
       ...(typeof args.expectedVersion === "number" ? { expectedVersion: args.expectedVersion } : {}),
     }),
   },

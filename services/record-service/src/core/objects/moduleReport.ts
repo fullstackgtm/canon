@@ -16,10 +16,7 @@
 import { indexObjectDef, type FieldDef, type FieldId, type ResolvedObjectDef } from "./registry.ts";
 import type { ListRow } from "./listSpec.ts";
 import type { AggregateRequest } from "./reportSpec.ts";
-
-/** A report field's type, as Canon's reports read it. A `picklist` carries the labels of its values. */
-export type ModuleFieldType = "text" | "picklist" | "user" | "number" | "currency" | "date" | "datetime" | "checkbox";
-export type ModuleReportField = { name: string; label: string; type: ModuleFieldType; options?: readonly { value: string; label: string }[] };
+import type { ModuleFieldType, ModuleReportField } from "../kernel/reportLanguage.ts";
 
 /** A value a row condition compares with. */
 export type ModuleScalar = string | number | boolean | null;

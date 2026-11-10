@@ -21,9 +21,11 @@ export const PAUSE_REASON_KEYS = [
   "owner_not_member",
   "owner_role",
   "owner_placeholder",
+  // Arrived in a workspace import (lib/workspaceArchive/actors.ts): a person here resumes it, as a pause a person set.
+  "imported",
 ] as const;
 export type PauseReason = (typeof PAUSE_REASON_KEYS)[number];
-export type OwnerProblem = Exclude<PauseReason, "paused_by_user">;
+export type OwnerProblem = Exclude<PauseReason, "paused_by_user" | "imported">;
 
 /**
  * What each reason means: what people read while the agent is paused, and for
@@ -36,6 +38,7 @@ export const PAUSE_REASONS: Record<PauseReason, { message: string; refusal: stri
   owner_not_member: { message: "Paused: owner left the workspace", refusal: "That person is not a member of this workspace." },
   owner_role: { message: "Paused: owner's role can't own agents", refusal: "That person's role can't own agents." },
   owner_placeholder: { message: "Paused: owner is a CRM record, not a person", refusal: "That is a CRM record, not a person." },
+  imported: { message: "Paused: imported from another workspace. Resume it to run it on what happens from then on", refusal: null },
 };
 
 export function isOwnerCaused(reason: PauseReason): reason is OwnerProblem {

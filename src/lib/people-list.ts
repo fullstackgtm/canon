@@ -1,6 +1,7 @@
-import { compileListRequest, FILTER_OPS, FILTERS_MAX, type FilterOp } from "../../convex/lib/objects/listSpec.ts";
+import { compileListRequest, FILTERS_MAX } from "../../convex/lib/objects/listSpec.ts";
+import { FILTER_OPS, type FilterOp } from "../../modules/kernel/reportLanguage.ts";
 import type { ResolvedObjectDef } from "../../convex/lib/objects/registry.ts";
-import type { ViewFilter } from "../../convex/lib/objects/validators.ts";
+import type { ViewFilter } from "../../modules/kernel/reportValidators.ts";
 import type { PeopleFilterForm, PeopleListAction } from "../../modules/kernel/manifest.ts";
 
 export const PEOPLE_LIST_PATH = "/dashboard/records/contact";
