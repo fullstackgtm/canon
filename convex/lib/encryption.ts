@@ -1,9 +1,9 @@
 /**
  * AES-GCM encryption/decryption for CRM OAuth tokens.
  *
- * Encrypted values are stored as base64(iv + ciphertext). If
- * TOKEN_ENCRYPTION_KEY is unset, callers should skip encryption rather than
- * calling these helpers.
+ * Encrypted values are stored as base64(iv + ciphertext). Callers go through
+ * lib/tokenHelpers.ts, which refuses to store a credential without
+ * TOKEN_ENCRYPTION_KEY.
  */
 
 const ALGORITHM = "AES-GCM";

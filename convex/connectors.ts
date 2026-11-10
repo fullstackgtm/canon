@@ -2,6 +2,7 @@
  * Connector links and their feeds' health (shared gap P5, docs/connector-feeds.md): the Feeds page in Settings, the
  * signed webhook's links and its receiving end. Every write of a feed goes through lib/connectors/feeds.ts.
  */
+import { sealedV } from "./lib/sealed";
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -130,7 +131,7 @@ export const createWebhook = action({
 });
 
 export const insertWebhook = internalMutation({
-  args: { label: v.string(), secret: v.string() },
+  args: { label: v.string(), secret: sealedV },
   handler: async (ctx, args) => {
     const user = await requireCap(ctx, "integrations.manage");
     const label = args.label.trim().slice(0, 100);
@@ -155,7 +156,7 @@ export const rotateWebhook = action({
 });
 
 export const setSecret = internalMutation({
-  args: { id: v.id("connectorLinks"), secret: v.string() },
+  args: { id: v.id("connectorLinks"), secret: sealedV },
   handler: async (ctx, args) => {
     const { user, link } = await ownLink(ctx, args.id);
     if (link.connector !== webhook.id) throw new ConvexError("Only a signed webhook has a secret to rotate");

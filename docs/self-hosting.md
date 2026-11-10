@@ -386,6 +386,30 @@ your own changes.
 `docker compose down` preserves the volume. `docker compose down -v` deletes
 data and credentials. Use `-v` only to tear down a disposable test installation.
 
+## Keep the token encryption key
+
+Canon encrypts every integration credential it stores with `TOKEN_ENCRYPTION_KEY`:
+CRM and ChatGPT tokens, provider API keys, Slack and webhook URLs, and webhook
+signing secrets. Canon refuses to save a credential when the key is missing, so
+every install needs one. Setup generates it once and keeps it on every rerun:
+
+- Docker: the first boot writes `/data/credentials/token_encryption_key` in the
+  data volume.
+- `npm run selfhost:deploy`: the key goes to your backend's environment and to
+  `.env.selfhost.backend.local` (mode `0600`), next to the frontend env file. If
+  the backend already has a key, the command keeps that one, and it refuses to
+  run when the backend, that file and your environment hold different keys.
+  Never give this file to the frontend host.
+- `scripts/setup-local-auth.mjs`: the key goes to the backend env file,
+  `.env.local-auth.local` by default. Apply that file to your backend.
+
+Back the key up with your data. A backup without it restores your records but
+none of the stored credentials. If the key is lost, set a new one; then connect
+every integration again and rotate every webhook signing secret, because what
+was stored with the old key can't be decrypted. A credential saved in plain text
+by an older install that had no key still works, and is encrypted the next time
+it is saved.
+
 ## Run the backend on Convex Cloud
 
 To run the backend on your own Convex Cloud account instead of in the container,
@@ -394,7 +418,8 @@ create a project and provide its production `CONVEX_DEPLOY_KEY` and the app's
 `npm run selfhost:deploy -- --target convex-cloud --env-file ../canon-deploy.env --dry-run`.
 Remove `--dry-run` to deploy. The command writes `.env.selfhost.local`, including the first owner's `CANON_SETUP_CODE`. Copy it
 to `.env.production.local`, run `npm run build`, then `npm start`. Keep its
-signing key for upgrades and configure HTTPS for the Next.js host. Optional
+signing key for upgrades, back up `.env.selfhost.backend.local` (see
+[Keep the token encryption key](#keep-the-token-encryption-key)), and configure HTTPS for the Next.js host. Optional
 integrations need their own setup in [Optional integrations](selfhost-integrations.md).
 
 Use the same verifier against that URL. Pass its

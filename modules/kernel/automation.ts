@@ -55,6 +55,9 @@ export const ownerChoiceValidator = v.union(
   v.object({ kind: v.literal("routing_rule"), routingRuleId: v.id("routingRules") }),
 );
 
+/** Who an email step writes to: a member of the workspace, or the record's owner. Never a contact. */
+export const memberChoiceValidator = v.union(v.object({ kind: v.literal("member"), userId: v.id("users") }), v.object({ kind: v.literal("record_owner") }));
+
 /** The actions that each do one thing. */
 const LEAVES = [
   v.object({ kind: v.literal("set_field"), field: v.string(), value: v.union(scalar, v.null()) }),
@@ -66,6 +69,18 @@ const LEAVES = [
    * doesn't wait.
    */
   v.object({ kind: v.literal("wait"), days: v.optional(v.number()), until: v.optional(v.string()) }),
+  /**
+   * Post `message` to a Slack channel an admin mapped in Settings > Outbound (`channel`, its name there). `{record}` is
+   * the record's name and `{<field>}` a field's value, both as the rule's member sees the record.
+   */
+  v.object({ kind: v.literal("notify_slack"), channel: v.string(), message: v.string() }),
+  /** Email a workspace member (one member, or the record's owner), never a contact: `subject` and `message` as above. */
+  v.object({ kind: v.literal("notify_email"), to: memberChoiceValidator, subject: v.string(), message: v.string() }),
+  /**
+   * Send the record, as the rule's member sees it, to a record webhook an admin registered: signed and retried as
+   * record webhooks are. An imported rule's step arrives with no endpoint (endpoints never move), until an admin picks one.
+   */
+  v.object({ kind: v.literal("call_webhook"), endpointId: v.optional(v.id("recordWebhookEndpoints")) }),
 ] as const;
 export const leafActionValidator = v.union(...LEAVES);
 
@@ -219,6 +234,8 @@ export type RuleNames = {
   members?: ReadonlyArray<{ id: string; name: string }>;
   teams?: ReadonlyArray<{ id: string; name: string }>;
   routingRules?: ReadonlyArray<{ id: string; name: string }>;
+  /** Record webhooks an admin registered, by where they send. */
+  webhooks?: ReadonlyArray<{ id: string; name: string }>;
   timezone?: string;
   /** The workspace's currency (ISO 4217), for currency fields. */
   currency?: string;
@@ -317,6 +334,9 @@ function phrases(rule: RuleShape, names: RuleNames) {
     set_field: (a) => (a.value === null || a.value === "" ? `clear ${fieldName(a.field)}` : `set ${fieldName(a.field)} to ${value(a.field, a.value)}`),
     create_task: (a) => `create a task "${a.subject}" for ${owner(a.owner)}, due ${a.dueInDays === 0 ? "the same day" : `in ${plural(a.dueInDays, "day")}`}`,
     assign_owner: (a) => `assign it to ${owner(a.owner)}`,
+    notify_slack: (a) => `post "${a.message}" to Slack #${a.channel.replace(/^#/, "")}`,
+    notify_email: (a) => `email ${owner(a.to)} "${a.subject}"`,
+    call_webhook: (a) => `send the ${noun} to ${a.endpointId ? `the webhook ${names.webhooks?.find((w) => w.id === a.endpointId)?.name ?? "(deleted)"}` : "a webhook (none picked yet)"}`,
     wait: (a) => (a.until ? `wait until the ${noun}'s ${fieldName(a.until)}` : `wait ${plural(a.days ?? 0, "day")}`),
     if: (a) => `if ${conditions(a.conditions)} (${branch(a.then)}${a.else?.length ? `; otherwise ${branch(a.else)}` : ""})`,
   };

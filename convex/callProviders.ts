@@ -1,3 +1,4 @@
+import { NO_CREDENTIAL } from "./lib/sealed";
 import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -149,8 +150,8 @@ export const disconnect = mutation({
 
     await ctx.db.patch(integration._id, {
       isActive: false,
-      accessToken: "",
-      refreshToken: "",
+      accessToken: NO_CREDENTIAL,
+      refreshToken: NO_CREDENTIAL,
       lastSyncStatus: undefined,
       lastSyncError: undefined,
       updatedAt: Date.now(),

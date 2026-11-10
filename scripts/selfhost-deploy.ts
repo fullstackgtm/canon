@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import { z } from "zod";
@@ -86,6 +86,7 @@ export function deploy(options: Options, inherited: Env = process.env, cwd = pro
   const target = selectTarget(options.target, env, isAgentWorktree(cwd, env));
   const site = publicUrl(env.SITE_URL ?? env.NEXT_PUBLIC_SITE_URL, "SITE_URL");
   const appFile = resolve(cwd, options.appEnv);
+  const keyFile = `${appFile.replace(/\.local$/, "")}.backend.local`;
   if (options.envFile && appFile === resolve(cwd, options.envFile)) throw new Error("Use separate input and frontend env files");
   if (existsSync(appFile)) {
     const previous = readEnv(appFile);
@@ -93,7 +94,7 @@ export function deploy(options: Options, inherited: Env = process.env, cwd = pro
         (previous.NEXT_PUBLIC_SITE_URL && previous.NEXT_PUBLIC_SITE_URL !== site)) throw new Error("Frontend env belongs to a different install. Use a separate --app-env file.");
   }
   console.log(`Target: ${target.kind}. Backend: ${target.url}`);
-  console.log(`Plan: preserve or generate local-auth keys; set CANON_AUTH, CANON_SERVICE_JWT_ISSUER, CANON_SERVICE_JWKS, FSGTM_ENABLE_DEMO_DATA=false, SITE_URL; deploy functions; write ${options.appEnv}.`);
+  console.log(`Plan: preserve or generate local-auth keys; keep or generate TOKEN_ENCRYPTION_KEY in ${relative(cwd, keyFile)}; set CANON_AUTH, CANON_SERVICE_JWT_ISSUER, CANON_SERVICE_JWKS, TOKEN_ENCRYPTION_KEY, FSGTM_ENABLE_DEMO_DATA=false, SITE_URL; deploy functions; write ${options.appEnv}.`);
   if (options.dryRun) { console.log("Dry run: no files, subprocess deploys, or network requests."); return; }
   if (!existsSync(join(cwd, "node_modules/convex/bin/main.js"))) throw new Error("Run npm ci before deploying");
   const temporary = mkdtempSync(join(tmpdir(), "canon-selfhost-"));
@@ -115,7 +116,17 @@ export function deploy(options: Options, inherited: Env = process.env, cwd = pro
     for (const key of ["CANON_SERVICE_JWT_PRIVATE_KEY", "CANON_SERVICE_JWT_ISSUER", "CANON_SERVICE_JWT_KID", "CANON_SETUP_CODE"]) {
       if (!saved[key] && env[key]) authEnv[key] = env[key];
     }
+    writeEnv(selectionFile, target.credentials);
+    const cli = join(cwd, "node_modules/convex/bin/main.js");
+    // The key the backend already encrypts with wins; one that disagrees with it is refused, never replaced.
+    const read = spawnSync(process.execPath, [cli, "env", "get", "TOKEN_ENCRYPTION_KEY", "--env-file", selectionFile], { cwd, env: { ...cliEnv, NODE_ENV: "production" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    if (read.status !== 0) throw new Error("Reading the backend environment failed. Output suppressed to protect credentials. Check backend reachability and credentials, then rerun.");
+    const keys = new Set([read.stdout.trim(), existsSync(keyFile) ? readEnv(keyFile).TOKEN_ENCRYPTION_KEY : "", env.TOKEN_ENCRYPTION_KEY?.trim()].filter(Boolean));
+    if (keys.size > 1) throw new Error(`TOKEN_ENCRYPTION_KEY differs between the backend, ${relative(cwd, keyFile)} and the environment. Not replacing it: credentials stored with the backend's key would become unreadable. Keep only the backend's key and rerun.`);
+    delete authEnv.TOKEN_ENCRYPTION_KEY;
+    if (keys.size) authEnv.TOKEN_ENCRYPTION_KEY = [...keys][0];
     run(join(cwd, "scripts/setup-local-auth.mjs"), ["--site-url", site, "--app-env", appFile, "--convex-env", backendFile], authEnv, "Local auth setup");
+    writeEnv(keyFile, { TOKEN_ENCRYPTION_KEY: readEnv(backendFile).TOKEN_ENCRYPTION_KEY });
     const auth = readEnv(appFile);
     writeEnv(appFile, {
       CANON_AUTH: "local", CANON_SERVICE_JWT_PRIVATE_KEY: auth.CANON_SERVICE_JWT_PRIVATE_KEY,
@@ -123,12 +134,11 @@ export function deploy(options: Options, inherited: Env = process.env, cwd = pro
       NEXT_PUBLIC_CONVEX_URL: target.url, NEXT_PUBLIC_SITE_URL: site, SITE_URL: site, APP_ENVIRONMENT: "selfhost", FSGTM_ENABLE_DEMO_DATA: "false",
     });
     writeEnv(backendFile, { ...readEnv(backendFile), SITE_URL: site });
-    writeEnv(selectionFile, target.credentials);
-    const cli = join(cwd, "node_modules/convex/bin/main.js");
     run(cli, ["env", "set", "--from-file", backendFile, "--force", "--env-file", selectionFile], cliEnv, "Convex environment");
     run(cli, ["deploy", "--yes", "--env-file", selectionFile], cliEnv, "Convex deploy");
   } finally { rmSync(temporary, { recursive: true, force: true }); }
   console.log(`Frontend env ready: ${options.appEnv} (0600). Keep and back up this signing key with your database.`);
+  console.log(`Backend key: ${relative(cwd, keyFile)} (0600) holds TOKEN_ENCRYPTION_KEY. Back it up with your database and never give it to the frontend: without it, stored integration credentials can't be read.`);
   console.log("Vercel: import this repository and add every frontend env variable to Production before building.");
   console.log("Railway: connect this repository, add every frontend env variable before building, and use npm run build / npm start.");
   console.log("Do not give the frontend CONVEX_DEPLOY_KEY or CONVEX_SELF_HOSTED_ADMIN_KEY. Rebuild after changing public URLs or auth mode.");

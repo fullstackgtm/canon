@@ -185,6 +185,11 @@ export type Mechanism = {
 };
 
 const any = (table: string, index = "by_orgId"): Switch => ({ table, index });
+/** Whether a rule row has a step of one of `kinds`, at any depth of its Ifs. */
+const hasStep = (row: Row, ...kinds: string[]): boolean => {
+  const walk = (steps: unknown): boolean => Array.isArray(steps) && steps.some((s) => s && typeof s === "object" && (kinds.includes((s as Row).kind as string) || walk((s as Row).then) || walk((s as Row).else)));
+  return walk(row.actions);
+};
 
 export const CENSUS: readonly Mechanism[] = [
   {
@@ -260,6 +265,22 @@ export const CENSUS: readonly Mechanism[] = [
     imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" }],
     here: [],
     runs: ["internal.automations.sweep"],
+  },
+  {
+    key: "automation-notify", does: "post to a Slack channel or email a member from an automation rule's notify step",
+    gate: "convex/automations.ts step (an active rule whose approver is still a member), convex/lib/outbound/gate.ts (a Slack channel mapped here, an active member's address)",
+    arrives: "its rule arrives paused; Slack channel mappings never move, so a Slack step is refused until an admin here maps the channel",
+    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" && hasStep(r, "notify_slack", "notify_email") }],
+    here: [],
+    runs: ["internal.automations.sweep"],
+  },
+  {
+    key: "automation-webhook", does: "send a record to a record webhook from an automation rule's webhook step",
+    gate: "convex/automations.ts step (an active rule whose approver is still a member), convex/recordWebhooks.ts claim (an enabled endpoint, the rule's admin still a member)",
+    arrives: "its rule arrives paused, and the step with no endpoint: endpoints carry their secret and never move, so an admin here picks one again",
+    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" && hasStep(r, "call_webhook") }],
+    here: [{ table: "recordWebhookEndpoints", index: "by_orgId", open: (r) => r.enabled === true }],
+    runs: ["internal.automations.sweep", "internal.recordWebhooks.sweep"],
   },
   {
     key: "routing", does: "assign owners from a routing rule's members",

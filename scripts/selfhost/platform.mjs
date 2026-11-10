@@ -1,4 +1,4 @@
-import { randomInt } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 
 // Where the container finds its public address and setup code when the operator did not set them.
 
@@ -23,4 +23,12 @@ const ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
 export function newSetupCode() {
   const letters = Array.from({ length: 15 }, () => ALPHABET[randomInt(ALPHABET.length)]);
   return [0, 5, 10].map((at) => letters.slice(at, at + 5).join("")).join("-");
+}
+
+/**
+ * The key every install encrypts its stored credentials with (convex/lib/encryption.ts): 32 random bytes, base64.
+ * Each setup path generates it once and keeps it; a new key makes every stored credential unreadable.
+ */
+export function newTokenEncryptionKey() {
+  return randomBytes(32).toString("base64");
 }

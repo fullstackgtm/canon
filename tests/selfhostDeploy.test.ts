@@ -38,9 +38,13 @@ test("a failed deploy resumes with the same signing key and no credentials in fr
       const target = fs.readFileSync(path, 'utf8');
       if (target.includes('cloud-test') || process.env.CONVEX_DEPLOY_KEY || process.env.CONVEX_DEPLOYMENT) process.exit(9);
       if (args.some(a => a.includes('local-secret'))) process.exit(10);
+      const stored = fs.existsSync('.backend-env.json') ? JSON.parse(fs.readFileSync('.backend-env.json', 'utf8')) : {};
+      if (Object.values(stored).some(v => args.some(a => a.includes(v)))) process.exit(12);
+      if (args[0] === 'env' && args[1] === 'get') { if (stored[args[2]]) console.log(stored[args[2]]); process.exit(0); }
       if (args[0] === 'env') {
         const backend = fs.readFileSync(args[args.indexOf('--from-file') + 1], 'utf8');
         if (!backend.includes('FSGTM_ENABLE_DEMO_DATA="false"') || backend.includes('PRIVATE_KEY')) process.exit(11);
+        fs.writeFileSync('.backend-env.json', JSON.stringify({ ...stored, ...require('node:util').parseEnv(backend) }));
       }
       if (args[0] === 'deploy' && !fs.existsSync('.attempted')) { fs.writeFileSync('.attempted', ''); process.exit(1); }
     `);
@@ -60,6 +64,20 @@ test("a failed deploy resumes with the same signing key and no credentials in fr
     assert.equal(readFileSync(appFile, "utf8").includes("local-secret"), false);
     assert.equal(readFileSync(appFile, "utf8").includes("cloud-test"), false);
     assert.throws(() => deploy(options, { ...env, SITE_URL: "https://different.example.com" }, cwd));
+    // The credential key: generated once, kept on reruns, the backend's own key adopted, and a different one refused.
+    const keyFile = join(cwd, ".env.selfhost.backend.local");
+    const backendKey = () => JSON.parse(readFileSync(join(cwd, ".backend-env.json"), "utf8")).TOKEN_ENCRYPTION_KEY;
+    const key = parseEnv(readFileSync(keyFile, "utf8")).TOKEN_ENCRYPTION_KEY!;
+    assert.equal(Buffer.from(key, "base64").length, 32);
+    assert.equal(statSync(keyFile).mode & 0o777, 0o600);
+    assert.equal(backendKey(), key);
+    assert.equal(readFileSync(appFile, "utf8").includes(key), false, "the frontend never gets the credential key");
+    rmSync(keyFile);
+    deploy(options, env, cwd);
+    assert.equal(parseEnv(readFileSync(keyFile, "utf8")).TOKEN_ENCRYPTION_KEY, key, "a rerun keeps the backend's key");
+    writeFileSync(keyFile, `TOKEN_ENCRYPTION_KEY="${Buffer.alloc(32, 1).toString("base64")}"\n`);
+    assert.throws(() => deploy(options, env, cwd), /TOKEN_ENCRYPTION_KEY differs/);
+    assert.equal(backendKey(), key);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
@@ -168,4 +186,22 @@ test("verification creates and reads CRM records, checks restart persistence, an
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test("setup without Docker generates the credential key once, keeps it on reruns, and never prints it", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "canon-local-auth-"));
+  try {
+    const setup = (extra: Record<string, string> = {}) => spawnSync(process.execPath, [resolve("scripts/setup-local-auth.mjs"), "--site-url", "https://crm.example.com"], { cwd, encoding: "utf8", env: { PATH: process.env.PATH, NODE_ENV: "test", ...extra } });
+    const backend = join(cwd, ".env.local-auth.local");
+    const first = setup();
+    assert.equal(first.status, 0, first.stderr);
+    const key = parseEnv(readFileSync(backend, "utf8")).TOKEN_ENCRYPTION_KEY!;
+    assert.equal(Buffer.from(key, "base64").length, 32);
+    const second = setup();
+    assert.equal(parseEnv(readFileSync(backend, "utf8")).TOKEN_ENCRYPTION_KEY, key);
+    assert.equal(`${first.stdout}${second.stdout}${first.stderr}`.includes(key), false);
+    assert.equal(readFileSync(join(cwd, ".env.local"), "utf8").includes(key), false);
+    assert.notEqual(setup({ TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString("base64") }).status, 0, "a different key is refused, not swapped in");
+    assert.equal(parseEnv(readFileSync(backend, "utf8")).TOKEN_ENCRYPTION_KEY, key);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
 });

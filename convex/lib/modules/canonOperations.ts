@@ -1,3 +1,4 @@
+import type { Sealed } from "../sealed";
 import { ConvexError } from "convex/values";
 import { z } from "zod";
 import type { TableNames } from "../../_generated/dataModel";
@@ -15,7 +16,7 @@ import { startResearchRun, probeResearchRun, stopResearchRun, setResearchAutoAcc
 import { stopPopulation } from "../populationStop";
 import { startFreePopulation } from "../../populateActions";
 
-export type PreparedCanonOperation = { operation: "agents.rotateSecret"; encryptedSecret: string };
+export type PreparedCanonOperation = { operation: "agents.rotateSecret"; encryptedSecret: Sealed };
 
 const id = <T extends TableNames>(ctx: MutationCtx, table: T) => z.string().transform((raw, issue) => {
   const normalized = ctx.db.normalizeId(table, raw);

@@ -10,6 +10,7 @@
  * queue behind it. The research runs in agentTurnActions.ts (Node); then the
  * agent's route may add the event's contact to an audience (`routeTurn`).
  */
+import { sealedV } from "./lib/sealed";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -236,7 +237,7 @@ export const rotateSecret = action({
   },
 });
 
-export const saveEventSecretArgs = v.object({ agentId: v.id("agents"), secret: v.string() });
+export const saveEventSecretArgs = v.object({ agentId: v.id("agents"), secret: sealedV });
 
 export async function saveEventSecret(ctx: MutationCtx, args: typeof saveEventSecretArgs.type) {
   const user = await requireUser(ctx);

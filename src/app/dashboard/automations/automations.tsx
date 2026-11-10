@@ -35,7 +35,10 @@ const OPS: Array<[string, string]> = [
 const NUMERIC = new Set(["number", "currency", "datetime"]);
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const clock = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
-const ACTION_TITLES: Record<Action["kind"], string> = { set_field: "Set a field", create_task: "Create a task", assign_owner: "Assign an owner", wait: "Wait", if: "If" };
+const ACTION_TITLES: Record<Action["kind"], string> = {
+  set_field: "Set a field", create_task: "Create a task", assign_owner: "Assign an owner", wait: "Wait", if: "If",
+  notify_slack: "Post to Slack", notify_email: "Email a member", call_webhook: "Call a webhook",
+};
 /** How many Ifs deep a step may sit: an If holds one more If, and that one only actions. */
 const IF_DEPTH = 2;
 
@@ -55,7 +58,10 @@ const formText = (x: unknown, field?: FieldInfo) => (x === null || x === undefin
 export function namesFor(ws: Workspace, object: string): RuleNames {
   const o = ws.objects.find((x) => x.apiName === object);
   const related = Object.fromEntries((o?.relations ?? []).map((r) => [r.via, { label: r.label, fields: r.fields }]));
-  return { object: o ? { label: o.label, fields: o.fields } : undefined, related, members: ws.members, teams: ws.teams, routingRules: ws.routingRules, timezone: ws.timezone, currency: ws.currency };
+  return {
+    object: o ? { label: o.label, fields: o.fields } : undefined, related, members: ws.members, teams: ws.teams, routingRules: ws.routingRules,
+    webhooks: ws.webhooks, timezone: ws.timezone, currency: ws.currency,
+  };
 }
 
 /** A field an If can test: the record's own, or with a dot a related record's (`companyId.industry`). */
@@ -544,6 +550,30 @@ function StepList({ steps, onChange, ws, o, depth }: { steps: readonly RuleStep[
                 : <input aria-label="Days to wait" type="number" min={1} max={365} className={`${input} w-16`} value={a.days ?? 1} onChange={(e) => set(i, { kind: "wait", days: Number(e.target.value) })} />}
             </>
           )}
+          {a.kind === "notify_slack" && (
+            <>
+              <span>Post to Slack</span>
+              <SelectField aria-label="Slack channel" value={a.channel} onValueChange={(v) => set(i, { ...a, channel: v })}
+                options={[{ value: "", label: "Channel…" }, ...ws.slackChannels.map((c) => ({ value: c, label: `#${c}` }))]} />
+              <input aria-label="Slack message" className={`${input} min-w-0 flex-1`} value={a.message} onChange={(e) => set(i, { ...a, message: e.target.value })} placeholder="{record} moved to {stage}" />
+            </>
+          )}
+          {a.kind === "notify_email" && (
+            <>
+              <span>Email</span>
+              <SelectField aria-label="Email to" value={a.to.kind === "member" ? a.to.userId : ""} onValueChange={(v) => set(i, { ...a, to: v ? { kind: "member", userId: v as Id<"users"> } : { kind: "record_owner" } })}
+                options={[{ value: "", label: "The record’s owner" }, ...ws.members.map((m) => ({ value: m.id, label: m.name }))]} />
+              <input aria-label="Email subject" className={`${input} min-w-0`} value={a.subject} onChange={(e) => set(i, { ...a, subject: e.target.value })} placeholder="Subject" />
+              <input aria-label="Email message" className={`${input} min-w-0 flex-1`} value={a.message} onChange={(e) => set(i, { ...a, message: e.target.value })} placeholder="{record} needs you" />
+            </>
+          )}
+          {a.kind === "call_webhook" && (
+            <>
+              <span>Send the record to</span>
+              <SelectField aria-label="Webhook" value={a.endpointId ?? ""} onValueChange={(v) => set(i, v ? { kind: "call_webhook", endpointId: v as Id<"recordWebhookEndpoints"> } : { kind: "call_webhook" })}
+                options={[{ value: "", label: "Webhook…" }, ...ws.webhooks.map((w) => ({ value: w.id, label: `${w.name}${w.enabled ? "" : " (off)"}` }))]} />
+            </>
+          )}
           {a.kind === "if" && <IfEditor step={a} onChange={(x) => set(i, x)} ws={ws} o={o} depth={depth} />}
           <button type="button" className={btn} onClick={() => onChange(steps.filter((_, j) => j !== i))}>Remove</button>
         </div>
@@ -555,6 +585,13 @@ function StepList({ steps, onChange, ws, o, depth }: { steps: readonly RuleStep[
           <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "assign_owner", owner: { kind: "round_robin", userIds: [] } }])}>Assign an owner</button>
         )}
         <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "wait", days: 2 }])}>Wait</button>
+        {ws.slackChannels.length > 0 && (
+          <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "notify_slack", channel: ws.slackChannels[0], message: "{record}" }])}>Post to Slack</button>
+        )}
+        <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "notify_email", to: { kind: "record_owner" }, subject: "{record}", message: "" }])}>Email a member</button>
+        {ws.webhooks.length > 0 && (
+          <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "call_webhook", endpointId: ws.webhooks[0].id }])}>Call a webhook</button>
+        )}
         {depth < IF_DEPTH && (
           <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "if", conditions: [{ field: "", op: "eq", value: null }], then: [] }])}>If…</button>
         )}

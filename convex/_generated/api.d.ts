@@ -460,6 +460,7 @@ import type * as lib_sampleDataset from "../lib/sampleDataset.js";
 import type * as lib_scopeValidators from "../lib/scopeValidators.js";
 import type * as lib_scopedRecordClient from "../lib/scopedRecordClient.js";
 import type * as lib_scoreHistory from "../lib/scoreHistory.js";
+import type * as lib_sealed from "../lib/sealed.js";
 import type * as lib_segments_jev from "../lib/segments/jev.js";
 import type * as lib_segments_marketSegments from "../lib/segments/marketSegments.js";
 import type * as lib_segments_validator from "../lib/segments/validator.js";
@@ -1085,6 +1086,7 @@ declare const fullApi: ApiFromModules<{
   "lib/scopeValidators": typeof lib_scopeValidators;
   "lib/scopedRecordClient": typeof lib_scopedRecordClient;
   "lib/scoreHistory": typeof lib_scoreHistory;
+  "lib/sealed": typeof lib_sealed;
   "lib/segments/jev": typeof lib_segments_jev;
   "lib/segments/marketSegments": typeof lib_segments_marketSegments;
   "lib/segments/validator": typeof lib_segments_validator;
