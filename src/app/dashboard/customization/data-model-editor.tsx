@@ -370,10 +370,11 @@ function FieldLine({ object, field, canEdit, fields, sources }: { object: Modele
             {field.isName ? "Name" : field.kind === "standard" ? "Standard" : field.kind === "ai" ? "AI field" : "Custom"}
             {field.hidden ? " · hidden" : ""}
           </span>
-          {(field.required || field.rules?.length || field.unique || claiming) && !checks ? (
+          {(field.required || field.rules?.length || field.unique || claiming || field.multiline) && !checks ? (
             <div className="mt-1 flex flex-wrap gap-1 text-xs">
               {field.required && <span className="border border-border px-1.5 py-0.5">Required</span>}
               {field.unique && <span className="border border-border px-1.5 py-0.5">Unique</span>}
+              {field.multiline && <span className="border border-border px-1.5 py-0.5">Long text</span>}
               {claiming && <span className="border border-border px-1.5 py-0.5">Checking for duplicates…</span>}
               {field.rules?.map((r) => <span key={r.kind} className="border border-border px-1.5 py-0.5">{ruleSummary(r)}</span>)}
             </div>
@@ -407,6 +408,7 @@ function FieldLine({ object, field, canEdit, fields, sources }: { object: Modele
                     <button type="button" disabled={busy} onClick={() => setChecks(true)} className={btn}>{takesRules(field.type) ? "Required and rules" : "Required"}</button>
                   )}
                   {hasOptions(field.type) && <button type="button" disabled={busy} onClick={() => setOptions(opts.map((o) => ({ ...o })))} className={btn}>Options</button>}
+                  {field.type === "text" && custom && <button type="button" disabled={busy} onClick={() => void run(() => update({ object, fieldId: field.fieldId, multiline: !field.multiline }), field.multiline ? "One line" : "Long text")} className={btn}>{field.multiline ? "One line" : "Long text"}</button>}
                   {uniqueAble && <button type="button" disabled={busy} onClick={() => setUnique(!(field.unique || claiming))} className={btn}>{field.unique || claiming ? "Not unique" : "Make unique"}</button>}
                   {!field.isName && (
                     <>
@@ -665,6 +667,7 @@ function NewField({ object, fields, sources, onDone }: { object: Modeled; fields
   const own = useQuery(api.customObjects.list);
   const [options, setOptions] = useState<OptionDraft[]>([{ label: "", active: true }]);
   const [compute, setCompute] = useState<ComputeSpec>({ formula: "", returns: "number" });
+  const [multiline, setMultiline] = useState(false);
   const computes = type === "formula" || type === "rollup";
   return (
     <form
@@ -675,6 +678,7 @@ function NewField({ object, fields, sources, onDone }: { object: Modeled; fields
           object, label, type,
           ...(hasOptions(type) ? { options: options.filter((o) => o.label.trim()).map(({ label: l, color }) => ({ label: l, ...(color ? { color } : {}) })) } : {}),
           ...(type === "lookup" ? { lookupTo } : {}),
+          ...(type === "text" && multiline ? { multiline: true } : {}),
           ...(type === "formula" ? { compute: { formula: compute.formula, returns: compute.returns } } : type === "rollup" ? { compute: { formula: compute.formula, rollup: compute.rollup } } : {}),
         }), `Added ${label.trim()}`).then((ok) => ok && onDone());
       }}
@@ -700,6 +704,11 @@ function NewField({ object, fields, sources, onDone }: { object: Modeled; fields
           </label>
         )}
       </div>
+      {type === "text" && (
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={multiline} onChange={(e) => setMultiline(e.target.checked)} /> Long text: several lines, edited in a larger box
+        </label>
+      )}
       {hasOptions(type) && <OptionsEditor options={options} onChange={setOptions} />}
       {computes && <ComputeEditor rollup={type === "rollup"} value={compute} onChange={setCompute} fields={fields} sources={sources} />}
       <div className="flex gap-1">

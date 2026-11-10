@@ -4,9 +4,8 @@ import { pathToFileURL } from "node:url";
 import { createHubspotConnector, type HubspotSyncObject } from "../engine/src/connectors/hubspot.ts";
 import { fakeHubspotFetch, scaledPortal, touchRecords } from "../engine/src/sync/hubspotImport/testing/fakeHubspot.ts";
 import { mappingsKey, planHubspotSync } from "../convex/lib/hubspotSyncPlan.ts";
-import { syncFingerprint } from "../convex/lib/syncUnchanged.ts";
 import { mirrorAccount, mirrorContact, mirrorDeal } from "../convex/lib/hubspotMirror.ts";
-import { accountSyncValue, contactSyncValue, dealSyncValue, accountUnchanged, contactUnchanged, dealUnchanged } from "../convex/lib/hubspotSyncValue.ts";
+import { accountSyncValue, contactSyncValue, dealSyncHash, dealSyncValue, accountUnchanged, contactUnchanged, dealUnchanged } from "../convex/lib/hubspotSyncValue.ts";
 import { planSlices, sliceRanks, readSlicePage } from "../convex/lib/hubspotSlices.ts";
 import type { Id } from "../convex/_generated/dataModel";
 import { prefetchPages, writeInOrder } from "../convex/lib/pagePrefetch.ts";
@@ -96,8 +95,8 @@ export async function measureImpact(): Promise<Metrics> {
             } else {
               const mapped = mirrorDeal(row as Parameters<typeof mirrorDeal>[0], ownerMap, accountMap, new Date(now).toISOString().split("T")[0]);
               const next = dealSyncValue(mapped, accountId, now);
-              unchanged = dealUnchanged(previous, next);
-              value = { ...next, syncHash: syncFingerprint(next) };
+              unchanged = dealUnchanged(previous, mapped, next);
+              value = { ...next, syncHash: dealSyncHash(mapped, next) };
             }
             if (!unchanged) {
               metrics[`${prefix}.rowsWritten`]++;

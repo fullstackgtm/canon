@@ -87,16 +87,16 @@ const LEGACY_RUNS_MAX = 200;
 const IMPORT_STEP_MS = 10 * 60_000;
 
 /** A kept disagreement as the edge writer reads it. A row without `association` is a company's parent (#1189). */
-export const asDisagreement = (d: Doc<"parentDisagreements">): StoredDisagreement => ({
+export const asDisagreement = (d: Doc<"parentDisagreements">): StoredDisagreement | null => (d.association === "field" ? null : {
   id: d._id, association: d.association ?? "account_parent", fromId: d.accountId, toId: d.crmParentId,
   ...(d.primary ? { primary: true as const } : {}), ...(d.crmLabel ? { label: d.crmLabel as DealRole } : {}),
   provider: d.provider, ref: d.crmRef, seenAt: d.seenAt,
 });
 
-/** Every disagreement kept for links from one record. */
+/** Every disagreement kept for links from one record. A field's (lib/fieldClaims.ts) shares the table and is left out. */
 export const disagreementsOf = async (ctx: QueryCtx, orgId: Id<"organizations">, fromId: string) =>
   (await ctx.db.query("parentDisagreements").withIndex("by_orgId_and_accountId_and_crmRef", (q) => q.eq("orgId", orgId).eq("accountId", fromId)).take(EDGES_PER_RECORD_MAX))
-    .map(asDisagreement);
+    .flatMap((d) => asDisagreement(d) ?? []);
 
 /** The edge writer's disagreements, each record's read once per transaction (an import writes several links from one record). */
 function disagreementStore(ctx: MutationCtx): DisagreementStore {

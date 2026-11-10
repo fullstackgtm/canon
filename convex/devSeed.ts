@@ -280,10 +280,11 @@ export async function ensureDeal(
   };
 
   const dealId = existing ? existing._id : await ctx.db.insert("deals", doc);
-  if (existing) await ctx.db.patch(existing._id, doc);
+  // An existing deal's owner goes through the ledger, as a HubSpot sync's does, so an owner a person chose holds.
+  if (existing) await ctx.db.patch(existing._id, Object.fromEntries(Object.entries(doc).filter(([k]) => k !== "primaryRepId")));
   // The seed stands in for a HubSpot sync, so its deals go through the deal ledger as one.
   const row = await ctx.db.get(dealId);
-  if (row) await saveDeal(ctx, row, { kind: "hubspot", crmId: input.crmId, rawData: doc.rawData }, SYNCED_DEAL_ATTRIBUTES, input.now);
+  if (row) await saveDeal(ctx, row, { kind: "hubspot", crmId: input.crmId, rawData: doc.rawData }, SYNCED_DEAL_ATTRIBUTES, input.now, { owner: input.primaryRepId });
   return dealId;
 }
 

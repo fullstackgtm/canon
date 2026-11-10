@@ -35,7 +35,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
         : q === "get" ? { object, title: "Example record", complete: true, lifecycle: { status }, values: {}, version: 1 }
         : q === "forOrg" ? { dealPage } : [],
     },
-    "../../../convex/_generated/api": { api: { objects: { describe: "describe", get: "get" }, recipes: { forOrg: "forOrg" }, workspaceRecipes: {}, users: {}, automations: {} } },
+    "../../../convex/_generated/api": { api: { objects: { describe: "describe", get: "get" }, recipes: { forOrg: "forOrg" }, workspaceRecipes: {}, users: {}, automations: {}, fieldClaims: {} } },
     "../../../recipes": recipes,
     "@/components/dashboard": {}, "@/components/ui/dialog": {}, "@/lib/toast": {},
     "@/lib/utils": { cn: (...v: unknown[]) => v.filter(Boolean).join(" ") },
@@ -52,11 +52,13 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     "./list-view": {},
     "./record-target": recordTarget,
     "./lookup-field": { useLookupTitles: empty },
+    "./money": { useWorkspaceMoney: () => ({ currency: "USD", decimals: 2 }) },
     "./related-lists": { DealRelations: () => createElement("section", null, "Committee sentinel") },
     "./register-page": {},
     "../modules/module-panels": { ModulePanels: empty },
     "./record-boundary": { RecordBoundary: ({ children }: { children: ReactNode }) => children },
     "./record-context": { RecordLink: ({ children }: { children: ReactNode }) => children },
+    "./crm-note": { CrmFieldNote: empty },
   };
   const load = (text: string) => {
     const exports: Record<string, unknown> = {};

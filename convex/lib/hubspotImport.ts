@@ -346,7 +346,7 @@ export function engagementOf(object: Engagement, record: { properties: Props; cr
 
 // Custom properties ----------------------------------------------------------
 
-export type CustomType = "text" | "number" | "date" | "checkbox" | "picklist" | "multipicklist";
+export type CustomType = "text" | "number" | "date" | "datetime" | "checkbox" | "picklist" | "multipicklist";
 export type PartyOrDeal = "account" | "contact" | "deal";
 export const CUSTOM_OBJECTS: Readonly<Record<PartyOrDeal, "companies" | "contacts" | "deals">> = { account: "companies", contact: "contacts", deal: "deals" };
 
@@ -358,8 +358,8 @@ export type CustomField = { object: PartyOrDeal; property: string; apiName: stri
 /**
  * The portal's own properties as Canon custom fields. HubSpot's properties and calculated ones are left out, and
  * so is a multi-select on deals (a deal field holds one value). Types: enumeration with a checkbox per option is a
- * multi-select, a single checkbox is a checkbox, any other enumeration is a picklist; number, date and datetime
- * (as a date) keep their type; everything else is text.
+ * multi-select, a single checkbox is a checkbox, any other enumeration is a picklist; number, date and datetime keep
+ * their type; everything else is text.
  */
 export function customSpecs(object: PartyOrDeal, props: readonly HsProperty[]): CustomSpec[] {
   return props.flatMap((p): CustomSpec[] => {
@@ -368,7 +368,7 @@ export function customSpecs(object: PartyOrDeal, props: readonly HsProperty[]): 
     const type: CustomType = p.type === "bool" || p.fieldType === "booleancheckbox" ? "checkbox"
       : p.type === "enumeration" ? (p.fieldType === "checkbox" ? "multipicklist" : "picklist")
       : p.type === "number" ? "number"
-      : p.type === "date" || p.type === "datetime" ? "date"
+      : p.type === "date" ? "date" : p.type === "datetime" ? "datetime"
       : "text";
     if (type === "multipicklist" && object === "deal") return [];
     return [{ object, property: p.name, label: p.label.trim().slice(0, 80) || p.name, type, options: type === "picklist" || type === "multipicklist" ? options : [] }];
@@ -389,6 +389,10 @@ export function customValue(field: CustomField, raw: string | null | undefined):
     case "date": {
       const t = /^\d+$/.test(raw) ? Number(raw) : Date.parse(raw);
       return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : undefined;
+    }
+    case "datetime": {
+      const t = /^\d+$/.test(raw) ? Number(raw) : Date.parse(raw);
+      return Number.isFinite(t) ? t : undefined;
     }
     case "picklist": return option(raw);
     case "multipicklist": {

@@ -31,6 +31,8 @@ export const applyDealOwnersInternal = internalAction({
     planDocument: v.optional(v.any()),
     patchPlanId: v.optional(v.id("patchPlans")),
     valueOverrides: v.optional(v.any()),
+    /** The person who approved the plan: the owners are their choice (ownership.patchDealOwner). */
+    approvedBy: v.id("users"),
   },
   handler: async (
     ctx,
@@ -44,7 +46,7 @@ export const applyDealOwnersInternal = internalAction({
       const payload = row.afterValue as OwnerAssignPayload | undefined;
       if (!row._id || !payload) continue;
       if (!payload.crmId) {
-        await ctx.runMutation(internal.ownership.patchDealOwner, { dealId: payload.dealId, userId: payload.userId, crmOwnerId: payload.value });
+        await ctx.runMutation(internal.ownership.patchDealOwner, { dealId: payload.dealId, userId: payload.userId, crmOwnerId: payload.value, approvedBy: args.approvedBy });
         preResults.push({ operationId: row._id, status: "applied", providerData: { detail: "Local-only deal mirror updated; no CRM write." } });
       } else if (payload.provider !== "hubspot") {
         preResults.push({ operationId: row._id, status: "skipped", providerData: { detail: `Skipped ${payload.provider ?? "unknown"} deal; owner backfill writes only the active HubSpot provider.` } });
@@ -73,6 +75,7 @@ export const applyDealOwnersInternal = internalAction({
               dealId: payload.dealId,
               userId: payload.userId,
               crmOwnerId: payload.value,
+              approvedBy: args.approvedBy,
             });
           },
         })
@@ -86,7 +89,7 @@ export const applyDealOwnersInternal = internalAction({
             if (operationResult.status !== "applied") return;
             const payload = row?._id ? payloadByRowId.get(String(row._id)) : undefined;
             if (!payload?.dealId || !payload.value || !payload.userId) return;
-            await ctx.runMutation(internal.ownership.patchDealOwner, { dealId: payload.dealId, userId: payload.userId, crmOwnerId: payload.value });
+            await ctx.runMutation(internal.ownership.patchDealOwner, { dealId: payload.dealId, userId: payload.userId, crmOwnerId: payload.value, approvedBy: args.approvedBy });
           },
         });
     result.applied += preResults.filter((row) => row.status === "applied").length;

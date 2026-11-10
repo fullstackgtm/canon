@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import { parseSplits } from "../modules/kernel/splits.ts";
 import { contactHref } from "../src/lib/contact-href.ts";
+import { formatMoney } from "../modules/kernel/text.ts";
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL("../src/components/records/fields.tsx", import.meta.url), "utf8");
@@ -19,6 +20,7 @@ runInNewContext(outputText, { exports, URL, require: (id: string) => {
   if (id === "@/components/ui/select") return { SelectField: () => null };
   if (id === "../../../modules/kernel/splits") return { parseSplits };
   if (id === "@/lib/contact-href") return { contactHref };
+  if (id === "./money") return { moneyText: (cents: number, money: { currency: string; decimals: number }) => formatMoney(cents, money.currency, money.decimals) };
   if (id === "./lookup-field") return { LookupInput: ({ field }: { field: { lookupTo: string } }) => createElement("span", { "data-picker": field.lookupTo }) };
   assert.ok(["react", "react/jsx-runtime"].includes(id), `Unexpected dependency: ${id}`);
   return require(id);
@@ -63,4 +65,13 @@ test("emails, phones and links open as mailto, tel and new-tab links; a value th
 test("a lookup in a form is the record picker, not a box for a raw id", () => {
   const html = renderToStaticMarkup(createElement(exports.FieldInput!, { field: { fieldId: "custom.client", apiName: "custom.client", label: "Client", type: "lookup", lookupTo: "account" }, value: null, onChange: () => undefined }));
   assert.equal(html, '<span data-picker="account"></span>');
+});
+
+test("money reads in the workspace's currency and decimals", () => {
+  const shown = (money: object) => renderToStaticMarkup(createElement(exports.InlineField!, {
+    field: { fieldId: "custom.budget", apiName: "custom.budget", label: "Budget", type: "currency" }, value: 2400050, version: 1, readOnly: true, money, onSave: async () => true,
+  })).replace(/<[^>]+>/g, "");
+  assert.equal(shown({ currency: "EUR", decimals: 2 }), formatMoney(2400050, "EUR", 2));
+  assert.match(shown({ currency: "EUR", decimals: 2 }), /€/);
+  assert.match(shown({ currency: "JPY", decimals: 0 }), /24,001/);
 });

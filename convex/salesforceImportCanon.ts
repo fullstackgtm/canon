@@ -102,13 +102,14 @@ export const rememberIds = internalMutation({
   },
 });
 
-const CUSTOM_TYPES = ["text", "number", "currency", "date", "checkbox", "picklist", "multipicklist", "emails", "phones", "links"] as const;
+const CUSTOM_TYPES = ["text", "number", "currency", "date", "datetime", "checkbox", "picklist", "multipicklist", "emails", "phones", "links"] as const;
 const optionsOf = (f: { type: string } & object): PicklistOption[] => ("options" in f && Array.isArray(f.options) ? (f.options as PicklistOption[]) : []);
 
 const customFieldSpec = v.object({
   sfName: v.string(), label: v.string(),
   type: v.union(...CUSTOM_TYPES.map((t) => v.literal(t))),
   options: v.optional(v.array(v.string())),
+  multiline: v.optional(v.literal(true)),
 });
 
 /**
@@ -128,7 +129,7 @@ export const prepareCustomFields = internalMutation({
       let field = (ext?.customFields ?? []).find((f) => f.archivedAt === undefined && f.label.toLowerCase() === spec.label.toLowerCase());
       try {
         if (!field) {
-          const added = addField(args.object, ext, { label: spec.label, type: spec.type, ...(spec.options ? { options: spec.options.map((label) => ({ label })) } : {}) });
+          const added = addField(args.object, ext, { label: spec.label, type: spec.type, ...(spec.options ? { options: spec.options.map((label) => ({ label })) } : {}), ...(spec.multiline ? { multiline: true } : {}) });
           ext = added.ext;
           field = added.field;
         } else if (spec.options) {
@@ -145,7 +146,9 @@ export const prepareCustomFields = internalMutation({
         if (e instanceof RegistryError) continue;
         throw e;
       }
-      placements.push({ sfName: spec.sfName, apiName: field.apiName, type: spec.type, options: optionsOf(field).map((o) => ({ label: o.label, value: o.value })) });
+      // A field an earlier import made keeps its type (a datetime imported as text before Canon had date-and-time fields).
+      const type = (CUSTOM_TYPES as readonly string[]).includes(field.type) ? field.type as (typeof CUSTOM_TYPES)[number] : spec.type;
+      placements.push({ sfName: spec.sfName, apiName: field.apiName, type, options: optionsOf(field).map((o) => ({ label: o.label, value: o.value })) });
     }
     if (ext && JSON.stringify(ext) !== before) {
       const doc = {
@@ -204,12 +207,14 @@ export const upsertDeals = internalMutation({
         probability: d.probability, isClosed: d.isClosed, isWon: d.isWon, dealType: d.dealType, crmOwnerId: d.ownerSfId ?? null,
         // A cleared AccountId or NextStep clears Canon's; an account that did not import leaves the company as it was.
         ...(d.accountSfId === undefined ? { companyId: null } : companyId ? { companyId } : {}), nextStep: d.nextStep ?? null,
+        // The owner and company reach the row through the ledger, which leaves a person's as they are (lib/canon/personHold.ts).
+        ...(rep ? { ownerId: rep } : {}),
         ...d.custom,
       } as DealValues;
       const columns = {
         revenueType: d.revenueType, crmProvider: "salesforce", crmUrl: `${args.instanceUrl.replace(/\/$/, "")}/lightning/r/Opportunity/${d.sfId}/view`,
         closedAt: d.isClosed && Number.isFinite(Date.parse(d.closeDate)) ? Date.parse(d.closeDate) : undefined, lastSyncAt: now,
-        ...(rep ? { primaryRepId: rep } : {}), ...(d.createdAt ? { createdAt: d.createdAt } : {}),
+        ...(d.createdAt ? { createdAt: d.createdAt } : {}),
       };
       const source = { kind: "salesforce" as const, crmId: d.sfId, ...(d.modifiedAt ? { rawData: { SystemModstamp: d.modifiedAt } } : {}) };
       const existing = await ctx.db.query("deals").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", d.sfId)).first();
@@ -223,7 +228,7 @@ export const upsertDeals = internalMutation({
         const dealId = await ctx.db.insert("deals", {
           orgId: args.orgId, crmId: d.sfId, name: d.name, amount: d.amount, currency: d.currency, closeDate: d.closeDate, dealType: d.dealType,
           stage: d.stage, forecastCategory: d.forecastCategory, probability: d.probability, isClosed: d.isClosed, isWon: d.isWon,
-          crmOwnerId: d.ownerSfId, ...(companyId ? { companyId } : {}), ...columns, createdAt: d.createdAt ?? now, updatedAt: now,
+          crmOwnerId: d.ownerSfId, ...columns, createdAt: d.createdAt ?? now, updatedAt: now,
         });
         deal = await ctx.db.get(dealId);
       }

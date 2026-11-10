@@ -30,6 +30,7 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.associations.useCrmParent": "taking a CRM's parent over the one a person set in Canon is that person's call on the record page or the hierarchy page; an agent sets parents with set_parent",
   "api.associations.useCrmCompany": "taking a CRM's company over what a person chose for someone in Canon is that person's call on the record page; an agent links a person's companies with canon_associations",
   "api.dealCommittee.useCrmRole": "taking a CRM's deal role over the one a person set in Canon is that person's call on the deal page; an agent sets deal roles with canon_deal_roles",
+  "api.fieldClaims.useCrmValue": "taking a CRM's deal owner or company over the one a person set in Canon is that person's call on the deal page; an agent sets deal fields with canon_update_record",
   "api.accountHierarchy.savePolicy": "the hierarchy policy holds the hard rules (owners never change, active contracts flagged); an agent never relaxes its own guardrails",
   // Admin settings that change what every record accepts or where data is sent.
   "api.dataModel.createField": "field definitions are admin settings: they change what every record, import and API write accepts",

@@ -15,8 +15,8 @@ import { shardOf } from "./lib/objects/write";
 import type { DealValues } from "./lib/canon/dealLedger";
 
 import { syncPartyBatch } from "./lib/canon/partyLedger";
-import { NOT_WRITTEN, SYNC_STAMP_MS, syncFingerprint } from "./lib/syncUnchanged";
-import { syncAccountRow, syncContactRow, syncDealRow, accountSyncValue, contactSyncValue, dealSyncValue, accountUnchanged, contactUnchanged, dealUnchanged } from "./lib/hubspotSyncValue";
+import { NOT_WRITTEN, SYNC_STAMP_MS } from "./lib/syncUnchanged";
+import { syncAccountRow, syncContactRow, syncDealRow, accountSyncValue, contactSyncValue, dealSyncHash, dealSyncValue, accountUnchanged, contactUnchanged, dealUnchanged } from "./lib/hubspotSyncValue";
 import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
 
 const PROVIDER = "hubspot";
@@ -635,7 +635,7 @@ export const unchangedDeals = internalQuery({
         ctx.db.query("deals").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", deal.crmId)).first(),
         deal.accountId ? Promise.resolve(deal.accountId) : accountOf(deal.accountCrmId),
       ]);
-      if (existing && dealUnchanged(existing, dealSyncValue(deal, accountId, now), deal.extra)) rows.add(deal.crmId, existing, now);
+      if (existing && dealUnchanged(existing, deal, dealSyncValue(deal, accountId, now), deal.extra)) rows.add(deal.crmId, existing, now);
     }));
     return rows.out;
   },
@@ -821,8 +821,8 @@ export const upsertDeals = internalMutation({
 
       // A deal the sync wrote with these values before writes nothing to its ledger stream; its sync time is stamped
       // at most daily.
-      const syncHash = syncFingerprint(value);
-      if (existing && dealUnchanged(existing, value, deal.extra)) {
+      const syncHash = dealSyncHash(deal, value);
+      if (existing && dealUnchanged(existing, deal, value, deal.extra)) {
         if (now - (existing.lastSyncAt ?? 0) > SYNC_STAMP_MS) await ctx.db.patch(existing._id, { lastSyncAt: now });
         results.updated++;
         continue;
@@ -845,7 +845,7 @@ export const upsertDeals = internalMutation({
       // Deal ledger: record what hubspot says; the row ends as the projection.
       const row = await ctx.db.get(dealId);
       // The `facts` mirror follows from its queue, off this transaction (convex/canon.ts queuePartyMirror).
-      if (row) await saveDeal(ctx, row, { kind: "hubspot", crmId: deal.crmId, rawData: deal.rawData }, SYNCED_DEAL_ATTRIBUTES, now, { deferMirror: true });
+      if (row) await saveDeal(ctx, row, { kind: "hubspot", crmId: deal.crmId, rawData: deal.rawData }, SYNCED_DEAL_ATTRIBUTES, now, { deferMirror: true, owner: deal.primaryRepId ?? null });
       // Custom values carry no snapshot time, so the snapshot just written cannot refuse them (canon.ts saveCrmContact).
       if (row && deal.extra && Object.keys(deal.extra).length) await saveDealValues(ctx, row, { kind: "hubspot", crmId: deal.crmId }, deal.extra as DealValues, { now, deferMirror: true });
     }

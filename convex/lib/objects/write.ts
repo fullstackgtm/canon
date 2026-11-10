@@ -11,10 +11,12 @@
 import type { Decider } from "../canon/decider.ts";
 import { AGENT_SOURCES } from "../canon/gate.ts";
 import { claimFieldOf, uniqueIdentityProvider, uniqueValueIdentity } from "../canon/identity.ts";
+import { crmOf, heldField, isPersonFact, winningFact } from "../canon/personHold.ts";
 import {
   fold, foldAll, project, SNAPSHOT_SOURCES, watermarkOf, writeRule,
-  type Assertion, type Decision, type EntryActor, type EntryBody, type EntrySource, type FoldState, type LedgerEntry, type MergedRecord, type ProjectedRow, type RevertedField,
+  type Assertion, type Decision, type EntryActor, type EntryBody, type EntrySource, type FoldState, type LedgerEntry, type MergedRecord, type ProjectedRow, type RevertedField, type WritePlan,
 } from "./fold.ts";
+import { sameValue } from "../canon/policy.ts";
 import { claimsUnique, coerce, PRIMARY_LISTS, ruleModeFor, type CoerceError, type FieldDef, type FieldValue, type ResolvedObjectDef } from "./registry.ts";
 
 /**
@@ -130,8 +132,9 @@ export type SaveCommand =
   | { op: "revert"; streamId: string; mergeId: string; fields: readonly RevertedField[]; expectedVersion?: number };
 
 export type SaveResult =
-  | { status: "applied" | "proposed"; streamId: string; version: number; shard: number; seq: number }
-  | { status: "unchanged"; streamId: string; version: number }
+  /** `held`: fields a person holds that a CRM's write left as they are (lib/canon/personHold.ts); the rest of the write landed. */
+  | { status: "applied" | "proposed"; streamId: string; version: number; shard: number; seq: number; held?: string[] }
+  | { status: "unchanged"; streamId: string; version: number; held?: string[] }
   | { status: "conflict"; streamId: string; version: number; expectedVersion: number }
   | { status: "invalid"; errors: CoerceError[] };
 
@@ -209,16 +212,45 @@ export async function save(store: ObjectStore, ctx: SaveContext, cmd: SaveComman
   const snapshotAt = cmd.op === "update" && SNAPSHOT_SOURCES.includes(ctx.source.kind) ? cmd.validFrom : undefined;
   const watermark = watermarkOf(state, ctx.source);
   if (snapshotAt !== undefined && watermark !== undefined && watermark >= snapshotAt) return unchanged;
-  const ruled = { ...writeRule(state, ctx.source, assertions), ...(ctx.acceptedBy ? { status: "accepted" as const } : {}) };
+  // A CRM's value for a field a person holds is left out, reassert or not: appending it, even equal, would hand the field to the CRM.
+  const held = personHeld(ctx, state, assertions);
+  if (held.length) assertions = assertions.filter((a) => !held.includes(a.fieldId));
+  const holding = (r: SaveResult): SaveResult => (held.length && (r.status === "applied" || r.status === "unchanged") ? { ...r, held } : r);
+  const ruled = reclaim(state, ctx, assertions, { ...writeRule(state, ctx.source, assertions), ...(ctx.acceptedBy ? { status: "accepted" as const } : {}) });
   const plan = cmd.op === "update" && cmd.reassert ? { ...ruled, append: assertions, confirm: [] } : ruled;
   const taken = await uniqueConflicts(store, ctx, plan.append, cmd.streamId);
   if (taken) return taken;
   if (!plan.append.length) {
     // A newer snapshot that changed nothing still moves the watermark, so an older one cannot land after it.
-    if (snapshotAt === undefined || (cmd.op === "update" && cmd.partial)) return unchanged;
-    return append(store, ctx, state, { kind: "confirm", fieldIds: plan.confirm, validFrom: snapshotAt }, true, cmd.streamId);
+    if (snapshotAt === undefined || (cmd.op === "update" && cmd.partial)) return holding(unchanged);
+    return holding(await append(store, ctx, state, { kind: "confirm", fieldIds: plan.confirm, validFrom: snapshotAt }, true, cmd.streamId));
   }
-  return append(store, ctx, state, { kind: "assert", status: plan.status, assertions: plan.append, ...(cmd.op === "update" && cmd.partial ? { partial: true as const } : {}) }, true, cmd.streamId);
+  return holding(await append(store, ctx, state, { kind: "assert", status: plan.status, assertions: plan.append, ...(cmd.op === "update" && cmd.partial ? { partial: true as const } : {}) }, true, cmd.streamId));
+}
+
+/**
+ * A person putting back a value of a held field they set before, after a CRM took the field: the write rule reads it
+ * as their own record repeating itself, so it is appended anyway, or the CRM's value would quietly stay.
+ */
+function reclaim(state: FoldState, ctx: Pick<SaveContext, "def" | "source">, assertions: readonly Assertion[], plan: WritePlan): WritePlan {
+  if (!isPersonFact({ sourceKind: ctx.source.kind, sourceRef: ctx.source.ref })) return plan;
+  const back = assertions.filter((a) => {
+    if (!heldField(ctx.def.apiName, a.fieldId) || !plan.confirm.includes(a.fieldId)) return false;
+    const winner = winningFact(state.fields[a.fieldId]?.candidates ?? []);
+    return !(winner && isPersonFact(winner) && sameValue(winner.value, a.value));
+  });
+  if (!back.length) return plan;
+  return { ...plan, append: [...plan.append, ...back], confirm: plan.confirm.filter((f) => !back.some((a) => a.fieldId === f)) };
+}
+
+/** The fields of a CRM's write whose value a person holds: covered by the rule, and resolved now to a person's fact (lib/canon/personHold.ts). */
+function personHeld(ctx: Pick<SaveContext, "def" | "source" | "actor">, state: FoldState, assertions: readonly Assertion[]): string[] {
+  if (!crmOf(ctx.source, ctx.actor)) return [];
+  return assertions.filter((a) => {
+    if (!heldField(ctx.def.apiName, a.fieldId)) return false;
+    const winner = winningFact(state.fields[a.fieldId]?.candidates ?? []);
+    return winner !== null && isPersonFact(winner);
+  }).map((a) => a.fieldId);
 }
 
 /** A decision still to apply: its fact is pending, or accepted here and not yet a candidate. */

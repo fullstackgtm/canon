@@ -24,17 +24,24 @@ import { project, type EntrySource, type ProjectedRow } from "../objects/fold.ts
 import type { FieldValue, ResolvedObjectDef } from "../objects/registry.ts";
 import { save, type SaveResult } from "../objects/write.ts";
 import { automationRefPrefix, type AutomationMark } from "../automations.ts";
+import { settleFieldClaims, type FieldClaimStore } from "./personHold.ts";
 
 export type DealRow = Readonly<Record<string, unknown>>;
 
 export interface DealStores extends StreamStores {
   getRow(dealId: string): Promise<DealRow | null>;
   patchRow(dealId: string, patch: Record<string, unknown>): Promise<void>;
+  /** What CRMs say about the fields a person holds (lib/canon/personHold.ts). Absent: the hold still applies, and nothing is recorded. */
+  fieldClaims?: FieldClaimStore;
 }
 
 export type DealSource =
-  /** `history`: a dated point from the record's history (CP11c), its own source record so it never stands in for the current snapshot. */
-  | { kind: "salesforce" | "hubspot"; crmId: string; rawData?: unknown; history?: true }
+  /**
+   * `history`: a dated point from the record's history (CP11c), its own source record so it never stands in for the current snapshot.
+   * `takenBy`: a person took this CRM record's value over the one a person held (lib/canon/personHold.ts): written as the CRM's,
+   * by that person, dated now and reasserted, so the field follows the CRM again.
+   */
+  | { kind: "salesforce" | "hubspot"; crmId: string; rawData?: unknown; history?: true; takenBy?: string }
   /** `automation`: a rule wrote it as its creator (convex/automations.ts); its own source record, so rules can tell their writes apart. */
   | { kind: "user"; userId: string; automation?: AutomationMark }
   | { kind: "import" }
@@ -47,9 +54,11 @@ export const isHistoricalSource = (source: DealSource): boolean =>
 
 /**
  * Deal fields the projection writes to the deals row: the `facts`-tracked
- * attributes, and the company link, which a person sets and no CRM or agent
- * proposes, so a ledger write keeps it out of `facts`. A deferred write
- * (writeDealFactsOnly) holds it in `facts` until conversion reads it back.
+ * attributes, the company link and the owner. The company comes from a person
+ * or from Salesforce (its AccountId; HubSpot's account is the row's own
+ * `accountId`), and the owner from a person or a CRM sync; neither is a `facts`
+ * attribute, so a ledger write keeps them out of `facts`. A deferred write
+ * (writeDealFactsOnly) holds them in `facts` until conversion reads them back.
  */
 const DEAL_ROW_FIELDS = [...DEAL_ATTRIBUTES, "companyId", "ownerId"] as const;
 /** The deals column a field lives in: the owner is the row's `primaryRepId`, a Canon member (the CRM's own owner id is `crmOwnerId`). */
@@ -64,8 +73,9 @@ function ledgerSource(source: DealSource, dealId: string, row: DealRow | null): 
   switch (source.kind) {
     case "salesforce":
     case "hubspot": {
-      const validFrom = providerModifiedAt(source.rawData);
       const ref = source.history ? `${source.kind}:history:${source.crmId}` : `${source.kind}:${source.crmId}`;
+      if (source.takenBy) return { source: { kind: source.kind, ref }, actor: { kind: "user", id: source.takenBy } };
+      const validFrom = providerModifiedAt(source.rawData);
       return { source: { kind: source.kind, ref }, actor: { kind: "integration", id: source.kind }, ...(validFrom !== undefined ? { validFrom } : {}) };
     }
     case "user":
@@ -121,7 +131,7 @@ export async function writeDealLifecycle(
 export function dealRowPatch(def: ResolvedObjectDef, row: DealRow | null, projected: ProjectedRow): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   for (const attribute of DEAL_ROW_FIELDS) {
-    // The owner is the row's own (ownership write-backs and CRM syncs set it directly): only a write that carries it patches it (writeDeal).
+    // A deal a CRM synced before its owner went through the ledger holds it on the row only: only a write that carries the owner patches it (writeDeal).
     if (attribute === "ownerId" || !projected.meta[attribute]?.factId) continue;
     const value = projected.values[attribute] ?? null;
     if (value === null && def.byApiName.get(attribute)?.required) continue;
@@ -164,6 +174,8 @@ export type DealWriteResult = {
   resolved: Record<string, Resolution>;
   /** Fields the registry rejected; they were left out of the write and logged. */
   rejected: Array<{ field: string; message: string }>;
+  /** Fields a person holds that this CRM write left as they are (lib/canon/personHold.ts). Not an error. */
+  held: string[];
 };
 
 /**
@@ -185,9 +197,12 @@ export async function writeDeal(s: DealStores, w: DealWrite): Promise<DealWriteR
   if ("ownerId" in w.values && typeof rowOwner === "string" && !sameValue(rowOwner, w.values.ownerId ?? null)) {
     const state = await s.objects.getHotRow(w.streamId);
     if (state && !project(w.def, state).meta.ownerId?.factId) {
+      // Dated before the change, so a CRM's newer "no owner" clears it rather than yielding to it.
+      const seed = ledgerSource({ kind: "import" }, w.dealId, row);
+      const before = (validFrom ?? w.now) - 1;
       await appendWrite(s, {
         orgId: w.orgId, def: w.def, streamId: w.streamId, entityType: "opportunity", values: { ownerId: rowOwner }, now: w.now,
-        ...ledgerSource({ kind: "import" }, w.dealId, row),
+        ...seed, validFrom: Math.min(seed.validFrom ?? before, before),
       });
     }
   }
@@ -204,16 +219,26 @@ export async function writeDeal(s: DealStores, w: DealWrite): Promise<DealWriteR
   const { result, resolved, rejected, incoming } = await appendWrite(s, {
     orgId: w.orgId, def: w.def, streamId: w.streamId, entityType: "opportunity", source, actor, values: w.values, now: w.now,
     ...(validFrom !== undefined ? { validFrom } : {}), ...(w.evidence !== undefined ? { evidence: w.evidence } : {}),
-    ...(w.deferMirror ? { deferMirror: true as const } : {}),
+    ...(w.deferMirror ? { deferMirror: true as const } : {}), ...("takenBy" in w.source && w.source.takenBy ? { reassert: true as const } : {}),
   });
 
+  const held = result.status === "applied" || result.status === "unchanged" ? result.held ?? [] : [];
   const state = await s.objects.getHotRow(w.streamId);
   if (state) {
     const projected = project(w.def, state);
     if (row) {
       const patch = dealRowPatch(w.def, row, projected);
-      if ("ownerId" in w.values && !sameValue(rowValue(row, "ownerId"), w.values.ownerId ?? null)) patch.primaryRepId = w.values.ownerId ?? undefined;
+      // The owner the ledger resolves to, once a write carries it (a row-only owner was given a fact above). Never the
+      // incoming value: a CRM's that a person holds, or a snapshot already seen, leaves the projection as it was.
+      const owner = projected.values.ownerId ?? null;
+      if ("ownerId" in w.values && projected.meta.ownerId?.factId && !sameValue(rowValue(row, "ownerId"), owner)) patch.primaryRepId = owner ?? undefined;
       if (Object.keys(patch).length) await s.patchRow(w.dealId, patch);
+    }
+    if (s.fieldClaims && result.status !== "invalid" && result.status !== "conflict") {
+      await settleFieldClaims(s.fieldClaims, {
+        orgId: w.orgId, recordId: w.streamId, object: "deal", source, actor, values: incoming, held, now: w.now,
+        current: (field) => projected.values[field] ?? null,
+      });
     }
     // A history point is what the CRM held then, not what it holds now: no outbound shadow for it.
     if ((w.source.kind === "salesforce" || w.source.kind === "hubspot") && !w.source.history) {
@@ -228,7 +253,7 @@ export async function writeDeal(s: DealStores, w: DealWrite): Promise<DealWriteR
       }
     }
   }
-  return { result, resolved, rejected };
+  return { result, resolved, rejected, held };
 }
 
 /**
@@ -260,7 +285,13 @@ async function writeDealFactsOnly(
       });
     }
   }
-  return { result: { status: "deferred", streamId: w.streamId }, resolved: out.resolved, rejected: [] };
+  if (s.fieldClaims) {
+    await settleFieldClaims(s.fieldClaims, {
+      orgId: w.orgId, recordId: w.streamId, object: "deal", source, actor, values: new Map(Object.entries(w.values)), held: out.held, now: w.now,
+      current: (field) => out.resolved[field]?.value ?? null,
+    });
+  }
+  return { result: { status: "deferred", streamId: w.streamId }, resolved: out.resolved, rejected: [], held: out.held };
 }
 
 /** Mirror an agent proposal about a deal into its stream (see mirrorProposalToStream). */

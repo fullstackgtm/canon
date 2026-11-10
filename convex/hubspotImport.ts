@@ -427,7 +427,7 @@ export const engagementRows = internalQuery({
 
 const specArg = v.object({
   object: v.union(v.literal("account"), v.literal("contact"), v.literal("deal")), property: v.string(), label: v.string(),
-  type: v.union(v.literal("text"), v.literal("number"), v.literal("date"), v.literal("checkbox"), v.literal("picklist"), v.literal("multipicklist")),
+  type: v.union(v.literal("text"), v.literal("number"), v.literal("date"), v.literal("datetime"), v.literal("checkbox"), v.literal("picklist"), v.literal("multipicklist")),
   options: v.array(v.object({ value: v.string(), label: v.string() })),
 });
 
@@ -449,7 +449,9 @@ export const ensureCustomFields = internalMutation({
       const before = JSON.stringify(ext?.customFields ?? []);
       for (const spec of specs) {
         let field = ext?.customFields.find((f) => f.archivedAt === undefined && f.label.toLowerCase() === spec.label.toLowerCase());
-        if (field && field.type !== spec.type) {
+        // A datetime property imported before Canon had date-and-time fields stays the date field it became.
+        const type = field?.type === "date" && spec.type === "datetime" ? "date" : spec.type;
+        if (field && field.type !== type) {
           refused.push({ property: spec.property, message: `A ${field.type} field is already named ${spec.label}` });
           continue;
         }
@@ -473,7 +475,7 @@ export const ensureCustomFields = internalMutation({
         }
         const options = "options" in field && field.options ? field.options : [];
         fields.push({
-          object, property: spec.property, apiName: field.apiName, type: spec.type,
+          object, property: spec.property, apiName: field.apiName, type,
           options: spec.options.flatMap((o) => {
             const canon = options.find((x) => x.label.toLowerCase() === o.label.toLowerCase());
             return canon ? [{ hubspot: o.value, canon: canon.value }] : [];

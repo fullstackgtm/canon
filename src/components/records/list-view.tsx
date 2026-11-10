@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useUrlState } from "@/lib/url-state";
 import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
-import { contactLinks, FieldInput, formatValue, isEditable, optionChips, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
+import { contactLinks, FieldInput, formatValue, isEditable, isLongText, optionChips, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
 import { FilterBar, isComplete } from "./filter-bar";
 import { BoardView, type BoardSaves } from "./board-view";
 import { CalendarView } from "./calendar-view";
@@ -36,6 +36,7 @@ import { ExportView } from "./list-export";
 import { useObjectList, type ListedObject, type Save } from "./use-object-list";
 import { DealCreateDialog } from "./deal-create";
 import { useLookupTitles } from "./lookup-field";
+import { useWorkspaceMoney, type Money } from "./money";
 import { RecordLink, RecordQuickView, useRecordInspection, useRecordsSaved } from "./record-context";
 import { recordHref } from "./record-target";
 export { recordHref } from "./record-target";
@@ -384,15 +385,22 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   const lookupTitles = useLookupTitles(lookupFields, rows);
   const chipsOf = (row: ListRow, name: string) => {
     const f = fieldByName(name);
-    return f ? optionChips(f, row.values[f.fieldId] as CellValue) ?? contactLinks(f, row.values[f.fieldId] as CellValue) : null;
+    if (!f) return null;
+    const value = row.values[f.fieldId] as CellValue;
+    // Long text shows its first two lines; the record page has the rest.
+    if (isLongText(f) && typeof value === "string" && value) return <span className="line-clamp-2 whitespace-pre-line">{value}</span>;
+    return optionChips(f, value) ?? contactLinks(f, value);
   };
+  const money = useWorkspaceMoney();
+  // A deal's money is in its own currency; any other record's in the workspace's.
+  const moneyOf = (row: ListRow): Money => (object === "deal" && typeof row.values.currency === "string" && row.values.currency ? { ...money, currency: row.values.currency } : money);
   const cell = (row: ListRow, name: string, titles: Record<string, string>): string => {
     if (name === "createdAt") return new Date(row.createdAt).toLocaleString();
     if (name === "updatedAt") return new Date(row.updatedAt).toLocaleString();
     const f = fieldByName(name);
     const value = f ? row.values[f.fieldId] : null;
     if (f?.type === "lookup" && typeof value === "string") return titles[value] ?? value;
-    return f ? formatValue(f, value as CellValue, team) : "";
+    return f ? formatValue(f, value as CellValue, team, moneyOf(row)) : "";
   };
 
   const toggleSort = (name: string) => {

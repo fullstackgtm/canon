@@ -36,6 +36,15 @@ test("a new field gets a stable custom.<slug> id; a rename and an option edit ch
   assert.equal(again.field.apiName, "custom.renewal_risk_2");
 });
 
+test("the builder makes date-and-time fields, and long text only on text fields", () => {
+  const { ext, field } = addField("lead", undefined, { label: "Demo at", type: "datetime" });
+  assert.equal(field.type, "datetime");
+  const notes = addField("lead", ext, { label: "Brief", type: "text", multiline: true });
+  assert.equal(notes.field.multiline, true);
+  assert.equal(updateField("lead", notes.ext, notes.field.fieldId, { multiline: false }).customFields.find((f) => f.fieldId === notes.field.fieldId)!.multiline, undefined);
+  assert.throws(() => updateField("lead", notes.ext, field.fieldId, { multiline: true }), /only text can be long text/);
+});
+
 test("an archived field takes no writes and leaves list columns, then comes back whole on restore", () => {
   const { ext, field } = risk();
   const archived = archiveField("account", ext, field.fieldId, 1000);

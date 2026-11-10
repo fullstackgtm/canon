@@ -11,11 +11,11 @@
 import { normalizeSfId } from "./mapping.ts";
 import { forecastCategoryOf, type SfStage } from "./deals.ts";
 
-export type CustomFieldType = "text" | "number" | "currency" | "date" | "checkbox" | "picklist" | "multipicklist" | "emails" | "phones" | "links";
+export type CustomFieldType = "text" | "number" | "currency" | "date" | "datetime" | "checkbox" | "picklist" | "multipicklist" | "emails" | "phones" | "links";
 export type CustomValue = string | number | boolean | string[] | null;
 
-/** A Salesforce custom field as Canon should hold it. `options` are a picklist's values, in order. */
-export type CustomFieldSpec = { sfName: string; label: string; type: CustomFieldType; options?: string[] };
+/** A Salesforce custom field as Canon should hold it. `options` are a picklist's values, in order; `multiline` marks a text area. */
+export type CustomFieldSpec = { sfName: string; label: string; type: CustomFieldType; options?: string[]; multiline?: true };
 /** Where a Salesforce custom field lands: its Canon apiName, and each picklist value's Canon option value. */
 export type CustomFieldPlacement = { sfName: string; apiName: string; type: CustomFieldType; options: Array<{ label: string; value: string }> };
 
@@ -27,12 +27,13 @@ type DescribedField = { name: string; label: string; type: string; custom?: bool
 /** Salesforce field types Canon cannot hold as a field (compound and binary types). */
 const SKIPPED = new Set(["address", "location", "base64", "complexvalue"]);
 
-/** The builder type for a Salesforce field type. A datetime is kept as its ISO text, since a Canon field holds a date without its time. */
+/** The builder type for a Salesforce field type. */
 export function customFieldType(sfType: string): CustomFieldType {
   switch (sfType.toLowerCase()) {
     case "int": case "double": case "percent": case "long": return "number";
     case "currency": return "currency";
     case "date": return "date";
+    case "datetime": return "datetime";
     case "boolean": return "checkbox";
     case "picklist": return "picklist";
     case "multipicklist": return "multipicklist";
@@ -57,7 +58,8 @@ export function customFieldSpecs(fields: readonly DescribedField[]): { specs: Cu
     if (SKIPPED.has(f.type.toLowerCase())) { skipped.push({ sfName: f.name, reason: `${f.type} fields have no Canon type` }); continue; }
     const type = customFieldType(f.type);
     const options = type === "picklist" || type === "multipicklist" ? (f.picklistValues ?? []).map((p) => p.value) : undefined;
-    specs.push({ sfName: f.name, label: (f.label || f.name.replace(/__c$/, "").replace(/_/g, " ")).slice(0, 80), type, ...(options ? { options } : {}) });
+    const multiline = f.type.toLowerCase() === "textarea" ? { multiline: true as const } : {};
+    specs.push({ sfName: f.name, label: (f.label || f.name.replace(/__c$/, "").replace(/_/g, " ")).slice(0, 80), type, ...(options ? { options } : {}), ...multiline });
   }
   return { specs, skipped };
 }
@@ -71,6 +73,7 @@ export function customValue(raw: unknown, p: CustomFieldPlacement): CustomValue 
     case "currency": { const n = Number(s); return Number.isFinite(n) ? Math.round(n * 100) : null; }
     case "checkbox": return s.toLowerCase() === "true";
     case "date": return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null;
+    case "datetime": { const t = Date.parse(s); return Number.isFinite(t) ? t : null; }
     case "picklist": return p.options.find((o) => o.label === s)?.value ?? null;
     case "multipicklist": return s.split(";").map((v) => p.options.find((o) => o.label === v)?.value).filter((v): v is string => v !== undefined);
     case "emails": case "phones": case "links": return [s];

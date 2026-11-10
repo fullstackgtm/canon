@@ -38,6 +38,7 @@ import {
 import { mirrorAppended, type MirrorJob } from "./lib/canon/streamLedger";
 import { compareDeal, ensureDealStream, isHistoricalSource, mirrorDecisions, mirrorProposal, writeDeal, writeDealLifecycle, type DealMismatch, type DealSource, type DealStores, type DealValues, type DealWriteResult } from "./lib/canon/dealLedger";
 import type { OwnershipOverride } from "./lib/canon/gate";
+import { fieldClaimStore } from "./lib/fieldClaimStore";
 import { resolveAttribute, type FactValue, type Resolution } from "./lib/canon/policy";
 import { project } from "./lib/objects/fold";
 import { coerce, customFieldType, resolveObjectDef, STANDARD_OBJECTS, withCustomField, matchPicklistOption, withPicklistOption, type CoerceError, type OrgObjectExtension, type ResolvedObjectDef } from "./lib/objects/registry";
@@ -213,6 +214,7 @@ function dealStores(ctx: MutationCtx): DealStores {
     objects: convexObjectStore(ctx),
     conversionBudget: conversionBudgetFor(ctx),
     queueMirror: (job) => queuePartyMirror(ctx, job),
+    fieldClaims: fieldClaimStore(ctx),
     async getRow(dealId) {
       return ctx.db.get(dealId as Id<"deals">);
     },
@@ -306,7 +308,9 @@ export async function saveDealLifecycle(ctx: MutationCtx, deal: Doc<"deals">, op
 /**
  * Record a deal write. Call it right after the writer's own insert or patch,
  * in the same mutation, with the attributes that write set; the deals row
- * ends equal to the ledger's projection.
+ * ends equal to the ledger's projection. `owner`: the owner a CRM sync says
+ * (null: none), written through the ledger, which patches the row's
+ * `primaryRepId` unless a person holds the owner.
  */
 export async function saveDeal(
   ctx: MutationCtx,
@@ -314,11 +318,11 @@ export async function saveDeal(
   source: DealSource,
   attributes: readonly DealAttribute[],
   now = Date.now(),
-  opts: { deferMirror?: true } = {},
+  opts: { deferMirror?: true; owner?: string | null } = {},
 ): Promise<DealWriteResult & { entityId: string }> {
   const row = deal as unknown as Record<string, FactValue | undefined>;
-  const values: DealValues = Object.fromEntries(attributes.map((a) => [a, row[a] ?? null]));
-  return saveDealValues(ctx, deal, source, values, { now, ...opts });
+  const values: DealValues = { ...Object.fromEntries(attributes.map((a) => [a, row[a] ?? null])), ...(opts.owner !== undefined ? { ownerId: opts.owner } : {}) };
+  return saveDealValues(ctx, deal, source, values, { now, ...(opts.deferMirror ? { deferMirror: opts.deferMirror } : {}) });
 }
 
 async function dealOfEntity(ctx: MutationCtx, entityId: string) {

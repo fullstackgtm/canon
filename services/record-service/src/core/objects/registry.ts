@@ -90,6 +90,8 @@ type FieldCommon = {
   system?: boolean;
   /** A custom field left off record pages and the column chooser; its values are still stored, listed and written. */
   hidden?: boolean;
+  /** A text field that holds prose: edited in a multi-line box, its list cell clamped. The value is a string either way. */
+  multiline?: boolean;
   /**
    * When an admin archived (deleted) this custom field. Its values stay in the
    * ledger and its history, but it takes no writes and leaves list columns,
