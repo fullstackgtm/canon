@@ -9,7 +9,7 @@ import type { Capability } from "../modules/kernel/capabilities.ts";
 import { v, type Infer } from "convex/values";
 import { mismatch } from "../modules/kernel/mismatch.ts";
 import { actionProblem, conditionsProblem, scheduleProblem } from "../convex/lib/automations.ts";
-import { actionValidator, conditionValidator, isAutomationObject, triggerValidator } from "../modules/kernel/automation.ts";
+import { actionValidator, conditionValidator, isAutomationObject, relatedField, triggerValidator, walkSteps, type LeafAction } from "../modules/kernel/automation.ts";
 import { icpSpecValidator } from "../modules/kernel/icpSpec.ts";
 import { stepValidator as cadenceStepValidator, validateSteps } from "../convex/lib/linkedin/cadence.ts";
 import { isRegisterObject, registerListDef } from "../convex/lib/objects/listSpec.ts";
@@ -75,7 +75,7 @@ const thrown = (f: () => void): string[] => {
 };
 
 /** A recipe can't know a workspace's ids, so a template gives tasks and records only to the record's owner. */
-const ownerProblem = (a: TemplateSpec<"automation">["actions"][number]) => (a.kind !== "set_field" && a.owner.kind !== "record_owner" ? "a template gives tasks and records only to the record's owner (owner: { kind: record_owner })" : null);
+const ownerProblem = (a: LeafAction) => ("owner" in a && a.owner.kind !== "record_owner" ? "a template gives tasks and records only to the record's owner (owner: { kind: record_owner })" : null);
 
 export const TEMPLATE_KINDS: { [K in TemplateKind]: KindDef<K> } = {
   report: {
@@ -95,7 +95,12 @@ export const TEMPLATE_KINDS: { [K in TemplateKind]: KindDef<K> } = {
     problems: (t) => {
       const def = standardDef(t.object);
       if (!def || !isAutomationObject(t.object)) return [`rules don't run on ${t.object} records`];
-      const out: Array<string | null> = [conditionsProblem(def, t.conditions), ...t.actions.flatMap((a) => [actionProblem(def, a), ownerProblem(a)])];
+      // An If's own-field conditions are checked here; one on a related record's field, at install.
+      const steps = walkSteps(t.actions).map((x) => x.step);
+      const out: Array<string | null> = [
+        conditionsProblem(def, t.conditions),
+        ...steps.flatMap((a) => (a.kind === "if" ? [conditionsProblem(def, a.conditions.filter((c) => !relatedField(c.field, (f) => def.byApiName.has(f))))] : [actionProblem(def, a), ownerProblem(a)])),
+      ];
       if (t.trigger.kind === "schedule") out.push(scheduleProblem(t.trigger));
       if (!t.actions.length) out.push("a rule has at least one action");
       return out.filter((p): p is string => p !== null);

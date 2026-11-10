@@ -12,7 +12,10 @@ import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
 import { FlowCanvas, chain, type FlowNode } from "@/components/flow/flow-canvas";
-import { TODAY, describe, describeParts, ruleChanges, type AutomationAction, type Condition, type OwnerChoice, type RuleNames, type RuleShape, type Trigger } from "../../../../modules/kernel/automation";
+import {
+  TODAY, describe, describeConditions, describeParts, relatedField, ruleChanges, stepAt,
+  type AutomationAction, type Condition, type IfStep, type OwnerChoice, type RuleNames, type RuleShape, type RuleStep, type Trigger,
+} from "../../../../modules/kernel/automation";
 
 const btn = "border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40";
 const input = "border border-border bg-background px-2 py-1 text-sm";
@@ -32,7 +35,9 @@ const OPS: Array<[string, string]> = [
 const NUMERIC = new Set(["number", "currency", "datetime"]);
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const clock = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
-const ACTION_TITLES: Record<Action["kind"], string> = { set_field: "Set a field", create_task: "Create a task", assign_owner: "Assign an owner" };
+const ACTION_TITLES: Record<Action["kind"], string> = { set_field: "Set a field", create_task: "Create a task", assign_owner: "Assign an owner", wait: "Wait", if: "If" };
+/** How many Ifs deep a step may sit: an If holds one more If, and that one only actions. */
+const IF_DEPTH = 2;
 
 /** A typed value from a form's text, as the field stores it: money in cents, as the record filters store it. */
 function parseValue(field: FieldInfo | undefined, raw: string): Scalar | null {
@@ -49,7 +54,23 @@ const formText = (x: unknown, field?: FieldInfo) => (x === null || x === undefin
 /** What the sentence names a rule's references by, from the builder's workspace. */
 export function namesFor(ws: Workspace, object: string): RuleNames {
   const o = ws.objects.find((x) => x.apiName === object);
-  return { object: o ? { label: o.label, fields: o.fields } : undefined, members: ws.members, teams: ws.teams, routingRules: ws.routingRules, timezone: ws.timezone, currency: ws.currency };
+  const related = Object.fromEntries((o?.relations ?? []).map((r) => [r.via, { label: r.label, fields: r.fields }]));
+  return { object: o ? { label: o.label, fields: o.fields } : undefined, related, members: ws.members, teams: ws.teams, routingRules: ws.routingRules, timezone: ws.timezone, currency: ws.currency };
+}
+
+/** A field an If can test: the record's own, or with a dot a related record's (`companyId.industry`). */
+const fieldIn = (o: ObjectInfo | undefined, apiName: string): FieldInfo | undefined => {
+  const rel = relatedField(apiName, (f) => !o || o.fields.some((x) => x.apiName === f));
+  return rel ? o?.relations.find((r) => r.via === rel.via)?.fields.find((f) => f.apiName === rel.field) : o?.fields.find((f) => f.apiName === apiName);
+};
+
+/** A run's or a replay's way through the rule's Ifs, in words: each If's conditions and whether they held. */
+function pathText(path: ReadonlyArray<{ ref: string; took: "then" | "else" }>, rule: RuleShape, ws: Workspace): string {
+  return path.map((p) => {
+    const step = stepAt(rule.actions, p.ref);
+    const words = step?.kind === "if" ? describeConditions(rule.object, step.conditions, namesFor(ws, rule.object)) : "If";
+    return `${words}: ${p.took === "then" ? "yes" : "no"}`;
+  }).join("; ");
 }
 export const sentence = (rule: RuleShape, ws: Workspace) => describe(rule, namesFor(ws, rule.object));
 
@@ -145,11 +166,12 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
 }
 
 type ProposalRow = NonNullable<FunctionReturnType<typeof api.automations.proposals>>["open"][number];
-type ReplayShown = { wouldRun: number; runs: Array<{ streamId: string; at: number; title: string }>; skipped: Array<{ reason: string; count: number }>; partial: boolean; through: number | null; since: number; notes: string[] };
+type ReplayShown = { wouldRun: number; runs: Array<{ streamId: string; at: number; title: string; path?: Array<{ ref: string; took: "then" | "else" }> }>; skipped: Array<{ reason: string; count: number }>; partial: boolean; through: number | null; since: number; notes: string[] };
 const day = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 /** A replay's summary: how often the rule would have run over the last two weeks and on what, what it would have skipped and why. */
-function ReplaySummary({ replay, object }: { replay: ReplayShown; object: string }) {
+function ReplaySummary({ replay, rule, ws }: { replay: ReplayShown; rule: RuleShape; ws: Workspace }) {
+  const object = rule.object;
   const skipped = replay.skipped.reduce((n, s) => n + s.count, 0);
   return (
     <div className="space-y-1 border border-border/60 p-2 text-xs" data-testid="automation-replay">
@@ -160,7 +182,12 @@ function ReplaySummary({ replay, object }: { replay: ReplayShown; object: string
       </p>
       {replay.runs.length > 0 && (
         <ul className="space-y-0.5">
-          {replay.runs.map((r) => <li key={`${r.streamId}-${r.at}`}><span className="text-muted-foreground tabular-nums">{day(r.at)}</span> <Link className="underline" href={recordHref(object, r.streamId)}>{r.title || "Untitled"}</Link></li>)}
+          {replay.runs.map((r) => (
+            <li key={`${r.streamId}-${r.at}`}>
+              <span className="text-muted-foreground tabular-nums">{day(r.at)}</span> <Link className="underline" href={recordHref(object, r.streamId)}>{r.title || "Untitled"}</Link>
+              {r.path?.length ? <span className="text-muted-foreground" data-testid="automation-replay-path"> · {pathText(r.path, rule, ws)}</span> : null}
+            </li>
+          ))}
           {replay.wouldRun > replay.runs.length && <li className="text-muted-foreground">and {replay.wouldRun - replay.runs.length} more</li>}
         </ul>
       )}
@@ -171,7 +198,7 @@ function ReplaySummary({ replay, object }: { replay: ReplayShown; object: string
 }
 
 /** Replay a proposal or a rule over the last two weeks, on request: a proposal keeps the result for its approver. */
-function Replay({ args, object, stored, label }: { args: { versionId: Id<"automationVersions"> } | { ruleId: Id<"automationRules"> }; object: string; stored?: ReplayShown | null; label: string }) {
+function Replay({ args, rule, ws, stored, label }: { args: { versionId: Id<"automationVersions"> } | { ruleId: Id<"automationRules"> }; rule: RuleShape; ws: Workspace; stored?: ReplayShown | null; label: string }) {
   const replay = useAction(api.automations.replay);
   const [result, setResult] = useState<ReplayShown | null>(null);
   const [busy, setBusy] = useState(false);
@@ -190,7 +217,7 @@ function Replay({ args, object, stored, label }: { args: { versionId: Id<"automa
   }
   return (
     <div className="space-y-1">
-      {shown ? <ReplaySummary replay={shown} object={object} /> : null}
+      {shown ? <ReplaySummary replay={shown} rule={rule} ws={ws} /> : null}
       <button type="button" className={btn} disabled={busy} onClick={() => void go()}>{busy ? "Replaying…" : shown ? "Replay again" : label}</button>
     </div>
   );
@@ -253,7 +280,7 @@ function Proposals({ ws }: { ws: Workspace }) {
           {row.current && <Changes row={row} ws={ws} />}
           {row.spec.trigger.kind === "schedule"
             ? <DryRun label="Dry run: which records it would act on at its next run" args={{ object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions }} />
-            : <Replay args={{ versionId: row.id }} object={row.spec.object} stored={row.replay} label="Replay the last two weeks" />}
+            : <Replay args={{ versionId: row.id }} rule={row.spec} ws={ws} stored={row.replay} label="Replay the last two weeks" />}
           {row.stale && <p className="text-xs text-warning">The rule changed since this was written (version {row.current?.version} is in force). Ask for a fresh proposal.</p>}
           <p className="text-xs text-muted-foreground">Approving it makes you the member this rule acts as, with your access.{row.current ? " A running rule keeps running on the new version from now on, never on what happened before." : " It starts at once."}</p>
           <div className="flex flex-wrap gap-2">
@@ -312,7 +339,7 @@ function RuleDetail({ rule, ws, onClose }: { rule: Rule; ws: Workspace; onClose:
         <FlowCanvas scenario={{ id: `automation-${rule.id}`, title: rule.name, nodes: ruleNodes(rule, ws) }} height={220} />
         {rule.trigger.kind === "schedule"
           ? <DryRun label="Dry run" args={{ object: rule.object, trigger: rule.trigger, conditions: rule.conditions }} />
-          : <Replay args={{ ruleId: rule.id }} object={rule.object} label="Replay the last two weeks" />}
+          : <Replay args={{ ruleId: rule.id }} rule={rule} ws={ws} label="Replay the last two weeks" />}
       </section>
       {editing && <Builder ws={ws} initial={rule} onDone={() => setEditing(false)} />}
       <section className="border border-border bg-card p-4">
@@ -348,11 +375,16 @@ function Runs({ ruleId, ws, object }: { ruleId: Id<"automationRules">; ws: Works
               <td className="pr-3">{r.matched ? "Met" : r.reason ?? "Not met"}</td>
               <td className="pr-3">
                 {r.steps.map((s, i) => (
-                  <div key={i}>{i + 1}. {s.kind.replace("_", " ")}: {s.status}{s.detail ? ` (${s.detail})` : ""}{s.streamId ? <> · <Link className="underline" href={recordHref("task", s.streamId)}>open</Link></> : null}</div>
+                  // A step in an If's branch sits under it: its ref has a branch for each If it is in.
+                  <div key={i} style={{ paddingLeft: `${((s.ref ?? "").split(".").length - 1) * 6}px` }} data-testid={s.kind === "if" ? "automation-run-if" : undefined}>
+                    {ACTION_TITLES[s.kind as Action["kind"]] ?? s.kind}{s.branch ? `, ${s.branch === "then" ? "then" : "otherwise"}` : ""}: {s.status}{s.detail ? ` (${s.detail})` : ""}
+                    {s.streamId ? <> · <Link className="underline" href={recordHref("task", s.streamId)}>open</Link></> : null}
+                  </div>
                 ))}
               </td>
               <td>
                 {r.status}
+                {r.status === "waiting" && r.resumeAt ? <span className="text-muted-foreground"> until {when(r.resumeAt)}</span> : null}
                 {r.status === "done" && r.triggeredAt && r.finishedAt ? <span className="text-muted-foreground" data-delay-ms={r.finishedAt - r.triggeredAt}> in {((r.finishedAt - r.triggeredAt) / 1000).toFixed(1)} s</span> : null}
                 {r.status === "failed" && (
                   <button type="button" className={`${btn} ml-2`} onClick={() => void retry({ runId: r.id }).catch((e: unknown) => toast.error(getErrorMessage(e)))}>Retry</button>
@@ -434,6 +466,120 @@ function OwnerPicker({ owner, onChange, ws, allowRecordOwner }: { owner: Owner; 
   );
 }
 
+/** The steps without an If's condition rows that name no field yet: the form adds one, which the sentence and the save leave out. */
+const withoutBlankConditions = (steps: readonly RuleStep[]): RuleStep[] => steps.map((s) => (s.kind !== "if" ? s : {
+  ...s, conditions: s.conditions.filter((c) => c.field), then: withoutBlankConditions(s.then), ...(s.else ? { else: withoutBlankConditions(s.else) } : {}),
+}));
+
+/** An If's conditions: the record's own fields, and each related record's (by lookup), as the If reads them. Values are stored as the field stores them. */
+function IfConditions({ conditions, onChange, o }: { conditions: readonly Condition[]; onChange: (c: Condition[]) => void; o: ObjectInfo | undefined }) {
+  const options = [
+    { value: "", label: "Field…" },
+    ...(o?.fields ?? []).map((f) => ({ value: f.apiName, label: f.label })),
+    ...(o?.relations ?? []).flatMap((r) => r.fields.map((f) => ({ value: `${r.via}.${f.apiName}`, label: `${r.label}: ${f.label}` }))),
+  ];
+  const set = (i: number, c: Condition) => onChange(conditions.map((x, j) => (j === i ? c : x)));
+  return (
+    <div className="space-y-1">
+      {conditions.map((c, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2">
+          <SelectField aria-label="If field" value={c.field} onValueChange={(v) => set(i, { field: v, op: c.op })} options={options} />
+          <SelectField aria-label="If operator" value={c.op} onValueChange={(v) => set(i, { field: c.field, op: v, ...(v === "empty" || v === "notEmpty" ? {} : { value: c.value }) })}
+            options={[...OPS, ...(OPS.some(([k]) => k === c.op) ? [] : [[c.op, c.op] as [string, string]])].map(([k, label]) => ({ value: k, label }))} />
+          {c.op !== "empty" && c.op !== "notEmpty" && (Array.isArray(c.value)
+            ? <button type="button" className={btn} aria-label="If value" onClick={() => set(i, { field: c.field, op: c.op })}>{c.value.length} values (replace)</button>
+            : <ValueInput label="If value" field={fieldIn(o, c.field)} value={formText(c.value, fieldIn(o, c.field))} onChange={(raw) => set(i, { ...c, value: parseValue(fieldIn(o, c.field), raw) })} />)}
+          <button type="button" className={btn} onClick={() => onChange(conditions.filter((_, j) => j !== i))}>Remove</button>
+        </div>
+      ))}
+      <button type="button" className={btn} onClick={() => onChange([...conditions, { field: "", op: "eq", value: null }])}>Add condition</button>
+    </div>
+  );
+}
+
+/** A rule's steps in order, each editable; an If holds two more lists, Then and Otherwise, down to IF_DEPTH Ifs. */
+function StepList({ steps, onChange, ws, o, depth }: { steps: readonly RuleStep[]; onChange: (s: RuleStep[]) => void; ws: Workspace; o: ObjectInfo | undefined; depth: number }) {
+  const fieldOf = (apiName: string) => o?.fields.find((f) => f.apiName === apiName);
+  const editable = (o?.fields ?? []).filter((f) => f.apiName !== "ownerId" && f.type !== "formula");
+  const dates = (o?.fields ?? []).filter((f) => f.type === "date" || f.type === "datetime");
+  const set = (i: number, a: RuleStep) => onChange(steps.map((x, j) => (j === i ? a : x)));
+  return (
+    <div className="space-y-2">
+      {steps.map((a, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2 border-l-2 border-border pl-2" data-testid={a.kind === "if" ? "automation-if" : undefined}>
+          <span className="text-xs text-muted-foreground">{i + 1}.</span>
+          {a.kind === "set_field" && (
+            <>
+              <span>Set</span>
+              <SelectField aria-label="Field to set" value={a.field} onValueChange={(v) => set(i, { ...a, field: v, value: null })}
+                options={[{ value: "", label: "Field…" }, ...editable.map((f) => ({ value: f.apiName, label: f.label }))]} />
+              <span>to</span>
+              <ValueInput label="Value to set" field={fieldOf(a.field)} value={formText(a.value, fieldOf(a.field))} onChange={(raw) => set(i, { ...a, value: parseValue(fieldOf(a.field), raw) })} />
+            </>
+          )}
+          {a.kind === "create_task" && (
+            <>
+              <span>Create a task</span>
+              <input aria-label="Task subject" className={`${input} min-w-0`} value={a.subject} onChange={(e) => set(i, { ...a, subject: e.target.value })} placeholder="Follow up on {record}" />
+              <span>due in</span>
+              <input aria-label="Due in days" type="number" min={0} max={365} className={`${input} w-16`} value={a.dueInDays} onChange={(e) => set(i, { ...a, dueInDays: Number(e.target.value) })} />
+              <span>days for</span>
+              <OwnerPicker ws={ws} allowRecordOwner owner={a.owner} onChange={(owner) => set(i, { ...a, owner })} />
+            </>
+          )}
+          {a.kind === "assign_owner" && (
+            <>
+              <span>Assign the owner:</span>
+              <OwnerPicker ws={ws} allowRecordOwner={false} owner={a.owner} onChange={(owner) => set(i, { ...a, owner })} />
+            </>
+          )}
+          {a.kind === "wait" && (
+            <>
+              <span>Wait</span>
+              <SelectField aria-label="Wait for" value={a.until !== undefined ? "until" : "days"}
+                onValueChange={(v) => set(i, v === "until" ? { kind: "wait", until: dates[0]?.apiName ?? "" } : { kind: "wait", days: 2 })}
+                options={[{ value: "days", label: "a number of days" }, ...(dates.length ? [{ value: "until", label: "until a date on the record" }] : [])]} />
+              {a.until !== undefined
+                ? <SelectField aria-label="Wait until" value={a.until} onValueChange={(v) => set(i, { kind: "wait", until: v })} options={dates.map((f) => ({ value: f.apiName, label: f.label }))} />
+                : <input aria-label="Days to wait" type="number" min={1} max={365} className={`${input} w-16`} value={a.days ?? 1} onChange={(e) => set(i, { kind: "wait", days: Number(e.target.value) })} />}
+            </>
+          )}
+          {a.kind === "if" && <IfEditor step={a} onChange={(x) => set(i, x)} ws={ws} o={o} depth={depth} />}
+          <button type="button" className={btn} onClick={() => onChange(steps.filter((_, j) => j !== i))}>Remove</button>
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "set_field", field: "", value: null }])}>Set a field</button>
+        <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "create_task", subject: "Follow up on {record}", dueInDays: 2, owner: { kind: "record_owner" } }])}>Create a task</button>
+        {o?.fields.some((f) => f.apiName === "ownerId") && ws.members.length > 0 && (
+          <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "assign_owner", owner: { kind: "round_robin", userIds: [] } }])}>Assign an owner</button>
+        )}
+        <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "wait", days: 2 }])}>Wait</button>
+        {depth < IF_DEPTH && (
+          <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "if", conditions: [{ field: "", op: "eq", value: null }], then: [] }])}>If…</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IfEditor({ step, onChange, ws, o, depth }: { step: IfStep; onChange: (s: IfStep) => void; ws: Workspace; o: ObjectInfo | undefined; depth: number }) {
+  return (
+    <div className="w-full space-y-2">
+      <div className="text-xs text-muted-foreground">If the record, when the run gets here, matches</div>
+      <IfConditions conditions={step.conditions} onChange={(conditions) => onChange({ ...step, conditions })} o={o} />
+      <div className="text-xs text-muted-foreground">Then</div>
+      <StepList steps={step.then} onChange={(then) => onChange({ ...step, then })} ws={ws} o={o} depth={depth + 1} />
+      <div className="text-xs text-muted-foreground">Otherwise</div>
+      <StepList steps={step.else ?? []} onChange={(next) => {
+        const rest: IfStep = { ...step };
+        delete rest.else;
+        onChange(next.length ? { ...rest, else: next } : rest);
+      }} ws={ws} o={o} depth={depth + 1} />
+    </div>
+  );
+}
+
 /** The new rule form, or with `initial` the form for changing that rule. A value list the form cannot show (a trigger's several values, a condition's list) is kept until it is replaced. */
 function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDone: () => void }) {
   const propose = useMutation(api.automations.propose);
@@ -458,8 +604,6 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
   const [busy, setBusy] = useState(false);
   const o = ws.objects.find((x) => x.apiName === object);
   const fieldOf = (apiName: string) => o?.fields.find((f) => f.apiName === apiName);
-  const editable = (o?.fields ?? []).filter((f) => f.apiName !== "ownerId" && f.type !== "formula");
-  const me = ws.members[0]?.id;
 
   const reset = (next: string) => {
     setObject(next);
@@ -469,7 +613,6 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
     setConditions([]);
     setActions([]);
   };
-  const setAction = (i: number, a: Action) => setActions(actions.map((x, j) => (j === i ? a : x)));
 
   const minute = (() => {
     const [h, m] = time.split(":").map(Number);
@@ -484,13 +627,13 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
   const conditionList: Condition[] = conditions.filter((c) => c.field).map((c) => ({
     field: c.field, op: c.op, ...(c.op === "empty" || c.op === "notEmpty" ? {} : { value: Array.isArray(c.value) ? c.value : parseValue(fieldOf(c.field), c.value) }),
   }));
-  const draft: RuleShape = { object, trigger, conditions: conditionList, actions };
+  const draft: RuleShape = { object, trigger, conditions: conditionList, actions: withoutBlankConditions(actions) as Action[] };
 
   async function save() {
     setBusy(true);
     try {
       // A person's own change is approved as it is saved: they act as the admin who decides.
-      await propose({ ...(initial ? { ruleId: initial.id } : {}), name, ...draft, conditions: conditionList, actions });
+      await propose({ ...(initial ? { ruleId: initial.id } : {}), name, ...draft, conditions: conditionList, actions: draft.actions as Action[] });
       void toast.success(initial ? "Rule saved." : "Rule saved. It acts on changes from now on.");
       onDone();
     } catch (cause) {
@@ -568,44 +711,7 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
 
       <div className="space-y-2 text-sm">
         <div className="text-xs text-muted-foreground">Then, in order</div>
-        {actions.map((a, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-2 border-l-2 border-border pl-2">
-            <span className="text-xs text-muted-foreground">{i + 1}.</span>
-            {a.kind === "set_field" && (
-              <>
-                <span>Set</span>
-                <SelectField aria-label="Field to set" value={a.field} onValueChange={(v) => setAction(i, { ...a, field: v, value: null })}
-                  options={[{ value: "", label: "Field…" }, ...editable.map((f) => ({ value: f.apiName, label: f.label }))]} />
-                <span>to</span>
-                <ValueInput label="Value to set" field={fieldOf(a.field)} value={formText(a.value, fieldOf(a.field))} onChange={(raw) => setAction(i, { ...a, value: parseValue(fieldOf(a.field), raw) })} />
-              </>
-            )}
-            {a.kind === "create_task" && (
-              <>
-                <span>Create a task</span>
-                <input aria-label="Task subject" className={`${input} min-w-0`} value={a.subject} onChange={(e) => setAction(i, { ...a, subject: e.target.value })} placeholder="Follow up on {record}" />
-                <span>due in</span>
-                <input aria-label="Due in days" type="number" min={0} max={365} className={`${input} w-16`} value={a.dueInDays} onChange={(e) => setAction(i, { ...a, dueInDays: Number(e.target.value) })} />
-                <span>days for</span>
-                <OwnerPicker ws={ws} allowRecordOwner owner={a.owner} onChange={(owner) => setAction(i, { ...a, owner })} />
-              </>
-            )}
-            {a.kind === "assign_owner" && (
-              <>
-                <span>Assign the owner:</span>
-                <OwnerPicker ws={ws} allowRecordOwner={false} owner={a.owner} onChange={(owner) => setAction(i, { ...a, owner })} />
-              </>
-            )}
-            <button type="button" className={btn} onClick={() => setActions(actions.filter((_, j) => j !== i))}>Remove</button>
-          </div>
-        ))}
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className={btn} onClick={() => setActions([...actions, { kind: "set_field", field: "", value: null }])}>Set a field</button>
-          <button type="button" className={btn} onClick={() => setActions([...actions, { kind: "create_task", subject: "Follow up on {record}", dueInDays: 2, owner: { kind: "record_owner" } }])}>Create a task</button>
-          {o?.fields.some((f) => f.apiName === "ownerId") && me && (
-            <button type="button" className={btn} onClick={() => setActions([...actions, { kind: "assign_owner", owner: { kind: "round_robin", userIds: [] } }])}>Assign an owner</button>
-          )}
-        </div>
+        <StepList steps={actions} onChange={(next) => setActions(next as Action[])} ws={ws} o={o} depth={0} />
       </div>
 
       <p className="border-l-2 border-primary pl-2 text-sm" data-testid="automation-sentence">{sentence(draft, ws)}</p>

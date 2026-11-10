@@ -2,7 +2,7 @@
  * Automation rules (CP17): the pure parts of running one. What a rule is (its
  * document and its sentence) is the kernel's, modules/kernel/automation.ts.
  * Here: which ledger entries may start it, whether an entry is the change its trigger names,
- * whether the record passes its conditions, and who round robin picks next.
+ * whether the record passes its conditions and an If's, and who round robin picks next.
  * convex/automations.ts drives it from the ledger.
  *
  * A rule acts on changes made in Canon now: by people, the API, MCP and
@@ -22,8 +22,8 @@ import type { FieldValue, ResolvedObjectDef } from "./objects/registry.ts";
 import { localTime } from "./linkedin/limits.ts";
 
 import {
-  ACTIONS_MAX, CONDITIONS_MAX, MAX_DEPTH, TODAY,
-  type AutomationAction, type Condition, type ScheduleTrigger, type Step, type Trigger,
+  CONDITIONS_MAX, MAX_DEPTH, TODAY, WAIT_DAYS_MAX, relatedField,
+  type AutomationAction, type Branch, type Condition, type IfStep, type LeafAction, type RuleStep, type ScheduleTrigger, type Step, type Trigger,
 } from "../../modules/kernel/automation.ts";
 
 // ───────────────────────────── Origins ─────────────────────────────
@@ -142,10 +142,51 @@ export function conditionsMet(def: ResolvedObjectDef, row: ListRow, conditions: 
   return compiled.filters.every((f) => matchesFilter(row, f));
 }
 
+// ───────────────────────────── Ifs ─────────────────────────────
+
+/** A related record as an If reads it: its object's definition (the list views' one), and its row, or null when it is missing or out of the member's sight. */
+export type Related = { def: ResolvedObjectDef; row: ListRow | null };
+
+/** The lookup and related field a condition on `def` names, or null for one of its own fields (relatedField). */
+export const relatedOf = (def: ResolvedObjectDef, field: string) => relatedField(field, (apiName) => def.byApiName.has(apiName));
+
+/** The lookups an If's conditions read through (`companyId` for `companyId.industry`). */
+export const relatedVias = (def: ResolvedObjectDef, conditions: readonly Condition[]): string[] => [...new Set(conditions.flatMap((c) => relatedOf(def, c.field)?.via ?? []))];
+
+/**
+ * Whether an If's conditions hold: the record's own fields from `row`, a related record's from `related` by the
+ * lookup. A related record that is missing or that the member can't see reads as one whose every field is empty.
+ */
+export function ifHolds(def: ResolvedObjectDef, row: ListRow, conditions: readonly Condition[], related: Readonly<Record<string, Related>>, now: number, tz: string): boolean {
+  return conditions.every((c) => {
+    const rel = relatedOf(def, c.field);
+    if (!rel) return conditionsMet(def, row, [c], now, tz);
+    const r = related[rel.via];
+    const blank: ListRow = { id: "", object: r?.def.apiName ?? "", version: 0, status: "active", title: "", createdAt: 0, updatedAt: 0, deletedAt: null, values: {} };
+    return !!r && conditionsMet(r.def, r.row ?? blank, [{ ...c, field: rel.field }], now, tz);
+  });
+}
+
+/** The way through a rule's Ifs, each decided by `holds`, as a run takes it: an If's ref and the branch it took, in order. */
+export function pathThrough(steps: readonly RuleStep[], holds: (s: IfStep) => boolean, prefix = ""): Array<{ ref: string; took: Branch }> {
+  return steps.flatMap((s, i) => {
+    if (s.kind !== "if") return [];
+    const ref = `${prefix}${i}`;
+    const took: Branch = holds(s) ? "then" : "else";
+    return [{ ref, took }, ...pathThrough(s[took] ?? [], holds, `${ref}.${took}.`)];
+  });
+}
+
 // ───────────────────────────── Actions ─────────────────────────────
 
 /** Why an action cannot run on this object, or null. */
-export function actionProblem(def: ResolvedObjectDef, a: AutomationAction): string | null {
+export function actionProblem(def: ResolvedObjectDef, a: LeafAction): string | null {
+  if (a.kind === "wait") {
+    if ((a.days === undefined) === (a.until === undefined)) return "A wait is a number of days or a date field, not both";
+    if (a.days !== undefined) return Number.isInteger(a.days) && a.days >= 1 && a.days <= WAIT_DAYS_MAX ? null : `Wait 1 to ${WAIT_DAYS_MAX} days`;
+    const f = def.byApiName.get(a.until!);
+    return f && (f.type === "date" || f.type === "datetime") && f.archivedAt === undefined ? null : `${def.label} has no date field ${a.until}`;
+  }
   if (a.kind === "set_field") {
     const f = def.byApiName.get(a.field);
     if (!f || f.system || f.archivedAt !== undefined) return `${def.label} has no field ${a.field}`;
@@ -235,8 +276,32 @@ export function nextSlot(t: ScheduleTrigger, after: number, tz: string): number 
   throw new Error("No slot in the next eight days");
 }
 
+/** The instant a date (YYYY-MM-DD) starts in `tz`: its local midnight. */
+export function startOfDay(date: string, tz: string): number {
+  const wall = Date.parse(`${date}T00:00:00Z`);
+  let at = wall - (wallAt(wall, tz) - wall);
+  // The offset may differ on that day (a DST change in between): correct once more to settle.
+  at += wall - wallAt(at, tz);
+  return at;
+}
+
+/**
+ * When a Wait step that `now` reaches resumes: `days` later, or at the record's date (`value`, its `until` field as the
+ * member sees it: a date starts at its local midnight, a date and time is that moment). Null when there is nothing to
+ * wait for: an empty date, or one that has passed.
+ */
+export function resumeAt(step: { days?: number; until?: string }, value: FieldValue | undefined, now: number, tz: string): number | null {
+  if (step.days !== undefined) return now + step.days * 86_400_000;
+  const at = typeof value === "number" ? value : typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? startOfDay(value, tz) : null;
+  return at !== null && at > now ? at : null;
+}
+
 /** The date `days` after `now`, as a date field stores it (YYYY-MM-DD, UTC). */
 export const dueDate = (now: number, days: number) => new Date(now + days * 86_400_000).toISOString().slice(0, 10);
 
-/** A run's starting steps: one per action, all pending. */
-export const initialSteps = (actions: readonly AutomationAction[]): Step[] => actions.map((a) => ({ kind: a.kind, status: "pending", attempts: 0 }));
+/** A run's starting steps: one per action, all pending. An If's branch joins the steps when the run reaches it. */
+export const initialSteps = (actions: readonly AutomationAction[]): Step[] => actions.map((a, i) => ({ kind: a.kind, status: "pending", attempts: 0, ref: String(i) }));
+
+/** The pending steps of the branch an If took, right after it, each with its ref. */
+export const branchSteps = (ref: string, took: Branch, steps: readonly RuleStep[]): Step[] =>
+  steps.map((a, i) => ({ kind: a.kind, status: "pending", attempts: 0, ref: `${ref}.${took}.${i}` }));
