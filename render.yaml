@@ -1,0 +1,26 @@
+# Deploys Canon on Render: one web service running the newest signed release's image, with a disk
+# for all of its data. Deploy button: https://render.com/deploy?repo=https://github.com/fullstackgtm/canon
+# The service takes its address from RENDER_EXTERNAL_URL. Set SITE_URL only for a custom domain.
+# The first owner signs in with CANON_SETUP_CODE, which Render generates: find it under Environment.
+services:
+  - type: web
+    name: canon
+    runtime: image
+    image:
+      url: ghcr.io/fullstackgtm/canon:latest
+    # 1 CPU and 2 GB. Canon idles at about 1.25 GiB, so the 512 MB plans can't run it.
+    plan: 1c-2g
+    numInstances: 1
+    healthCheckPath: /api/public/version
+    # Updates are deliberate: back up, then deploy the new release (docs/updating.md).
+    autoDeployTrigger: "off"
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: CANON_SETUP_CODE
+        generateValue: true
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 10

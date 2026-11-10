@@ -28,6 +28,8 @@ test("a failed deploy resumes with the same signing key and no credentials in fr
   try {
     mkdirSync(join(cwd, "scripts"));
     copyFileSync("scripts/setup-local-auth.mjs", join(cwd, "scripts/setup-local-auth.mjs"));
+    mkdirSync(join(cwd, "scripts/selfhost"));
+    copyFileSync("scripts/selfhost/platform.mjs", join(cwd, "scripts/selfhost/platform.mjs"));
     mkdirSync(join(cwd, "node_modules/convex/bin"), { recursive: true });
     writeFileSync(join(cwd, "node_modules/convex/bin/main.js"), `
       const fs = require('node:fs');
@@ -51,6 +53,7 @@ test("a failed deploy resumes with the same signing key and no credentials in fr
     deploy(options, env, cwd);
     const second = parseEnv(readFileSync(appFile, "utf8"));
     assert.equal(first.CANON_SERVICE_JWT_PRIVATE_KEY, second.CANON_SERVICE_JWT_PRIVATE_KEY);
+    assert.ok(first.CANON_SETUP_CODE && first.CANON_SETUP_CODE === second.CANON_SETUP_CODE, "the first owner's setup code is generated once");
     assert.equal(second.NEXT_PUBLIC_CONVEX_URL, env.CONVEX_SELF_HOSTED_URL);
     assert.equal(second.CANON_AUTH, "local");
     assert.equal(statSync(appFile).mode & 0o777, 0o600);
@@ -103,7 +106,11 @@ test("verification creates and reads CRM records, checks restart persistence, an
       }
       assert.equal(request.headers.origin, site);
       if (body.kind === "sign-in" && !registered) { response.statusCode = 401; return response.end('{}'); }
-      if (body.kind === "register") registered = true;
+      if (body.kind === "register") {
+        // The first owner needs the setup code, and only one can register.
+        if (body.setupCode !== env.SELFHOST_SETUP_CODE || registered) { response.statusCode = body.setupCode === env.SELFHOST_SETUP_CODE ? 400 : 403; return response.end('{}'); }
+        registered = true;
+      }
       response.setHeader("Set-Cookie", "session=test; HttpOnly; Path=/");
       return response.end('{"ok":true}');
     }
@@ -145,16 +152,16 @@ test("verification creates and reads CRM records, checks restart persistence, an
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   const site = `http://127.0.0.1:${address.port}`;
-  const env = { SELFHOST_SMOKE_EMAIL: "owner@example.test", SELFHOST_SMOKE_PASSWORD: "test-owner-password" };
+  const env = { SELFHOST_SMOKE_EMAIL: "owner@example.test", SELFHOST_SMOKE_PASSWORD: "test-owner-password", SELFHOST_SETUP_CODE: "TESTS-SETUP-CODE1" };
   try {
     let restarts = 0;
     await verifyDeployment(site, site, true, env, { restart: async () => { restarts++; } });
     assert.equal(restarts, 1);
     assert.ok(company && person && deal);
-    assert.equal(requests.filter((path) => path === "/api/local-auth:register").length, 1);
+    assert.equal(requests.filter((path) => path === "/api/local-auth:register").length, 3, "a wrong code, the owner, then a second owner");
     assert.equal(requests.at(-1), "/api/local-auth:sign-out");
     await verifyDeployment(site, site, false, env);
-    assert.equal(requests.filter((path) => path === "/api/local-auth:register").length, 1);
+    assert.equal(requests.filter((path) => path === "/api/local-auth:register").length, 3);
     await assert.rejects(verifyDeployment(site, site, false, env, { restart: async () => { company = null; } }));
     demo = true;
     await assert.rejects(verifyDeployment(site, site, false, env));

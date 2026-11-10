@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { treeMoveError, type MovableNode } from "../convex/lib/icpTreeMove.ts";
+import { treeMoveError, type MovableNode } from "../modules/kernel/icpTreeMove.ts";
 
 const nodes: MovableNode[] = [
   { id: "icp", kind: "icp", parent: null },

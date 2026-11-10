@@ -1,12 +1,12 @@
 /**
- * An ICP tree node's query (convex/lib/icpQuery.ts) as the sentence the ICPs page reads and edits: plain words with
+ * An ICP tree node's query (icpQuery.ts) as the sentence the ICPs page reads and edits: plain words with
  * tokens, each token one clause of the query. Editing a token sets that clause's values and writes the query back.
  * Pure: the page and tests import it.
  */
-import { REGIONS } from "../../modules/kernel/dimensions.ts";
-import { COUNTRIES, EMPLOYEE_BANDS, LEVELS } from "../../convex/lib/icpVocabulary.ts";
-import { formatQuery, type Clause, type IcpQuery, type NodeKind } from "../../convex/lib/icpQuery.ts";
-import { industryLabel } from "../../modules/kernel/industries.ts";
+import { REGIONS } from "./dimensions.ts";
+import { COUNTRIES, EMPLOYEE_BANDS, LEVELS } from "./icpVocabulary.ts";
+import { formatQuery, type Clause, type IcpQuery, type NodeKind } from "./icpQuery.ts";
+import { industryLabel } from "./industries.ts";
 
 /** Where a clause sits: in the node's own clauses, or in its `has` group `has`. */
 export type ClausePath = { has?: number; index: number };

@@ -8,7 +8,7 @@ import { defaultSlots, planUpgrade } from "../modules/kernel/upgrade.ts";
 import { formArguments, rowsOfValue } from "../modules/kernel/document.ts";
 import { renderText, rowWhenHolds, valueAt } from "../modules/kernel/text.ts";
 import { emptySpec, specGate } from "../convex/lib/icps.ts";
-import { specToQuery } from "../convex/lib/icpQuery.ts";
+import { specToQuery } from "../modules/kernel/icpQuery.ts";
 import { gatedFit } from "../convex/lib/icpGates.ts";
 import { createFakeRecordClient, createMemoryRecordStore } from "../convex/lib/recordClient.ts";
 import type { AccountRow } from "../convex/lib/recordContract.ts";

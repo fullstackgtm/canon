@@ -1,7 +1,8 @@
 /**
  * A person's level and department from their job title. The record service matches
- * contacts against an ICP's buyer with these in SQL (upsert.ts gate buyers), and Convex
- * uses the same tables for staging dimensions (convex/lib/staging.ts). Dependency-free.
+ * contacts against an ICP's buyer with these in SQL (services/record-service/src/upsert.ts
+ * gate buyers, through the copy scripts/sync-object-core.ts writes), and Convex uses the
+ * same tables for staging dimensions (convex/lib/staging.ts). Dependency-free.
  * The patterns are RE2-compatible, so DuckDB runs them as written.
  */
 

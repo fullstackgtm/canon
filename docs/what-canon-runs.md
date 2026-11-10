@@ -8,14 +8,15 @@ report it.
 
 ## What runs
 
-`docker compose up` builds `Dockerfile.selfhost` and starts one container. Its
-entrypoint, `scripts/selfhost/entrypoint.mjs`, runs as user `canon` (uid 1001)
+`docker compose up` starts one container from `Dockerfile.selfhost`: built on your
+machine with `--build`, or the image published for a signed release, which
+`scripts/selfhost/install.sh` pulls. Its entrypoint, `scripts/selfhost/entrypoint.mjs`, runs as user `canon` (uid 1001)
 under `tini` and starts four things in order:
 
 | Process | Listens on | What it is |
 |---|---|---|
 | Convex backend | 127.0.0.1:3210 and 3211, inside the container | The open-source Convex backend, an image pinned by digest. It stores the database in SQLite. |
-| Convex CLI, once | nothing | Pushes the app's functions from `convex/` to that backend, then exits. |
+| Convex CLI, at each start | nothing | Pushes the app's functions from `convex/` to that backend when they changed, then asks it whether the first owner exists, and exits. |
 | Record service | 127.0.0.1:8787, inside the container | `services/record-service`, a Node and DuckDB store for records. |
 | Next.js | 0.0.0.0:3000, inside the container | The web app. It forwards `/convex` and `/convex-site` to the backend. |
 
@@ -34,13 +35,21 @@ Everything lives in the Compose volume `data`, mounted at `/data`:
 |---|---|
 | `/data/convex` | The Convex database and file storage |
 | `/data/records` | The record service's database |
-| `/data/credentials` | Keys the container makes on first start: the backend's instance secret and admin key, the record service token, the key that encrypts stored vendor tokens, and the RSA key that signs sign-in sessions |
+| `/data/credentials` | Keys the container makes on first start: the backend's instance secret and admin key, the record service token, the key that encrypts stored vendor tokens, the RSA key that signs sign-in sessions, and the setup code |
 
-The first account to register becomes the installation's owner. Passwords are
+The first owner registers with the setup code, which the container prints in its
+log until an owner exists, or the `CANON_SETUP_CODE` you set. Everyone else joins
+by invitation. Passwords are
 stored as scrypt hashes. Nothing is written outside the volume except temporary
 files inside the container.
 
 ## What it connects to
+
+### While installing
+
+`scripts/selfhost/install.sh` clones the release from github.com and pulls its
+image from ghcr.io. The image is built by the public repository's `image`
+workflow, from the commit the signed release tag names.
 
 ### While building the image
 

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
-import { treeMoveError } from "../convex/lib/icpTreeMove.ts";
+import { treeMoveError } from "../modules/kernel/icpTreeMove.ts";
 
 test("updateNode persists reparenting, detaches to root, and rejects unauthorized or invalid moves", async () => {
   const nodes = [
@@ -29,8 +29,8 @@ test("updateNode persists reparenting, detaches to root, and rejects unauthorize
    "./lib/capabilities": capabilities,
     "./lib": { requireCap: async () => { if (!canEdit) throw Error("Forbidden"); return { orgId: "org" }; } },
     "./lib/modules/interfaceOwnership": { assertLegacyIcpsWritable: async () => {} }, "./lib/icpsInterface": {},
-    "./icps": {}, "./lib/icps": {}, "./lib/recipes": {}, "./lib/icpQuery": {},
-    "./lib/icpTree": {}, "./lib/icpTreeMove": { treeMoveError }, "./records": {}, "./lib/recordClient": {},
+    "./icps": {}, "./lib/icps": {}, "./lib/recipes": {}, "../modules/kernel/icpQuery": {},
+    "./lib/icpTree": {}, "../modules/kernel/icpTreeMove": { treeMoveError }, "./records": {}, "./lib/recordClient": {},
   };
   const { outputText } = ts.transpileModule(readFileSync(new URL("../convex/icpTree.ts", import.meta.url), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS },

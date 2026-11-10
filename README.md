@@ -4,6 +4,26 @@ CanonCRM is a self-hosted CRM built with Next.js and Convex. It includes account
 contacts, deals, research agents, and a module system. It runs as one Docker
 container on a machine you already have, with no accounts to create.
 
+## Deploy
+
+On a server or laptop with Docker, download the installer, read it, then run it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/fullstackgtm/canon/main/scripts/selfhost/install.sh -o install.sh
+sh install.sh
+```
+
+It installs the newest signed release, checks its signature, starts Canon and
+prints the address and a setup code. Whoever has the code creates the first
+owner, so nobody else can claim a new install. Add `--domain crm.example.com`
+for HTTPS on a server your domain points at.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/fullstackgtm/canon)
+
+[docs/self-hosting.md](docs/self-hosting.md) compares the paths, with what each
+costs and how it updates and backs up, and covers Railway, building from
+source and your own HTTPS. Canon sends no telemetry.
+
 ## Install it with your agent
 
 Paste this into Claude Code, Codex or another coding agent:
@@ -54,7 +74,7 @@ module built that way.
 Use Node.js 22.6 or newer. Run `npm ci`, then `npm run typecheck` and `npm run build`.
 Before your first pull request, sign the [contributor license agreement](CLA.md).
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to sign, contribution guidelines and
-[docs/self-hosting.md](docs/self-hosting.md) for Docker Compose, Railway, and Convex Cloud deployment.
+[docs/self-hosting.md](docs/self-hosting.md) for Docker, Render, Railway, and Convex Cloud deployment.
 
 This source export omits internal deployment infrastructure, operator dashboards,
 and private modules. See [the module marketplace](docs/modules-marketplace.md)

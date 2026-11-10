@@ -15,3 +15,10 @@ test("a boot pushes the functions only when the image, backend or pushed environ
   ]) assert.equal(mustPush(functionsDigest(changed), pushed), true, JSON.stringify(changed));
   assert.equal(mustPush(functionsDigest({ source: null, backend: "unknown", env }), functionsDigest({ source: null, backend: "unknown", env })), true, "an image without a source hash always pushes");
 });
+
+test("without SITE_URL the container takes its public address from the hosting platform", async () => {
+  const { platformSiteUrl } = await import("../scripts/selfhost/platform.mjs");
+  assert.equal(platformSiteUrl({ RENDER_EXTERNAL_URL: "https://canon-x1.onrender.com/" }), "https://canon-x1.onrender.com");
+  assert.equal(platformSiteUrl({ RAILWAY_PUBLIC_DOMAIN: "canon-production.up.railway.app" }), "https://canon-production.up.railway.app");
+  assert.equal(platformSiteUrl({}), null);
+});

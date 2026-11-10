@@ -23,7 +23,8 @@ import { TregRefusal } from "./lib/treg";
 import { createDeeplineClient, deeplineFirst, DEEPLINE_EMAIL_ENDPOINT } from "./lib/deepline";
 import { decryptFromStorage } from "./lib/tokenHelpers";
 import { filterValidator } from "./lib/scopeValidators";
-import { accountCriteria, parseQuery } from "./lib/icpQuery";
+import { parseQuery } from "../modules/kernel/icpQuery";
+import { accountCriteria } from "./lib/icpCriteria";
 import { isPaidEmailHit, isPaidPhoneHit, utcMonthWindow } from "./lib/usage";
 import {
   accountIdFor,
@@ -438,7 +439,7 @@ export const list = action({
     ),
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
-    // Query lines (lib/icpQuery.ts) every listed company must pass: a territory and the lines above it.
+    // Query lines (modules/kernel/icpQuery.ts) every listed company must pass: a territory and the lines above it.
     lines: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args): Promise<AccountsListResponse> => {

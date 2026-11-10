@@ -1,5 +1,6 @@
 import { generateKeyPairSync, createPrivateKey, createPublicKey } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { newSetupCode } from "./selfhost/platform.mjs";
 
 const args = process.argv.slice(2);
 const options = {};
@@ -26,6 +27,8 @@ function update(file, values) {
   writeFileSync(file, `${lines.join("\n").trimEnd()}\n${additions.join("\n")}\n`, { mode: 0o600 });
   chmodSync(file, 0o600);
 }
-update(appFile, { CANON_AUTH: "local", NEXT_PUBLIC_SITE_URL: site.origin, CANON_SERVICE_JWT_PRIVATE_KEY: pem, CANON_SERVICE_JWT_ISSUER: issuer, CANON_SERVICE_JWT_KID: kid });
+// The code the first owner enters at /sign-in (src/lib/setupCode.ts), kept across reruns.
+const setupCode = process.env.CANON_SETUP_CODE ?? newSetupCode();
+update(appFile, { CANON_AUTH: "local", NEXT_PUBLIC_SITE_URL: site.origin, CANON_SERVICE_JWT_PRIVATE_KEY: pem, CANON_SERVICE_JWT_ISSUER: issuer, CANON_SERVICE_JWT_KID: kid, CANON_SETUP_CODE: setupCode });
 update(convexFile, { CANON_AUTH: "local", FSGTM_ENABLE_DEMO_DATA: "false", CANON_SERVICE_JWT_ISSUER: issuer, CANON_SERVICE_JWKS: jwks });
-console.log(`Local auth configured in ${appFile}. Apply ${convexFile} to your own Convex backend before deploying functions. No private key is included in the backend file.`);
+console.log(`Local auth configured in ${appFile}. Apply ${convexFile} to your own Convex backend before deploying functions. No private key is included in the backend file. The first owner enters CANON_SETUP_CODE from ${appFile} at /sign-in.`);

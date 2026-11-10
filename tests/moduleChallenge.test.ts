@@ -7,7 +7,7 @@ import { parseModuleManifest, type ModuleManifest } from "../modules/kernel/mani
 import { gateAnswer, outputSchema } from "../modules/kernel/ai.ts";
 import { freePopulationRequest } from "../modules/kernel/freePopulation.ts";
 import { challengeCalls } from "../modules/examples/icps/challenge.ts";
-import { CRM_SOURCE, contextText, parseProposals, proposalSearch } from "../modules/examples/icps/challengeDomain.ts";
+import { CRM_SOURCE, contextText, parseProposals, proposalSearch } from "../modules/kernel/icpChallenge.ts";
 import type { CallContext, ReadDoc } from "../modules/kernel/calls.ts";
 import type { Icp } from "../engine/src/icp.ts";
 import type { readWebPages as ReadWebPages, sampleMarkets as SampleMarkets } from "../convex/moduleWebActions.ts";

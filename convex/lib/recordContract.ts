@@ -132,7 +132,7 @@ export const AccountsFilter = z.object({
   minArchetypeP: z.number().optional(),
   /** Service 1.29.0+ (CP14): only accounts the caller may see (lib/access.ts ownerScope over `ownerId`). */
   scope: z.object({ field: z.literal("ownerId"), owners: z.array(z.string()), unowned: z.boolean() }).optional(),
-  /** Service 1.40.0+: company criteria from query lines (lib/icpQuery.ts accountCriteria), every one of which must pass. */
+  /** Service 1.40.0+: company criteria from query lines (lib/icpCriteria.ts accountCriteria), every one of which must pass. */
   criteria: z.array(z.custom<TerritoryCriteria>()).optional(),
 });
 export type AccountsFilter = z.infer<typeof AccountsFilter>;
