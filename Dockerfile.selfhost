@@ -17,7 +17,11 @@ ARG CANON_AUTH=local
 ENV CANON_AUTH=$CANON_AUTH
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_TELEMETRY_DISABLED=1 NEXT_PUBLIC_CANON_SELFHOST=true
-RUN npm run build && rm -rf .next/cache .next/standalone && npm prune --omit=dev --no-audit --no-fund
+# The entrypoint runs the standalone server, with the app's own node_modules in place of its traced copy and the
+# static files and public/ it serves linked in.
+RUN npm run build && rm -rf .next/cache .next/standalone/node_modules \
+  && ln -s ../../node_modules .next/standalone/node_modules && ln -s ../../static .next/standalone/.next/static \
+  && ln -s ../../public .next/standalone/public && npm prune --omit=dev --no-audit --no-fund
 
 FROM ubuntu:24.04 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends libclang1 ca-certificates curl openssl tini procps libatomic1 && rm -rf /var/lib/apt/lists/*
