@@ -14,7 +14,7 @@ import { COUNTRIES } from "../../../convex/lib/addRecords";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { drillToSpec } from "@/lib/drill-to-icp";
-import { industryLabel } from "../../../services/record-service/src/industries";
+import { industryLabel } from "../../../modules/kernel/industries";
 import type { Pivot } from "@/lib/tam-levels";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";

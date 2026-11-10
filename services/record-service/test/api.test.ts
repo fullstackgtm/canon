@@ -109,6 +109,35 @@ describe("record service API", () => {
     assert.deepEqual((await ws.post("provision")).json, { created: false });
   });
 
+  it("exports every register row of one workspace in key order, page by page, and counts them (1.48.0)", async () => {
+    const ws = ctx.client.ws("export");
+    await ws.post("provision");
+    await ws.post("accounts/upsert", { records: fixtureAccounts(3), source: "test", idempotencyKey: "e1" });
+    await ctx.client.ws("export-other").post("provision");
+    await ctx.client.ws("export-other").post("accounts/upsert", { records: fixtureAccounts(2, 9), source: "test", idempotencyKey: "e2" });
+    const first = await ws.post("export/accounts", { limit: 2 });
+    const second = await ws.post("export/accounts", { limit: 2, after: first.json.next });
+    const domains = [...first.json.rows, ...second.json.rows].map((r: { domain: string }) => r.domain).sort();
+    assert.deepEqual(domains, ["co0-0.example.com", "co0-1.example.com", "co0-2.example.com"]);
+    assert.equal(second.json.next, null);
+    assert.deepEqual((await ws.post("export/counts")).json, { accounts: 3, contacts: 0, field_history: 0 });
+    assert.deepEqual((await ctx.client.ws("never-provisioned").post("export/contacts", {})).json, { rows: [], next: null });
+  });
+
+  it("imports exported register rows into another workspace column for column, and refuses a column the table lacks", async () => {
+    const from = ctx.client.ws("import-from");
+    await from.post("provision");
+    await from.post("accounts/upsert", { records: fixtureAccounts(3), source: "test", idempotencyKey: "i1" });
+    const into = ctx.client.ws("import-into");
+    for (const table of ["accounts", "field_history"]) {
+      const rows = (await from.post(`export/${table}`, { limit: 100 })).json.rows;
+      const written = await into.post(`import/${table}`, { rows });
+      assert.equal(written.status, 200, JSON.stringify(written.json));
+      assert.deepEqual((await into.post(`export/${table}`, { limit: 100 })).json.rows, rows);
+    }
+    assert.equal((await into.post("import/accounts", { rows: [{ id: "acc_x", isAdmin: true }] })).status, 400);
+  });
+
   it("upserts, lists sorted by fit desc with a correct total, pages with a cursor, counts segments", async () => {
     const ws = ctx.client.ws("list");
     await ws.post("provision");

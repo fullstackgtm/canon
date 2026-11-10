@@ -295,6 +295,11 @@ export const ensureWorkspace = mutation({
     }
 
     const now = Date.now();
+    // A second workspace that devWorkspaces.moveDevUser made keeps the dev user until it is moved back, so a page
+    // load (which calls this) opens the imported workspace rather than the demo one.
+    const dev = await ctx.db.query("users").withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", DEV_USER_CLERK_ID)).first();
+    const away = dev ? await ctx.db.get(dev.orgId) : null;
+    if (dev && away?.clerkOrgId?.startsWith("dev_import_")) return { orgId: away._id, userId: dev._id, seededAt: now };
     const orgId = await ensureOrganization(ctx, now);
     await seedDefaultModules(ctx, orgId);
 

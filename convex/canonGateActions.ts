@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { ConvexError, v } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { touchCliToken } from "./cliAuth";
 import type { Id } from "./_generated/dataModel";
 import { admitProposalTargets, proposedFactValidator } from "./canonGate";
 import { principalClient } from "./records";
@@ -16,7 +17,7 @@ async function authenticate(ctx: ActionCtx, cliToken: string): Promise<CliIdenti
   const tokenHash = createHash("sha256").update(cliToken).digest("hex");
   const token: CliIdentity | null = await ctx.runQuery(internal.cliAuth.getTokenByHash, { tokenHash });
   if (!token) throw new ConvexError("Invalid or revoked CLI token");
-  await ctx.runMutation(internal.cliAuth.touchToken, { cliTokenId: token._id });
+  await touchCliToken(ctx, token);
   return token;
 }
 

@@ -50,8 +50,9 @@ import type {
 } from "./lib/recordContract";
 import { EDITABLE_ACCOUNT_FIELDS, EDITABLE_CONTACT_FIELDS, editRequestKey, reusedEditKeyMessage } from "./lib/recordContract";
 import { BULK_MAX } from "./lib/objects/views";
+import { upsertAccount, upsertContact } from "./lib/objects/createArgs";
 import { icpGateValidator, icpVersionWeightsValidator } from "./lib/scoreHistory";
-import { ACTIVITY_OBJECT } from "./lib/objects/reportSpec";
+import { ACTIVITY_OBJECT } from "../modules/kernel/reportLanguage";
 import type { ActivityReportContext } from "./moduleActivities";
 
 // ───────────────────────────── Fake store (Convex tables) ─────────────────────────────
@@ -499,15 +500,6 @@ export const count = action({
 /** Records one `upsert` call may add. */
 export const UPSERT_MAX = 100;
 
-const upsertAccount = v.object({
-  domain: v.string(), name: v.string(),
-  industry: v.optional(v.string()), employees: v.optional(v.number()), country: v.optional(v.string()), linkedinUrl: v.optional(v.string()),
-});
-const upsertContact = v.object({
-  fullName: v.string(), accountDomain: v.optional(v.string()), accountId: v.optional(v.string()),
-  title: v.optional(v.string()), email: v.optional(v.string()), linkedinUrl: v.optional(v.string()),
-});
-
 /**
  * Add accounts (keyed by domain) or contacts (deduplicated by the record
  * service) to the register as unworked rows, like a population job does.
@@ -541,6 +533,8 @@ export const upsert = action({
       const taken = args.accounts!.filter((_, i) => existing[i] !== null).map((a) => a.domain);
       if (taken.length) throw new ConvexError(`Already in the workspace: ${taken.slice(0, 5).join(", ")}. Your role adds new companies only.`);
     }
+    // The record service replays the key; the claim refuses it sent again with other records.
+    await ctx.runMutation(internal.apiIdempotency.claim, { key: args.idempotencyKey, request: { op: "records.upsert", object: args.object, records } });
     const body = { source: "api", idempotencyKey: `api:${caller.userId}:${args.idempotencyKey}`, fill: "missing" as const };
     return args.object === "account"
       ? client.upsertAccounts(caller.orgId, { ...body, records: args.accounts! })

@@ -17,7 +17,7 @@ import type { Access } from "./lib/access";
 import { WRITE_CHUNK } from "./audiences";
 import { accountNamesByList } from "./lib/recordClient";
 import { decryptFromStorage } from "./lib/tokenHelpers";
-import { listFilter } from "./lib/objects/validators";
+import { listFilter } from "../modules/kernel/reportValidators";
 import { AUDIENCE_MAX, csvOf, emailKey, planPush, readAll, summaryOf, type OutboundContact } from "./lib/outbound/audience";
 import { SequencerError, type SequencerCampaign, type SequencerClient } from "./lib/outbound/client";
 import { previewPush, pushTo, type MemberRow, type PushPorts, type PushPreview, type PushResult } from "./lib/outbound/push";

@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { joinParts, needsSplit, splitReport } from "../convex/lib/objects/metricSplit.ts";
-import type { ReportSpec } from "../convex/lib/objects/validators.ts";
+import type { ReportSpec } from "../modules/kernel/reportValidators.ts";
 
 const open = { field: "isClosed", op: "eq" as const, value: false };
 const closed = { field: "isClosed", op: "eq" as const, value: true };

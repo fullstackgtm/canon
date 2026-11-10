@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { touchCliToken } from "./cliAuth";
 
 // "in_progress" = a streaming CLI heartbeat; the terminal report (success/
 // partial/error) upserts the same clientRunId row (see cliRuns.insertRun).
@@ -67,7 +68,7 @@ export const recordRun = action({
     const tokenHash = createHash("sha256").update(args.cliToken).digest("hex");
     const token = await ctx.runQuery(internal.cliAuth.getTokenByHash, { tokenHash });
     if (!token) throw new ConvexError("Invalid or revoked CLI token");
-    await ctx.runMutation(internal.cliAuth.touchToken, { cliTokenId: token._id });
+    await touchCliToken(ctx, token);
 
     const { cliToken: _omit, ...run } = args;
     const runId = await ctx.runMutation(internal.cliRuns.insertRun, {
@@ -94,7 +95,7 @@ export const recordHealthEntries = action({
     const tokenHash = createHash("sha256").update(args.cliToken).digest("hex");
     const token = await ctx.runQuery(internal.cliAuth.getTokenByHash, { tokenHash });
     if (!token) throw new ConvexError("Invalid or revoked CLI token");
-    await ctx.runMutation(internal.cliAuth.touchToken, { cliTokenId: token._id });
+    await touchCliToken(ctx, token);
 
     // Sanitize before the typed mutation: drop malformed entries rather than
     // failing the whole chunk.

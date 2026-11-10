@@ -3,10 +3,10 @@
  * tokens, each token one clause of the query. Editing a token sets that clause's values and writes the query back.
  * Pure: the page and tests import it.
  */
-import { REGIONS } from "../../services/record-service/src/dimensions.ts";
+import { REGIONS } from "../../modules/kernel/dimensions.ts";
 import { COUNTRIES, EMPLOYEE_BANDS, LEVELS } from "../../convex/lib/icpVocabulary.ts";
 import { formatQuery, type Clause, type IcpQuery, type NodeKind } from "../../convex/lib/icpQuery.ts";
-import { industryLabel } from "../../services/record-service/src/industries.ts";
+import { industryLabel } from "../../modules/kernel/industries.ts";
 
 /** Where a clause sits: in the node's own clauses, or in its `has` group `has`. */
 export type ClausePath = { has?: number; index: number };

@@ -6,7 +6,7 @@
  *
  * Pure: no database access, no Node-only imports.
  */
-import { NONE } from "../../../services/record-service/src/dimensions.ts";
+import { NONE } from "../../../modules/kernel/dimensions.ts";
 import { seniorityOf } from "../staging.ts";
 import { funnelOf, rate, type EnrollmentState } from "./cadence.ts";
 

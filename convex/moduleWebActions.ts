@@ -9,7 +9,7 @@ import { websiteText, websiteMeta } from "../engine/src/portable/websiteSources.
 import { marketSampleRequest } from "../modules/kernel/freePopulation.ts";
 import { freePopulationQuery } from "./lib/modules/freePopulation";
 import { quickEnrichPage } from "./lib/quickenrich";
-import { icpGeosToCountries } from "./lib/icpGeography";
+import { icpGeosToCountries } from "../modules/kernel/icpGeography";
 import { TregRefusal } from "./lib/treg";
 import { websiteSources } from "../engine/src/icpDerive.ts";
 import { publicPageUrl, webPagesRequest, type WebPagesRequest } from "../modules/kernel/webPages.ts";

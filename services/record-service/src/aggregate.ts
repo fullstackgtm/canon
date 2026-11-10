@@ -10,9 +10,8 @@
 // key but the last) and the total in a single scan; QUALIFY keeps the first GROUPS_MAX of each.
 import type { DuckDBConnection } from "@duckdb/node-api";
 import { fieldColumn, ListRequestError, type ListColumn, type Scalar } from "./core/objects/listSpec.ts";
-import {
-  ACTIVITY_OBJECT, activityReportDef, compileAggregateRequest, CONTACT_COMPANY_VIA, GROUPS_MAX, relationsOf, type AggregateGroup, type AggregateResponse, type CompiledAggregate, type CompiledGroup,
-} from "./core/objects/reportSpec.ts";
+import { activityReportDef, compileAggregateRequest, CONTACT_COMPANY_VIA, GROUPS_MAX, relationsOf, type AggregateGroup, type AggregateResponse, type CompiledAggregate, type CompiledGroup } from "./core/objects/reportSpec.ts";
+import { ACTIVITY_OBJECT } from "./core/kernel/reportLanguage.ts";
 import type { ActivityAggregateRequest } from "./core/objects/moduleReport.ts";
 import { moduleActivitySelects } from "./moduleDocs.ts";
 import { all } from "./db.ts";

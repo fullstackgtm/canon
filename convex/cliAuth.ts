@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query, type ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser } from "./lib";
 import { Id } from "./_generated/dataModel";
 
@@ -277,13 +278,29 @@ export const getTokenByHash = internalQuery({
       .unique();
     if (!token || token.revokedAt) return null;
     if (token.expiresAt !== undefined && Date.now() > token.expiresAt) return null;
-    return { _id: token._id, orgId: token.orgId, userId: token.userId };
+    return { _id: token._id, orgId: token.orgId, userId: token.userId, lastUsedAt: token.lastUsedAt ?? null };
   },
 });
+
+/**
+ * How stale a credential's last-used time may get. It is shown in Settings and read by nothing else, so a minute is
+ * precise enough, and a busy token writes once a minute instead of once a request: every request reads the token, and
+ * writing it each time made parallel requests conflict on that one row.
+ */
+export const LAST_USED_INTERVAL_MS = 60_000;
+export const lastUsedIsStale = (lastUsedAt: number | null | undefined, now: number) => lastUsedAt == null || now - lastUsedAt >= LAST_USED_INTERVAL_MS;
+
+/** Stamp a token resolved by getTokenByHash as used, unless it was stamped within the interval: then nothing runs. */
+export async function touchCliToken(ctx: ActionCtx, token: { _id: Id<"cliTokens">; lastUsedAt?: number | null }): Promise<void> {
+  if (lastUsedIsStale(token.lastUsedAt, Date.now())) await ctx.runMutation(internal.cliAuth.touchToken, { cliTokenId: token._id });
+}
 
 export const touchToken = internalMutation({
   args: { cliTokenId: v.id("cliTokens") },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.cliTokenId, { lastUsedAt: Date.now() });
+    // Parallel requests can all find the stamp stale; the first writes it and the rest, retried, find it fresh.
+    const token = await ctx.db.get(args.cliTokenId);
+    const now = Date.now();
+    if (token && lastUsedIsStale(token.lastUsedAt, now)) await ctx.db.patch(args.cliTokenId, { lastUsedAt: now });
   },
 });

@@ -23,6 +23,7 @@ import { ACTIVITY_OBJECTS, linkedActivities, targetNames, type Activity, type Mo
 import type { ProjectedThrough } from "./lib/objects/listSpec";
 import { fieldValue } from "./lib/objects/validators";
 import { readModuleActivities } from "./lib/modules/activities";
+import { createOnce, createdOrProposed } from "./lib/idempotency";
 
 const activityObject = v.union(...ACTIVITY_OBJECTS.map((o) => v.literal(o)));
 const targetObject = v.union(v.literal("account"), v.literal("contact"), v.literal("deal"), v.literal("lead"));
@@ -44,6 +45,8 @@ const logArgs = {
   object: activityObject,
   values: v.record(v.string(), fieldValue),
   targets: v.array(v.object({ object: targetObject, id: v.string() })),
+  /** A create's Idempotency-Key (lib/idempotency.ts). */
+  idempotencyKey: v.optional(v.string()),
 };
 
 /**
@@ -74,9 +77,13 @@ export const logScoped = action({
   },
 });
 
-async function logAs(ctx: MutationCtx, args: { object: (typeof ACTIVITY_OBJECTS)[number]; values: Record<string, unknown>; targets: Array<{ object: TargetObject; id: string }> }, admitted: ReadonlySet<string>) {
+async function logAs(ctx: MutationCtx, { idempotencyKey, ...args }: { object: (typeof ACTIVITY_OBJECTS)[number]; values: Record<string, unknown>; targets: Array<{ object: TargetObject; id: string }>; idempotencyKey?: string }, admitted: ReadonlySet<string>) {
+  const user = await requireUser(ctx);
+  return createOnce(ctx, { orgId: user.orgId, userId: user._id }, idempotencyKey, { op: "activities.log", ...args }, () => logAsUser(ctx, user, args, admitted), createdOrProposed);
+}
+
+async function logAsUser(ctx: MutationCtx, user: Doc<"users">, args: { object: (typeof ACTIVITY_OBJECTS)[number]; values: Record<string, unknown>; targets: Array<{ object: TargetObject; id: string }> }, admitted: ReadonlySet<string>) {
   {
-    const user = await requireUser(ctx);
     // Every record the activity is about must be one the caller sees; a hidden one reads as missing (CP14).
     const judge = sightJudge(ctx, [await accessFor(ctx, user)], admitted);
     for (const t of args.targets.filter((t) => t.id)) {

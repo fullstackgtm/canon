@@ -9,7 +9,7 @@
  *   - Headless agents set CANON_TOKEN to a paired CLI token instead.
  */
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { exportWorkspace, httpTransport, liveCounts, readArchive, tarFileSink, verifyArchive, type SectionCheck } from "./workspaceArchive.ts";
+import { httpImportTransport, ImportRefusedError, importWorkspace, printImportReport } from "./workspaceImport.ts";
 
 const DEFAULT_URL = "https://canoncrm.com";
 const CALLBACK_PORT = Number(process.env.CANON_CALLBACK_PORT ?? 8976);
@@ -198,6 +200,101 @@ async function callTool(base: string, name: string, args: Record<string, unknown
   }
 }
 
+/** The export key from Settings > Workspace: CANON_EXPORT_KEY, or typed at a hidden prompt. Never an argument. */
+async function exportKey(env = "CANON_EXPORT_KEY", label = "Export key"): Promise<string> {
+  const fromEnv = process.env[env]?.trim();
+  if (fromEnv) return fromEnv;
+  if (!process.stdin.isTTY) throw new Error(`Set ${env} to the ${label.toLowerCase()} from Settings > Workspace.`);
+  process.stderr.write(`${label} (from Settings > Workspace): `);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  let key = "";
+  try {
+    for await (const chunk of process.stdin) {
+      const text = String(chunk);
+      if (text === "\u0003") throw new Error("Cancelled.");
+      if (/[\r\n]/.test(text)) { key += text.split(/[\r\n]/)[0]; break; }
+      key += text;
+    }
+  } finally {
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+    process.stderr.write("\n");
+  }
+  return key.trim();
+}
+
+function printChecks(checks: SectionCheck[]) {
+  const live = checks.some((c) => c.live !== undefined);
+  const width = Math.max(7, ...checks.map((c) => c.section.length));
+  console.log(`${"section".padEnd(width)}  ${"archive".padStart(9)}  ${"manifest".padStart(9)}${live ? `  ${"live".padStart(9)}` : ""}  status`);
+  for (const c of checks) {
+    console.log(`${c.section.padEnd(width)}  ${String(c.archive).padStart(9)}  ${String(c.manifest).padStart(9)}${live ? `  ${String(c.live ?? "").padStart(9)}` : ""}  ${c.problems.length ? c.problems.join("; ") : "ok"}`);
+  }
+}
+
+async function workspaceCommand(base: string, sub: string | undefined, rest: string[], flags: Map<string, string>) {
+  if (sub === "export") {
+    const key = await exportKey();
+    const started = Date.now();
+    const transport = httpTransport(base, key);
+    const plan = await transport.plan();
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+    const out = flags.get("--out") ?? `canon-workspace-${plan.workspace.slug}-${stamp}.tar`;
+    const sink = tarFileSink(out);
+    try {
+      const manifest = await exportWorkspace(transport, sink);
+      sink.close();
+      const rows = Object.values(manifest.sections).reduce((n, s) => n + s.count, 0);
+      const { size } = statSync(out);
+      console.log(`Exported ${manifest.workspace.name}: ${rows} rows in ${Object.keys(manifest.sections).length} sections, ${size} bytes, ${((Date.now() - started) / 1000).toFixed(1)} s.`);
+      console.log(`  ${out}`);
+      console.log("The archive holds your CRM data in plain form. Keep it as you would the workspace itself.");
+    } catch (error) {
+      sink.close();
+      rmSync(out, { force: true });
+      throw error;
+    }
+    return;
+  }
+  if (sub === "verify") {
+    if (!rest[0]) throw new Error("Usage: canon workspace verify <archive> [--url <url>]   (with CANON_EXPORT_KEY set, also compares live counts)");
+    const files = readArchive(rest[0]);
+    const key = process.env.CANON_EXPORT_KEY?.trim();
+    let live: Record<string, number> | undefined;
+    if (key) {
+      const transport = httpTransport(base, key);
+      const plan = await transport.plan();
+      const archived = verifyArchive(files).manifest.workspace.id;
+      if (plan.workspace.id !== archived) throw new Error(`The export key is for workspace ${plan.workspace.id}; this archive is of ${archived}.`);
+      live = await liveCounts(transport);
+    }
+    const { checks, ok } = verifyArchive(files, live);
+    printChecks(checks);
+    console.log(ok ? "Archive verified." : "Archive does not match.");
+    if (!ok) process.exitCode = 1;
+    return;
+  }
+  if (sub === "import") {
+    // `--dry-run <archive>` parses as the flag's value.
+    const dry = flags.get("--dry-run");
+    const archive = rest[0] ?? (dry && dry !== "true" ? dry : undefined);
+    if (!archive) throw new Error("Usage: canon workspace import [--dry-run] <archive>   (with CANON_IMPORT_KEY, or paste the import key when asked)");
+    const files = readArchive(archive);
+    const key = await exportKey("CANON_IMPORT_KEY", "Import key");
+    try {
+      const report = await importWorkspace(httpImportTransport(base, key), files, { dryRun: dry !== undefined, log: (l) => console.log(l) });
+      printImportReport(report);
+      if (report.dryRun && (report.refusals.length || report.unmapped.length)) process.exitCode = 1;
+    } catch (error) {
+      if (error instanceof ImportRefusedError) { printImportReport(error.report); process.exitCode = 1; return; }
+      throw error;
+    }
+    return;
+  }
+  throw new Error("Usage: canon workspace export [--out <path>] | canon workspace verify <archive> | canon workspace import [--dry-run] <archive>");
+}
+
 function parseArgs(text: string): Record<string, unknown> {
   let value: unknown;
   try {
@@ -222,12 +319,15 @@ const USAGE = `canon ${VERSION} — Canon from the command line (talks to <url>/
   canon review                         facts awaiting review, contested fields
   canon audit [--rule <id>]
   canon plans [<planId>] [--status <s>]
+  canon workspace export [--out <path>]   export the whole workspace to an archive (an admin's export key)
+  canon workspace verify <archive>     check an archive; with CANON_EXPORT_KEY, against live counts too
+  canon workspace import [--dry-run] <archive>   import an archive into a new, empty workspace (an admin's import key)
   canon tools                          list every hosted tool
   canon call <tool> [--args <json>]    call any hosted tool; --args @file.json reads a file
                                        e.g. canon call canon_research --args '{"action":"start","args":{"domain":"acme.com"}}'
 
 Environment: CANON_URL (default ${DEFAULT_URL}); CANON_TOKEN to use a paired CLI
-token instead of OAuth (headless agents).`;
+token instead of OAuth (headless agents); CANON_EXPORT_KEY for workspace export and verify; CANON_IMPORT_KEY for import.`;
 
 function parse(argv: string[]) {
   const positional: string[] = [];
@@ -301,6 +401,8 @@ export async function main(argv = process.argv.slice(2)) {
       return callTool(base, "canon_hygiene_audit", flags.has("--rule") ? { rule: flags.get("--rule") } : {});
     case "plans":
       return callTool(base, "canon_patch_plans", { ...(rest[0] ? { patchPlanId: rest[0] } : {}), ...(flags.has("--status") ? { status: flags.get("--status") } : {}) });
+    case "workspace":
+      return workspaceCommand(base, rest[0], rest.slice(1), flags);
     case "tools": {
       const client = await connect(base, { interactive: false });
       try {

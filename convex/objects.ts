@@ -12,7 +12,7 @@ import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser } from "./lib";
 import { accessFor, recordVisible, requireWriteAccess, roleIn, sightJudge, workspaceMembers } from "./permissions";
 import { admitThenRead } from "./lib/scopedRecordClient";
-import { hiddenFields, lockedFields, may, refuseLockedWrite, withoutHidden, type Access, type RecordOp } from "./lib/access";
+import { hiddenFields, may, refuseLockedWrite, withoutHidden, type Access, type RecordOp } from "./lib/access";
 import { orgObjectDefs, scheduleNudge, shardHeads } from "./ledgerFeed";
 import { scheduleDealHistory } from "./dealHistory";
 import { scheduleWebhookFanout } from "./recordWebhooks";
@@ -20,18 +20,18 @@ import { scheduleAutomationFanout } from "./lib/automationWake";
 import { scheduleModuleFeed } from "./lib/modules/jobs";
 import { automationRefPrefix, type AutomationMark } from "./lib/automations";
 import { callerClient, requireCaller } from "./records";
-import { ICP_FIELDS, isRegisterObject, ListRequestError, listRowOf, registerListDef, type ListResponse, type ListRow, type ProjectedThrough, type SearchResponse } from "./lib/objects/listSpec";
-import { EDITABLE_ACCOUNT_FIELDS, EDITABLE_CONTACT_FIELDS } from "./lib/recordContract";
+import { isRegisterObject, ListRequestError, listRowOf, type ListResponse, type ListRow, type ProjectedThrough, type SearchResponse } from "./lib/objects/listSpec";
 import { AGENT_SOURCES } from "./lib/canon/gate";
-import { BULK_MAX } from "./lib/objects/views";
-import { builderOwns } from "./lib/objects/fieldBuilder";
-import { ACTIVITY_OBJECT, activityReportDef } from "./lib/objects/reportSpec";
-import { isStandardEditField } from "./lib/canon/partyLedger";
+import { BULK_MAX, GROUP_SUM_FIELD, groupsOf, type GroupsResponse } from "./lib/objects/views";
+import { DEAL_READ_ONLY, describeObject, EDITABLE_OBJECTS, isGenericObject, LEAD_READ_ONLY, LINE_INPUT_FIELDS } from "./lib/objects/describe";
+import { activityReportDef } from "./lib/objects/reportSpec";
+import { ACTIVITY_OBJECT, isCustomObjectName } from "../modules/kernel/reportLanguage";
 import type { FoldState, LedgerEntry } from "./lib/objects/fold";
 import { project, titleOf } from "./lib/objects/fold";
-import { indexObjectDef, isCustomObjectName, isLedgerObjectName, plainObjectDef, STANDARD_OBJECTS, type ResolvedObjectDef } from "./lib/objects/registry";
+import { indexObjectDef, isLedgerObjectName, plainObjectDef, STANDARD_OBJECTS, type ResolvedObjectDef } from "./lib/objects/registry";
 import { archivedObjectNames, loadOrgObject } from "./lib/objects/orgDefs";
 import * as objectValidators from "./lib/objects/validators";
+import { listFilter } from "../modules/kernel/reportValidators";
 import { fromStored, toStored } from "./lib/objects/validators";
 import { partySyncHasBudget, saveDealLifecycle } from "./canon";
 import { saveDealEdit } from "./deals";
@@ -41,6 +41,7 @@ import { readIcps } from "./lib/icpsInterface";
 import { LEDGER_OBJECTS, materialize, save, saveBatch, shardOf, type ObjectReader, type ObjectStore, type SaveCommand, type SaveContext, type SaveResult } from "./lib/objects/write";
 import { currentLines, parentDeal } from "./lib/objects/lineItemRecords";
 import { lineProblem, lineTotal, MAX_DEAL_LINES, orderedProducts } from "./lib/objects/lineItems";
+import { createOnce, createdOrProposed } from "./lib/idempotency";
 
 /** Entries `get` folds for a record with no hot row. */
 const GET_FOLD_CAP = 1000;
@@ -58,30 +59,13 @@ const MAX_HISTORY_PAGE = 100;
 
 
 /**
- * Objects whose records are created, deleted and restored by stream id: the generic standard ones and an org's own
- * custom objects (CP7d). A custom object is checked against the org's registry in `loadDef`; the arg is a plain string
- * because the set differs per org.
+ * A custom object is checked against the org's registry in `loadDef`; the arg is a plain string because the set of
+ * objects differs per org.
  */
 const objectValidator = v.string();
-const isGenericObject = (o: string) => (LEDGER_OBJECTS as readonly string[]).includes(o) || isCustomObjectName(o);
 function requireGeneric(object: string) {
   if (!isGenericObject(object)) throw new ConvexError(`${object} records are not written here`);
 }
-/**
- * Objects `write` and `bulk` edit: the generic ones, plus deals, which save
- * through their own writer (`saveDealValues`) so the `deals` row and the
- * `facts` mirror stay in step. Deals are created through deals.create; they
- * are archived and restored here, through their own writer too (saveDealLifecycle).
- */
-const EDITABLE_OBJECTS = [...LEDGER_OBJECTS, "deal"] as const;
-/**
- * Deal fields the generic pages show but do not write: the CRM owner id is the
- * CRM's identity, not a Canon user (owner changes go through ownership.ts), and
- * closed and won follow the forecast category.
- */
-const DEAL_READ_ONLY = ["crmOwnerId", "isClosed", "isWon"] as const;
-/** Lead fields a conversion sets (convex/leadConversion.ts): shown on the generic pages, never typed or bulk-set there. */
-export const LEAD_READ_ONLY = ["convertedAt", "convertedAccountId", "convertedContactId", "convertedDealId"] as const;
 function refuseConversionFields(object: string, values: Record<string, unknown> | undefined) {
   if (object === "lead" && values && LEAD_READ_ONLY.some((f) => Object.hasOwn(values, f))) throw new ConvexError("Convert a lead to set these fields");
 }
@@ -288,7 +272,6 @@ export async function saveAsCaller(ctx: MutationCtx, user: Caller, object: strin
   return save(convexObjectStore(ctx), await userSaveContext(ctx, user, object, opts), cmd);
 }
 
-const LINE_INPUT_FIELDS = ["dealId", "productId", "quantity", "unitPrice", "totalPrice", "position"];
 
 /** One transaction for single-record edits and whole-list replacement; validate the final set, never an intermediate total. */
 export async function saveDealLinesAsCaller(ctx: MutationCtx, user: Caller, dealId: Id<"canonEntities">, commands: readonly SaveCommand[], opts: SaveOpts = {}): Promise<SaveResult[]> {
@@ -412,11 +395,14 @@ export const write = mutation({
     sourceKind: v.optional(userSource),
     evidence: v.optional(v.string()),
     confidence: v.optional(v.number()),
+    /** A create's Idempotency-Key (lib/idempotency.ts). */
+    idempotencyKey: v.optional(v.string()),
   },
   returns: saveResult,
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     requireEditable(args.object);
+    if (args.streamId && args.idempotencyKey !== undefined) throw new ConvexError("idempotencyKey applies to creates");
     refuseConversionFields(args.object, args.values);
     await requireWritable(ctx, user, await requireWriteAccess(ctx, user), args.object, args.streamId ? "edit" : "create", args.streamId, args.values);
     if (args.object === "deal") {
@@ -424,10 +410,13 @@ export const write = mutation({
       if (args.sourceKind && args.sourceKind !== "user") throw new ConvexError("Agents propose deal values through the fact gate");
       return saveDealAsCaller(ctx, user, args.streamId, args.values, args.expectedVersion);
     }
-    const cmd: SaveCommand = args.streamId
-      ? { op: "update", streamId: args.streamId, values: args.values, ...(args.expectedVersion !== undefined ? { expectedVersion: args.expectedVersion } : {}) }
-      : { op: "create", values: args.values };
-    return saveAsCaller(ctx, user, args.object, cmd, args);
+    if (args.streamId) {
+      const cmd: SaveCommand = { op: "update", streamId: args.streamId, values: args.values, ...(args.expectedVersion !== undefined ? { expectedVersion: args.expectedVersion } : {}) };
+      return saveAsCaller(ctx, user, args.object, cmd, args);
+    }
+    const { idempotencyKey, ...request } = args;
+    return createOnce(ctx, { orgId: user.orgId, userId: user._id }, idempotencyKey, { op: "objects.write", ...request },
+      () => saveAsCaller(ctx, user, args.object, { op: "create", values: args.values }, args), createdOrProposed);
   },
 });
 
@@ -594,48 +583,19 @@ export const describe = query({
     const user = await getCurrentUser(ctx);
     const object = args.object;
     const access = user ? await accessFor(ctx, user) : null;
-    // What the caller's role allows on the object (CP14); a page offers only that.
-    const allows = (op: RecordOp) => access !== null && may(access, object, op);
-    const hiddenSet = new Set(access ? hiddenFields(access, object) : []);
-    const locked = access ? lockedFields(access, object).filter((f) => !hiddenSet.has(f)) : [];
     // Activities are a report-only object (lib/objects/reportSpec.ts): described for the report builder, never listed or edited.
-    if (user && object === ACTIVITY_OBJECT) return { ...toStored(plainObjectDef(activityReportDef())), pages: false, register: false, writable: false, canCreate: false, canDelete: false, readOnlyFields: [] as string[] };
+    if (user && object === ACTIVITY_OBJECT) return { ...toStored(plainObjectDef(activityReportDef())), pages: false, register: false, readable: false, versionRequired: false, writable: false, canCreate: false, canDelete: false, readOnlyFields: [] as string[] };
     if (!user || !isLedgerObjectName(object)) return null;
-    if (isRegisterObject(object)) {
-      // Accounts and contacts list from the register, by record-service id; an edit goes through records.edit, which
-      // promotes an unworked row onto the ledger, as a delete does (records.bulkRegister). Created on their own pages for now.
-      const listed = registerListDef(object, await loadDef(ctx, user.orgId, object));
-      // The ICP columns pick from the workspace's saved ICPs, by name.
-      const icpOptions = (await readIcps(ctx, user.orgId)).map((i) => ({ value: i.key, label: i.name, active: true }));
-      const fields = listed.fields.filter((f) => !hiddenSet.has(f.apiName)).map((f) => (ICP_FIELDS.includes(f.apiName) ? { ...f, options: icpOptions } : f));
-      const def = { ...listed, fields, byApiName: new Map(fields.map((f) => [f.apiName, f])), byFieldId: new Map(fields.map((f) => [f.fieldId, f])) };
-      const editable: readonly string[] = object === "account" ? EDITABLE_ACCOUNT_FIELDS : EDITABLE_CONTACT_FIELDS;
-      // Custom fields are edited through records.edit too, except an AI field's answers, which come from its runs.
-      const ai = await aiFieldSlugs(ctx, user.orgId);
-      // A formula or rollup field (CP7c) is computed, never edited.
-      const mayEdit = (f: { apiName: string; type: string }) => f.type !== "formula" && (editable.includes(f.apiName) || isStandardEditField(object, f.apiName) || builderOwns(f, ai));
-      return {
-        ...toStored(plainObjectDef(def)), pages: true, register: true, writable: allows("edit"), canCreate: false,
-        // Only admins and managers delete and restore, as deals are edited.
-        canDelete: can(user, "deals.write") && allows("delete"),
-        readOnlyFields: [...def.fields.filter((f) => !f.system && !mayEdit(f)).map((f) => f.apiName), ...locked],
-      };
-    }
+    const register = isRegisterObject(object);
     // An org's own object that does not exist, or is archived, is not there for pages, the API or the tools.
-    const loaded = await loadOrgObject(ctx, user.orgId, object);
-    if (!loaded || loaded.archivedAt !== undefined) return null;
-    // An archived field leaves forms, views and the API; the ledger keeps its values.
-    const def = plainObjectDef({ ...loaded, fields: loaded.fields.filter((f) => f.archivedAt === undefined && !hiddenSet.has(f.apiName)) });
-    const generic = isGenericObject(object);
-    const editable = (EDITABLE_OBJECTS as readonly string[]).includes(object) || isCustomObjectName(object);
-    // Deal edits and creates follow the Deals page's rule: admins and managers.
-    const mayEdit = object === "lineItem" ? can(user, "deals.write") && allows("read") && access !== null && may(access, "deal", "edit") : object !== "deal" || can(user, "deals.write");
-    // `pages`: the generic list and record pages serve it. `writable`: this user may edit its records there.
-    return {
-      ...toStored(def), pages: editable && object !== "lineItem", register: false, writable: editable && mayEdit && allows("edit"),
-      canCreate: (generic || object === "deal") && mayEdit && allows("create"), canDelete: (generic || object === "deal") && mayEdit && allows("delete"),
-      readOnlyFields: [...(object === "deal" ? DEAL_READ_ONLY : object === "lead" ? LEAD_READ_ONLY : object === "lineItem" ? def.fields.filter((f) => !LINE_INPUT_FIELDS.includes(f.apiName)).map((f) => f.apiName) : []), ...def.fields.filter((f) => f.type === "formula").map((f) => f.apiName), ...locked],
-    };
+    const def = register ? await loadDef(ctx, user.orgId, object) : await loadOrgObject(ctx, user.orgId, object);
+    if (!def || def.archivedAt !== undefined) return null;
+    return toStored(describeObject({
+      object, def, access, dealsWrite: can(user, "deals.write"),
+      // The ICP columns pick from the workspace's saved ICPs, by name.
+      icpOptions: register ? (await readIcps(ctx, user.orgId)).map((i) => ({ value: i.key, label: i.name, active: true })) : [],
+      aiSlugs: register ? await aiFieldSlugs(ctx, user.orgId) : new Set(),
+    }));
   },
 });
 
@@ -890,7 +850,7 @@ export async function asListError<T>(run: () => Promise<T>): Promise<T> {
 export const list = action({
   args: {
     object: listedObject,
-    filter: v.optional(v.array(objectValidators.listFilter)),
+    filter: v.optional(v.array(listFilter)),
     sort: v.optional(objectValidators.listSort),
     limit: v.optional(v.number()),
     cursor: v.optional(v.string()),
@@ -905,6 +865,29 @@ export const list = action({
     // Accounts and contacts list from the register, worked or not; `p_account`/`p_contact` hold worked ones only.
     if (isRegisterObject(object)) return asListError(() => client.listRegister(caller.orgId, object, req));
     return asListError(() => client.listObjects(caller.orgId, object, req));
+  },
+});
+
+/**
+ * An object's records grouped by one field, as a grouped list shows them: each
+ * group's key and count, with a deal's amount summed. A date groups by a
+ * report bucket. It reads the report aggregate through the caller's client, so
+ * it counts only what their role sees, and a field their role hides cannot be
+ * grouped on. A group's rows are `list` with `groupFilter` added.
+ */
+export const groups = action({
+  args: { object: listedObject, filter: v.optional(v.array(listFilter)), group: objectValidators.viewGroup },
+  handler: async (ctx, { object, filter, group }): Promise<GroupsResponse> => {
+    const caller = await requireCaller(ctx, { read: true });
+    requireListed(object);
+    if (isCustomObjectName(object) && (await ctx.runQuery(internal.objects.archivedObjects, { orgId: caller.orgId as Id<"organizations"> })).includes(object)) throw new ConvexError(`Unknown object ${object}`);
+    // Summed only where the caller may read the amount; a hidden one is left out rather than refusing the whole grouping.
+    const field = GROUP_SUM_FIELD[object];
+    const summed = field && !hiddenFields(caller.access, object).includes(field) ? field : null;
+    const res = await asListError(() => callerClient(ctx, caller).aggregate(caller.orgId, object, {
+      filter: filter ?? [], groupBy: [group], measures: [{ fn: "count" }, ...(summed ? [{ fn: "sum" as const, field: summed }] : [])],
+    }));
+    return groupsOf(res, summed);
   },
 });
 

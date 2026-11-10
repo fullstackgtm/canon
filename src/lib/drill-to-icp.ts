@@ -2,15 +2,15 @@
  * A treemap drill (tam-levels Pivot filters) as a saved ICP's spec, for "Save as
  * ICP" (docs/tam-and-icps.md, step 1). Accounts carry each source's own industry
  * spelling, so industries go through the same mapping the ICP gate reads them
- * back with: the canonical industries (services/record-service/src/industries.ts).
+ * back with: the canonical industries (modules/kernel/industries.ts).
  * AI-field answers become AI-field criteria. Filters an ICP can't hold yet (starter
  * segments, Jev segments) are reported back.
  */
-import { canonIndustry, industryLabel } from "../../services/record-service/src/industries.ts";
+import { canonIndustry, industryLabel } from "../../modules/kernel/industries.ts";
 import { icpGeosToIso } from "../../convex/lib/researchPipeline.ts";
 import { emptySpec } from "../../convex/lib/icps.ts";
 import type { IcpSpec } from "../../convex/lib/icpSpec.ts";
-import { NONE, REGION_OF_COUNTRY, SIZE_BANDS } from "../../services/record-service/src/dimensions.ts";
+import { NONE, REGION_OF_COUNTRY, SIZE_BANDS } from "../../modules/kernel/dimensions.ts";
 import type { Pivot } from "./tam-levels.ts";
 
 export type DrillSpec = { spec: IcpSpec; unsaved: string[]; empty: boolean };

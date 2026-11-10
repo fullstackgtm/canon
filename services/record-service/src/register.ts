@@ -233,6 +233,8 @@ export async function writeBackRegister(
       continue;
     }
 
+    // A row already past this state (an imported register row while its stream's history replays) keeps its columns.
+    if (row.stream === st.streamId && Number(row.ledgerVersion ?? 0) > st.version) continue;
     const id = String(row.id);
     // A domain waiting for its holder is dropped once the ledger wants another (or none).
     if (object === "account") {

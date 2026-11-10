@@ -24,6 +24,7 @@ import {
   type Channel, type Flag, type ItemKind, type Proposal, type ThreadState,
 } from "../../../convex/lib/plays/model";
 import { recordHref } from "@/components/records/lookup-field";
+import { CrmRoleNotes } from "@/components/records/crm-note";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { FlowCanvas, FlowRows, FlowSwitch, type FlowNode } from "@/components/flow/flow-canvas";
 import { SelectField } from "@/components/ui/select";
@@ -694,7 +695,7 @@ function Keeper({ data, busy, run, propose, section }: PlaySection<"keeper">) {
   const status = (
     <span className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
       <span title="Each day the keeper checks this deal as its owner, drafts the touches due in the next 3 days on the owner's ChatGPT plan, and posts new urgent flags to Slack. It never sends.">
-        {last ? `Checked ${formatRelativeTime(last.at)}${last.drafted ? ` · drafted ${last.drafted}` : ""}${last.error ? ` · ${last.error}` : ""}` : "Checks daily and drafts the touches coming due"}
+        {data.keeperPaused ? `Off: ${data.keeperPaused} Check now to turn it on.` : last ? `Checked ${formatRelativeTime(last.at)}${last.drafted ? ` · drafted ${last.drafted}` : ""}${last.error ? ` · ${last.error}` : ""}` : "Checks daily and drafts the touches coming due"}
       </span>
       {slot(actions, "keeper", ctx, {
         "kernel.checkNow": (o) => (
@@ -1120,6 +1121,8 @@ function AccountMap({ data, busy, run, section }: PlaySection<"accountMap">) {
           <button type="button" disabled={busy || addOther.disabled || !addId} className={btn} onClick={() => void run(async () => { await setRole({ streamId, contactId: addId, role: addRole }); setAddId(""); })}><Plus className="h-3 w-3" /> {addOther.label}</button>
         </div>
       )}
+      {edit && !edit.disabled && <CrmRoleNotes roles={data.crmRoles} roleLabel={(r) => ROLE_LABEL[r as DealRole]} onUsed={() => void run(async () => undefined)}
+        personLink={(id, name) => <Link href={recordHref("contact", id)} className="underline">{name}</Link>} />}
     </Panel>
   );
 }

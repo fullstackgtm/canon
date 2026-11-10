@@ -20,9 +20,9 @@
 import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS, canonDepartments } from "./icpVocabulary.ts";
 import type { IcpSpec } from "./icpSpec.ts";
 import type { IcpTreeAccount, IcpTreePerson } from "./recordContract.ts";
-import { icpGeosToCountries } from "./icpGeography.ts";
-import { canonIndustry } from "../../services/record-service/src/industries.ts";
-import { NONE, REGIONS, REGION_OF_COUNTRY } from "../../services/record-service/src/dimensions.ts";
+import { icpGeosToCountries } from "../../modules/kernel/icpGeography.ts";
+import { canonIndustry } from "../../modules/kernel/industries.ts";
+import { NONE, REGIONS, REGION_OF_COUNTRY } from "../../modules/kernel/dimensions.ts";
 
 export type NodeKind = "icp" | "segment" | "persona";
 type ListKey = "industry" | "size" | "country" | "region" | "city" | "owner" | "revenue" | "level" | "dept" | "title" | "location";

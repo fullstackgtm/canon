@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { formatQuery, parseQuery, queryToSpec, specToQuery } from "../convex/lib/icpQuery.ts";
 import { DEPARTMENTS } from "../convex/lib/addRecords.ts";
-import { INDUSTRIES } from "../services/record-service/src/industries.ts";
+import { INDUSTRIES } from "../modules/kernel/industries.ts";
 import { countIcpTree } from "../convex/lib/icpGates.ts";
 import { treeRequest } from "../convex/lib/icpTree.ts";
 import type { IcpSpec } from "../convex/lib/icpSpec.ts";

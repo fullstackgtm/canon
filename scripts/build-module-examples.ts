@@ -12,8 +12,8 @@ import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "n
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MODULE_FILE, parseModuleManifest } from "../modules/kernel/manifest.ts";
-import { bundleHash } from "../services/recipe-runtime/src/protocol.ts";
-import { buildModule } from "./module-build.ts";
+import { bundleHash } from "../modules/kernel/bundleHash.ts";
+import { buildModule } from "../modules/kernel/tools/build.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const EXAMPLES_DIR = join(ROOT, "modules", "examples");

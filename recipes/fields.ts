@@ -8,7 +8,7 @@ import { v, type Infer } from "convex/values";
 import { MAX_OPTIONS, UNKNOWN } from "../convex/lib/research/agentLoop.ts";
 import { REFRESH_CADENCES } from "../convex/lib/research/runPlan.ts";
 import type { AnyDescriptor, BoundData, Settings } from "./kernel.ts";
-import { mismatch } from "./templates.ts";
+import { mismatch } from "../modules/kernel/mismatch.ts";
 
 /** A field's slug is its attribute, `custom.<slug>`: the same rule a workspace's own fields follow. */
 export const FIELD_SLUG = /^[a-z][a-z0-9_]{0,47}$/;

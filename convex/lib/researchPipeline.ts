@@ -19,7 +19,7 @@ import type { RecordClient } from "./recordClient.ts";
 import type { MarketSegment, MarketSegments } from "./segments/marketSegments.ts";
 import { accountIdFor, fitUnderWeights } from "./recordClient.ts";
 import { icpIndustriesToLeadsforge } from "./leadsforge.ts";
-import { canonIndustry, industrySourceNames } from "../../services/record-service/src/industries.ts";
+import { canonIndustry, industrySourceNames } from "../../modules/kernel/industries.ts";
 import type { FitModel } from "../../recipes/models.ts";
 import { defaultModel } from "../../recipes/index.ts";
 
@@ -96,11 +96,11 @@ export function icpIndustryTerms(industries: string[] | undefined): Array<{ key:
   return icpIndustriesToLeadsforge(industries).map((key) => ({ key, names: [...new Set([key, ...industrySourceNames(key)])] }));
 }
 
-export { icpGeosToCountries } from "./icpGeography.ts";
-import { icpGeosToCountries } from "./icpGeography.ts";
+export { icpGeosToCountries } from "../../modules/kernel/icpGeography.ts";
+import { icpGeosToCountries } from "../../modules/kernel/icpGeography.ts";
 
-export { icpGeosToIso } from "./icpGeography.ts";
-import { icpGeosToIso } from "./icpGeography.ts";
+export { icpGeosToIso } from "../../modules/kernel/icpGeography.ts";
+import { icpGeosToIso } from "../../modules/kernel/icpGeography.ts";
 
 export function icpToFilter(icp: Icp): AccountsFilter {
   const filter: AccountsFilter = {};

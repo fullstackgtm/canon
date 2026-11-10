@@ -27,11 +27,17 @@ function canon() {
     const edges = await files["associations.ts"].edges.handler(ctx(), { orgId: "org", association: "account_parent", side: "from", id: await canonId(n) });
     return edges.active.map((e: { toId: string }) => e.toId);
   };
-  const setParentAsPerson = async (n: number, parent: number) =>
-    files["associations.ts"].apply.handler(ctx(), { orgId: "org", userId: "admin", command: { op: "setParent", accountId: await canonId(n), parentId: await canonId(parent) } });
+  const setParentAsPerson = async (n: number, parent: number | null) =>
+    files["associations.ts"].apply.handler(ctx(), { orgId: "org", userId: "admin", command: { op: "setParent", accountId: await canonId(n), parentId: parent === null ? null : await canonId(parent) } });
   const sendLinks = (links: Array<[number, number | null]>) =>
     canonFn.setAccountParents.handler(ctx(), { orgId: "org", links: links.map(([c, p]) => ({ sfId: sf(c), parentSfId: p === null ? null : sf(p) })) });
-  return { sink, canonId, parentOf, setParentAsPerson, sendLinks };
+  /** Each company's recorded Salesforce parent, by account number. */
+  const disagreements = async () => {
+    const byId = new Map<string, number>();
+    for (let n = 1; n <= 10; n++) { const id = await canonId(n); if (id) byId.set(id, n); }
+    return db.rows("parentDisagreements").map((d: any) => [byId.get(d.accountId), d.crmParentId === null ? null : byId.get(d.crmParentId), d.seenAt]);
+  };
+  return { sink, canonId, parentOf, setParentAsPerson, sendLinks, disagreements };
 }
 
 const account = (n: number, domain: string, parent?: number): FakeRow =>
@@ -84,22 +90,30 @@ test("the import links each account under its Salesforce parent whatever order t
   assert.deepEqual(rejected.filter((r) => r.reason.startsWith("Parent")).map((r) => r.sfId), [sf(7), sf(8)]);
 });
 
-test("a changed or cleared ParentId moves or removes the edge Salesforce made; a parent a person set stays until Salesforce names another", async () => {
+test("Salesforce moves and clears the parents it set, but a parent a person set or cleared holds, kept once as Salesforce's view until it agrees", async () => {
   const c = canon();
   await importAccounts([account(1, "a.test"), account(2, "b.test"), account(3, "c.test", 1), account(4, "d.test", 1)], c);
   assert.deepEqual((await c.sendLinks([[3, 2], [4, null]])).applied, 2);
   assert.deepEqual(await c.parentOf(3), [await c.canonId(2)]);
   assert.deepEqual(await c.parentOf(4), []);
 
-  await c.setParentAsPerson(4, 2);
-  await c.sendLinks([[4, null]]);
-  assert.deepEqual(await c.parentOf(4), [await c.canonId(2)]);
   await c.setParentAsPerson(3, 1);
-  await c.setParentAsPerson(3, 2);
+  await c.sendLinks([[3, 2]]);
+  const [first] = await c.disagreements();
+  await c.sendLinks([[3, 2]]);
+  assert.deepEqual(await c.parentOf(3), [await c.canonId(1)]);
+  assert.deepEqual(await c.disagreements(), [first]);
+  assert.deepEqual(first.slice(0, 2), [3, 2]);
   await c.sendLinks([[3, null]]);
-  assert.deepEqual(await c.parentOf(3), [await c.canonId(2)]);
+  assert.deepEqual(await c.parentOf(3), [await c.canonId(1)]);
+  await c.sendLinks([[3, 1]]);
+  assert.deepEqual(await c.disagreements(), []);
+
+  await c.setParentAsPerson(4, 2);
+  await c.setParentAsPerson(4, null);
   await c.sendLinks([[4, 1]]);
-  assert.deepEqual(await c.parentOf(4), [await c.canonId(1)]);
+  assert.deepEqual(await c.parentOf(4), []);
+  assert.deepEqual((await c.disagreements()).map((d) => d.slice(0, 2)), [[4, 1]]);
 });
 
 test("the sync hands a polled account's new ParentId to the parents port", async () => {

@@ -15,14 +15,14 @@ import { employeeBandsToRange } from "../../engine/src/icp.ts";
 import type { AccountInput, ContactInput } from "./recordContract.ts";
 import { tregCall, type TregMeta } from "./treg.ts";
 import { normDomain, peopleToRecords, type Person } from "./peopleSources.ts";
-import { INDUSTRIES as CANONICAL_INDUSTRIES } from "../../services/record-service/src/industries.ts";
+import { INDUSTRIES as CANONICAL_INDUSTRIES } from "../../modules/kernel/industries.ts";
 
 export const LEADSFORGE_SEARCH = "leadsforge.people.search";
 /** Leadsforge's per-search ceiling, and the page size we ask for. */
 export const SEARCH_MAX = 1000;
 
 /**
- * The canonical industries (services/record-service/src/industries.ts), which are exactly
+ * The canonical industries (modules/kernel/industries.ts), which are exactly
  * Leadsforge's values (leadsforge.people.search.filters.industries, 2026-10-06).
  */
 export const INDUSTRIES: readonly string[] = CANONICAL_INDUSTRIES.map((i) => i.key);

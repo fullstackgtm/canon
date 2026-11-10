@@ -12,11 +12,11 @@ import { paginationOptsValidator } from "convex/server";
 import { action, internalMutation, internalQuery, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { convexObjectStore } from "./objects";
+import { asEntry, convexObjectStore } from "./objects";
 import { callerClient, requireCaller, type ActionCaller } from "./records";
 import { may } from "./lib/access";
-import { applyEdgeCommand, EDGES_PER_RECORD_MAX, type EdgeCommand, type EdgeResult, type EdgeRow, type EdgeStore } from "./lib/objects/associations";
-import type { AssociationName } from "./lib/objects/registry";
+import { applyEdgeCommand, EDGES_PER_RECORD_MAX, type DisagreementStore, type EdgeCommand, type EdgeResult, type EdgeRow, type EdgeStore, type StoredDisagreement } from "./lib/objects/associations";
+import type { AssociationName, DealRole } from "./lib/objects/registry";
 import type { RecordClient } from "./lib/recordClient";
 import type { RegisterListRow } from "./lib/objects/listSpec";
 import type { ContactDeal } from "./dealCommittee";
@@ -26,8 +26,15 @@ const asEdgeRow = (d: Doc<"associations">): EdgeRow => ({
   streamId: d.streamId, createdAt: d.createdAt,
 });
 
+/**
+ * The edge writer's store. The legacy rule: before HubSpot imports wrote links as HubSpot, they wrote them as the
+ * person who started the import. Such a write is told apart by time: by that person, while a HubSpot run of theirs
+ * without the association's marker (`parentLinksAs` for parents, `linksAs` for the rest) was running. A link that
+ * person set by hand during their own run is misread as HubSpot's.
+ */
 export function edgeStore(ctx: MutationCtx): EdgeStore {
   const org = (id: string) => id as Id<"organizations">;
+  let runs: Doc<"crmImports">[] | undefined;
   return {
     ...convexObjectStore(ctx),
     async findEdge(orgId, association, fromId, toId) {
@@ -57,7 +64,73 @@ export function edgeStore(ctx: MutationCtx): EdgeStore {
       if (existing) await ctx.db.replace(existing._id, doc);
       else await ctx.db.insert("associations", doc);
     },
+    async lastEntry(streamId, match) {
+      const newestFirst = ctx.db.query("ledgerEntries").withIndex("by_streamId_version", (q) => q.eq("streamId", streamId as Id<"canonEntities">)).order("desc");
+      for await (const row of newestFirst) {
+        const entry = asEntry(row);
+        if (match(entry)) return entry;
+      }
+      return null;
+    },
+    disagreements: disagreementStore(ctx),
+    legacyHubspotImport: async (orgId, association, userId, at) => {
+      runs ??= await ctx.db.query("crmImports").withIndex("by_orgId_startedAt", (q) => q.eq("orgId", org(orgId))).order("desc").take(LEGACY_RUNS_MAX);
+      const marked = (r: Doc<"crmImports">) => (association === "account_parent" ? r.parentLinksAs : r.linksAs) !== undefined;
+      return runs.some((r) => r.provider === "hubspot" && r.startedBy === userId && !marked(r) && r.startedAt <= at && at <= (r.finishedAt ?? r.heartbeatAt) + IMPORT_STEP_MS);
+    },
   };
+}
+
+/** HubSpot runs read for the legacy rule; a workspace runs a handful of imports. */
+const LEGACY_RUNS_MAX = 200;
+/** How long after a HubSpot run's last heartbeat its writes can land: one step of the import. */
+const IMPORT_STEP_MS = 10 * 60_000;
+
+/** A kept disagreement as the edge writer reads it. A row without `association` is a company's parent (#1189). */
+export const asDisagreement = (d: Doc<"parentDisagreements">): StoredDisagreement => ({
+  id: d._id, association: d.association ?? "account_parent", fromId: d.accountId, toId: d.crmParentId,
+  ...(d.primary ? { primary: true as const } : {}), ...(d.crmLabel ? { label: d.crmLabel as DealRole } : {}),
+  provider: d.provider, ref: d.crmRef, seenAt: d.seenAt,
+});
+
+/** Every disagreement kept for links from one record. */
+export const disagreementsOf = async (ctx: QueryCtx, orgId: Id<"organizations">, fromId: string) =>
+  (await ctx.db.query("parentDisagreements").withIndex("by_orgId_and_accountId_and_crmRef", (q) => q.eq("orgId", orgId).eq("accountId", fromId)).take(EDGES_PER_RECORD_MAX))
+    .map(asDisagreement);
+
+/** The edge writer's disagreements, each record's read once per transaction (an import writes several links from one record). */
+function disagreementStore(ctx: MutationCtx): DisagreementStore {
+  const read = new Map<string, StoredDisagreement[]>();
+  const org = (id: string) => id as Id<"organizations">;
+  const of = async (orgId: string, fromId: string) => {
+    const hit = read.get(fromId) ?? (await disagreementsOf(ctx, org(orgId), fromId));
+    read.set(fromId, hit);
+    return hit;
+  };
+  return {
+    of,
+    async put(orgId, d, replaces) {
+      const row = {
+        orgId: org(orgId), accountId: d.fromId, provider: d.provider, crmRef: d.ref, crmParentId: d.toId, seenAt: d.seenAt,
+        ...(d.association === "account_parent" ? {} : { association: d.association }), ...(d.primary ? { primary: true as const } : {}), ...(d.label ? { crmLabel: d.label } : {}),
+      };
+      const kept = await of(orgId, d.fromId);
+      if (replaces) await ctx.db.replace(replaces as Id<"parentDisagreements">, row);
+      const id = replaces ?? (await ctx.db.insert("parentDisagreements", row));
+      read.set(d.fromId, [...kept.filter((k) => k.id !== replaces), { ...d, id }]);
+    },
+    async remove(_orgId, id) {
+      await ctx.db.delete(id as Id<"parentDisagreements">);
+      for (const [fromId, rows] of read) read.set(fromId, rows.filter((k) => k.id !== id));
+    },
+  };
+}
+
+/** The CRM parents that differ from a company's parent in Canon now, one per CRM record (EdgeWriter.crm). */
+export async function crmParentsOf(ctx: QueryCtx, orgId: Id<"organizations">, accountId: string, current: string | null) {
+  return (await disagreementsOf(ctx, orgId, accountId))
+    .filter((d) => d.association === "account_parent" && d.toId !== current)
+    .map((d) => ({ provider: d.provider, ref: d.ref, parentId: d.toId, seenAt: d.seenAt }));
 }
 
 const command = v.union(
@@ -199,11 +272,101 @@ export const setParent = action({
   handler: (ctx, args): Promise<EdgeResult> => change(ctx, { op: "setParent", accountId: args.accountId, parentId: args.parentId }),
 });
 
+export const crmParents = internalQuery({
+  args: { orgId: v.id("organizations"), accountId: v.string(), current: v.union(v.string(), v.null()) },
+  handler: (ctx, args) => crmParentsOf(ctx, args.orgId, args.accountId, args.current),
+});
+
+/** What CRMs say about links from one record, where a person's choice held against them (EdgeWriter.crm). */
+export const claimsOf = internalQuery({
+  args: { orgId: v.id("organizations"), fromId: v.string() },
+  handler: (ctx, args): Promise<StoredDisagreement[]> => disagreementsOf(ctx, args.orgId, args.fromId),
+});
+
+/** One kept disagreement of the caller's workspace, or null. */
+export const claim = internalQuery({
+  args: { orgId: v.id("organizations"), id: v.string() },
+  handler: async (ctx, args): Promise<StoredDisagreement | null> => {
+    const id = ctx.db.normalizeId("parentDisagreements", args.id);
+    const d = id && (await ctx.db.get(id));
+    return d && d.orgId === args.orgId ? asDisagreement(d) : null;
+  },
+});
+
+/**
+ * Take what a CRM record says over what a person decided in Canon. The change is the record page's (both ends read
+ * as the caller sees them), written with the CRM record as its source and the caller as its actor: the link is the
+ * CRM's again, so later imports and syncs move it. `write` is the transaction, given the expected claim.
+ */
+async function takeCrm(ctx: ActionCtx, id: string, check: (d: StoredDisagreement) => EdgeChange | null, write: (d: StoredDisagreement, a: Parameters<EdgeWrite>[0]) => Promise<EdgeResult>): Promise<EdgeResult> {
+  const caller = await requireCaller(ctx);
+  const d: StoredDisagreement | null = await ctx.runQuery(internal.associations.claim, { orgId: caller.orgId as Id<"organizations">, id });
+  const cmd = d && check(d);
+  if (!d || !cmd) throw new ConvexError("Canon already follows the CRM here");
+  const result = await changeAs(ctx, caller, cmd, (a) => write(d, a));
+  if (result.status === "invalid") throw new ConvexError(result.message);
+  return result;
+}
+
+/** Use what a CRM record says a company's parent is, where a person's parent in Canon held against it. */
+export const useCrmParent = action({
+  args: { accountId: v.string(), crmRef: v.string() },
+  returns: edgeResult,
+  handler: async (ctx, args): Promise<EdgeResult> => {
+    const caller = await requireCaller(ctx);
+    const kept: StoredDisagreement[] = await ctx.runQuery(internal.associations.claimsOf, { orgId: caller.orgId as Id<"organizations">, fromId: args.accountId });
+    const d = kept.find((k) => k.association === "account_parent" && k.ref === args.crmRef);
+    if (!d) throw new ConvexError("Canon already follows the CRM's parent for this company");
+    return takeCrm(ctx, d.id, (x) => ({ op: "setParent", accountId: x.fromId, parentId: x.toId }), (x, a) =>
+      ctx.runMutation(internal.associations.applyCrm, { orgId: a.orgId, userId: a.userId, id: x.id, toId: x.toId }));
+  },
+});
+
+/** Use what a CRM record says about a person's company: that they are at it, or that it is their primary company. */
+export const useCrmCompany = action({
+  args: { id: v.string() },
+  returns: edgeResult,
+  handler: (ctx, args): Promise<EdgeResult> =>
+    takeCrm(ctx, args.id, (d) => (d.association === "contact_account" && d.toId ? { op: "link", fromId: d.fromId, toId: d.toId, ...(d.primary ? { primary: true } : {}) } : null), (d, a) =>
+      ctx.runMutation(internal.associations.applyCrm, { orgId: a.orgId, userId: a.userId, id: d.id, toId: d.toId, ...(a.seed ? { seed: a.seed } : {}) })),
+});
+
+/**
+ * A CRM's parent or company link written as its CRM record, by the person who chose it, while the CRM still says it.
+ * Then what that CRM record said about it is no longer kept: for a parent, every CRM's parent of the company; for a
+ * company, the claim taken, and that the person is at the company when the claim was that it is primary.
+ */
+export const applyCrm = internalMutation({
+  args: { orgId: v.id("organizations"), userId: v.id("users"), id: v.string(), toId: v.union(v.string(), v.null()), seed: v.optional(v.string()) },
+  returns: edgeResult,
+  handler: async (ctx, a): Promise<EdgeResult> => {
+    const rowId = ctx.db.normalizeId("parentDisagreements", a.id);
+    const row = rowId && (await ctx.db.get(rowId));
+    const d = row && row.orgId === a.orgId ? asDisagreement(row) : null;
+    if (!d || d.toId !== a.toId || d.association === "deal_contact") return { status: "invalid", message: "What the CRM says changed. Reload the page." };
+    const edgeCtx = { orgId: a.orgId, source: { kind: d.provider, ref: d.ref }, actor: { kind: "user" as const, id: a.userId }, now: Date.now() };
+    const cmd: EdgeCommand = d.association === "account_parent"
+      ? { op: "setParent", accountId: d.fromId, parentId: d.toId }
+      : { op: "link", fromId: d.fromId, toId: d.toId!, primary: d.primary === true };
+    const result = await applyEdgeCommand(edgeStore(ctx), edgeCtx, cmd, a.seed);
+    if (result.status === "invalid") return result;
+    for (const k of await disagreementsOf(ctx, a.orgId, d.fromId)) {
+      const settled = d.association === "account_parent" ? k.association === "account_parent" : k.association === d.association && k.toId === d.toId && (d.primary || !k.primary);
+      if (settled) await ctx.db.delete(k.id as Id<"parentDisagreements">);
+    }
+    return result;
+  },
+});
+
 export type RelatedCompany = { id: string; name: string; domain: string | null; primary: boolean };
+/** What a CRM record says a company's parent is, where it differs from the parent a person chose in Canon. */
+export type CrmParent = { provider: "salesforce" | "hubspot"; ref: string; parent: RelatedCompany | null; seenAt: number };
+/** What a CRM record says about a person's company, where it differs from what a person chose in Canon: that they are at it, or (`primary`) that it is their primary company. */
+export type CrmCompany = { id: string; provider: "salesforce" | "hubspot"; company: RelatedCompany; primary: boolean };
 export type RelatedPerson = { id: string; name: string; title: string | null; email: string | null; phone: string | null; linkedinUrl: string | null; primary: boolean };
 export type Related =
-  | { object: "contact"; companies: RelatedCompany[]; deals: ContactDeal[] }
-  | { object: "account"; people: RelatedPerson[]; parent: RelatedCompany | null; children: RelatedCompany[] };
+  | { object: "contact"; companies: RelatedCompany[]; deals: ContactDeal[]; crmCompanies: CrmCompany[] }
+  | { object: "account"; people: RelatedPerson[]; parent: RelatedCompany | null; children: RelatedCompany[]; crmParents: CrmParent[] };
 
 const companyOf = (row: RegisterListRow, primary: boolean): RelatedCompany => ({ id: row.id, name: row.title || row.id, domain: text(row.values.domain), primary });
 
@@ -245,17 +408,25 @@ export const related = action({
       ctx.runQuery(internal.associations.edges, { orgId, association, side, id: args.id });
 
     if (args.object === "contact") {
-      const [contacts, out, deals] = await Promise.all([
+      const [contacts, out, deals, kept] = await Promise.all([
         rowsById(client, caller.orgId, "contact", [args.id]),
         edgesOf("contact_account", "from"),
         ctx.runQuery(internal.dealCommittee.dealsOfContact, { orgId, contactId: args.id, access: caller.access }),
+        ctx.runQuery(internal.associations.claimsOf, { orgId, fromId: args.id }),
       ]);
       const contact = contacts.get(args.id);
       if (!contact) return null;
       const links = (out.worked ? out.active.map((e) => ({ id: e.toId, primary: e.primary })) : contact.accountId ? [{ id: contact.accountId, primary: true }] : [])
         .sort((a, b) => Number(b.primary) - Number(a.primary));
-      const accounts = await rowsById(client, caller.orgId, "account", links.map((l) => l.id));
-      return { object: "contact", companies: links.flatMap((l) => (accounts.has(l.id) ? [companyOf(accounts.get(l.id)!, l.primary)] : [])), deals };
+      // A CRM's company shows while Canon still differs: the person is not at it, or (primary) it is not their primary.
+      const claims = kept.filter((d) => d.association === "contact_account" && d.toId && !links.some((l) => l.id === d.toId && (l.primary || !d.primary)));
+      const accounts = await rowsById(client, caller.orgId, "account", [...links.map((l) => l.id), ...claims.map((d) => d.toId!)]);
+      return {
+        object: "contact",
+        companies: links.flatMap((l) => (accounts.has(l.id) ? [companyOf(accounts.get(l.id)!, l.primary)] : [])),
+        deals,
+        crmCompanies: claims.flatMap((d) => (accounts.has(d.toId!) ? [{ id: d.id, provider: d.provider, company: companyOf(accounts.get(d.toId!)!, false), primary: d.primary === true }] : [])),
+      };
     }
 
     const [accounts, people, parents, children] = await Promise.all([
@@ -265,13 +436,21 @@ export const related = action({
       edgesOf("account_parent", "to"),
     ]);
     if (!accounts.has(args.id)) return null;
-    const family = await rowsById(client, caller.orgId, "account", [...parents.active.map((e) => e.toId), ...children.active.map((e) => e.fromId)]);
+    const disagreements = await ctx.runQuery(internal.associations.crmParents, { orgId, accountId: args.id, current: parents.active[0]?.toId ?? null });
+    const family = await rowsById(client, caller.orgId, "account", [
+      ...parents.active.map((e) => e.toId), ...children.active.map((e) => e.fromId), ...disagreements.flatMap((d) => (d.parentId ? [d.parentId] : [])),
+    ]);
     const parent = parents.active.map((e) => family.get(e.toId)).find((r) => r !== undefined);
     return {
       object: "account",
       people,
       parent: parent ? companyOf(parent, false) : null,
       children: children.active.flatMap((e) => (family.has(e.fromId) ? [companyOf(family.get(e.fromId)!, false)] : [])),
+      // A CRM parent the caller cannot see is left out, as every related record is.
+      crmParents: disagreements.flatMap((d) => {
+        if (d.parentId && !family.has(d.parentId)) return [];
+        return [{ provider: d.provider, ref: d.ref, parent: d.parentId ? companyOf(family.get(d.parentId)!, false) : null, seenAt: d.seenAt }];
+      }),
     };
   },
 });

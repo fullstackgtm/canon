@@ -1,4 +1,5 @@
-import type { ReportChart, ReportSpec } from "../../convex/lib/objects/validators";
+import type { ReportSpec } from "../../modules/kernel/reportValidators";
+import type { ReportChart } from "../../modules/kernel/reportLanguage";
 
 /**
  * Which charts can draw a report, and the one that reads it best. A chart that can't draw it says why: a chart needs a

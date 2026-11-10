@@ -1,9 +1,10 @@
 "use client";
 
-import type { ViewFilter } from "../../../convex/lib/objects/validators";
+import type { ViewFilter } from "../../../modules/kernel/reportValidators";
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
-import { OPS_OF, type FilterOp, type ListColumn } from "../../../convex/lib/objects/listSpec";
+import { OPS_OF, type ListColumn } from "../../../convex/lib/objects/listSpec";
+import type { FilterOp } from "../../../modules/kernel/reportLanguage";
 import { DAY_OPS } from "../../../convex/lib/objects/views";
 import type { FieldDescription, TeamMember } from "./fields";
 import { SelectField } from "@/components/ui/select";

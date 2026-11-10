@@ -18,7 +18,7 @@ import {
   valueLabel,
   zoomOut,
 } from "../src/lib/tam-levels.ts";
-import { NONE, regionOf, sizeBandOf } from "../services/record-service/src/dimensions.ts";
+import { NONE, regionOf, sizeBandOf } from "../modules/kernel/dimensions.ts";
 import {
   annotateRow,
   createFakeRecordClient,

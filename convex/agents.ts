@@ -231,8 +231,9 @@ export async function setAgentPaused(ctx: MutationCtx, args: typeof setAgentPaus
     const rule = ownerRuleOf(await ownerFactsOf(ctx, agent.orgId, agent.ownerUserId));
     if (!rule.ok) throw new ConvexError(`Reassign it first. ${PAUSE_REASONS[rule.reason].refusal}`);
   }
+  const cleared = agent.pause.reason;
   await ctx.db.patch(agent._id, { pause: undefined, updatedAt: Date.now() });
-  await audit(ctx, agent, user._id, "agent.resume", { cleared: agent.pause.reason });
+  await audit(ctx, agent, user._id, "agent.resume", { cleared });
   return null;
 }
 

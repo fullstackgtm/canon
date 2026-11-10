@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ReportChart as ChartKind } from "../../../convex/lib/objects/validators";
+import type { ReportChart as ChartKind } from "../../../modules/kernel/reportLanguage";
 import type { Presented } from "./present";
 import { PALETTES, type PaletteName } from "@/lib/chart-style";
 import type { Waterfall, WaterfallBar } from "@/lib/waterfall";

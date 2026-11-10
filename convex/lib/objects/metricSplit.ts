@@ -8,8 +8,9 @@
  * Pure: no database access, no Node-only imports.
  */
 import { ListRequestError } from "./listSpec.ts";
-import type { AggregateResponse, MeasureFn, ReportMeasure } from "./reportSpec.ts";
-import type { ReportSpec } from "./validators.ts";
+import type { AggregateResponse, ReportMeasure } from "./reportSpec.ts";
+import type { MeasureFn } from "../../../modules/kernel/reportLanguage.ts";
+import type { ReportSpec } from "../../../modules/kernel/reportValidators.ts";
 
 type Measure = ReportSpec["measures"][number];
 type Filter = ReportSpec["filter"][number];

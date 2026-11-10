@@ -1,7 +1,7 @@
 /**
  * Canon's objects as module report sources (docs/modules.md, "Reports and charts"): a source's fields for one
  * workspace and caller, from the object's list definition as Canon's report builder reads it (convex/reports.ts
- * checkSpec, objects.describe), less what the caller's role hides (CP14). The fields are made in kernel/reports.ts
+ * checkSpec, objects.describe), less what the caller's role hides (CP14). The fields are made in recordReportFields.ts
  * `recordReportFields`, which the browser and tests share.
  */
 import { ConvexError } from "convex/values";
@@ -11,8 +11,10 @@ import { hiddenFields, permissionOf, type Access } from "../access";
 import { listViewDef } from "../objects/listSpec";
 import { customObjectRows, loadOrgObject } from "../objects/orgDefs";
 import type { ResolvedObjectDef } from "../objects/registry";
-import { ACTIVITY_OBJECT, activityReportDef, relationsOf } from "../objects/reportSpec";
-import { customSource, RECORD_SOURCES, recordObjectOf, recordReportFields, type ReportField } from "../../../modules/kernel/reports.ts";
+import { activityReportDef, relationsOf } from "../objects/reportSpec";
+import { ACTIVITY_OBJECT } from "../../../modules/kernel/reportLanguage";
+import { customSource, RECORD_SOURCES, recordObjectOf, type ReportField } from "../../../modules/kernel/reports.ts";
+import { recordReportFields } from "./recordReportFields.ts";
 import type { ModuleManifest } from "../../../modules/kernel/manifest.ts";
 
 /** An object's list definition in the workspace, as Canon's reports read it; null for one it doesn't have. */

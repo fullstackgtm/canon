@@ -8,6 +8,8 @@ export const INTEGRATIONS_AVAILABLE = {
   // Only the "Sign in with Salesforce" OAuth button; a workspace can always connect with its own app's key.
   salesforce: { label: "Salesforce sign-in", keys: ["SALESFORCE_CLIENT_ID"] },
   email: { label: "Postmark email", keys: ["POSTMARK_SERVER_TOKEN", "POSTMARK_FROM_ADDRESS"] },
+  // convex/emailLog.ts: the domain whose mail reaches /email-log/*, and the secret its adapter sends.
+  emailLog: { label: "Email logging by BCC", keys: ["EMAIL_LOG_DOMAIN", "EMAIL_LOG_SECRET"] },
   scrapingbee: { label: "ScrapingBee", keys: ["SCRAPINGBEE_API_KEY"] },
   jev: { label: "Jev", keys: ["JEV_API_KEY"] },
   metronome: { label: "Metronome credits", keys: ["METRONOME_API_KEY"] },

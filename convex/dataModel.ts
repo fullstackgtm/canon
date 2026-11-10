@@ -16,7 +16,8 @@ import {
   addField, archiveField, BUILDER_TYPES, builderOwns, MODELED_OBJECTS, restoreField, updateField, type ComputeSpec, type FieldPatch, type RelatedDefs,
 } from "./lib/objects/fieldBuilder";
 import { isRegisterObject } from "./lib/objects/listSpec";
-import { isCustomObjectName, RegistryError, resolveOrgObject, STANDARD_OBJECTS, type OrgObjectExtension } from "./lib/objects/registry";
+import { RegistryError, resolveOrgObject, STANDARD_OBJECTS, type OrgObjectExtension } from "./lib/objects/registry";
+import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { customObjectRows, loadOrgObject, objectNames, objectRow } from "./lib/objects/orgDefs";
 import { relabelObject } from "./lib/objects/customObjects";
 import { computedType, fieldRule, fromStored, rollupDef, toStored } from "./lib/objects/validators";

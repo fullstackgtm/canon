@@ -30,8 +30,8 @@ ignored.
 1. Run `npm run selfhost:releases` and read the notes of each release you are
    about to take. Stop and ask if a release looks unfinished or mentions a step
    for you to take.
-2. Back up the data volume while Canon is stopped
-   ([self-hosting.md](self-hosting.md), "Preserve data and upgrade").
+2. Take a backup and check it, as in [Back up and restore](#back-up-and-restore).
+   Take one before every update.
 3. Check out the release: `git merge --ff-only refs/canon/releases/<date>`.
 4. Rebuild and start: `docker compose up -d --build`. On start, the container
    pushes the new backend functions before it starts the web app.
@@ -40,8 +40,8 @@ ignored.
 6. Run any migrations the release listed, then record that the data is current:
    `node scripts/selfhost/releases.mjs --no-fetch --mark-data-current`.
 
-If a step fails, restore the volume from the backup, check out the previous
-commit and rebuild.
+If a step fails, check out the previous commit, run `docker compose build`, and
+restore the backup with `npm run selfhost:restore -- <archive> --replace`.
 
 ## Update a fork with changes of your own
 
@@ -72,7 +72,94 @@ current code until the merge is checked.
    of the section above.
 
 To take a release back out, run `git revert -m 1 <merge commit>` and rebuild.
-Restore the volume backup too if the release changed stored data.
+Restore the backup too if the release changed stored data.
+
+## Back up and restore
+
+`npm run selfhost:backup` stops Canon, writes the whole `data` volume to one
+archive, then starts Canon again and waits until it is healthy. The Convex
+database and the record service's DuckDB files refer to each other. Only a
+stopped container closes both at the same moment, so the backup always stops
+it. Expect under a minute of downtime: the archive takes a few seconds on a
+small install, and most of the time is Canon starting again.
+
+Run the commands from the Compose checkout on the Docker host. They need only
+Node, git and Docker, so `node scripts/selfhost/backup.mjs` works before
+`npm ci` has been run.
+
+```sh
+npm run selfhost:backup
+npm run selfhost:backup -- --verify ../canon-backups/canon-backup-<time>.tar.gz
+```
+
+The archive goes to `../canon-backups/`, next to the checkout. To choose another
+directory, pass `--out <dir>`. The directory must be outside the checkout,
+because `docker compose build` copies the checkout into the image. A helper
+container mounts it, so on Docker Desktop it must be in a shared location, such
+as your home directory.
+
+`--verify` reads the whole archive and checks every file against the manifest.
+It also says whether this checkout can restore the archive. It changes nothing.
+After it passes, copy the archive to another machine.
+
+To prove a backup restores, run the verifier with `--backup-restore` from the
+checkout. It takes a backup, restores it over the running install, and reads
+back the owner, company, person and deal it created:
+
+```sh
+node --env-file=../canon-owner.env scripts/selfhost/verify.mjs http://localhost:3000 --backup-restore
+```
+
+### What the archive holds
+
+The archive is a `.tar.gz` that ends with `manifest.json`. The manifest records
+the format version, when the backup was taken, the checkout's commit, the image
+id, the data epoch, the record service's contract version, and the size and
+SHA-256 of every file. The volume's files are under `data/`:
+
+- `data/convex/`: the Convex SQLite database, uploaded files and the deployed
+  functions. Its scratch directory, `tmp`, is restored empty.
+- `data/records/`: one DuckDB file per workspace.
+- `data/credentials/`: the backend's instance secret and admin key, the record
+  service token, the token encryption key and the key that signs sessions.
+
+The archive holds every credential the install generated. Anyone with a copy
+can read the CRM's data and decrypt the integration tokens it stores. Keep
+every copy as private as the server. A restore needs these credentials:
+without the token encryption key, the stored integration tokens can't be
+decrypted, and without the signing key, every session ends.
+
+The archive does not hold:
+
+- The checkout and your changes to it.
+- Settings outside the volume: `SITE_URL`, `CANON_AUTH`, Clerk keys, and the
+  integration keys in your environment or `.env` file. Keep a copy with the
+  archive.
+- `.canon/release-signers`, the release key you pinned. Copy `.canon/` to a
+  new machine to keep it. The data epoch is in the manifest, and a restore
+  writes it to `.canon/data-epoch`.
+- Your reverse proxy and TLS setup.
+
+### Restore a backup
+
+1. Check out the commit the backup came from, or a later release, and run
+   `docker compose build`.
+2. Set `SITE_URL` and the other settings the backed-up install used.
+3. Run `npm run selfhost:restore -- <archive>`. To restore over an existing
+   install, add `--replace`.
+4. Run `node scripts/selfhost/verify.mjs` with the owner's credentials.
+5. If the restore listed migrations, run them in order, then run
+   `node scripts/selfhost/releases.mjs --no-fetch --mark-data-current`.
+
+Before it changes anything, restore checks every file against the manifest. It
+also checks the data epoch, and refuses data newer than the checkout supports or
+older than the oldest data it can read. If the volume already holds an install,
+restore stops unless you pass `--replace`. With `--replace`, it moves the
+current contents to `.restore-previous` in the volume before it restores. If
+the restored install becomes healthy, restore deletes `.restore-previous`. If
+it doesn't, restore puts the previous contents back and starts them again. If a
+restore is interrupted, `.restore-previous` stays, and the next restore stops
+until you inspect it.
 
 ## Keep changes small and easy to merge
 

@@ -7,6 +7,7 @@ import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as recordTarget from "../src/components/records/record-target.ts";
+import * as views from "../convex/lib/objects/views.ts";
 
 const require = createRequire(import.meta.url);
 const noop = () => undefined;
@@ -84,6 +85,11 @@ test("a board card's title navigates natively, beside a separate Quick view, and
     "./record-context": { RecordQuickView: ({ id }: { id: string }) => React.createElement("button", { "data-quick-view": id }) },
     "./record-target": recordTarget,
     "./use-object-list": { useObjectList: () => ({ rows: [row], total: 1, reload: noop, error: null }) },
+    "./use-groups": { useGroups: () => ({ res: { groups: [{ key: "open", count: 1, sum: null }], rows: 1, sum: null, summed: null, truncated: false }, error: "", reload: noop }) },
+    "../../../convex/lib/objects/views": views,
+    "lucide-react": { ArrowRightLeft: "svg", Lock: "svg" },
+    "@/components/dashboard": { ReadFailure: () => null },
+    "@/components/ui/dropdown-menu": { DropdownMenu: "div", DropdownMenuTrigger: "button", DropdownMenuContent: "div", DropdownMenuItem: "div", DropdownMenuLabel: "div" },
     "@/lib/utils": { cn: (...v: unknown[]) => v.filter(Boolean).join(" "), formatCurrency: String },
   }) as { BoardView: React.ComponentType<Props> };
   const html = renderToStaticMarkup(React.createElement(BoardView, {

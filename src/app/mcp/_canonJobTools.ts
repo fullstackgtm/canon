@@ -48,6 +48,7 @@ export function groupTool(name: string, summary: string, actions: Record<string,
 
 const ICP_SPEC = "{ market: { industries: string[] (Leadsforge values, lowercase), employeeBands: string[] (\"1-10\"…\"10001+\"), countries: string[] (ISO, lowercase; where the company is) }, persona: { levels, departments, titles: string[], countries?: string[] (ISO, lowercase; where the buyer is) }, exclude: { industries, countries, titles: string[] }, custom?: [{ slug (an account AI field), values?: string[] (option keys, \"true\"/\"false\", or exact text), min?, max? }] }";
 const ICP_QUERY = "a query line (docs/icp-tree.md): space-separated key:value,value clauses. Company keys: industry (canonical industry, words joined by -, e.g. software-development), size (\"1-10\"…\"10001+\"), country (ISO, lowercase), field.<account AI field slug>:<answers> or field.<slug>:min..max; -industry and -country exclude. A segment (not an ICP) also takes region (north-america, latin-america, europe, middle-east-africa, asia-pacific; not with country), city, owner (a member id, or none) and revenue (bands: 1m-10m, 50m+); -region and -owner exclude. Person keys, inside has(…) or on a persona: level (cxo, vp, head, director, manager, owner, founder, partner), dept (e.g. sales, revenue-operations), title (a word in the job title; quote phrases: title:\"chief revenue officer\"), -title (never), location. An ICP takes company keys and one has(…), its buyer (none: C-suite to Director). A segment narrows its parent's accounts: company keys, has(…) (someone like this works there) and -has(…) (no one like this does). A persona takes person keys only: the people to reach at its parent's accounts. Example ICP: industry:software-development size:201-500,501-1000 country:us has(level:vp,head dept:revenue-operations -title:intern)";
+const VIEW_SPEC = "{ filter: [{ field, op, value? }] (canon_list_records' grammar), sort?: { field, dir }, columns: [field apiName], layout: \"table\" | \"board\", group?: { field, bucket? } (a table: a picklist, owner, lookup, yes/no field, or a date by bucket \"day\" | \"week\" | \"month\" | \"quarter\" | \"year\"; a board: a picklist, no bucket) }";
 const TAM_FILTER = "filter?: { segmentId?, status?, ownerId?, minFit?, q?, icpId?, industry?: string[], country?: string[], employeeMin?, employeeMax?, sizeBand?: string[], region?: string[], traits?: { <segmentKey>: string[] } }";
 
 export const canonJobTools: CanonTool[] = [
@@ -119,6 +120,17 @@ export const canonJobTools: CanonTool[] = [
       set_refresh: m(api.researchAgents.setRefresh, '{ slug, cadence: "weekly" | "monthly" | null }'),
       set_auto_accept: m(api.researchAgents.setAutoAccept, "{ slug, minConfidence: number | null }"),
       remove: m(api.researchAgents.remove, "{ slug }"),
+    },
+  ),
+  groupTool(
+    "canon_views",
+    "Saved list views of any object, as the record lists show them (/dashboard/records/<object>): filters, sort, columns, and a table (optionally grouped) or a board whose columns are a picklist's values. Private to their creator until shared with the workspace. `groups` reads an object's records grouped by one field with a count per group (and a deal's amount, in cents); a group's records are canon_list_records with the group's key added as a filter (eq the key, empty for null, or gte/lt the bucket's first day for a date).",
+    {
+      list: q(api.savedViews.list, "{ object }"),
+      create: m(api.savedViews.create, `{ object, name, shared: boolean, spec: ${VIEW_SPEC} } -> viewId`),
+      update: m(api.savedViews.update, `{ viewId, name?, shared?, spec? } (its creator or an admin)`),
+      remove: m(api.savedViews.remove, "{ viewId } (its creator or an admin)"),
+      groups: a(api.objects.groups, "{ object, filter?: [{ field, op, value? }], group: { field, bucket? } } -> { groups: [{ key, count, sum }], rows, sum, summed, truncated }"),
     },
   ),
   groupTool(

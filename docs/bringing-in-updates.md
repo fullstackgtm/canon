@@ -50,11 +50,13 @@ so if the release looks unfinished. Then ask. So far only git's objects changed.
 
 ## 5. Install it
 
-1. Stop Canon and back up the data volume ([self-hosting.md](self-hosting.md),
-   "Preserve data and upgrade"). Do not skip this.
+1. Run `npm run selfhost:backup`, then check the archive with
+   `npm run selfhost:backup -- --verify <archive>`
+   ([updating.md](updating.md#back-up-and-restore)). Do not skip this.
 2. Fast-forward `main` to the branch and run `docker compose up -d --build`.
 3. Run each listed migration, in the order printed, against this installation.
-   If one fails, stop: restore the backup and check out the previous commit.
+   If one fails, stop: check out the previous commit, run `docker compose build`,
+   then `npm run selfhost:restore -- <archive> --replace`.
 4. Run `node scripts/selfhost/verify.mjs` as after installing, and report it.
 5. Only after that passes, run
    `node scripts/selfhost/releases.mjs --no-fetch --mark-data-current`. Until then

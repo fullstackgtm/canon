@@ -41,6 +41,7 @@ export const CAPABILITIES = {
   "sending.limits": { label: "Raise sending limits above Canon's recommendation", roles: [], adminOnly: true },
   "suppressions.manage": { label: "Add and lift workspace suppression rules", roles: [], adminOnly: true },
   "permissions.manage": { label: "Change roles, permissions and teams, and preview as a member", roles: [], adminOnly: true },
+  "workspace.transfer": { label: "Export the whole workspace to an archive", roles: [], adminOnly: true },
 } as const satisfies Record<string, CapabilitySpec>;
 
 export type Capability = keyof typeof CAPABILITIES;

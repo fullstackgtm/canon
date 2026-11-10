@@ -7,7 +7,7 @@ import { useAction, useMutation } from "convex/react";
 import { Download, Send } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { ViewFilter } from "../../../convex/lib/objects/validators";
+import type { ViewFilter } from "../../../modules/kernel/reportValidators";
 import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
 

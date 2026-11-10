@@ -3,8 +3,8 @@
 // belongs to the first sibling (by `order`) whose criteria it passes, and an account named to a node belongs there
 // whatever the rules say. Pure, over rows already read: the service reads them in one query (app.ts) and Convex's fake
 // record client passes its own, so both count the same way.
-import { sameIndustry } from "./industries.ts";
-import { NONE, regionOf, sizeBandOf } from "./dimensions.ts";
+import { sameIndustry } from "./core/kernel/industries.ts";
+import { NONE, regionOf, sizeBandOf } from "./core/kernel/dimensions.ts";
 
 /**
  * Company criteria, as an ICP tree node's (contract.ts IcpAccount): each include set must hold the value. 1.40.0: cities

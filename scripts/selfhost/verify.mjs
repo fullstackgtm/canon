@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { backup, restoreCompose } from "./backup.mjs";
 
 export async function verifyDeployment(site, backend = `${site}/convex`, bootstrapOwner = false, env = {
   SELFHOST_SMOKE_EMAIL: process.env.SELFHOST_SMOKE_EMAIL,
   SELFHOST_SMOKE_PASSWORD: process.env.SELFHOST_SMOKE_PASSWORD,
-}, { restart } = {}) {
+}, { restart, backupRestore } = {}) {
   const start = performance.now();
   const check = async (name, run) => {
     const at = performance.now();
@@ -103,6 +106,18 @@ export async function verifyDeployment(site, backend = `${site}/convex`, bootstr
       assert.equal(person.accountId, companyId);
       return result.ids[0];
     });
+    // The timeline reads the record service's projection of the ledger, so this proves the record service can pull from Convex.
+    await check("note shows on the company timeline", async () => {
+      const note = await convex("action", "activityTargets:logScoped", { object: "note", values: { body: `Verification note ${marker}` }, targets: [{ object: "account", id: companyId }] });
+      assert.equal(note.status, "applied", "Saving the note failed");
+      const deadline = Date.now() + 30_000;
+      for (;;) {
+        const timeline = await convex("action", "activityTargets:forRecord", { object: "account", id: companyId }).catch(() => null);
+        if (timeline?.activities.some((activity) => activity.id === note.streamId)) return;
+        assert.ok(Date.now() < deadline, "The note did not reach the company timeline within 30 s: the record service cannot read the ledger");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    });
     const dealId = await check("deal create and read back", async () => {
       const [pipeline] = await convex("query", "pipelines:list");
       assert.ok(pipeline?.stages.length, "At least one deal stage required");
@@ -124,8 +139,8 @@ export async function verifyDeployment(site, backend = `${site}/convex`, bootstr
         ws.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("WebSocket upgrade failed")); }, { once: true });
       });
     });
-    if (restart) await check("container restart: health, session, owner, company, person and deal persist", async () => {
-      await restart();
+    const persisted = (name, interrupt) => check(`${name}: health, session, owner, company, person and deal persist`, async () => {
+      await interrupt();
       const session = await request(`${site}/api/local-auth`, { headers: { Cookie: cookie } });
       assert.equal(session.status, 200, "Session must survive restart");
       ({ token } = await session.json());
@@ -139,6 +154,8 @@ export async function verifyDeployment(site, backend = `${site}/convex`, bootstr
       assert.equal(deal.companyId, companyId);
       assert.equal(deal.amount, 12300);
     });
+    if (restart) await persisted("container restart", restart);
+    if (backupRestore) await persisted("backup and restore", backupRestore);
   } finally {
     if (cookie) await check("local sign-out", async () => assert.equal((await auth({ kind: "sign-out" }, cookie)).status, 200));
   }
@@ -165,13 +182,29 @@ export function containerRestart(container, sshHost, site) {
   };
 }
 
+// Takes a backup, restores it over the running install, and removes the archive. Run from the Compose checkout.
+export function composeBackupRestore(site) {
+  return async () => {
+    const container = execFileSync("docker", ["compose", "ps", "-q", "canoncrm"], { encoding: "utf8" }).trim();
+    assert.ok(container, "No running canoncrm service in this checkout's Compose project");
+    assert.ok(JSON.parse(execFileSync("docker", ["inspect", container], { encoding: "utf8" }))[0].Config.Env.includes(`SITE_URL=${site}`), "The Compose container's SITE_URL must match the verified origin");
+    const out = mkdtempSync(join(tmpdir(), "canon-verify-backup-"));
+    try {
+      const taken = await backup({ out, log: () => {} });
+      console.log(`  backup: ${taken.files} files, ${taken.bytes} bytes, ${taken.downtimeSeconds}s down`);
+      await restoreCompose(taken.archive, { replace: true, log: () => {} });
+    } finally { rmSync(out, { recursive: true, force: true }); }
+  };
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
     const positional = [];
-    let bootstrapOwner = false, container, sshHost;
+    let bootstrapOwner = false, backupRestore = false, container, sshHost;
     for (let i = 0; i < args.length; i++) {
       if (args[i] === "--bootstrap-owner") bootstrapOwner = true;
+      else if (args[i] === "--backup-restore") backupRestore = true;
       else if (["--restart-container", "--ssh"].includes(args[i])) {
         const flag = args[i];
         const value = args[++i];
@@ -187,6 +220,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     assert.ok(!sshHost || container, "--ssh requires --restart-container");
     const site = positional[0] ?? process.env.SITE_URL;
     await verifyDeployment(site, positional[1] ?? (positional[0] ? `${site}/convex` : process.env.NEXT_PUBLIC_CONVEX_URL ?? `${site}/convex`), bootstrapOwner, process.env,
-      { restart: container ? containerRestart(container, sshHost, site) : undefined });
+      { restart: container ? containerRestart(container, sshHost, site) : undefined, backupRestore: backupRestore ? composeBackupRestore(site) : undefined });
   } catch (error) { console.error(`FAIL verification: ${error.message}`); process.exitCode = 1; }
 }

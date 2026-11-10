@@ -18,7 +18,8 @@ import {
 } from "./core/objects/listSpec.ts";
 import { ASSOCIATION_OBJECT, resolveObjectDef, STANDARD_OBJECTS, type ResolvedObjectDef } from "./core/objects/registry.ts";
 import { computedColumns } from "./computed.ts";
-import { ACTIVITY_OBJECT, ACTIVITY_TYPES, activityReportDef } from "./core/objects/reportSpec.ts";
+import { ACTIVITY_TYPES, activityReportDef } from "./core/objects/reportSpec.ts";
+import { ACTIVITY_OBJECT } from "./core/kernel/reportLanguage.ts";
 import { all, lit } from "./db.ts";
 import { HttpError } from "./errors.ts";
 import { ident, selectList, viewName, type Column } from "./projection.ts";

@@ -17,7 +17,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { readDealDef, saveDealValues } from "./canon";
 import { NOT_WRITTEN } from "./lib/syncUnchanged";
 import { edgeStore } from "./associations";
-import { ACTIVITY_TARGETS_MAX, applyEdgeCommand, EDGES_PER_RECORD_MAX, edgesFromSourceNotIn, seedDealRoles } from "./lib/objects/associations";
+import { ACTIVITY_TARGETS_MAX, applyEdgeCommand, seedDealRoles } from "./lib/objects/associations";
 import { save } from "./lib/objects/write";
 import { loadDef } from "./objects";
 import { normalizeSfId } from "../engine/src/sync/salesforceImport/mapping.ts";
@@ -338,13 +338,12 @@ export const upsertActivities = internalMutation({
         continue;
       }
       const kept = targets.slice(0, ACTIVITY_TARGETS_MAX);
-      const edgeCtx = { orgId: args.orgId, source: saveCtx.source, actor: saveCtx.actor, now: a.createdAt ?? now };
+      const edgeCtx = { orgId: args.orgId, source: saveCtx.source, actor: saveCtx.actor, now, ...(a.createdAt ? { createdAt: a.createdAt } : {}) };
       if (kept.length) {
         const edges = await applyEdgeCommand(store, edgeCtx, { op: "target", activityId: result.streamId, toIds: kept });
         if (edges.status === "invalid") { out.rejected.push({ index, reason: edges.message }); continue; }
       }
-      const stale = await edgesFromSourceNotIn(store, args.orgId, "activity_target", result.streamId, kept, "salesforce");
-      if (stale.length) await applyEdgeCommand(store, edgeCtx, { op: "untarget", activityId: result.streamId, toIds: stale });
+      await applyEdgeCommand(store, edgeCtx, { op: "keepOnly", association: "activity_target", fromId: result.streamId, toIds: kept });
       await rememberId(ctx, args.orgId, a.object, a.sfId, result.streamId);
       if (existing) out.updated++;
       else out.created++;
@@ -408,11 +407,11 @@ async function dealLedgerView(ctx: QueryCtx, orgId: Id<"organizations">, streamI
 /**
  * Each account's Salesforce parent as its `account_parent` edge, written by the record pages' parent rule
  * (one parent, no cycles) as Salesforce. An account or parent Canon does not have is skipped: the import links
- * it when the other end lands. A parent named in Salesforce replaces the one in Canon, whoever set it, as the
- * HubSpot import does. A parent cleared in Salesforce removes only an edge Salesforce made; one a person set
- * in Canon (on the company page or by approving a hierarchy move) stays, and so does one another Salesforce
- * account made: several Salesforce accounts can be one Canon company (a shared domain), and one of them having
- * no parent says nothing about the others'. Called by the import and the sync.
+ * it when the other end lands. The edge writer's CRM rule decides the rest (EdgeWriter.crm): a parent a
+ * person set or cleared in Canon stays, and what Salesforce says instead is kept as a disagreement; a cleared
+ * ParentId removes only an edge that Salesforce account made (several Salesforce accounts can be one Canon company,
+ * a shared domain, and one of them having no parent says nothing about the others'). Called by the import and the
+ * sync.
  */
 export const setAccountParents = internalMutation({
   args: { orgId: v.id("organizations"), links: v.array(v.object({ sfId: v.string(), parentSfId: v.union(v.string(), v.null()) })) },
@@ -423,18 +422,13 @@ export const setAccountParents = internalMutation({
       const accountId = await canonIdOf(ctx, args.orgId, normalizeSfId(l.sfId) ?? l.sfId);
       if (!accountId) continue;
       const parentSfId = l.parentSfId === null ? null : normalizeSfId(l.parentSfId) ?? l.parentSfId;
-      const edgeCtx = { orgId: args.orgId, source: { kind: "salesforce" as const, ref: `salesforce:${l.sfId}` }, actor: { kind: "integration" as const, id: "salesforce" }, now: Date.now() };
-      if (parentSfId === null) {
-        if (!(await parentMadeBy(store, args.orgId, accountId, edgeCtx.source.ref))) continue;
-        if ((await applyEdgeCommand(store, edgeCtx, { op: "setParent", accountId, parentId: null })).status === "applied") out.applied++;
-        continue;
-      }
-      const parentId = await canonIdOf(ctx, args.orgId, parentSfId);
-      if (!parentId) continue;
+      const parentId = parentSfId === null ? null : await canonIdOf(ctx, args.orgId, parentSfId);
+      if (parentSfId !== null && !parentId) continue;
       if (parentId === accountId) {
         out.rejected.push({ sfId: l.sfId, reason: `Parent ${parentSfId} not linked: it is the same company in Canon` });
         continue;
       }
+      const edgeCtx = { orgId: args.orgId, source: { kind: "salesforce" as const, ref: `salesforce:${l.sfId}` }, actor: { kind: "integration" as const, id: "salesforce" }, now: Date.now() };
       const result = await applyEdgeCommand(store, edgeCtx, { op: "setParent", accountId, parentId });
       if (result.status === "invalid") out.rejected.push({ sfId: l.sfId, reason: `Parent ${parentSfId} not linked: ${result.message}` });
       else if (result.status === "applied") out.applied++;
@@ -444,19 +438,10 @@ export const setAccountParents = internalMutation({
 });
 
 /**
- * Whether the company's active parent edge was last made active by this source ref (one Salesforce account). An
- * edge stream is restored rather than recreated when a link comes back, so the latest create or restore says who
- * made the link that stands now, not the stream's first entry.
+ * Contact roles as `deal_contact` edges, each created dated when Salesforce created the role, through the edge
+ * writer's CRM rule (EdgeWriter.crm): a role or a removal a person made in Canon stays, and Salesforce's is kept as a
+ * disagreement for the deal page.
  */
-async function parentMadeBy(store: ReturnType<typeof edgeStore>, orgId: string, accountId: string, ref: string): Promise<boolean> {
-  const [edge] = (await store.edgesFrom(orgId, "account_parent", accountId, EDGES_PER_RECORD_MAX)).filter((e) => e.active);
-  if (!edge) return false;
-  const entries = await store.readEntries(edge.streamId, 0, 1000);
-  const made = [...entries].reverse().find((e) => e.body.kind === "lifecycle" && (e.body.op === "create" || e.body.op === "restore")) ?? entries[0];
-  return made?.source.kind === "salesforce" && made.source.ref === ref;
-}
-
-/** Contact roles as `deal_contact` edges, each dated when Salesforce created the role. */
 export const setDealRoles = internalMutation({
   args: { orgId: v.id("organizations"), deals: v.array(dealRoles) },
   handler: async (ctx, args) => {
@@ -479,16 +464,14 @@ export const setDealRoles = internalMutation({
           continue;
         }
         wanted.push(contactId);
-        const edgeCtx = { orgId: args.orgId, source: { kind: "salesforce" as const, ref: `salesforce:${r.roleSfId}` }, actor: { kind: "integration" as const, id: "salesforce" }, now: r.createdAt ?? Date.now() };
+        const edgeCtx = { orgId: args.orgId, source: { kind: "salesforce" as const, ref: `salesforce:${r.roleSfId}` }, actor: { kind: "integration" as const, id: "salesforce" }, now: Date.now(), ...(r.createdAt ? { createdAt: r.createdAt } : {}) };
         const result = await applyEdgeCommand(store, edgeCtx, { op: "setRole", dealId: streamId, contactId, role: r.role });
         if (result.status === "invalid") out.rejected.push({ sfId: r.roleSfId, reason: result.message });
         else out.applied++;
       }
-      // A role Salesforce no longer has leaves the deal; people Canon put on it stay.
+      // A role Salesforce no longer has leaves the deal; people Canon put on it, or put back, stay (EdgeWriter.crm).
       const removedCtx = { orgId: args.orgId, source: { kind: "salesforce" as const, ref: `salesforce:${d.opportunitySfId}` }, actor: { kind: "integration" as const, id: "salesforce" }, now: Date.now() };
-      for (const contactId of await edgesFromSourceNotIn(store, args.orgId, "deal_contact", streamId, wanted, "salesforce")) {
-        await applyEdgeCommand(store, removedCtx, { op: "removeFromDeal", dealId: streamId, contactId });
-      }
+      await applyEdgeCommand(store, removedCtx, { op: "keepOnly", association: "deal_contact", fromId: streamId, toIds: wanted });
     }
     return out;
   },

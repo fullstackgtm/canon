@@ -1,6 +1,7 @@
 /** Every area on the Settings page, grouped the way the table shows them. */
+import type { IntegrationFeature } from "../../../../convex/lib/integrationsAvailable.ts";
 
-export type SettingsKey = "workspace" | "targets" | "team" | "permissions" | "pipelines" | "billing" | "api" | "webhooks" | "feeds" | "outbound" | "recording";
+export type SettingsKey = "workspace" | "targets" | "team" | "permissions" | "pipelines" | "billing" | "api" | "webhooks" | "feeds" | "outbound" | "recording" | "emailLog";
 
 export type SettingsDef = {
   key: SettingsKey;
@@ -13,6 +14,8 @@ export type SettingsDef = {
   href: string;
   /** Who sees the area: everyone, or admins only. */
   adminOnly?: boolean;
+  /** Shown only when the deployment has this integration's keys. */
+  feature?: IntegrationFeature;
 };
 
 export const SETTINGS_GROUPS: { title: string; items: SettingsDef[] }[] = [
@@ -81,6 +84,15 @@ export const SETTINGS_GROUPS: { title: string; items: SettingsDef[] }[] = [
         description:
           "The workspace's credits, buying more, invoices and saved cards in Stripe, and what was spent this month: credits by day, paid email hits and provider spend.",
         href: "/dashboard/settings/billing",
+      },
+      {
+        key: "emailLog",
+        name: "Email logging",
+        summary: "Your private address for logging email by BCC or forward",
+        description:
+          "BCC your address when you email a customer, or forward an email you received to it, and Canon puts it on the timeline of the people and companies on it.",
+        href: "/dashboard/settings/email-logging",
+        feature: "emailLog",
       },
     ],
   },

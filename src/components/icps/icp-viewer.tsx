@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { parseQuery, serializeQuery, type Clause, type NodeKind } from "../../../convex/lib/icpQuery";
 import { COUNTRIES, LEVELS } from "../../../convex/lib/icpVocabulary";
-import { INDUSTRIES } from "../../../services/record-service/src/industries";
+import { INDUSTRIES } from "../../../modules/kernel/industries";
 
 export type IcpViewerProps = {
   query: string;

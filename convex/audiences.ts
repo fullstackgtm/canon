@@ -21,7 +21,7 @@ import { getCurrentUser, requireUser } from "./lib";
 import { accessFor } from "./permissions";
 import { listedDef } from "./savedViews";
 import { compileListRequest, ListRequestError } from "./lib/objects/listSpec";
-import { listFilter, type ViewFilter } from "./lib/objects/validators";
+import { listFilter, type ViewFilter } from "../modules/kernel/reportValidators";
 import { encryptForStorage } from "./lib/tokenHelpers";
 import { AUDIENCE_MAX, runsOf } from "./lib/outbound/audience";
 import { SEQUENCER_IDS, SEQUENCERS, type SequencerId } from "./lib/outbound/sequencers";

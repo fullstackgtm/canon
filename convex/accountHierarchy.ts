@@ -6,7 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { dealVisible, principalAccess, unrestrictedUser, workspaceMembers } from "./permissions";
 import type { Access } from "./lib/access";
 import { can, refusal } from "./lib/capabilities";
-import { applyAsUser, changeAs, edgesOf } from "./associations";
+import { applyAsUser, changeAs, crmParentsOf, edgesOf } from "./associations";
 import { requireCaller } from "./records";
 import type { EdgeResult } from "./lib/objects/associations";
 import type { HierarchyItem, ParentItem } from "../engine/src/accountHierarchy/plan.ts";
@@ -125,10 +125,9 @@ export const group = query({
         ...(d.appliedAt ? { appliedAt: d.appliedAt } : {}),
         ...(d.applyError ? { applyError: d.applyError } : {}),
       }] as const))) as Record<string, ItemDecision>,
-      // A Canon scan's parents as they are now, so an applied move shows without a rescan.
-      parents: scan?.provider === "canon"
-        ? Object.fromEntries(await Promise.all(g.accounts.map(async (a) => [a.id, await currentParent(ctx, g.orgId, a.id)] as const)))
-        : null,
+      // A Canon scan's parents as they are now, so an applied move shows without a rescan, and what a CRM says
+      // instead where a person's parent held against it.
+      ...(scan?.provider === "canon" ? await canonParents(ctx, g.orgId, g.accounts.map((a) => a.id)) : { parents: null, crmParents: null }),
     };
   },
 });
@@ -214,6 +213,17 @@ async function itemOf(ctx: QueryCtx | MutationCtx, researchId: Id<"hierarchyRese
   // Only a Canon scan's parent moves name Canon record ids; everything else is recorded, never applied.
   const applies = scan?.provider === "canon" && item.op === "set_parent";
   return { user, research, item, existing, applies };
+}
+
+async function canonParents(ctx: QueryCtx, orgId: Id<"organizations">, ids: string[]) {
+  const rows = await Promise.all(ids.map(async (id) => {
+    const parent = await currentParent(ctx, orgId, id);
+    return { id, parent, crm: await crmParentsOf(ctx, orgId, id, parent) };
+  }));
+  return {
+    parents: Object.fromEntries(rows.map((r) => [r.id, r.parent])) as Record<string, string | null>,
+    crmParents: Object.fromEntries(rows.filter((r) => r.crm.length).map((r) => [r.id, r.crm])) as Record<string, Awaited<ReturnType<typeof crmParentsOf>>>,
+  };
 }
 
 /** A company's parent in Canon now: its oldest active parent link, the one the scan reads. */

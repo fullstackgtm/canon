@@ -23,7 +23,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { callerClient, requireCaller } from "./records";
 import { isRestricted, may, type Access } from "./lib/access";
 import { dealVisible, principalAccess } from "./permissions";
-import { dealOfStream, mayEdit } from "./dealCommittee";
+import { crmRolesOf, dealOfStream, mayEdit, type CrmRole } from "./dealCommittee";
 import { peopleOfCompany, rowsById } from "./associations";
 import { activitiesForRecord } from "./activityTargets";
 import type { DealRole } from "./lib/objects/registry";
@@ -367,7 +367,11 @@ export type ControlPlane = {
   peopleResearch: { status: "running" | "done" | "failed"; startedAt: number; finishedAt: number | null; contactIds: string[]; note: string | null } | null;
   /** The keeper's last daily check, when it has run. */
   keeperCheck: (NonNullable<Doc<"dealPlays">["keeper"]> & { at: number }) | null;
+  /** Why the daily keeper is off for this play (an imported one), until a person runs it; null when it is on. */
+  keeperPaused: string | null;
   people: PlayPerson[];
+  /** What a CRM says about the deal's people where a person's choice held against it. */
+  crmRoles: CrmRole[];
   /** Company people not on the deal, for adding to the map. */
   others: Array<{ id: string; name: string; title: string | null }>;
   /** Company people research suggests adding, in a role. */
@@ -496,12 +500,13 @@ export async function buildPlane(ctx: ActionCtx, caller: PlaneCaller, streamId: 
     const contacts = await rowsById(client, orgId, "contact", committee.members.map((m) => m.contactId));
     const restricted = isRestricted(caller.access);
     const memberIds = committee.members.map((m) => m.contactId).filter((id) => contacts.has(id) || !restricted);
-    const [companyRows, companyPeople, logs, activities, icps] = await Promise.all([
+    const [companyRows, companyPeople, logs, activities, icps, crmRoles] = await Promise.all([
       companyId ? rowsById(client, orgId, "account", [companyId]) : Promise.resolve(new Map()),
       companyId ? peopleOfCompany(ctx, client, orgId, companyId) : Promise.resolve([]),
       ctx.runQuery(internal.dealPlays.touchLogs, { orgId, contactIds: memberIds }),
       activitiesForRecord(ctx, caller, "deal", args.streamId).catch(() => ({ activities: [] })),
       companyId ? ctx.runQuery(internal.icps.pointsOfView, { orgId }) : Promise.resolve([]),
+      crmRolesOf(ctx, client, orgId, args.streamId, committee.members),
     ]);
     const memberSet = new Set(memberIds);
     // Company people the page could reach first: their history decides whether they're untouched.
@@ -616,7 +621,9 @@ export async function buildPlane(ctx: ActionCtx, caller: PlaneCaller, streamId: 
         contactIds: play.peopleResearch.contactIds, note: play.peopleResearch.note ?? null,
       } : null,
       keeperCheck: play?.keeper && play.keeperCheckedAt ? { ...play.keeper, at: play.keeperCheckedAt } : null,
+      keeperPaused: play?.keeperPaused?.reason ?? null,
       people,
+      crmRoles,
       others: companyPeople.filter((p) => !memberSet.has(p.id)).map((p) => ({ id: p.id, name: p.name, title: p.title })),
       suggested: loaded.people.flatMap((n) => {
         const person = atCompany.get(n.contactId);
@@ -838,6 +845,8 @@ export const duePlays = internalQuery({
       if (!hasPlays.has(play.orgId)) hasPlays.set(play.orgId, (await orgRecipe(ctx, play.orgId)).plays !== null);
       // A workspace whose recipe has no plays has no keeper: its plays wait, unchecked, until it picks one again.
       if (!hasPlays.get(play.orgId)) continue;
+      // An imported play waits until a person runs its keeper here (resumeKeeper).
+      if (play.keeperPaused) continue;
       const deal = await ctx.db.get(play.dealId);
       if (!deal || deal.isClosed || deal.archivedAt !== undefined) continue;
       // The deal's owner, else whoever started the play: it reads as them and drafts on their plan.
@@ -879,6 +888,16 @@ export const saveKeeper = internalMutation({
         ...(args.daily === false && play.keeperCheckedAt ? {} : { keeperCheckedAt: Date.now() }),
       });
     }
+    return null;
+  },
+});
+
+/** A person ran the keeper on this play: one that arrived paused in an import is checked daily from now on. */
+export const resumeKeeper = internalMutation({
+  args: { orgId: v.id("organizations"), streamId: v.string() },
+  handler: async (ctx, args) => {
+    const play = await playOf(ctx, args.orgId, args.streamId);
+    if (play?.keeperPaused) await ctx.db.patch(play._id, { keeperPaused: undefined, updatedAt: Date.now() });
     return null;
   },
 });
@@ -927,7 +946,7 @@ export const playsOfContact = internalQuery({
     for (const e of edges.filter((x) => x.active)) {
       const play = await playOf(ctx, args.orgId, e.fromId);
       const deal = play ? await ctx.db.get(play.dealId) : null;
-      if (play && deal && !deal.isClosed && deal.archivedAt === undefined) out.push({ streamId: play.streamId, userId: deal.primaryRepId ?? play.createdBy });
+      if (play && !play.keeperPaused && deal && !deal.isClosed && deal.archivedAt === undefined) out.push({ streamId: play.streamId, userId: deal.primaryRepId ?? play.createdBy });
     }
     return out;
   },

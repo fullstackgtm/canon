@@ -12,6 +12,7 @@ function fakeConvex(recordRefs?: boolean) {
     calls.push({ kind, name: getFunctionName(ref as never), args });
     if (kind === "query" && getFunctionName(ref as never) === "modules:describe") return recordRefs === undefined ? {} : { recordRefs };
     if (kind === "query" && getFunctionName(ref as never) === "modules:list") return [];
+    if (getFunctionName(ref as never) === "records:bulkRegister") return { results: [{ streamId: "acc_1", result: { status: "applied" } }], unprocessed: [] };
     return kind === "query" && getFunctionName(ref as never) === "deals:list"
       ? [{ _id: "d1", name: "Acme renewal", amount: 5, secret: "x" }, { _id: "d2", name: "Globex", amount: 7 }]
       : { ok: true };
@@ -132,6 +133,8 @@ test("MCP line-item CRUD schemas admit the object and forward versioned writes t
     ["canon_update_record", { object: "lineItem", id: "s1", values: { totalPrice: 777 }, expectedVersion: 2 }, "objects:write"],
     ["canon_delete_record", { object: "lineItem", streamId: "s1", expectedVersion: 3 }, "objects:remove"],
     ["canon_delete_record", { object: "lineItem", streamId: "s1", restore: true, expectedVersion: 4 }, "objects:restore"],
+    // A company or person archives as its own page does, not through objects.remove (which refuses them).
+    ["canon_delete_record", { object: "account", streamId: "acc_1" }, "records:bulkRegister"],
   ] as const) {
     const tool = canonTools.find((t) => t.name === name)!;
     assert.equal(z.object(tool.inputSchema).safeParse(args).success, true);

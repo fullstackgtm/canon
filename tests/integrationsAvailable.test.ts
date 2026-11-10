@@ -5,7 +5,7 @@ import { INTEGRATIONS_AVAILABLE, integrationsAvailable, moduleRuntimeAvailable, 
 test("vendor features stay off until every required key is present and expose only booleans", () => {
   assert.deepEqual(integrationsAvailable({}), {
     billing: false, chatgpt: false, openrouter: false, treg: false, unipile: false,
-    dialer: false, salesforce: false, email: false, scrapingbee: false, jev: false,
+    dialer: false, salesforce: false, email: false, emailLog: false, scrapingbee: false, jev: false,
     metronome: false, pi: false, recipeRuntime: false, recordService: false,
   });
   for (const feature of Object.keys(INTEGRATIONS_AVAILABLE) as IntegrationFeature[]) {

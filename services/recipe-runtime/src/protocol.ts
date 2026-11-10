@@ -48,7 +48,5 @@ export async function verify(secret: string, timestamp: string | null, signature
   return crypto.subtle.verify("HMAC", await key(secret, "verify"), mac, utf8(`${timestamp}.${body}`));
 }
 
-/** A bundle's id: the first 32 hex characters of its code's SHA-256. scripts/build-recipes.ts writes the same. */
-export async function bundleHash(code: string): Promise<string> {
-  return hex(await crypto.subtle.digest("SHA-256", utf8(code))).slice(0, 32);
-}
+/** A bundle's id. Defined in the module kit (modules/kernel/bundleHash.ts); the runtime deploys a generated copy. */
+export { bundleHash } from "./bundleHash.ts";

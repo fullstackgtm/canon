@@ -5,7 +5,7 @@
 import type { AccountsFilter, MarketDimension, MarketFacetsResponse, MarketFilter } from "./recordContract.ts";
 import { parseQuery } from "./icpQuery.ts";
 import { icpGeosToCountries } from "./researchPipeline.ts";
-import { industryFilterKeys } from "../../services/record-service/src/industries.ts";
+import { industryFilterKeys } from "../../modules/kernel/industries.ts";
 
 export const MARKET_DIMENSIONS: readonly MarketDimension[] = ["industry", "country", "region", "sizeBand"];
 /** How long a count is fresh; older ones are served while they refresh. */

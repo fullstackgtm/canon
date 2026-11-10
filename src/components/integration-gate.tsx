@@ -22,6 +22,7 @@ export function IntegrationGate({ feature, children, note = false }: { feature: 
 
 const ROUTES: readonly [string, IntegrationRequirement][] = [
   ["/dashboard/settings/billing", "billing"],
+  ["/dashboard/settings/email-logging", "emailLog"],
   ["/dashboard/integrations/chatgpt", "chatgpt"],
   ["/dashboard/integrations/gmail", "unipile"],
   ["/dashboard/integrations/linkedin", "unipile"],

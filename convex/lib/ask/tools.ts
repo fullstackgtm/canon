@@ -5,8 +5,9 @@
  * Adding a tool that writes, or one that accepts an org or user id, breaks the
  * contract in docs/ask-canon.md and tests/askCanon.test.ts.
  */
-import { FILTER_OPS, isRegisterObject, type ListFilter, type ListRequest, type ListResponse, type ListRow, type SearchResponse } from "../objects/listSpec.ts";
-import { isCustomObjectName, STANDARD_OBJECTS } from "../objects/registry.ts";
+import { isRegisterObject, type ListFilter, type ListRequest, type ListResponse, type ListRow, type SearchResponse } from "../objects/listSpec.ts";
+import { FILTER_OPS, isCustomObjectName } from "../../../modules/kernel/reportLanguage.ts";
+import { STANDARD_OBJECTS } from "../objects/registry.ts";
 import type { ContactRow } from "../recordContract.ts";
 import type { RecordClient } from "../recordClient.ts";
 import { recordHref, seenKey, type AskTool, type RecordRef, type SeenRecords } from "./askLoop.ts";

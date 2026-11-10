@@ -5,7 +5,7 @@
  */
 import type { CallFunctions, DealChange, Intent, ReadDoc, ReportReadValue } from "../../kernel/calls.ts";
 import { DEFAULT_REASONS, byField, cardDigest, changeKeys, intakeIntents, reasonShares, stageOfPart, winRates, type CrmFields, type Deal, type Group } from "./engine.ts";
-import { quoteFound } from "../../../engine/src/evidence.ts";
+import { quoteFound } from "../../kernel/evidence.ts";
 
 const LABELS: Record<string, Record<string, string>> = {
   direction: { negative: "Hurt us", positive: "Helped us" },

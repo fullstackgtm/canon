@@ -7,10 +7,10 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import type { AccountInput, IcpWeights, ProspectFacetsBody, ProspectFacetsResult, ProspectLookupBody, ProspectLookupResult, ProspectSearchBody, ProspectSearchResult, SharedCompanyDetail } from "./contract.ts";
-import { NONE, REGION_OF_COUNTRY, SIZE_BANDS, regionOf } from "./dimensions.ts";
+import { NONE, REGION_OF_COUNTRY, SIZE_BANDS, regionOf } from "./core/kernel/dimensions.ts";
 import { all, compact, lit, one, type Params } from "./db.ts";
 import { HttpError } from "./errors.ts";
-import { industryFilterKeys, industryKey, industrySourceNames } from "./industries.ts";
+import { industryFilterKeys, industryKey, industrySourceNames } from "./core/kernel/industries.ts";
 
 export const pdlPath = (dataDir: string) => join(dataDir, "shared", "pdl_companies.duckdb");
 

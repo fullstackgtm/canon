@@ -18,8 +18,9 @@
  */
 import { ConvexError } from "convex/values";
 import { ownerAdmitted, type OwnerScope } from "./objects/listSpec.ts";
-import { baseFields, isCustomObjectName, STANDARD_OBJECTS } from "./objects/registry.ts";
-import { ACTIVITY_OBJECT, ACTIVITY_TYPES } from "./objects/reportSpec.ts";
+import { baseFields, STANDARD_OBJECTS } from "./objects/registry.ts";
+import { isCustomObjectName, ACTIVITY_OBJECT } from "../../modules/kernel/reportLanguage.ts";
+import { ACTIVITY_TYPES } from "./objects/reportSpec.ts";
 
 export type Role = "admin" | "manager" | "rep" | "other";
 /** A member's role: a built-in Role, or a workspace's own (orgRoles.key, lib/roles.ts). */

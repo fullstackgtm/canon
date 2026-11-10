@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, requireUser } from "./lib";
+import { lastUsedIsStale } from "./cliAuth";
 
 /**
  * Tier-1 agent self-registration.
@@ -234,7 +235,7 @@ export const listMine = query({
 /**
  * Validator used by the API layer (src/app/api/public/_lib.ts). A mutation
  * rather than a query for the same reason cliAuth.poll is: it stamps
- * lastUsedAt on the way through. Keyed by token hash — holding the hash
+ * lastUsedAt on the way through, at most once a minute (cliAuth.LAST_USED_INTERVAL_MS). Keyed by token hash — holding the hash
  * preimage IS the credential, mirroring cliAuth.getTokenByHash.
  */
 export const validate = mutation({
@@ -245,8 +246,9 @@ export const validate = mutation({
       .withIndex("by_tokenHash", (q) => q.eq("tokenHash", args.tokenHash))
       .unique();
     if (!registration || registration.revokedAt) return null;
-    if (Date.now() > registration.expiresAt) return null;
-    await ctx.db.patch(registration._id, { lastUsedAt: Date.now() });
+    const now = Date.now();
+    if (now > registration.expiresAt) return null;
+    if (lastUsedIsStale(registration.lastUsedAt, now)) await ctx.db.patch(registration._id, { lastUsedAt: now });
     return {
       name: registration.name,
       scopes: registration.scopes,

@@ -1,7 +1,7 @@
 import type { CallFunctions, Intent, ReadDoc } from "../../kernel/calls.ts";
 import type { Icp } from "../../../engine/src/icp.ts";
 import { employeeBandsToRange } from "../../../engine/src/icp.ts";
-import { icpGeosToCountries } from "../../../convex/lib/icpGeography.ts";
+import { icpGeosToCountries } from "../../kernel/icpGeography.ts";
 import { icpIndustriesToLeadsforge } from "../../../convex/lib/icpIndustries.ts";
 import { textHash } from "../../kernel/ai.ts";
 import { publicPageUrl, webPagesRequest } from "../../kernel/webPages.ts";

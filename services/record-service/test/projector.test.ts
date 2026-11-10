@@ -4,7 +4,10 @@ import type { DuckDBConnection, DuckDBValue } from "@duckdb/node-api";
 import { all } from "../src/db.ts";
 import { Workspace } from "../src/workspace.ts";
 import { FakeLedger, shardOf } from "./ledgerFake.ts";
-import { startApp } from "./helpers.ts";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { configFromEnv } from "../src/app.ts";
+import { startApp, tempDir, TOKEN } from "./helpers.ts";
 
 const TIER = [{ value: "gold", label: "Gold", active: true }, { value: "silver", label: "Silver", active: true }];
 
@@ -436,5 +439,23 @@ describe("projector with no configured ledger source", () => {
     ctx = await startApp({ dataDir: ctx.cfg.dataDir, projector: { pollMs: 0 } });
     assert.equal((await ctx.client.ws("o9").post("projector/nudge", { wait: true })).status, 200, "a restart remembers the source, so a nudge without one still pulls");
     assert.deepEqual((await ctx.client.ws("o9").post("p/lead/list", {})).json.rows.map((r: { id: string }) => r.id).sort(), ["lead-ada", "lead-grace"]);
+  });
+});
+
+describe("projector with a configured ledger source", () => {
+  it("pulls from PROJECTOR_SOURCE_URL over a saved or nudged URL it cannot reach", async () => {
+    const ledger = new FakeLedger();
+    const dataDir = tempDir();
+    writeFileSync(join(dataDir, "ledger-source.json"), JSON.stringify({ url: "http://localhost:9/convex-site" }));
+    const { projector } = configFromEnv({ RECORD_SERVICE_TOKEN: TOKEN, PROJECTOR_SOURCE_URL: await ledger.listen() });
+    const ctx = await startApp({ dataDir, projector: { ...projector, pollMs: 0 } });
+    try {
+      ledger.set("o7", "lead", "lead-mary", { lastName: "Jackson" }, 1000);
+      assert.equal((await ctx.client.ws("o7").post("projector/nudge", { wait: true, source: "http://localhost:9/convex-site" })).status, 200);
+      assert.deepEqual((await ctx.client.ws("o7").post("p/lead/list", {})).json.rows.map((r: { id: string }) => r.id), ["lead-mary"]);
+    } finally {
+      await ctx.app.shutdown();
+      await ledger.close();
+    }
   });
 });

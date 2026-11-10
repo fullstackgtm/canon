@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { FoldState } from "../convex/lib/objects/fold.ts";
-import { applyEdgeCommand, edgesFromSourceNotIn, seedDealRoles, type EdgeContext, type EdgeRow, type EdgeStore } from "../convex/lib/objects/associations.ts";
+import { applyEdgeCommand, seedDealRoles, type EdgeContext, type EdgeRow, type EdgeStore } from "../convex/lib/objects/associations.ts";
 import type { StoredEntry } from "../convex/lib/objects/write.ts";
 
 /** In-memory EdgeStore with the semantics of convex/associations.ts edgeStore. */
@@ -33,6 +33,7 @@ function memoryStore() {
     async edgesFrom(_o, association, fromId, limit) { return range((e) => e.association === association && e.fromId === fromId, limit); },
     async edgesTo(_o, association, toId, limit) { return range((e) => e.association === association && e.toId === toId, limit); },
     async putEdge(_o, row) { edges.set(row.streamId, row); },
+    async lastEntry(id, match) { return entries.filter((e) => e.streamId === id).reverse().find(match) ?? null; },
   };
   const ctx = (): EdgeContext => ({ orgId: "org1", source: { kind: "user", ref: "user:u1" }, actor: { kind: "user", id: "u1" }, now: ++clock });
   const view = () => [...edges.values()].filter((e) => e.active).map((e) => `${e.association}:${e.fromId}->${e.toId}${e.primary ? "*" : ""}`).sort();
@@ -130,9 +131,7 @@ test("a re-import removes the targets it made that its source no longer names, a
   const crm: EdgeContext = { orgId: "org1", source: { kind: "salesforce", ref: "salesforce:00T1" }, actor: { kind: "integration", id: "salesforce" }, now: 1 };
   await applyEdgeCommand(m.store, crm, { op: "target", activityId: "task_1", toIds: ["con_1", "deal_1"] });
   await applyEdgeCommand(m.store, m.ctx(), { op: "target", activityId: "task_1", toIds: ["acc_a"] });
-  const stale = await edgesFromSourceNotIn(m.store, "org1", "activity_target", "task_1", ["deal_2"], "salesforce");
-  assert.deepEqual(stale, ["con_1", "deal_1"]);
   await applyEdgeCommand(m.store, crm, { op: "target", activityId: "task_1", toIds: ["deal_2"] });
-  await applyEdgeCommand(m.store, crm, { op: "untarget", activityId: "task_1", toIds: stale });
+  await applyEdgeCommand(m.store, crm, { op: "keepOnly", association: "activity_target", fromId: "task_1", toIds: ["deal_2"] });
   assert.deepEqual(m.view(), ["activity_target:task_1->acc_a", "activity_target:task_1->deal_2"]);
 });

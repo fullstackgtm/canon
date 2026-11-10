@@ -1,0 +1,8 @@
+Message-ID: <html-1@mail.example.com>
+Date: Wed, 4 Nov 2026 12:00:00 +0000
+From: Ada Lovelace <ada@example.com>
+To: Grace Hopper <grace@example.org>
+Subject: Agenda
+Content-Type: text/html; charset=utf-8
+
+<html><head><style>p{color:red}</style><script>alert(1)</script></head><body><p>Agenda for <b>Friday</b> &amp; next steps:</p><ul><li>Budget</li><li>Timeline</li></ul><img src="https://tracker.example.org/p.gif"></body></html>

@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { PEOPLE_FILTER_PARAM, MODULE_RETURN_PARAM, jsonQueryValue, moduleFilterHref, resolveAllowedFilterForm, parsePeopleFilter, peopleFilterContext } from "@/lib/people-list";
-import type { ViewFilter } from "../../../convex/lib/objects/validators";
+import type { ViewFilter } from "../../../modules/kernel/reportValidators";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Archive, ArrowDown, ArrowUp, Columns3, GitMerge, KanbanSquare, Rows3, Undo2, UserCheck } from "lucide-react";
+import { Archive, ArrowDown, ArrowUp, CalendarDays, Columns3, GitMerge, KanbanSquare, Rows3, Undo2, UserCheck } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { indexObjectDef, type ObjectDef } from "../../../convex/lib/objects/registry";
-import { FILTERS_MAX, listColumns, type ListRow, type ListSort } from "../../../convex/lib/objects/listSpec";
-import { BULK_MAX, collapseDayFilters, dayColumnsOf, expandDayFilters, runBulk } from "../../../convex/lib/objects/views";
+import { FILTERS_MAX, listColumns, type ListRow, type ListSort, type Scalar } from "../../../convex/lib/objects/listSpec";
+import { BOARD_FIELD_TYPES, BULK_MAX, collapseDayFilters, dayColumnsOf, expandDayFilters, runBulk, viewGroupOf, type ViewGroup } from "../../../convex/lib/objects/views";
+import { groupKeyKind } from "../../../convex/lib/objects/reportSpec";
+import { REPORT_BUCKETS } from "../../../modules/kernel/reportLanguage";
 import { EmptyState, LoadingRows, ViewFrame, ReadFailure, SelectionBar } from "@/components/dashboard";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUrlState } from "@/lib/url-state";
@@ -20,6 +22,12 @@ import { cn, getErrorMessage } from "@/lib/utils";
 import { FieldInput, formatValue, isEditable, optionChips, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
 import { FilterBar, isComplete } from "./filter-bar";
 import { BoardView, type BoardSaves } from "./board-view";
+import { CalendarView } from "./calendar-view";
+import { calendarKind, calendarZone } from "../../../convex/lib/objects/calendar";
+import { localTime } from "../../../convex/lib/timeZone";
+import { moveRecord, saveOf, saveProblem } from "./board-move";
+export { saveOf, saveProblem } from "./board-move";
+import { GroupedRows, type RowContext } from "./grouped-list";
 import { AiCell, useContactAiFields, useContactAnswers } from "@/components/research/ai-cell";
 import { ContactAudienceActions } from "./audience-actions";
 import { CsvImport } from "./csv-import";
@@ -41,8 +49,9 @@ const MERGE_MAX = 9;
 const DEFAULT_COLUMN_COUNT = 6;
 
 type WritableObject = "lead" | "task" | "note" | "call" | "meeting" | "product" | "deal";
-type Spec = { filter: ViewFilter[]; sort?: ListSort; columns: string[]; layout: "table" | "board"; groupBy?: string };
-type SaveResult = { status: string; shard?: number; seq?: number; errors?: Array<{ field: string; message: string }> };
+type Spec = { filter: ViewFilter[]; sort?: ListSort; columns: string[]; layout: "table" | "board" | "calendar"; groupBy?: string; group?: ViewGroup; calendar?: { field: string } };
+const UNGROUPED_TEXT = ["domain", "email", "phone", "linkedinUrl", "website", "description", "nextStep", "subject"];
+const BUCKET_LABELS: Record<(typeof REPORT_BUCKETS)[number], string> = { day: "By day", week: "By week", month: "By month", quarter: "By quarter", year: "By year" };
 
 const btn = "inline-flex items-center gap-1 border border-border px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50";
 
@@ -58,24 +67,6 @@ const CONVERTED_LEADS: ViewFilter = { field: "convertedAt", op: "notEmpty" };
 /** Which of a lead list's three views a filter list is: Open, Converted, or All (no filter on `convertedAt`). */
 const leadView = (filter: readonly ViewFilter[]): "open" | "converted" | "all" =>
   filter.some((f) => f.field === "convertedAt" && f.op === "empty") ? "open" : filter.some((f) => f.field === "convertedAt" && f.op === "notEmpty") ? "converted" : "all";
-
-export const saveOf = (r: SaveResult): Save[] => (typeof r.shard === "number" && typeof r.seq === "number" ? [{ shard: r.shard, seq: r.seq }] : []);
-
-/** A save that didn't land, as a sentence; null when it did (or changed nothing). */
-export function saveProblem(r: SaveResult): string | null {
-  switch (r.status) {
-    case "applied":
-    case "proposed":
-    case "unchanged":
-      return null;
-    case "conflict":
-      return "Someone else changed this record; reload and try again.";
-    case "invalid":
-      return r.errors?.map((e) => e.message).join("; ") || "Invalid value";
-    default:
-      return r.status;
-  }
-}
 
 function CreateDialog({ desc, team, open, onClose, onCreated }: {
   desc: ObjectDescription;
@@ -223,7 +214,9 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   // Accounts and contacts (the register) are keyed by record id: their bulk changes and edits go through these actions.
   const bulkRegister = useAction(api.records.bulkRegister);
   const editRegister = useAction(api.records.edit);
-  const [url, setUrl] = useUrlState({ view: "", bin: "", layout: "", pipeline: "", audience: "", filter: "", returnTo: "" });
+  const [url, setUrl] = useUrlState({ view: "", bin: "", layout: "", pipeline: "", audience: "", filter: "", returnTo: "", month: "" });
+  const org = useQuery(api.organizations.current);
+  const zone = calendarZone(org?.timezone);
   const search = useSearchParams();
   const returnPresent = search.has(MODULE_RETURN_PARAM);
   const listModules = useQuery(api.modules.contributions, object === "contact" ? { page: "people" } : "skip");
@@ -262,13 +255,15 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   // A destructive button asks once more before it acts.
   const [confirming, setConfirming] = useState<"view" | "records" | null>(null);
   const [boardSaves, setBoardSaves] = useState<BoardSaves>({ n: 0, saves: [] });
+  // When the list opened: a calendar with no month in its link shows this one. A render reads no clock.
+  const [openedAt] = useState(() => Date.now());
   const activeView = useMemo(() => views?.find((v) => v._id === url.view) ?? null, [views, url.view]);
 
   // Opening a saved view loads its spec; edits after that mark it dirty until saved.
   useEffect(() => {
     if ((object === "contact" && url.audience) || context.kind === "filter") return;
     if (activeView) setSpec(activeView.spec as Spec);
-    else if (!url.view) setSpec({ ...defaultSpec(desc), ...(url.layout === "board" ? { layout: "board" as const } : {}) });
+    else if (!url.view) setSpec({ ...defaultSpec(desc), ...(url.layout === "board" || url.layout === "calendar" ? { layout: url.layout } : {}) });
     setSpecLoads((n) => n + 1);
     setDirty(false);
     setSelected(new Set());
@@ -304,10 +299,11 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   }, [views, url.view, activeView, setUrl]);
 
   const edit = (patch: Partial<Spec>) => {
-    setSpec((cur) => ({ ...cur, ...patch }));
+    // A key patched to undefined leaves the spec (no grouping), so a saved view never carries it.
+    setSpec((cur) => Object.fromEntries(Object.entries({ ...cur, ...patch }).filter(([, v]) => v !== undefined)) as Spec);
     setDirty(true);
     // A selection belongs to the rows it was made on; new filters mean new rows.
-    if (patch.filter || patch.sort || patch.layout) setSelected(new Set());
+    if (patch.filter || patch.sort || patch.layout || "group" in patch) setSelected(new Set());
   };
 
   // A filter on a field that is gone (archived since the view was saved) is left out, not sent.
@@ -319,20 +315,41 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
     try { parsePeopleFilter(listFilter, def, new Set(columns.keys())); return null; }
     catch (e) { return getErrorMessage(e); }
   }, [listFilter, def, columns]);
-  const picklists = desc.fields.filter((f) => f.type === "picklist");
+  const fieldByName = (name: string) => desc.fields.find((f) => f.apiName === name);
+  // Fields a board makes columns of (views.ts BOARD_FIELD_TYPES), picklists first so a board opens on one as it always has.
+  const boardFields = desc.fields
+    .filter((f) => BOARD_FIELD_TYPES.includes(f.type) && !f.hidden && groupKeyKind(def, f.apiName) !== null)
+    .sort((a, b) => BOARD_FIELD_TYPES.indexOf(a.type) - BOARD_FIELD_TYPES.indexOf(b.type));
   const bulkable = desc.writable;
-  const groupBy = spec.layout === "board" ? picklists.find((f) => f.apiName === spec.groupBy) ?? picklists[0] : undefined;
+  const viewGroup = viewGroupOf(spec);
+  const groupBy = spec.layout === "board" ? boardFields.find((f) => f.apiName === viewGroup?.field) ?? boardFields[0] : undefined;
   const board = Boolean(groupBy) && !bin;
+  // Fields a calendar places records by: a date (a calendar day) or a date-time (placed in the workspace's zone).
+  const dateFields = desc.fields.filter((f) => (f.type === "date" || f.type === "datetime") && !f.hidden && !f.system && calendarKind(def, f.apiName) !== null);
+  const calendarField = spec.layout === "calendar" ? dateFields.find((f) => f.apiName === spec.calendar?.field) ?? dateFields[0] : undefined;
+  const calendar = Boolean(calendarField) && !bin;
+  const month = /^\d{4}-\d{2}$/.test(url.month) ? url.month : localTime(openedAt, zone).date.slice(0, 7);
+  // Fields a table can group by: a value (picklist, owner, lookup, yes/no, fit) or a date by bucket. Not the archive.
+  const groupChoices = [...columns.keys()].filter((c) => {
+    const f = fieldByName(c);
+    // A name, identifier or free text has a group per record: not offered (the API still groups by it).
+    const oneEach = f?.type === "text" && (f.fieldId === desc.titleFieldId || f.unique || UNGROUPED_TEXT.includes(c));
+    return c !== "id" && c !== "recordTitle" && groupKeyKind(def, c) !== null && !f?.hidden && !oneEach;
+  });
+  const tableGroup = spec.layout === "table" && !bin && viewGroup && groupChoices.includes(viewGroup.field) ? viewGroup : null;
+  const groupKind = tableGroup ? groupKeyKind(def, tableGroup.field) : null;
   // A deal board grouped by stage shows one pipeline: its stages in order, and "No stage" on the default.
   const pipeline = groupBy?.apiName === "stage" ? pipelines?.find((p) => (p.id ?? "") === url.pipeline) ?? pipelines?.[0] : undefined;
   const pipelineColumns = pipeline && [
     ...pipeline.stages.map((s) => ({ value: s.value, label: s.active ? s.label : `${s.label} (inactive)`, accepts: s.active })),
     ...(pipeline.isDefault ? [{ value: "", label: "No stage", accepts: true }] : []),
   ];
-  // A request takes FILTERS_MAX filters; a day filter can take two, and a board column adds one.
-  const filterRoom = FILTERS_MAX - listFilter.length - (spec.layout === "board" ? 1 : 0);
+  // A request takes FILTERS_MAX filters; a day filter can take two, a board column adds one, and a group one or two (a date range).
+  const filterRoom = FILTERS_MAX - listFilter.length - (spec.layout === "board" ? 1 : spec.layout === "calendar" ? 2 : tableGroup ? (groupKind === "value" ? 1 : 2) : 0);
   const contextWaiting = context.kind === "filter" && (contextProblem !== null || handoffProblem !== null || contextPending || loadedFilterKey !== incomingKey);
-  const listQuery = board || contextWaiting ? null : { object, filter: listFilter, ...(spec.sort && columns.has(spec.sort.field) ? { sort: spec.sort } : {}), ...(bin ? { deleted: true } : {}) };
+  const grouped = Boolean(tableGroup) && !contextWaiting;
+  const allQuery = contextWaiting ? null : { object, filter: listFilter, ...(spec.sort && columns.has(spec.sort.field) ? { sort: spec.sort } : {}), ...(bin ? { deleted: true } : {}) };
+  const listQuery = board || grouped || calendar ? null : allQuery;
   // What decides membership and order, as use-object-list watches it.
   const watch = useMemo(() => {
     const names = [...filter.map((f) => f.field), spec.sort?.field ?? "updatedAt"];
@@ -347,7 +364,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   const onCreated = (saves: Save[]) => {
     setCreating(false);
     void toast.success(`Created ${desc.label.toLowerCase()}`);
-    if (board) setBoardSaves((cur) => ({ n: cur.n + 1, saves }));
+    if (board || grouped || calendar) setBoardSaves((cur) => ({ n: cur.n + 1, saves }));
     else void reload(saves);
   };
   // Contact AI fields are display-only columns: the register's rows carry no custom values, so a cell reads the
@@ -355,7 +372,6 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   const contactAiFields = useContactAiFields();
   const aiByColumn = useMemo(() => new Map(object === "contact" ? contactAiFields.map((f) => [`custom.${f.slug}`, f]) : []), [object, contactAiFields]);
 
-  const fieldByName = (name: string) => desc.fields.find((f) => f.apiName === name);
   const labelOf = (name: string) => (aiByColumn.has(name) ? aiByColumn.get(name)!.label : name === "recordTitle" ? desc.fields.find((f) => f.fieldId === desc.titleFieldId)?.label ?? "Name" : fieldByName(name)?.label ?? (name === "createdAt" ? "Created" : name === "updatedAt" ? "Last modified" : name));
   const shownColumns = spec.columns.filter((c) => (columns.has(c) || aiByColumn.has(c)) && c !== "recordTitle" && c !== "id");
   // Hidden fields stay off the chooser (a view that already shows one keeps it); an AI field is offered once.
@@ -364,17 +380,18 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   const aiAnswers = useContactAnswers(rows?.map((r) => r.id), shownAiFields);
   const editable = desc.fields.filter((f) => isEditable(f) && !desc.readOnlyFields.includes(f.apiName));
 
-  const lookupTitles = useLookupTitles(desc.fields.filter((f) => f.type === "lookup" && shownColumns.includes(f.apiName)), rows);
+  const lookupFields = desc.fields.filter((f) => f.type === "lookup" && shownColumns.includes(f.apiName));
+  const lookupTitles = useLookupTitles(lookupFields, rows);
   const chipsOf = (row: ListRow, name: string) => {
     const f = fieldByName(name);
     return f ? optionChips(f, row.values[f.fieldId] as CellValue) : null;
   };
-  const cell = (row: ListRow, name: string): string => {
+  const cell = (row: ListRow, name: string, titles: Record<string, string>): string => {
     if (name === "createdAt") return new Date(row.createdAt).toLocaleString();
     if (name === "updatedAt") return new Date(row.updatedAt).toLocaleString();
     const f = fieldByName(name);
     const value = f ? row.values[f.fieldId] : null;
-    if (f?.type === "lookup" && typeof value === "string") return lookupTitles[value] ?? value;
+    if (f?.type === "lookup" && typeof value === "string") return titles[value] ?? value;
     return f ? formatValue(f, value as CellValue, team) : "";
   };
 
@@ -417,36 +434,27 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
     }
   }, [selected, rows, bulk, bulkRegister, object, desc, reload]);
 
-  async function moveCard(row: ListRow, value: string | null) {
-    if (!groupBy) return;
-    try {
-      if (desc.register) {
-        // records.edit returns once the row shows the move, so the columns reload straight away.
-        await editRegister({ object: object as "account" | "contact", id: row.id, patch: { [groupBy.apiName]: value }, idempotencyKey: crypto.randomUUID() });
-        setBoardSaves((cur) => ({ n: cur.n + 1, saves: [] }));
-        return;
-      }
-      const r = await write({ object: desc.apiName as WritableObject, streamId: row.id as Id<"canonEntities">, values: { [groupBy.apiName]: value }, expectedVersion: row.version });
-      const problem = saveProblem(r);
-      if (problem) void toast.error(problem);
-      setBoardSaves((cur) => ({ n: cur.n + 1, saves: saveOf(r) }));
-    } catch (cause) {
-      void toast.error(getErrorMessage(cause));
-    }
+  // A card moves through the record page's own edit (board-move.ts): the same validation, permissions and history.
+  async function moveCard(field: string, row: ListRow, key: Scalar | null) {
+    const out = await moveRecord({ write: (args) => write(args as never), edit: (args) => editRegister(args) }, { object: desc.apiName, register: desc.register, field }, row, key, crypto.randomUUID());
+    if (out.problem) void toast.error(`Couldn't move ${row.title || "this record"}. ${out.problem}`);
+    setBoardSaves((cur) => ({ n: cur.n + 1, saves: out.saves }));
   }
 
   async function saveView(asNew: boolean) {
     if (contextWaiting) { void toast.error("Wait for a valid filter before saving a view."); return; }
+    // A board or calendar opened from a link (?layout=board) shows its first field without naming it: the view saves the one shown.
+    const saved = { ...spec, filter, ...(board && groupBy ? { group: { field: groupBy.apiName } } : {}), ...(calendar && calendarField ? { calendar: { field: calendarField.apiName } } : {}) };
     try {
       if (activeView && !asNew) {
-        await updateView({ viewId: activeView._id, spec: { ...spec, filter } });
+        await updateView({ viewId: activeView._id, spec: saved });
         setDirty(false);
         void toast.success(`Saved ${activeView.name}`);
         return;
       }
       const name = naming?.name.trim();
       if (!name) return;
-      const id = await createView({ object, name, shared: naming!.shared, spec: { ...spec, filter } });
+      const id = await createView({ object, name, shared: naming!.shared, spec: saved });
       setNaming(null);
       setUrl({ view: id });
     } catch (cause) {
@@ -474,18 +482,93 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
 
   const allSelected = rows !== null && rows.length > 0 && rows.every((r) => selected.has(r.id));
   const hrefOf = (row: ListRow) => recordHref(desc.apiName, row.id);
-  useRecordsSaved((saves) => { if (board) setBoardSaves((current) => ({ n: current.n + 1, saves })); });
+  useRecordsSaved((saves) => { if (board || grouped || calendar) setBoardSaves((current) => ({ n: current.n + 1, saves })); });
+  // A grouped table's rows are spread over its groups, so a selection (which acts on the rows on screen) is for the plain table.
+  const selectable = bulkable && !grouped;
+  const columnCount = 1 + shownColumns.length + (selectable ? 1 : 0) + (object === "lead" && !bin ? 1 : 0);
+
+  const tableHead = (
+    <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
+      <tr>
+        {selectable && (
+          <th className="w-8 px-3 py-2">
+            <input type="checkbox" aria-label="Select all" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set((rows ?? []).map((r) => r.id)))} />
+          </th>
+        )}
+        {["recordTitle", ...shownColumns].map((name) => {
+          const sortable = columns.has(name) && columns.get(name)?.kind !== "multi";
+          const dir = spec.sort?.field === name ? spec.sort.dir : null;
+          return (
+            <th key={name} className="whitespace-nowrap px-3 py-2" title={aiByColumn.get(name)?.question} aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : undefined}>
+              {sortable ? (
+                <button type="button" onClick={() => toggleSort(name)} className="inline-flex items-center gap-1 hover:text-foreground">
+                  {labelOf(name)}
+                  {dir === "asc" && <ArrowUp className="h-3 w-3" />}
+                  {dir === "desc" && <ArrowDown className="h-3 w-3" />}
+                </button>
+              ) : labelOf(name)}
+            </th>
+          );
+        })}
+        {object === "lead" && !bin && <th className="px-3 py-2" />}
+      </tr>
+    </thead>
+  );
+  const renderRow = (row: ListRow, at: RowContext) => (
+    <tr key={row.id} className={cn("border-t border-border", selected.has(row.id) && "bg-primary/5")}>
+      {selectable && (
+        <td className="px-3 py-2">
+          <input
+            type="checkbox"
+            aria-label={`Select ${row.title}`}
+            checked={selected.has(row.id)}
+            onChange={() => setSelected((cur) => {
+              const next = new Set(cur);
+              if (next.has(row.id)) next.delete(row.id);
+              else next.add(row.id);
+              return next;
+            })}
+          />
+        </td>
+      )}
+      <td className="max-w-xs px-3 py-2 record-name">
+        <div className="flex min-w-0 items-center gap-1">
+          <RecordLink object={object} id={row.id} className="min-w-0 truncate hover:underline">
+            {row.title || "Untitled"}
+          </RecordLink>
+          <RecordQuickView object={object} id={row.id} label={row.title || "Untitled"} />
+        </div>
+      </td>
+      {shownColumns.map((name) => {
+        const ai = aiByColumn.get(name);
+        return (
+          <td key={name} className="max-w-xs truncate px-3 py-2">
+            {ai ? <AiCell field={ai} answer={at.aiAnswers?.[row.id]?.[ai.slug]} /> : chipsOf(row, name) ?? (cell(row, name, at.lookupTitles) || <span className="text-muted-foreground">—</span>)}
+          </td>
+        );
+      })}
+      {object === "lead" && !bin && (
+        <td className="whitespace-nowrap px-3 py-2 text-right">
+          {row.values.convertedAt ? (
+            <span className="text-xs font-medium text-muted-foreground">Converted</span>
+          ) : (
+            <button type="button" onClick={() => setConvertingId(row.id)} className={btn}><UserCheck className="h-3 w-3" /> Convert</button>
+          )}
+        </td>
+      )}
+    </tr>
+  );
 
   return (
     <ViewFrame
       title={bin ? `Archived ${desc.pluralLabel.toLowerCase()}` : desc.pluralLabel}
       description={bin ? "Archived records are hidden from lists, search, reports and agents until restored." : undefined}
       actions={[
-        { id: `${object}-refresh`, label: "Refresh", onClick: () => board ? setBoardSaves((current) => ({ n: current.n + 1, saves: [] })) : void reload() },
+        { id: `${object}-refresh`, label: "Refresh", onClick: () => board || grouped || calendar ? setBoardSaves((current) => ({ n: current.n + 1, saves: [] })) : void reload() },
         ...(desc.canCreate && !bin ? [{ id: `${object}-new`, label: `New ${desc.label.toLowerCase()}`, onClick: () => setCreating(true), primary: true }] : []),
       ]}
       secondaryActions={<>
-        {listQuery && <ExportView desc={desc} query={listQuery} columns={shownColumns.filter((c) => !aiByColumn.has(c))} team={team} className="view-action" />}
+        {!board && !calendar && allQuery && <ExportView desc={desc} query={allQuery} columns={shownColumns.filter((c) => !aiByColumn.has(c))} team={team} className="view-action" />}
         {(object === "account" || object === "contact" || (object === "deal" && desc.canCreate)) && !bin && <CsvImport object={object} label={desc.pluralLabel.toLowerCase()} className="view-action" />}
         {(["task", "note", "call", "meeting"].includes(object)) && desc.canCreate && !bin && <CsvImport object="activity" kind={object} label="activities" className="view-action" />}
         {(object === "lead" || object === "product") && desc.canCreate && !bin && <CsvImport object={object} label={desc.pluralLabel.toLowerCase()} className="view-action" />}
@@ -547,27 +630,51 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
           </div>
         )}
         <div role="radiogroup" aria-label="Layout" className="flex border border-border">
-          <button type="button" role="radio" aria-checked={!board} onClick={() => edit({ layout: "table" })} className={cn("flex items-center gap-1 px-2 py-1 text-xs", !board && "bg-primary text-primary-foreground")}><Rows3 className="h-3 w-3" /> Table</button>
+          <button type="button" role="radio" aria-checked={!board && !calendar} onClick={() => edit({ layout: "table" })} className={cn("flex items-center gap-1 px-2 py-1 text-xs", !board && !calendar && "bg-primary text-primary-foreground")}><Rows3 className="h-3 w-3" /> Table</button>
           <button
             type="button"
             role="radio"
             aria-checked={board}
-            disabled={!picklists.length || bin || listFilter.length >= FILTERS_MAX}
-            onClick={() => edit({ layout: "board", groupBy: groupBy?.apiName ?? picklists[0]?.apiName })}
+            disabled={!boardFields.length || bin || listFilter.length >= FILTERS_MAX}
+            // A table grouped by a board's field keeps it as the board's columns.
+            onClick={() => edit({ layout: "board", group: { field: boardFields.some((f) => f.apiName === viewGroup?.field) ? viewGroup!.field : boardFields[0]!.apiName } })}
             className={cn("flex items-center gap-1 px-2 py-1 text-xs disabled:opacity-40", board && "bg-primary text-primary-foreground")}
           >
             <KanbanSquare className="h-3 w-3" /> Board
           </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={calendar}
+            disabled={!dateFields.length || bin || listFilter.length >= FILTERS_MAX - 1}
+            onClick={() => edit({ layout: "calendar", calendar: { field: dateFields.some((f) => f.apiName === spec.calendar?.field) ? spec.calendar!.field : dateFields[0]!.apiName } })}
+            className={cn("flex items-center gap-1 px-2 py-1 text-xs disabled:opacity-40", calendar && "bg-primary text-primary-foreground")}
+          >
+            <CalendarDays className="h-3 w-3" /> Calendar
+          </button>
         </div>
-        {board && picklists.length > 1 && (
-          <SelectField aria-label="Group board by" value={groupBy?.apiName ?? ""} onValueChange={(v) => edit({ groupBy: v })}
-            options={picklists.map((f) => ({ value: f.apiName, label: f.label }))} />
+        {calendar && dateFields.length > 1 && (
+          <SelectField aria-label="Calendar by" value={calendarField?.apiName ?? ""} onValueChange={(v) => edit({ calendar: { field: v } })}
+            options={dateFields.map((f) => ({ value: f.apiName, label: f.label }))} />
+        )}
+        {board && boardFields.length > 1 && (
+          <SelectField aria-label="Group board by" value={groupBy?.apiName ?? ""} onValueChange={(v) => edit({ group: { field: v } })}
+            options={boardFields.map((f) => ({ value: f.apiName, label: f.label }))} />
+        )}
+        {!board && !calendar && !bin && groupChoices.length > 0 && (
+          <SelectField aria-label="Group by" value={tableGroup?.field ?? ""} disabled={!tableGroup && filterRoom < 2}
+            onValueChange={(v) => edit({ group: v ? { field: v, ...(groupKeyKind(def, v) === "value" ? {} : { bucket: "month" as const }) } : undefined })}
+            options={[{ value: "", label: "No grouping" }, ...groupChoices.map((c) => ({ value: c, label: `Group by ${labelOf(c).toLowerCase()}` }))]} />
+        )}
+        {tableGroup && groupKind !== "value" && (
+          <SelectField aria-label="Group dates" value={tableGroup.bucket ?? "month"} onValueChange={(v) => edit({ group: { field: tableGroup.field, bucket: v as ViewGroup["bucket"] } })}
+            options={REPORT_BUCKETS.map((b) => ({ value: b, label: BUCKET_LABELS[b] }))} />
         )}
         {board && pipeline && pipelines && pipelines.length > 1 && (
           <SelectField aria-label="Pipeline" value={pipeline.id ?? ""} onValueChange={(v) => setUrl({ pipeline: v })}
             options={pipelines.map((p) => ({ value: p.id ?? "", label: p.name }))} />
         )}
-        {!board && <ColumnChooser columns={shownColumns} choices={columnChoices} onChange={(next) => edit({ columns: next })} />}
+        {!board && !calendar && <ColumnChooser columns={shownColumns} choices={columnChoices} onChange={(next) => edit({ columns: next })} />}
         {object === "contact" && !bin && (context.kind === "core" || (!returnPresent && !contextWaiting)) && <ContactAudienceActions filter={listFilter} viewId={activeView?._id} audience={audience?.canEdit === false ? null : audience} onDoneEditing={() => setUrl({ audience: "", filter: "", returnTo: "" })} />}
         {object === "contact" && !bin && !contextWaiting && !handoffProblem && listModules?.some((m) => m.listActions?.length) && (
           <details className="relative">
@@ -600,18 +707,51 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
           onStale={() => setBoardSaves((cur) => ({ n: cur.n + 1, saves: [] }))}
           cardFields={desc.fields.filter((f) => shownColumns.includes(f.apiName) && f.fieldId !== groupBy.fieldId).slice(0, 3)}
           team={team}
-          // A grouping field the edit endpoint does not take makes a read-only board.
+          // A grouping field the edit endpoint does not take, or the caller's role may not change, makes a read-only board.
           writable={desc.writable && !desc.readOnlyFields.includes(groupBy.apiName)}
+          readOnly={desc.writable ? `${groupBy.label} is read-only for you here, so cards stay put.` : `You can't edit ${desc.pluralLabel.toLowerCase()}, so cards stay put.`}
           hrefOf={hrefOf}
-          onMove={(row, value) => void moveCard(row, value)}
+          onMove={(row, key) => moveCard(groupBy.apiName, row, key)}
           saves={boardSaves}
           columns={pipelineColumns}
           // Org-wide totals: only while no filter narrows the columns.
           totals={pipeline && !listFilter.length && stageTotals && !stageTotals.partial ? new Map(stageTotals.stages.map((t) => [t.stage, t])) : undefined}
         />
+      ) : calendar && calendarField ? (
+        <CalendarView
+          object={object}
+          field={calendarField}
+          kind={calendarKind(def, calendarField.apiName)!}
+          filter={listFilter}
+          zone={zone}
+          month={month}
+          onMonth={(next) => setUrl({ month: next })}
+          writable={desc.writable && !desc.readOnlyFields.includes(calendarField.apiName)}
+          onMove={(row, value) => moveCard(calendarField.apiName, row, value)}
+          saves={boardSaves}
+        />
+      ) : grouped && tableGroup ? (
+        <GroupedRows
+          object={object}
+          def={def}
+          group={tableGroup}
+          field={fieldByName(tableGroup.field)}
+          label={labelOf(tableGroup.field)}
+          filter={listFilter}
+          sort={spec.sort && columns.has(spec.sort.field) ? spec.sort : undefined}
+          watch={watch}
+          onStale={() => setBoardSaves((cur) => ({ n: cur.n + 1, saves: [] }))}
+          team={team}
+          saves={boardSaves}
+          columnCount={columnCount}
+          header={tableHead}
+          lookupFields={lookupFields}
+          aiFields={shownAiFields}
+          renderRow={renderRow}
+        />
       ) : (
         <>
-          {bulkable && selected.size > 0 && (
+          {selectable && selected.size > 0 && (
             <SelectionBar count={selected.size} onClear={() => setSelected(new Set())}>
               {bin ? (
                 <button type="button" disabled={busy} onClick={() => void runOnSelection("restore")} className={btn}><Undo2 className="h-3 w-3" /> Restore</button>
@@ -652,77 +792,8 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
               <div className="mb-2 text-xs font-medium text-muted-foreground">{rows.length} of {total}</div>
               <div className="overflow-x-auto border border-border">
                 <table className="w-full text-sm">
-                  <thead className="bg-muted/50 text-left text-xs font-medium text-muted-foreground">
-                    <tr>
-                      {bulkable && (
-                        <th className="w-8 px-3 py-2">
-                          <input type="checkbox" aria-label="Select all" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))} />
-                        </th>
-                      )}
-                      {["recordTitle", ...shownColumns].map((name) => {
-                        const sortable = columns.has(name) && columns.get(name)?.kind !== "multi";
-                        const dir = spec.sort?.field === name ? spec.sort.dir : null;
-                        return (
-                          <th key={name} className="whitespace-nowrap px-3 py-2" title={aiByColumn.get(name)?.question} aria-sort={dir === "asc" ? "ascending" : dir === "desc" ? "descending" : undefined}>
-                            {sortable ? (
-                              <button type="button" onClick={() => toggleSort(name)} className="inline-flex items-center gap-1 hover:text-foreground">
-                                {labelOf(name)}
-                                {dir === "asc" && <ArrowUp className="h-3 w-3" />}
-                                {dir === "desc" && <ArrowDown className="h-3 w-3" />}
-                              </button>
-                            ) : labelOf(name)}
-                          </th>
-                        );
-                      })}
-                      {object === "lead" && !bin && <th className="px-3 py-2" />}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => (
-                      <tr key={row.id} className={cn("border-t border-border", selected.has(row.id) && "bg-primary/5")}>
-                        {bulkable && (
-                          <td className="px-3 py-2">
-                            <input
-                              type="checkbox"
-                              aria-label={`Select ${row.title}`}
-                              checked={selected.has(row.id)}
-                              onChange={() => setSelected((cur) => {
-                                const next = new Set(cur);
-                                if (next.has(row.id)) next.delete(row.id);
-                                else next.add(row.id);
-                                return next;
-                              })}
-                            />
-                          </td>
-                        )}
-                        <td className="max-w-xs px-3 py-2 record-name">
-                          <div className="flex min-w-0 items-center gap-1">
-                            <RecordLink object={object} id={row.id} className="min-w-0 truncate hover:underline">
-                              {row.title || "Untitled"}
-                            </RecordLink>
-                            <RecordQuickView object={object} id={row.id} label={row.title || "Untitled"} />
-                          </div>
-                        </td>
-                        {shownColumns.map((name) => {
-                          const ai = aiByColumn.get(name);
-                          return (
-                            <td key={name} className="max-w-xs truncate px-3 py-2">
-                              {ai ? <AiCell field={ai} answer={aiAnswers?.[row.id]?.[ai.slug]} /> : chipsOf(row, name) ?? (cell(row, name) || <span className="text-muted-foreground">—</span>)}
-                            </td>
-                          );
-                        })}
-                        {object === "lead" && !bin && (
-                          <td className="whitespace-nowrap px-3 py-2 text-right">
-                            {row.values.convertedAt ? (
-                              <span className="text-xs font-medium text-muted-foreground">Converted</span>
-                            ) : (
-                              <button type="button" onClick={() => setConvertingId(row.id)} className={btn}><UserCheck className="h-3 w-3" /> Convert</button>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
+                  {tableHead}
+                  <tbody>{rows.map((row) => renderRow(row, { lookupTitles, aiAnswers }))}</tbody>
                 </table>
               </div>
               {hasMore && (

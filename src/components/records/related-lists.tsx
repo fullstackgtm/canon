@@ -10,6 +10,7 @@ import { DealCommittee } from "@/components/crm/deal-committee";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";
 import { RecordPicker } from "./lookup-field";
+import { CRM_NAME, CrmNote, CrmParentNote, CrmRoleNotes } from "./crm-note";
 import { FindContactInfo } from "@/components/crm/find-contact-info";
 import { AiCell, useContactAiFields, useContactAnswers } from "@/components/research/ai-cell";
 import { ContactResearchMenu } from "@/components/research/research-menu";
@@ -162,11 +163,13 @@ function ContactCompanies({ contactId, related, busy, run, placed }: { contactId
   const link = useAction(api.associations.link);
   const unlink = useAction(api.associations.unlink);
   const makePrimary = useAction(api.associations.makePrimary);
+  const takeCrmCompany = useAction(api.associations.useCrmCompany);
   const companies = related?.object === "contact" ? related.companies : [];
+  const linkOffer = offerIn("contact", placed, "kernel.link");
   return (
     <Panel
       title={`Companies (${companies.length})`}
-      action={<AddRecord object="account" offer={offerIn("contact", placed, "kernel.link")} disabled={busy} onPick={(accountId) => void run(() => link({ contactId, accountId }))} />}
+      action={<AddRecord object="account" offer={linkOffer} disabled={busy} onPick={(accountId) => void run(() => link({ contactId, accountId }))} />}
     >
       {related === undefined ? <p className="text-sm text-muted-foreground">Loading…</p> : companies.length === 0 ? (
         <p className="text-sm text-muted-foreground">Not linked to a company yet.</p>
@@ -191,6 +194,18 @@ function ContactCompanies({ contactId, related, busy, run, placed }: { contactId
           })}
         </ul>
       )}
+      {linkOffer && related?.object === "contact" && related.crmCompanies.map((c) => {
+        const crm = CRM_NAME[c.provider];
+        const company = <RecordLink object="account" id={c.company.id} className="underline">{c.company.name}</RecordLink>;
+        return (
+          <CrmNote key={c.id} action={c.primary ? `Use ${crm}'s primary company` : `Add ${crm}'s company`} take={() => takeCrmCompany({ id: c.id })}
+            done={`${c.company.name} now follows ${crm}`} onUsed={() => void run(async () => undefined)}>
+            {c.primary
+              ? <>{crm} has {company} as this person&apos;s primary company. Canon keeps the primary a person chose here.</>
+              : <>{crm} has this person at {company}. Canon keeps them off it, as a person left it.</>}
+          </CrmNote>
+        );
+      })}
     </Panel>
   );
 }
@@ -268,6 +283,17 @@ export function CompanyRelations({ accountId, placed }: { accountId: string; pla
             {removeParent && <button type="button" disabled={busy || removeParent.disabled} onClick={() => void run(() => setParent({ accountId, parentId: null }))} className={linkBtn}>{removeParent.label}</button>}
           </div>
         ) : <p className="text-sm text-muted-foreground">No parent company.</p>}
+        {setParentOffer && account?.crmParents.map((c) => (
+          <CrmParentNote
+            key={c.ref}
+            accountId={accountId}
+            provider={c.provider}
+            crmRef={c.ref}
+            parent={c.parent ? <RecordLink object="account" id={c.parent.id} className="underline">{c.parent.name}</RecordLink> : null}
+            canonHasParent={Boolean(account.parent)}
+            onUsed={() => void run(async () => undefined)}
+          />
+        ))}
       </Panel>
       <Panel
         title={`Child companies (${account?.children.length ?? 0})`}
@@ -344,6 +370,8 @@ export function DealRelations({ streamId }: { streamId: string }) {
             </tbody>
           </table>
         )}
+        {data.canEdit && <CrmRoleNotes roles={data.crmRoles} roleLabel={(r) => ROLE_LABEL[r as DealRole]} onUsed={() => void run(async () => undefined)}
+          personLink={(id, name) => <RecordLink object="contact" id={id} className="underline">{name}</RecordLink>} />}
       </Panel>
       {fieldOpen && <AiFieldDialog open={fieldOpen} onOpenChange={setFieldOpen} defaultEntityType="contact" />}
       <CustomObjectLists target="deal" id={streamId} />

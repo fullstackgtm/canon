@@ -1,6 +1,7 @@
 // TAM explorer dimensions (contract 1.4.0): employee size bands and country ->
-// region. Pure and import-free so the Convex app and UI import this file
-// directly; the service turns the same tables into SQL in ops.ts.
+// region. Pure and import-free: the module kernel owns it, the Convex app and UI
+// import it directly, and the service turns its generated copy into SQL in ops.ts
+// (scripts/sync-object-core.ts).
 
 /** Group key for accounts with no value for a dimension. Also accepted in filters. */
 export const NONE = "__none__";

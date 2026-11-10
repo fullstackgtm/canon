@@ -11,7 +11,7 @@ import type { PatchOperation, PatchPlan } from "../../../engine/src/types.ts";
 import type { SharedCompanyDetail } from "../recordContract.ts";
 import secRevenue from "./secRevenue.v1.json" with { type: "json" };
 import calibration from "./revenueCalibration.v1.json" with { type: "json" };
-import { canonIndustry } from "../../../services/record-service/src/industries.ts";
+import { canonIndustry } from "../../../modules/kernel/industries.ts";
 import type { EnrichmentValues } from "../consolidate.ts";
 
 export const PDL_ATTRIBUTION = "Company data from People Data Labs";
