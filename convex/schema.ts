@@ -4255,6 +4255,7 @@ export default defineSchema({
   // One trigger of one rule (its ledger entry is `shard`.`seq`): whether the record met the
   // conditions, and each action's outcome. `status` pending or running means steps remain;
   // `leaseUntil` is when a running executor is presumed dead and the sweep sends it again.
+  // `waiting`: a Wait step paused it until `resumeAt`, when the sweep sends it on.
   automationRuns: defineTable({
     orgId: v.id("organizations"),
     ruleId: v.id("automationRules"),
@@ -4266,9 +4267,11 @@ export default defineSchema({
     event: v.string(),
     change: v.optional(v.object({ field: v.string(), from: objectValidators.fieldValue, to: objectValidators.fieldValue })),
     matched: v.boolean(),
-    status: v.union(v.literal("skipped"), v.literal("pending"), v.literal("running"), v.literal("done"), v.literal("failed")),
+    status: v.union(v.literal("skipped"), v.literal("pending"), v.literal("running"), v.literal("done"), v.literal("failed"), v.literal("waiting")),
     reason: v.optional(v.string()),
     depth: v.number(),
+    /** A waiting run's time to go on (a Wait step). */
+    resumeAt: v.optional(v.number()),
     /** When the triggering change was saved (its entry's observedAt): the run log shows how long the actions took to land. */
     triggeredAt: v.optional(v.number()),
     steps: v.array(automation.stepValidator),
@@ -4286,7 +4289,8 @@ export default defineSchema({
   })
     .index("by_ruleId_and_createdAt", ["ruleId", "createdAt"])
     .index("by_ruleId_and_slot_and_streamId", ["ruleId", "slot", "streamId"])
-    .index("by_status_and_leaseUntil", ["status", "leaseUntil"]),
+    .index("by_status_and_leaseUntil", ["status", "leaseUntil"])
+    .index("by_status_and_resumeAt", ["status", "resumeAt"]),
 
   // One wake-up of an agent (docs/org-agents.md "Turn engine"): its trigger, whether it ran
   // or why it was skipped, the account it resolved, what it proposed and what it spent.

@@ -10,8 +10,11 @@ const NAMES: RuleNames = {
       { apiName: "stage", label: "Stage", type: "picklist", options: [{ value: "proposal", label: "Proposal" }, { value: "won", label: "Closed won" }] },
       { apiName: "amount", label: "Amount", type: "currency" },
       { apiName: "closeDate", label: "Close date", type: "date" },
+      { apiName: "companyId", label: "Account", type: "lookup" },
+      { apiName: "custom.tier", label: "Tier", type: "text" },
     ],
   },
+  related: { companyId: { label: "Account", fields: [{ apiName: "industry", label: "Industry", type: "text" }] } },
   members: [{ id: "users:avery", name: "Avery" }, { id: "users:morgan", name: "Morgan" }],
   teams: [{ id: "teamGroups:ent", name: "Enterprise" }],
   routingRules: [{ id: "routingRules:emea", name: "EMEA inbound" }],
@@ -35,6 +38,25 @@ test("a rule reads as one sentence", () => {
     `When a deal's Stage changes to Proposal and Amount is over $50,000: assign it to the next member of the Enterprise team, then create a task "Send the security review" for the deal's owner, due in 2 days.`);
 });
 
+test("an If reads as a bracketed clause, a related record's field by its lookup, a nested If inside it", () => {
+  const rule = {
+    object: "deal",
+    trigger: { kind: "created" } as Trigger,
+    conditions: [],
+    actions: [{
+      kind: "if", conditions: [{ field: "companyId.industry", op: "eq", value: "SaaS" }],
+      then: [{ kind: "if", conditions: [{ field: "amount", op: "gt", value: 5_000_000 }], then: [{ kind: "set_field", field: "stage", value: "proposal" }] }],
+      else: [{ kind: "assign_owner", owner: { kind: "member", userId: "users:morgan" } }],
+    }] as AutomationAction[],
+  };
+  assert.equal(describe(rule, NAMES), "When a deal is created: if Account's Industry is SaaS (if Amount is over $50,000 (set Stage to Proposal); otherwise assign it to Morgan).");
+});
+
+test("a custom field's own dotted name reads as the record's field, not a lookup", () => {
+  const rule = { object: "deal", trigger: { kind: "created" } as Trigger, conditions: [], actions: [{ kind: "if", conditions: [{ field: "custom.tier", op: "eq", value: "Gold" }], then: [{ kind: "set_field", field: "custom.tier", value: "Platinum" }] }] as AutomationAction[] };
+  assert.equal(describe(rule, NAMES), "When a deal is created: if Tier is Gold (set Tier to Platinum).");
+});
+
 test("every trigger, condition operator, owner choice and action the rule shape allows has words", () => {
   const triggers: Record<string, Trigger> = {
     created: { kind: "created" },
@@ -53,6 +75,8 @@ test("every trigger, condition operator, owner choice and action the rule shape 
     set_field: { kind: "set_field", field: "stage", value: "won" },
     create_task: { kind: "create_task", subject: "Call", dueInDays: 1, owner: owners.member },
     assign_owner: { kind: "assign_owner", owner: owners.round_robin },
+    wait: { kind: "wait", days: 2 },
+    if: { kind: "if", conditions: [{ field: "companyId.industry", op: "eq", value: "SaaS" }], then: [{ kind: "set_field", field: "stage", value: "won" }] },
   };
   assert.deepEqual(Object.keys(triggers).sort(), kinds(triggerValidator), "a new trigger kind needs words in describe and a case here");
   assert.deepEqual(Object.keys(actions).sort(), kinds(actionValidator), "a new action kind needs words in describe and a case here");

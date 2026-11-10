@@ -1,6 +1,7 @@
 /**
  * Automation rules: the document a rule is, and the sentence a person reads it as. One trigger, up to ten conditions
- * (the list views' filters) and up to ten ordered actions. Canon's executor (convex/automations.ts) runs these;
+ * (the list views' filters) and up to ten ordered actions, where an If step branches on the record (two Ifs deep at
+ * most). Canon's executor (convex/automations.ts) runs these;
  * nothing here reads a database. `describe` renders a rule in the words the automations page shows, so an agent can
  * show its user the same sentence before it proposes one.
  */
@@ -11,6 +12,8 @@ import type { FilterOp } from "./reportLanguage.ts";
 export const RULES_MAX = 50;
 export const ACTIONS_MAX = 10;
 export const CONDITIONS_MAX = 10;
+/** Steps one rule has in all: every action, every If and every step in an If's branches. */
+export const STEPS_MAX = 25;
 /** A rule's write may start another rule's run, down to this depth; an entry written at it starts nothing. */
 export const MAX_DEPTH = 3;
 
@@ -52,11 +55,36 @@ export const ownerChoiceValidator = v.union(
   v.object({ kind: v.literal("routing_rule"), routingRuleId: v.id("routingRules") }),
 );
 
-export const actionValidator = v.union(
+/** The actions that each do one thing. */
+const LEAVES = [
   v.object({ kind: v.literal("set_field"), field: v.string(), value: v.union(scalar, v.null()) }),
   v.object({ kind: v.literal("create_task"), subject: v.string(), dueInDays: v.number(), owner: ownerChoiceValidator }),
   v.object({ kind: v.literal("assign_owner"), owner: ownerChoiceValidator }),
-);
+  /**
+   * Wait `days` whole days, or until the date in the record's own date field `until` (start of that day in the
+   * workspace's time zone; a date and time, that moment), then go on. Exactly one of the two. An empty or past date
+   * doesn't wait.
+   */
+  v.object({ kind: v.literal("wait"), days: v.optional(v.number()), until: v.optional(v.string()) }),
+] as const;
+export const leafActionValidator = v.union(...LEAVES);
+
+/**
+ * An If step: when the record, as it is when the run reaches the step, passes `conditions`, the run goes on into
+ * `then`; otherwise into `else`, or past the step when it has none. A condition may name a field of a record the
+ * record looks up, as `<lookup>.<field>` (a deal's `companyId.industry`), read as the rule's member sees it. An If
+ * holds another If one level down, and that one holds only actions.
+ */
+const innerIfValidator = v.object({ kind: v.literal("if"), conditions: v.array(conditionValidator), then: v.array(leafActionValidator), else: v.optional(v.array(leafActionValidator)) });
+const branchStepValidator = v.union(...LEAVES, innerIfValidator);
+export const ifStepValidator = v.object({ kind: v.literal("if"), conditions: v.array(conditionValidator), then: v.array(branchStepValidator), else: v.optional(v.array(branchStepValidator)) });
+
+export const actionValidator = v.union(...LEAVES, ifStepValidator);
+
+/** The two ways out of an If. */
+export const BRANCHES = ["then", "else"] as const;
+export type Branch = (typeof BRANCHES)[number];
+const branchValidator = v.union(v.literal("then"), v.literal("else"));
 
 /** One action's progress in a run. */
 export const stepValidator = v.object({
@@ -68,6 +96,10 @@ export const stepValidator = v.object({
   /** The record it made or changed, for the run log's link. */
   streamId: v.optional(v.string()),
   at: v.optional(v.number()),
+  /** Where the step sits in the rule (`stepAt`); absent on a run from before Ifs, where it is the step's position. */
+  ref: v.optional(v.string()),
+  /** An If's way out: the run's path through the rule is its Ifs' branches, in order. */
+  branch: v.optional(branchValidator),
 });
 
 export type Trigger = Infer<typeof triggerValidator>;
@@ -75,7 +107,57 @@ export type ScheduleTrigger = Extract<Trigger, { kind: "schedule" }>;
 export type Condition = Infer<typeof conditionValidator>;
 export type OwnerChoice = Infer<typeof ownerChoiceValidator>;
 export type AutomationAction = Infer<typeof actionValidator>;
+export type LeafAction = Infer<typeof leafActionValidator>;
 export type Step = Infer<typeof stepValidator>;
+
+/** Days one Wait step may wait. */
+export const WAIT_DAYS_MAX = 365;
+
+/** A step anywhere in a rule: an action, or an If with its branches. */
+export type RuleStep = LeafAction | IfStep;
+export type IfStep = { kind: "if"; conditions: readonly Condition[]; then: readonly RuleStep[]; else?: readonly RuleStep[] };
+
+/**
+ * Where a step sits in a rule, as a ref: "2" is the third action, "2.then.0" the first step of its Then, and
+ * "2.else.1.then.0" one If deeper. Null when the ref names no step.
+ */
+export function stepAt(steps: readonly RuleStep[], ref: string): RuleStep | null {
+  const parts = ref.split(".");
+  let list: readonly RuleStep[] | undefined = steps;
+  let node: RuleStep | null = null;
+  for (let i = 0; i < parts.length; i += 2) {
+    const n = Number(parts[i]);
+    node = list && Number.isInteger(n) ? list[n] ?? null : null;
+    if (!node) return null;
+    if (i + 1 < parts.length) {
+      if (node.kind !== "if") return null;
+      list = parts[i + 1] === "then" ? node.then : parts[i + 1] === "else" ? node.else : undefined;
+    }
+  }
+  return node;
+}
+
+/** Every step of a rule with its ref and how many Ifs it sits in, each If before its branches. */
+export function walkSteps(steps: readonly RuleStep[], prefix = "", depth = 0): Array<{ ref: string; step: RuleStep; depth: number }> {
+  return steps.flatMap((step, i) => {
+    const ref = `${prefix}${i}`;
+    const inner = step.kind === "if" ? BRANCHES.flatMap((b) => walkSteps(step[b] ?? [], `${ref}.${b}.`, depth + 1)) : [];
+    return [{ ref, step, depth }, ...inner];
+  });
+}
+
+/**
+ * The lookup and the related record's field a condition names (`companyId.industry`), or null for the record's own
+ * field. A custom field's own name has a dot (`custom.priority`), so a name that is one of the record's fields (`own`)
+ * is its own; otherwise the lookup is the first dotted prefix that is (`custom.account.custom.tier`).
+ */
+export function relatedField(field: string, own: (apiName: string) => boolean): { via: string; field: string } | null {
+  if (own(field)) return null;
+  for (let dot = field.indexOf("."); dot > 0; dot = field.indexOf(".", dot + 1)) {
+    if (own(field.slice(0, dot))) return { via: field.slice(0, dot), field: field.slice(dot + 1) };
+  }
+  return null;
+}
 
 /** What a rule is, without its name: the part `describe` reads. */
 export type RuleShape = { object: string; trigger: Trigger; conditions: readonly Condition[]; actions: readonly AutomationAction[] };
@@ -100,7 +182,8 @@ export const replaySummaryValidator = v.object({
   by: v.id("users"),
   since: v.number(),
   wouldRun: v.number(),
-  runs: v.array(v.object({ streamId: v.string(), at: v.number(), title: v.string() })),
+  /** `path`: the way it would have gone through the rule's Ifs. */
+  runs: v.array(v.object({ streamId: v.string(), at: v.number(), title: v.string(), path: v.optional(v.array(v.object({ ref: v.string(), took: branchValidator }))) })),
   skipped: v.array(v.object({ reason: v.string(), count: v.number() })),
   partial: v.boolean(),
   through: v.union(v.number(), v.null()),
@@ -139,6 +222,8 @@ export type RuleNames = {
   timezone?: string;
   /** The workspace's currency (ISO 4217), for currency fields. */
   currency?: string;
+  /** The record each of the object's lookups points at, by the lookup's field: what `<lookup>.<field>` names. */
+  related?: Readonly<Record<string, { label: string; fields: readonly DescribedField[] }>>;
 };
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -170,8 +255,18 @@ const OPS: Record<FilterOp, { plain: string; date?: string; none?: true }> = {
 function phrases(rule: RuleShape, names: RuleNames) {
   const label = names.object?.label ?? rule.object;
   const noun = lower(label);
-  const fieldOf = (apiName: string | undefined) => names.object?.fields.find((f) => f.apiName === apiName);
-  const fieldName = (apiName: string) => fieldOf(apiName)?.label ?? apiName;
+  const own = (apiName: string | undefined) => names.object?.fields.find((f) => f.apiName === apiName);
+  // Without the object's fields every name reads as its own.
+  const isOwn = (apiName: string) => !names.object || own(apiName) !== undefined;
+  const fieldOf = (apiName: string | undefined) => {
+    const rel = apiName ? relatedField(apiName, isOwn) : null;
+    return rel ? names.related?.[rel.via]?.fields.find((f) => f.apiName === rel.field) : own(apiName);
+  };
+  const fieldName = (apiName: string) => {
+    const rel = relatedField(apiName, isOwn);
+    if (!rel) return own(apiName)?.label ?? apiName;
+    return `${own(rel.via)?.label ?? names.related?.[rel.via]?.label ?? rel.via}'s ${fieldOf(apiName)?.label ?? rel.field}`;
+  };
   const member = (id: string) => names.members?.find((m) => m.id === id)?.name ?? "a former member";
   const value = (apiName: string, x: unknown): string => {
     const f = fieldOf(apiName);
@@ -214,13 +309,20 @@ function phrases(rule: RuleShape, names: RuleNames) {
   };
   const owner = (o: OwnerChoice) => (OWNERS[o.kind] as (o: OwnerChoice) => string)(o);
 
-  /** Each action as a clause. A new kind fails to compile until it reads. */
-  const ACTIONS: { [K in AutomationAction["kind"]]: (a: Extract<AutomationAction, { kind: K }>) => string } = {
+  const conditions = (cs: readonly Condition[]) => cs.map(condition).join(" and ");
+  const branch = (steps: readonly RuleStep[]) => (steps.length ? steps.map(action).join(", then ") : "do nothing");
+
+  /** Each step as a clause; an If's in brackets, so a nested one reads unambiguously. A new kind fails to compile until it reads. */
+  const ACTIONS: { [K in RuleStep["kind"]]: (a: Extract<RuleStep, { kind: K }>) => string } = {
     set_field: (a) => (a.value === null || a.value === "" ? `clear ${fieldName(a.field)}` : `set ${fieldName(a.field)} to ${value(a.field, a.value)}`),
     create_task: (a) => `create a task "${a.subject}" for ${owner(a.owner)}, due ${a.dueInDays === 0 ? "the same day" : `in ${plural(a.dueInDays, "day")}`}`,
     assign_owner: (a) => `assign it to ${owner(a.owner)}`,
+    wait: (a) => (a.until ? `wait until the ${noun}'s ${fieldName(a.until)}` : `wait ${plural(a.days ?? 0, "day")}`),
+    if: (a) => `if ${conditions(a.conditions)} (${branch(a.then)}${a.else?.length ? `; otherwise ${branch(a.else)}` : ""})`,
   };
-  const action = (a: AutomationAction) => (ACTIONS[a.kind] as (a: AutomationAction) => string)(a);
+  function action(a: RuleStep): string {
+    return (ACTIONS[a.kind] as (a: RuleStep) => string)(a);
+  }
 
   /** The trigger, as the sentence opens. A new kind fails to compile until it reads. */
   const TRIGGERS: { [K in Trigger["kind"]]: (t: Extract<Trigger, { kind: K }>) => string } = {
@@ -236,7 +338,7 @@ function phrases(rule: RuleShape, names: RuleNames) {
   };
   const trigger = (t: Trigger) => (TRIGGERS[t.kind] as (t: Trigger) => string)(t);
 
-  return { trigger, condition, action };
+  return { trigger, condition, conditions, action };
 }
 
 /**
@@ -249,6 +351,11 @@ export function describe(rule: RuleShape, names: RuleNames = {}): string {
   const joiner = rule.trigger.kind === "schedule" ? " where " : " and ";
   const actions = rule.actions.length ? rule.actions.map(p.action).join(", then ") : "do nothing yet";
   return `${p.trigger(rule.trigger)}${conds.length ? `${joiner}${conds.join(" and ")}` : ""}: ${actions}.`;
+}
+
+/** An If's conditions in the sentence's words ("Account's Industry is SaaS and Amount is over $50,000"). */
+export function describeConditions(object: string, conditions: readonly Condition[], names: RuleNames = {}): string {
+  return phrases({ object, trigger: { kind: "created" }, conditions: [], actions: [] }, names).conditions(conditions);
 }
 
 /** The parts of the sentence, for a view that lays them out (the canvas): the trigger, each condition, each action. */

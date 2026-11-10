@@ -17,9 +17,23 @@ const MORGAN = "users:morgan";
 let signedIn: Record<string, unknown> | null = null;
 /** The OAuth client of an agent calling with the signed-in member's token (/mcp, the canon CLI), or null for the member in person. */
 let agentClient: string | null = null;
+/** The companies the record service holds, as list rows by id, and who each read of one ran as: an If reads a related company through its member's sight. */
+const companies = new Map<string, Record<string, unknown>>();
+const companyReads: Array<{ id: unknown; userIds: string[] }> = [];
 const M = loadConvex(["automations.ts", "objects.ts"], {
   "lib.ts": (real) => ({
     ...real, getCurrentUser: async () => signedIn, requireUser: async () => { if (!signedIn) throw new Error("Not authenticated"); return signedIn; }, agentClientOf: async () => agentClient,
+  }),
+  "records.ts": (real) => ({
+    ...real,
+    principalClient: (_ctx: unknown, _orgId: string, accesses: Array<{ userId?: string }>) => ({
+      listRegister: async (_ws: string, _object: string, req: { filter: Array<{ value: unknown }> }) => {
+        const id = req.filter[0].value;
+        companyReads.push({ id, userIds: accesses.map((a) => String(a.userId)) });
+        const row = companies.get(String(id));
+        return { rows: row ? [row] : [], nextCursor: null, total: row ? 1 : 0, projectedThrough: {} };
+      },
+    }),
   }),
 });
 const automations = M["automations.ts"]!;
@@ -373,4 +387,121 @@ test("a run started under one version does its actions as the admin who approved
   await drain(w);
   assert.equal((await lead(w, a.streamId)).leadSource, "rule");
   assert.match(entries(w, a.streamId).at(-1)!.source.ref, /:1:user:users:riley$/);
+});
+
+// ───────────────────────────── If: a branch on the record ─────────────────────────────
+
+/** The run's path as its steps say it: each step's ref, and an If's branch. */
+const pathOf = (run: Record<string, any>) => plain(run.steps.map((s: Record<string, unknown>) => (s.branch ? `${s.ref}:${s.branch}` : s.ref)));
+
+test("an If takes Then or Otherwise on the record as the run reaches it, one If inside another, and the run's steps are its path", async () => {
+  const w = workspace();
+  await inPerson(w, RILEY);
+  await automations.propose.handler(w.ctx, {
+    name: "Sort new leads", object: "lead", trigger: { kind: "created" }, conditions: [],
+    actions: [
+      { kind: "set_field", field: "title", value: "Buyer" },
+      {
+        kind: "if", conditions: [{ field: "company", op: "eq", value: "Orbit Labs" }],
+        then: [{ kind: "if", conditions: [{ field: "title", op: "eq", value: "Buyer" }], then: [{ kind: "set_field", field: "leadSource", value: "orbit buyer" }] }],
+        else: [{ kind: "set_field", field: "leadSource", value: "other" }],
+      },
+    ],
+  });
+  const orbit = await write(w, { lastName: "Okafor", company: "Orbit Labs" });
+  const fjord = await write(w, { lastName: "Lindqvist", company: "Fjord AI" });
+  await fanout(w);
+  await drain(w);
+  // The inner If reads the title the first step set: the record as the run reaches it, not as it was at the trigger.
+  assert.deepEqual([(await lead(w, orbit.streamId)).leadSource, (await lead(w, fjord.streamId)).leadSource], ["orbit buyer", "other"]);
+  const byLead = (id: string) => runs(w).find((r) => r.streamId === id)!;
+  assert.deepEqual(pathOf(byLead(orbit.streamId)), ["0", "1:then", "1.then.0:then", "1.then.0.then.0"]);
+  assert.deepEqual(pathOf(byLead(fjord.streamId)), ["0", "1:else", "1.else.0"]);
+  assert.deepEqual(plain([byLead(orbit.streamId).status, byLead(fjord.streamId).status]), ["done", "done"]);
+});
+
+test("an If on a related record's field reads it as the approver sees it now; one they can't see reads empty; the replay says so", async () => {
+  const w = workspace();
+  const quinn = await withQuinn(w);
+  companies.clear();
+  companyReads.length = 0;
+  companies.set("acc_saas", { id: "acc_saas", object: "account", version: 1, status: "active", title: "Orbit", createdAt: 0, updatedAt: 0, deletedAt: null, values: { industry: "SaaS" }, stream: null });
+  const doc = {
+    name: "Priority by industry", object: "task", trigger: { kind: "created" }, conditions: [],
+    actions: [{ kind: "if", conditions: [{ field: "accountId.industry", op: "eq", value: "SaaS" }], then: [{ kind: "set_field", field: "priority", value: "high" }], else: [{ kind: "set_field", field: "priority", value: "low" }] }],
+  };
+  await asAgent(w, RILEY);
+  const proposed = await automations.propose.handler(w.ctx, { ...doc, note: "SaaS tasks first" });
+  await inPerson(w, quinn);
+  await automations.approve.handler(w.ctx, { versionId: proposed.versionId });
+  await as(w, RILEY);
+  // Riley's scoped client admits both companies (objects.writeScoped); only Quinn, who approved the rule, can't see acc_hidden.
+  const seen = await objects.writeAdmitted.handler(w.ctx, { object: "task", values: { subject: "Call Orbit", accountId: "acc_saas" }, admitted: ["acc_saas"] });
+  const hidden = await objects.writeAdmitted.handler(w.ctx, { object: "task", values: { subject: "Call Secret", accountId: "acc_hidden" }, admitted: ["acc_hidden"] });
+  await fanout(w);
+  for (const run of runs(w)) await automations.execute.handler(actionCtx(w), { runId: run._id });
+  const priority = (id: string) => (w.db.rows("recordRows") as Array<Record<string, any>>).find((r) => r.streamId === id)!.values.priority;
+  assert.deepEqual([priority(seen.streamId), priority(hidden.streamId)], ["high", "low"]);
+  // Each company was read once, as Quinn, who approved the rule: not as Riley, whose agent wrote it.
+  assert.deepEqual(plain(companyReads.map((r) => r.userIds)), [[quinn], [quinn]]);
+  const replay = await runReplay(actionCtx(w), { orgId: ORG, userId: quinn, userName: "Quinn", ...doc });
+  assert.deepEqual(plain(replay.runs.map((r: { streamId: string; path: unknown }) => [r.streamId, r.path])).sort(), [[hidden.streamId, [{ ref: "0", took: "else" }]], [seen.streamId, [{ ref: "0", took: "then" }]]].sort());
+  assert.ok(replay.notes.some((n: string) => /Account's Industry is read as it is now/.test(n)), replay.notes.join(" | "));
+});
+
+// ───────────────────────────── Wait: a run that goes on later ─────────────────────────────
+
+const DAY = 86_400_000;
+const sweep = (w: W) => automations.sweep.handler(w.ctx, {});
+const runOf = (w: W, id: string) => runs(w).find((r) => r.streamId === id)!;
+
+test("a Wait holds the run until its time and the sweep sends it on; a paused rule's waiting run holds until it resumes", async () => {
+  const w = workspace();
+  await inPerson(w, RILEY);
+  const { ruleId } = await automations.propose.handler(w.ctx, {
+    name: "Nudge later", object: "lead", trigger: { kind: "created" }, conditions: [],
+    actions: [{ kind: "set_field", field: "status", value: "working" }, { kind: "wait", days: 2 }, { kind: "set_field", field: "leadSource", value: "nudged" }],
+  });
+  const a = await write(w, { lastName: "Okafor" });
+  await fanout(w);
+  await drain(w);
+  const waiting = runOf(w, a.streamId);
+  assert.equal(waiting.status, "waiting");
+  assert.ok(Math.abs(waiting.resumeAt - (Date.now() + 2 * DAY)) < 60_000, "two days on");
+  assert.deepEqual([(await lead(w, a.streamId)).status, (await lead(w, a.streamId)).leadSource ?? null], ["working", null]);
+  // Not due: the sweep leaves it. Due while the rule is paused: it holds. Resumed: it goes on and its last step runs.
+  await sweep(w);
+  assert.equal(runOf(w, a.streamId).status, "waiting");
+  await w.db.patch(waiting._id, { resumeAt: Date.now() - 1000 });
+  await automations.setStatus.handler(w.ctx, { id: ruleId, status: "paused" });
+  await sweep(w);
+  assert.equal(runOf(w, a.streamId).status, "waiting");
+  assert.ok(runOf(w, a.streamId).resumeAt > Date.now(), "held for a later look");
+  await automations.setStatus.handler(w.ctx, { id: ruleId, status: "active" });
+  await w.db.patch(waiting._id, { resumeAt: Date.now() - 1000 });
+  await sweep(w);
+  assert.equal(runOf(w, a.streamId).status, "pending");
+  await drain(w);
+  assert.deepEqual([runOf(w, a.streamId).status, (await lead(w, a.streamId)).leadSource], ["done", "nudged"]);
+});
+
+test("a Wait until a date field waits for that day, goes straight on when it is empty, and ends when the record is archived", async () => {
+  const w = workspace();
+  await inPerson(w, RILEY);
+  await automations.propose.handler(w.ctx, {
+    name: "On the due date", object: "task", trigger: { kind: "created" }, conditions: [],
+    actions: [{ kind: "wait", until: "dueDate" }, { kind: "set_field", field: "priority", value: "high" }],
+  });
+  const due = new Date(Date.now() + 5 * DAY).toISOString().slice(0, 10);
+  const dated = await objects.write.handler(w.ctx, { object: "task", values: { subject: "Renewal call", dueDate: due } });
+  const undated = await objects.write.handler(w.ctx, { object: "task", values: { subject: "Someday" } });
+  await fanout(w);
+  await drain(w);
+  assert.deepEqual(plain([runOf(w, dated.streamId).status, runOf(w, dated.streamId).resumeAt]), ["waiting", Date.parse(`${due}T00:00:00Z`)]);
+  assert.equal(runOf(w, undated.streamId).status, "done");
+  await objects.remove.handler(w.ctx, { object: "task", streamId: dated.streamId });
+  await w.db.patch(runOf(w, dated.streamId)._id, { resumeAt: Date.now() - 1000 });
+  await sweep(w);
+  const ended = runOf(w, dated.streamId);
+  assert.deepEqual(plain([ended.status, ended.reason, ended.steps.map((s: { status: string }) => s.status)]), ["skipped", "The record was archived while this run waited", ["done", "skipped"]]);
 });

@@ -40,8 +40,9 @@ import { agentClientOf, getCurrentUser, requireUser } from "./lib";
 import { accessFor, entitySight, principalAccess, requireWriteAccess, roleIn, workspaceMembers } from "./permissions";
 import { refuseNarrowed, type Access } from "./lib/access";
 import { callerClient, principalClient, requireCaller } from "./records";
-import { validTimezone } from "./lib/linkedin/limits";
-import type { ListFilter } from "./lib/objects/listSpec";
+import { localTime, validTimezone } from "./lib/linkedin/limits";
+import { isRegisterObject, listViewDef, type ListFilter, type ListRow } from "./lib/objects/listSpec";
+import { withoutHidden } from "./lib/access";
 import { shardHeads } from "./ledgerFeed";
 import { asEntry, loadDef, recordVisibleTo, requireWritable, saveAsCaller, saveDealAsCaller } from "./objects";
 import { LEAD_READ_ONLY } from "./lib/objects/describe";
@@ -55,12 +56,13 @@ import { coerce, type FieldValue, type ResolvedObjectDef } from "./lib/objects/r
 import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { archivedObjectNames } from "./lib/objects/orgDefs";
 import {
-  SLOT_CAP, actionProblem, conditionsMet, conditionsProblem, dueDate, entryOrigin, initialSteps, mayTrigger, nextInTurn, nextSlot, resolveConditions, rowOf,
-  scheduleProblem, triggerFires, weightedCycle, type AutomationMark,
+  SLOT_CAP, actionProblem, branchSteps, conditionsMet, conditionsProblem, dueDate, entryOrigin, ifHolds, initialSteps, mayTrigger, nextInTurn, nextSlot, pathThrough,
+  relatedOf, relatedVias, resolveConditions, resumeAt, rowOf, scheduleProblem, triggerFires, weightedCycle, type AutomationMark, type Related,
 } from "./lib/automations";
 import {
-  ACTIONS_MAX, AUTOMATION_OBJECTS, MAX_DEPTH, RULES_MAX, actionValidator, replaySummaryValidator, conditionValidator, describe, isAutomationObject, triggerValidator,
-  type AutomationAction, type Condition, type OwnerChoice, type RuleNames, type Step, type Trigger,
+  ACTIONS_MAX, AUTOMATION_OBJECTS, CONDITIONS_MAX, MAX_DEPTH, RULES_MAX, STEPS_MAX, actionValidator, replaySummaryValidator, conditionValidator, describe, describeConditions,
+  isAutomationObject, stepAt, triggerValidator, walkSteps,
+  type AutomationAction, type Branch, type Condition, type IfStep, type LeafAction, type OwnerChoice, type RuleNames, type RuleStep, type Step, type Trigger,
 } from "../modules/kernel/automation";
 
 /** Ledger entries one fan-out reads per shard, and stream entries it may fold in all before it hands the rest to a continuation. */
@@ -184,22 +186,52 @@ async function checkRule(ctx: QueryCtx, orgId: Id<"organizations">, input: RuleI
     const bad = scheduleProblem(t);
     if (bad) throw new ConvexError(bad);
   }
+  if (input.conditions.some((c) => relatedOf(def, c.field))) throw new ConvexError("A condition on a related record's field goes in an If step");
   const problem = conditionsProblem(def, input.conditions);
   if (problem) throw new ConvexError(problem);
   if (!input.actions.length) throw new ConvexError("Add at least one action");
-  if (input.actions.length > ACTIONS_MAX) throw new ConvexError(`At most ${ACTIONS_MAX} actions`);
-  for (const a of input.actions) {
+  if (walkSteps(input.actions).length > STEPS_MAX) throw new ConvexError(`A rule has at most ${STEPS_MAX} steps, counting each If and the steps in its branches`);
+  await checkSteps(ctx, orgId, def, input.actions);
+  return { ...input, name };
+}
+
+/** The record a lookup points at, as an If's condition reads it: its object and that object's list definition. */
+async function relationOf(ctx: QueryCtx, orgId: Id<"organizations">, def: ResolvedObjectDef, via: string): Promise<{ object: string; def: ResolvedObjectDef }> {
+  const f = def.byApiName.get(via);
+  if (!f || f.type !== "lookup" || !("lookupTo" in f) || f.system || f.archivedAt !== undefined) throw new ConvexError(`${def.label} has no lookup ${via}`);
+  const target = await loadDef(ctx, orgId, f.lookupTo).catch(() => null);
+  if (!target) throw new ConvexError(`${f.label} points at records a rule can't read`);
+  return { object: f.lookupTo, def: listViewDef(f.lookupTo, target) };
+}
+
+/** Each step as a save checks it: an action against the object, an If's conditions (a related record's against its object) and both its branches. */
+async function checkSteps(ctx: QueryCtx, orgId: Id<"organizations">, def: ResolvedObjectDef, steps: readonly RuleStep[]) {
+  if (steps.length > ACTIONS_MAX) throw new ConvexError(`At most ${ACTIONS_MAX} steps in a row`);
+  for (const a of steps) {
+    if (a.kind === "if") {
+      if (!a.conditions.length || a.conditions.length > CONDITIONS_MAX) throw new ConvexError(`An If checks 1 to ${CONDITIONS_MAX} conditions`);
+      const own = conditionsProblem(def, a.conditions.filter((c) => !relatedOf(def, c.field)));
+      if (own) throw new ConvexError(own);
+      for (const c of a.conditions) {
+        const rel = relatedOf(def, c.field);
+        const bad = rel ? conditionsProblem((await relationOf(ctx, orgId, def, rel.via)).def, [{ ...c, field: rel.field }]) : null;
+        if (bad) throw new ConvexError(bad);
+      }
+      if (!a.then.length && !a.else?.length) throw new ConvexError("An If needs a step under Then or Otherwise");
+      await checkSteps(ctx, orgId, def, a.then);
+      await checkSteps(ctx, orgId, def, a.else ?? []);
+      continue;
+    }
     const bad = actionProblem(def, a);
     if (bad) throw new ConvexError(bad);
     if (a.kind === "set_field") {
       // A conversion sets these (convex/leadConversion.ts), never an edit or a rule.
-      if (input.object === "lead" && (LEAD_READ_ONLY as readonly string[]).includes(a.field)) throw new ConvexError("Convert a lead to set this field");
+      if (def.apiName === "lead" && (LEAD_READ_ONLY as readonly string[]).includes(a.field)) throw new ConvexError("Convert a lead to set this field");
       const coerced = coerce(def, { [a.field]: a.value }, { mode: "update" });
       if (!coerced.ok) throw new ConvexError(coerced.errors.map((e) => e.message).join("; "));
     }
-    if (a.kind !== "set_field") await checkOwner(ctx, orgId, a.owner);
+    if ("owner" in a) await checkOwner(ctx, orgId, a.owner);
   }
-  return { ...input, name };
 }
 
 /** Make sure the org's cursor exists. With no other active rule it restarts at the heads: there is nothing behind it to read. */
@@ -420,16 +452,34 @@ const ruleView = async (ctx: QueryCtx, r: Doc<"automationRules">) => {
 /** The words a rule's sentence uses in this workspace: the object's fields and options, members, teams, routing rules, time zone and currency. */
 async function namesFor(ctx: QueryCtx, orgId: Id<"organizations">, object: string): Promise<RuleNames> {
   const def = isAutomationObject(object) ? await loadDef(ctx, orgId, object).catch(() => null) : null;
+  const related: Record<string, { label: string; fields: ReturnType<typeof namedFields> }> = {};
+  for (const r of def ? await relationsOf(ctx, orgId, def) : []) related[r.via] = { label: r.label, fields: r.fields };
   const teams = await ctx.db.query("teamGroups").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(100);
   const routing = await ctx.db.query("routingRules").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(50);
   return {
-    ...(def ? { object: { label: def.label, fields: def.fields.map((f) => ({ apiName: f.apiName, label: f.label, type: f.type, ...("options" in f && f.options ? { options: f.options } : {}) })) } } : {}),
+    ...(def ? { object: { label: def.label, fields: namedFields(def) }, related } : {}),
     members: (await workspaceMembers(ctx, orgId)).map((m) => ({ id: m.id, name: m.name })),
     teams: teams.map((t) => ({ id: t._id, name: t.name })),
     routingRules: routing.map((r) => ({ id: r._id, name: r.name })),
     timezone: await timezoneOf(ctx, orgId),
     currency: (await ctx.db.get(orgId))?.defaultCurrency ?? "USD",
   };
+}
+
+/** A definition's fields as a sentence and the builder name them, with their options' labels. */
+const namedFields = (def: ResolvedObjectDef) => def.fields.map((f) => ({
+  apiName: f.apiName, label: f.label, type: f.type, ...("options" in f && f.options ? { options: f.options.map((o) => ({ value: o.value, label: o.label })) } : {}),
+}));
+
+/** The records an object's lookups point at, which an If's conditions can read: by lookup, with the related object's fields. */
+async function relationsOf(ctx: QueryCtx, orgId: Id<"organizations">, def: ResolvedObjectDef) {
+  const out = [];
+  for (const f of def.fields) {
+    if (f.type !== "lookup" || f.system || f.archivedAt !== undefined) continue;
+    const rel = await relationOf(ctx, orgId, def, f.apiName).catch(() => null);
+    if (rel) out.push({ via: f.apiName, label: f.label, object: rel.object, fields: namedFields({ ...rel.def, fields: rel.def.fields.filter((x) => x.archivedAt === undefined) }) });
+  }
+  return out;
 }
 
 /** A replay's listed runs that `access` sees now: a summary kept on a proposal never names a record its reader can't see. */
@@ -540,6 +590,8 @@ export const workspace = query({
           apiName: f.apiName, label: f.label, type: f.type,
           ...("options" in f && f.options ? { options: f.options.filter((o) => o.active !== false).map((o) => ({ value: o.value, label: o.label })) } : {}),
         })),
+        // The records its lookups point at, whose fields an If's conditions can read.
+        relations: await relationsOf(ctx, orgId, def),
       });
     }
     const teams = await ctx.db.query("teamGroups").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(100);
@@ -565,7 +617,7 @@ export const runs = query({
     const rows = await ctx.db.query("automationRuns").withIndex("by_ruleId_and_createdAt", (q) => q.eq("ruleId", rule._id)).order("desc").take(RUNS_SHOWN);
     return rows.map((r) => ({
       id: r._id, streamId: r.streamId, object: r.object, title: r.title, event: r.event, change: r.change ?? null, matched: r.matched,
-      status: r.status, reason: r.reason ?? null, depth: r.depth, steps: r.steps, version: r.version ?? null, createdAt: r.createdAt, finishedAt: r.finishedAt ?? null, triggeredAt: r.triggeredAt ?? null,
+      status: r.status, reason: r.reason ?? null, depth: r.depth, steps: r.steps, resumeAt: r.resumeAt ?? null, version: r.version ?? null, createdAt: r.createdAt, finishedAt: r.finishedAt ?? null, triggeredAt: r.triggeredAt ?? null,
     }));
   },
 });
@@ -664,7 +716,7 @@ type Reader = ReturnType<typeof reader>;
 
 type Change = { field: string; from: ReturnType<typeof stored>; to: ReturnType<typeof stored> };
 /** One rule against one entry: not its trigger's change; the member it acts as is gone; a run that is skipped; or a run, with whether the record met the conditions. */
-type Verdict = { kind: "none" } | { kind: "gone" } | { kind: "skipped"; reason: string } | { kind: "run"; matched: boolean; title: string; change?: Change };
+type Verdict = { kind: "none" } | { kind: "gone" } | { kind: "skipped"; reason: string } | { kind: "run"; matched: boolean; title: string; change?: Change; row: ListRow };
 
 /**
  * Whether a ledger entry starts a rule's run, and what the run is. The fan-out writes the verdict as a run, and a
@@ -692,7 +744,7 @@ async function judge(
   // A record the rule's member cannot see does not run it (CP14). The run says so, without the record's name.
   if (!("seen" in sight) || !sight.seen) return { kind: "skipped", reason: OUTSIDE };
   const change = rule.trigger.kind === "updated" && fired.to !== undefined ? { change: { field: rule.trigger.field ?? "", from: stored(fired.from ?? null), to: stored(fired.to) } } : {};
-  return { kind: "run", matched: conditionsMet(def, after, rule.conditions, now, await r.tz()), title: after.title.slice(0, 200), ...change };
+  return { kind: "run", matched: conditionsMet(def, after, rule.conditions, now, await r.tz()), title: after.title.slice(0, 200), ...change, row: after };
 }
 
 export const fanout = internalMutation({
@@ -784,7 +836,7 @@ async function recordOwner(ctx: QueryCtx, run: Doc<"automationRuns">): Promise<s
 }
 
 /** Who an owner choice names for this run. Round robin takes the next active member in turn and moves the rotation in the same transaction. */
-async function resolveOwner(ctx: MutationCtx, rule: Doc<"automationRules">, run: Doc<"automationRuns">, choice: OwnerChoice, index: number): Promise<Id<"users">> {
+async function resolveOwner(ctx: MutationCtx, rule: Doc<"automationRules">, run: Doc<"automationRuns">, choice: OwnerChoice, ref: string): Promise<Id<"users">> {
   const orgId = rule.orgId;
   const nameOf = async (id: Id<"users">) => (await ctx.db.get(id))?.name ?? "That member";
   if (choice.kind === "member") {
@@ -814,8 +866,8 @@ async function resolveOwner(ctx: MutationCtx, rule: Doc<"automationRules">, run:
       if (!team || team.orgId !== orgId) throw new ConvexError("The team was deleted");
       pool = team.memberIds;
     } else pool = choice.userIds;
-    start = rule.rotation?.[String(index)] ?? 0;
-    save = (next) => ctx.db.patch(rule._id, { rotation: { ...(rule.rotation ?? {}), [String(index)]: next } });
+    start = rule.rotation?.[ref] ?? 0;
+    save = (next) => ctx.db.patch(rule._id, { rotation: { ...(rule.rotation ?? {}), [ref]: next } });
   }
   const active = new Set<string>();
   for (const id of pool) if (await activeMember(ctx, orgId, id)) active.add(id);
@@ -841,17 +893,17 @@ async function writeRecord(ctx: MutationCtx, p: Principal, run: Doc<"automationR
 
 const TARGETS: ReadonlySet<string> = new Set(["deal", "lead"]);
 
-async function perform(ctx: MutationCtx, p: Principal, rule: Doc<"automationRules">, run: Doc<"automationRuns">, a: AutomationAction, index: number): Promise<{ detail: string; streamId?: string }> {
+async function perform(ctx: MutationCtx, p: Principal, rule: Doc<"automationRules">, run: Doc<"automationRuns">, a: Exclude<LeafAction, { kind: "wait" }>, ref: string): Promise<{ detail: string; streamId?: string }> {
   const mark: AutomationMark = { ruleId: rule._id, depth: run.depth + 1 };
   // The record must still be one the creator sees now, whatever the action (a retry can come long after the trigger).
   if (!(await recordVisibleTo(ctx, p.access, rule.orgId, run.streamId))) throw new ConvexError("Record not found");
   if (a.kind === "set_field") return { detail: `${await writeRecord(ctx, p, run, { [a.field]: a.value }, mark)}: ${a.field}` };
   if (a.kind === "assign_owner") {
-    const owner = await resolveOwner(ctx, rule, run, a.owner, index);
+    const owner = await resolveOwner(ctx, rule, run, a.owner, ref);
     const said = await writeRecord(ctx, p, run, { ownerId: owner }, mark);
     return { detail: `${said === "Saved" ? "Owner set to" : "Owner already"} ${(await ctx.db.get(owner))?.name ?? owner}` };
   }
-  const owner = await resolveOwner(ctx, rule, run, a.owner, index);
+  const owner = await resolveOwner(ctx, rule, run, a.owner, ref);
   const values: Record<string, FieldValue> = {
     subject: a.subject.replaceAll("{record}", run.title || "the record").slice(0, 500), dueDate: dueDate(Date.now(), a.dueInDays), ownerId: owner, status: "not_started",
     ...(run.object === "deal" ? { dealId: run.streamId } : {}),
@@ -863,10 +915,129 @@ async function perform(ctx: MutationCtx, p: Principal, rule: Doc<"automationRule
   return { detail: `Task for ${(await ctx.db.get(owner))?.name ?? owner}, due ${values.dueDate}`, streamId: made.streamId };
 }
 
-/** Run the next pending step of a run, its write and its `done` in one transaction. */
+// ───────────────────────────── Ifs ─────────────────────────────
+
+/** The related records an If needs before it can decide, and whose sight reads them: the executor reads them and sends them back. */
+type Lookups = { ref: string; orgId: Id<"organizations">; access: Access; items: Array<{ via: string; object: string; id: string | null }> };
+/** Related rows as the executor read them, as JSON (a list row's values are keyed by field), for the If at `ref`. */
+const relatedArg = v.object({ ref: v.string(), rows: v.array(v.object({ via: v.string(), row: v.union(v.string(), v.null()) })) });
+type RelatedRows = { ref: string; rows: Array<{ via: string; row: string | null }> };
+
+/** The record now, as a list row its member's sight leaves: the If reads its own fields from it. */
+async function recordNow(ctx: QueryCtx, def: ResolvedObjectDef, access: Access, streamId: Id<"canonEntities">, object: string): Promise<ListRow> {
+  const st = (await statesAround(ctx, streamId, Number.MAX_SAFE_INTEGER, Number.NaN)).states;
+  if (st === "too_long") throw new ConvexError(TOO_LONG);
+  if (!st) throw new ConvexError("Record not found");
+  const row = rowOf(def, st.after, object === "deal" ? { ownerId: await dealOwner(ctx, streamId) } : undefined);
+  return { ...row, values: withoutHidden(access, object, row.values) };
+}
+
+/** The id each lookup an If reads holds on `row`: the related record to read, or null when the lookup is empty. */
+async function lookupsOf(ctx: QueryCtx, orgId: Id<"organizations">, def: ResolvedObjectDef, row: ListRow, conditions: readonly Condition[]) {
+  const out = [];
+  for (const via of relatedVias(def, conditions)) {
+    const rel = await relationOf(ctx, orgId, def, via);
+    const id = row.values[def.byApiName.get(via)!.fieldId];
+    out.push({ via, object: rel.object, id: typeof id === "string" && id ? id : null });
+  }
+  return out;
+}
+
+/** The related records an If reads, with their definitions, from the rows the executor read (null: missing or out of sight). */
+async function relatedFrom(ctx: QueryCtx, orgId: Id<"organizations">, def: ResolvedObjectDef, conditions: readonly Condition[], rows: RelatedRows["rows"]) {
+  const out: Record<string, Related> = {};
+  for (const via of relatedVias(def, conditions)) {
+    const found = rows.find((r) => r.via === via)?.row;
+    out[via] = { def: (await relationOf(ctx, orgId, def, via)).def, row: found ? (JSON.parse(found) as ListRow) : null };
+  }
+  return out;
+}
+
+/**
+ * Decide an If as the rule's member: the record as it is now (after the run's earlier steps), and each related record
+ * as they see it now. Without the related rows it asks for them first; a related record they can't see reads empty.
+ */
+async function decide(
+  ctx: QueryCtx, p: Principal, rule: Doc<"automationRules">, run: Doc<"automationRuns">, step: IfStep, ref: string, related: RelatedRows | undefined,
+): Promise<{ took: Branch; detail: string } | { lookups: Lookups }> {
+  if (!(await recordVisibleTo(ctx, p.access, rule.orgId, run.streamId))) throw new ConvexError("Record not found");
+  const def = await loadDef(ctx, rule.orgId, run.object);
+  const row = await recordNow(ctx, def, p.access, run.streamId, run.object);
+  const rows = related?.ref === ref ? related.rows : null;
+  if (relatedVias(def, step.conditions).length && !rows) {
+    return { lookups: { ref, orgId: rule.orgId, access: p.access, items: await lookupsOf(ctx, rule.orgId, def, row, step.conditions) } };
+  }
+  const holds = ifHolds(def, row, step.conditions, await relatedFrom(ctx, rule.orgId, def, step.conditions, rows ?? []), Date.now(), await timezoneOf(ctx, rule.orgId));
+  const words = describeConditions(run.object, step.conditions, await namesFor(ctx, rule.orgId, run.object));
+  return { took: holds ? "then" : "else", detail: holds ? `Yes: ${words}` : `No: ${words}${step.else?.length ? "" : "; nothing to do"}` };
+}
+
+/** The related records an If asked for, read through its member's scoped client: one they can't see, or that is gone, comes back null. */
+async function readRelated(ctx: ActionCtx, l: Lookups): Promise<RelatedRows> {
+  const client = principalClient(ctx, l.orgId, [l.access]);
+  const rows = [];
+  for (const item of l.items) {
+    const req = { filter: [{ field: "id", op: "eq" as const, value: item.id }], limit: 1 };
+    const page = !item.id ? null : isRegisterObject(item.object) ? await client.listRegister(l.orgId, item.object, req) : await client.listObjects(l.orgId, item.object, req);
+    rows.push({ via: item.via, row: page?.rows[0] ? JSON.stringify(page.rows[0]) : null });
+  }
+  return { ref: l.ref, rows };
+}
+
+// ───────────────────────────── Waits ─────────────────────────────
+
+/** How long a due run of a paused rule waits before the sweep looks at it again. */
+const HELD_MS = 15 * 60_000;
+
+/** When a Wait step that a run reaches now lets it go on: null when there is nothing to wait for (an empty or past date). */
+async function waitUntil(ctx: QueryCtx, p: Principal, rule: Doc<"automationRules">, run: Doc<"automationRuns">, step: { days?: number; until?: string }, now: number) {
+  const tz = await timezoneOf(ctx, rule.orgId);
+  if (step.days !== undefined) return { at: resumeAt(step, undefined, now, tz), tz };
+  // The date is read as the member sees the record now: a field hidden from them reads empty, so the run doesn't wait.
+  if (!(await recordVisibleTo(ctx, p.access, rule.orgId, run.streamId))) throw new ConvexError("Record not found");
+  const def = await loadDef(ctx, rule.orgId, run.object);
+  const row = await recordNow(ctx, def, p.access, run.streamId, run.object);
+  const f = def.byApiName.get(step.until!);
+  return { at: resumeAt(step, f ? row.values[f.fieldId] : undefined, now, tz), tz };
+}
+
+/** Why a waiting run can't go on with its record, or null: the record was archived or deleted while it waited. */
+async function recordGone(ctx: QueryCtx, run: Doc<"automationRuns">): Promise<string | null> {
+  const st = (await statesAround(ctx, run.streamId, Number.MAX_SAFE_INTEGER, Number.NaN)).states;
+  if (st === "too_long") return null;
+  return !st || st.after.lifecycle.status !== "active" ? "The record was archived while this run waited" : null;
+}
+
+/**
+ * Send a due waiting run on, if it can go: a rule deleted since ends it, a paused rule holds it (looked at again in
+ * HELD_MS, so a resumed rule's runs go on), and a record archived since ends it with that reason. Its remaining steps
+ * are then skipped.
+ */
+async function resumeRun(ctx: MutationCtx, run: Doc<"automationRuns">, now: number) {
+  const rule = await ctx.db.get(run.ruleId);
+  const end = (reason: string) => ctx.db.patch(run._id, {
+    status: "skipped", reason, resumeAt: undefined, leaseUntil: now, finishedAt: now,
+    steps: run.steps.map((s): Step => (s.status === "pending" ? { ...s, status: "skipped" } : s)),
+  });
+  if (!rule) return end("The rule was deleted while this run waited");
+  if (rule.status !== "active") return void (await ctx.db.patch(run._id, { resumeAt: now + HELD_MS, leaseUntil: now + HELD_MS }));
+  const gone = await recordGone(ctx, run);
+  if (gone) return end(gone);
+  await ctx.db.patch(run._id, { status: "pending", resumeAt: undefined, leaseUntil: now + LEASE_MS });
+  await ctx.scheduler.runAfter(0, internal.automations.execute, { runId: run._id });
+}
+
+/** A step's place in the run's rule: its ref, or on a run from before Ifs, its position. */
+const refOf = (s: Step, index: number) => s.ref ?? String(index);
+
+/**
+ * Run the next pending step of a run, its write and its `done` in one transaction. An If records the branch it took
+ * and puts that branch's steps next, so a run's steps are its path through the rule. An If that reads a related
+ * record returns what to read (`lookups`) and writes nothing: the executor reads them and calls again with `related`.
+ */
 export const step = internalMutation({
-  args: { runId: v.id("automationRuns") },
-  handler: async (ctx, args): Promise<{ done: boolean }> => {
+  args: { runId: v.id("automationRuns"), related: v.optional(relatedArg) },
+  handler: async (ctx, args): Promise<{ done: boolean; lookups?: Lookups }> => {
     const run = await ctx.db.get(args.runId);
     if (!run || (run.status !== "pending" && run.status !== "running")) return { done: true };
     const now = Date.now();
@@ -877,7 +1048,8 @@ export const step = internalMutation({
     }
     const rule = await ctx.db.get(run.ruleId);
     // A run does what the rule said when it was triggered: an edit since then does not change it.
-    const action = (run.actions ?? rule?.actions)?.[index];
+    const ref = refOf(run.steps[index], index);
+    const action = stepAt(run.actions ?? rule?.actions ?? [], ref);
     if (!rule || !action || action.kind !== run.steps[index].kind) throw new ConvexError(rule ? "The rule's actions changed since this run started" : "The rule was deleted");
     if (rule.status !== "active") throw new ConvexError(rule.pausedReason ?? "The rule is paused");
     // A run does its version's actions as the admin who approved that version, never as whoever approved a later one.
@@ -888,8 +1060,25 @@ export const step = internalMutation({
       await pause(ctx, rule, CREATOR_GONE);
       throw new ConvexError("The rule's creator is no longer a member of this workspace");
     }
-    const out = await perform(ctx, p, rule, run, action, index);
-    const steps = run.steps.map((s, i): Step => (i === index ? { ...s, status: "done", attempts: s.attempts + 1, detail: out.detail.slice(0, ERROR_MAX), at: now, ...(out.streamId ? { streamId: out.streamId } : {}) } : s));
+    let steps: Step[];
+    if (action.kind === "if") {
+      const out = await decide(ctx, p, rule, run, action, ref, args.related);
+      if ("lookups" in out) return { done: false, lookups: out.lookups };
+      const done: Step = { ...run.steps[index], ref, status: "done", attempts: run.steps[index].attempts + 1, detail: out.detail.slice(0, ERROR_MAX), at: now, branch: out.took };
+      steps = [...run.steps.slice(0, index), done, ...branchSteps(ref, out.took, action[out.took] ?? []), ...run.steps.slice(index + 1)];
+    } else if (action.kind === "wait") {
+      const { at, tz } = await waitUntil(ctx, p, rule, run, action, now);
+      const t = at !== null ? localTime(at, tz) : null;
+      const detail = t ? `Until ${t.date} ${String(Math.floor(t.minute / 60)).padStart(2, "0")}:${String(t.minute % 60).padStart(2, "0")} (${tz})` : "No wait: the date is empty or has passed";
+      steps = run.steps.map((s, i): Step => (i === index ? { ...s, ref, status: "done", attempts: s.attempts + 1, detail, at: now } : s));
+      if (at !== null && steps.some((s) => s.status === "pending")) {
+        await ctx.db.patch(run._id, { steps, status: "waiting", resumeAt: at, leaseUntil: at });
+        return { done: true };
+      }
+    } else {
+      const out = await perform(ctx, p, rule, run, action, ref);
+      steps = run.steps.map((s, i): Step => (i === index ? { ...s, status: "done", attempts: s.attempts + 1, detail: out.detail.slice(0, ERROR_MAX), at: now, ...(out.streamId ? { streamId: out.streamId } : {}) } : s));
+    }
     const last = !steps.some((s) => s.status === "pending");
     await ctx.db.patch(run._id, { steps, status: last ? "done" : "running", leaseUntil: last ? now : now + LEASE_MS, ...(last ? { finishedAt: now } : {}) });
     return { done: last };
@@ -915,10 +1104,13 @@ const messageOf = (cause: unknown) => (cause instanceof ConvexError ? String(cau
 export const execute = internalAction({
   args: { runId: v.id("automationRuns") },
   handler: async (ctx, args): Promise<void> => {
-    for (let i = 0; i <= ACTIONS_MAX; i++) {
+    let related: RelatedRows | undefined;
+    // Each step once, and each If that reads a related record twice.
+    for (let i = 0; i <= 2 * STEPS_MAX; i++) {
       try {
-        const r: { done: boolean } = await ctx.runMutation(internal.automations.step, args);
+        const r: { done: boolean; lookups?: Lookups } = await ctx.runMutation(internal.automations.step, { ...args, ...(related ? { related } : {}) });
         if (r.done) return;
+        related = r.lookups ? await readRelated(ctx, r.lookups) : undefined;
       } catch (cause) {
         await ctx.runMutation(internal.automations.failStep, { runId: args.runId, error: messageOf(cause) });
         return;
@@ -1102,8 +1294,11 @@ const REPLAY_REASONS = {
 type ReplayReason = keyof typeof REPLAY_REASONS;
 
 const replayDoc = { object: v.string(), trigger: triggerValidator, conditions: v.array(conditionValidator) };
-type ReplayRun = { streamId: string; at: number; title: string; change?: Change };
-type ReplayPageOut = { runs: ReplayRun[]; skipped: Array<{ reason: ReplayReason; at: number }>; scanned: number; through: number | null; cursor: string | null; done: boolean };
+type Path = Array<{ ref: string; took: Branch }>;
+type ReplayRun = { streamId: string; at: number; title: string; change?: Change; path?: Path };
+/** A run a replay found, with what its Ifs read: the record right after the change (JSON) and the related records it looks up. */
+type FoundRun = ReplayRun & { row?: string; lookups?: Lookups["items"] };
+type ReplayPageOut = { runs: FoundRun[]; skipped: Array<{ reason: ReplayReason; at: number }>; scanned: number; through: number | null; cursor: string | null; done: boolean; access: Access };
 
 /**
  * One page of a replay: the object's entries from `since` on, each judged as the fan-out judges it, as `userId` sees
@@ -1113,6 +1308,8 @@ export const replayPage = internalQuery({
   args: {
     orgId: v.id("organizations"), userId: v.id("users"), ruleId: v.optional(v.id("automationRules")), ...replayDoc,
     since: v.number(), cursor: v.union(v.string(), v.null()), foldBudget: v.optional(v.number()),
+    /** The rule's Ifs' conditions, when it has any: each run then carries what they read. */
+    ifConditions: v.optional(v.array(conditionValidator)),
   },
   handler: async (ctx, args): Promise<ReplayPageOut | null> => {
     const accesses = await principalAccess(ctx, args.orgId, [args.userId]);
@@ -1122,7 +1319,7 @@ export const replayPage = internalQuery({
     const page = await ctx.db.query("ledgerEntries")
       .withIndex("by_orgId_object_observedAt", (q) => q.eq("orgId", args.orgId).eq("object", args.object).gte("observedAt", args.since))
       .paginate({ numItems: REPLAY_PAGE, cursor: args.cursor });
-    const out: ReplayPageOut = { runs: [], skipped: [], scanned: 0, through: null, cursor: page.isDone ? null : page.continueCursor, done: page.isDone };
+    const out: ReplayPageOut = { runs: [], skipped: [], scanned: 0, through: null, cursor: page.isDone ? null : page.continueCursor, done: page.isDone, access: accesses[0] };
     const def = await r.defOf(args.object);
     for (const row of page.page) {
       if (r.folded >= budget) return { ...out, cursor: null, done: false };
@@ -1142,7 +1339,12 @@ export const replayPage = internalQuery({
       if (verdict.kind === "none" || verdict.kind === "gone") continue;
       if (verdict.kind === "skipped") out.skipped.push({ reason: verdict.reason === OUTSIDE ? "outside" : "tooLong", at: row.observedAt });
       else if (!verdict.matched) out.skipped.push({ reason: "conditions", at: row.observedAt });
-      else out.runs.push({ streamId: row.streamId, at: row.observedAt, title: verdict.title, ...(verdict.change ? { change: verdict.change } : {}) });
+      else {
+        const ifs = args.ifConditions && out.runs.length < REPLAY_LISTED
+          ? { row: JSON.stringify({ ...verdict.row, values: withoutHidden(accesses[0], args.object, verdict.row.values) }), lookups: await lookupsOf(ctx, args.orgId, def, verdict.row, args.ifConditions) }
+          : {};
+        out.runs.push({ streamId: row.streamId, at: row.observedAt, title: verdict.title, ...(verdict.change ? { change: verdict.change } : {}), ...ifs });
+      }
     }
     return out;
   },
@@ -1153,22 +1355,63 @@ export type ReplayResult = {
   schedule: false; since: number; until: number; wouldRun: number; runs: ReplayRun[]; skipped: Array<{ reason: string; count: number }>;
   partial: boolean; through: number | null; scanned: number; notes: string[]; asked: string;
 };
-type ReplayJob = { orgId: Id<"organizations">; userId: Id<"users">; userName: string; ruleId?: Id<"automationRules">; versionId?: Id<"automationVersions">; object: string; trigger: Trigger; conditions: Condition[] };
+type ReplayJob = {
+  orgId: Id<"organizations">; userId: Id<"users">; userName: string; ruleId?: Id<"automationRules">; versionId?: Id<"automationVersions">;
+  object: string; trigger: Trigger; conditions: Condition[]; actions?: AutomationAction[];
+};
 
 /** What the replay reads now rather than as it was at each change, in words: the caveats an approver should know. */
-function replayNotes(job: Pick<ReplayJob, "object" | "trigger" | "conditions">): string[] {
+function replayNotes(job: Pick<ReplayJob, "object" | "trigger" | "conditions" | "actions">): string[] {
   const notes = ["Each change is checked against the record as it was right after it, and \"today\" as of that day. Nothing was written and no action ran."];
-  const owner = job.conditions.some((c) => c.field === "ownerId") || (job.trigger.kind === "updated" && job.trigger.field === "ownerId");
+  const ifs = ifConditionsOf(job.actions ?? []);
+  const owner = [...job.conditions, ...ifs].some((c) => c.field === "ownerId") || (job.trigger.kind === "updated" && job.trigger.field === "ownerId");
   if (job.object === "deal" && owner) notes.push("A deal's owner is read as it is now, not as it was at each change.");
+  if (ifs.length) notes.push("Each If is checked against the record right after the change, before the rule's own actions.");
+  if (walkSteps(job.actions ?? []).some(({ step }) => step.kind === "wait")) notes.push("A Wait step is reported, not simulated: each run is counted when it would have started, and what it would do after the wait is read as at the change.");
   return notes;
 }
+
+/** Every condition of every If in a rule. */
+const ifConditionsOf = (actions: readonly RuleStep[]) => walkSteps(actions).flatMap(({ step }) => (step.kind === "if" ? step.conditions : []));
+
+/**
+ * The way each found run would go through the rule's Ifs: its record right after the change, and the related records
+ * read now (`related`, by stream or register id) as the replay's member sees them. Also says which related fields
+ * were read as they are now, in the sentence's words.
+ */
+export const replayPaths = internalQuery({
+  args: {
+    orgId: v.id("organizations"), object: v.string(), actions: v.array(actionValidator),
+    runs: v.array(v.object({ at: v.number(), row: v.string(), lookups: v.array(v.object({ via: v.string(), object: v.string(), id: v.union(v.string(), v.null()) })) })),
+    related: v.array(v.object({ object: v.string(), id: v.string(), row: v.union(v.string(), v.null()) })),
+  },
+  handler: async (ctx, args): Promise<{ paths: Path[]; note: string | null }> => {
+    const def = await loadDef(ctx, args.orgId, args.object);
+    const tz = await timezoneOf(ctx, args.orgId);
+    const conditions = ifConditionsOf(args.actions);
+    const paths = [];
+    for (const run of args.runs) {
+      const rows = run.lookups.map((l) => ({ via: l.via, row: args.related.find((r) => r.object === l.object && r.id === l.id)?.row ?? null }));
+      const related = await relatedFrom(ctx, args.orgId, def, conditions, rows);
+      const row = JSON.parse(run.row) as ListRow;
+      paths.push(pathThrough(args.actions, (s) => ifHolds(def, row, s.conditions, related, run.at, tz)));
+    }
+    const dotted = conditions.filter((c) => relatedOf(def, c.field));
+    const names = dotted.length ? await namesFor(ctx, args.orgId, args.object) : {};
+    // A field's name as the sentence says it: the words before " is not empty".
+    const named = [...new Set(dotted.map((c) => describeConditions(args.object, [{ field: c.field, op: "notEmpty" }], names).replace(/ is not empty$/, "")))];
+    return { paths, note: named.length ? `${named.join(", ")} ${named.length === 1 ? "is" : "are"} read as ${named.length === 1 ? "it is" : "they are"} now, not as at each change.` : null };
+  },
+});
 
 /** Read the window page by page, up to REPLAY_PAGES, and sum it up. */
 export async function runReplay(ctx: ActionCtx, job: ReplayJob, foldBudget?: number): Promise<ReplayResult> {
   const until = Date.now();
   const since = until - REPLAY_DAYS * DAY_MS;
-  const runs: ReplayRun[] = [];
+  const runs: FoundRun[] = [];
   const reasons = new Map<ReplayReason, number>();
+  const ifConditions = ifConditionsOf(job.actions ?? []);
+  let access: Access | null = null;
   let cursor: string | null = null;
   let scanned = 0;
   let through: number | null = null;
@@ -1176,9 +1419,10 @@ export async function runReplay(ctx: ActionCtx, job: ReplayJob, foldBudget?: num
   for (let i = 0; i < REPLAY_PAGES; i++) {
     const page: ReplayPageOut | null = await ctx.runQuery(internal.automations.replayPage, {
       orgId: job.orgId, userId: job.userId, ...(job.ruleId ? { ruleId: job.ruleId } : {}), object: job.object, trigger: job.trigger, conditions: job.conditions, since, cursor,
-      ...(foldBudget !== undefined ? { foldBudget } : {}),
+      ...(foldBudget !== undefined ? { foldBudget } : {}), ...(ifConditions.length && runs.length < REPLAY_LISTED ? { ifConditions } : {}),
     });
     if (!page) throw new ConvexError(`${job.userName} is no longer a member of this workspace`);
+    access = page.access;
     runs.push(...page.runs);
     for (const sk of page.skipped) reasons.set(sk.reason, (reasons.get(sk.reason) ?? 0) + 1);
     scanned += page.scanned;
@@ -1190,15 +1434,32 @@ export async function runReplay(ctx: ActionCtx, job: ReplayJob, foldBudget?: num
     if (!page.cursor) break;
     cursor = page.cursor;
   }
+  const listed: ReplayRun[] = runs.slice(0, REPLAY_LISTED).map(({ row: _row, lookups: _lookups, ...run }) => run);
+  const notes = replayNotes(job);
+  const traced = runs.slice(0, REPLAY_LISTED).filter((r) => r.row !== undefined);
+  if (job.actions && traced.length && access) {
+    // The related records each If reads, read once each, now, as the replay's member sees them.
+    const wanted = new Map(traced.flatMap((r) => r.lookups ?? []).filter((l) => l.id).map((l) => [`${l.object}:${l.id}`, l]));
+    const read = await readRelated(ctx, { ref: "", orgId: job.orgId, access, items: [...wanted.values()] });
+    const related = [...wanted.values()].map((l, i) => ({ object: l.object, id: l.id!, row: read.rows[i].row }));
+    const out: { paths: Path[]; note: string | null } = await ctx.runQuery(internal.automations.replayPaths, {
+      orgId: job.orgId, object: job.object, actions: job.actions, runs: traced.map((r) => ({ at: r.at, row: r.row!, lookups: r.lookups ?? [] })), related,
+    });
+    traced.forEach((r, i) => (listed[runs.indexOf(r)].path = out.paths[i]));
+    if (out.note) notes.push(out.note);
+  }
   return {
-    schedule: false, since, until, wouldRun: runs.length, runs: runs.slice(0, REPLAY_LISTED), partial, through, scanned, notes: replayNotes(job), asked: job.userName,
+    schedule: false, since, until, wouldRun: runs.length, runs: listed, partial, through, scanned, notes, asked: job.userName,
     skipped: [...reasons].map(([reason, count]) => ({ reason: REPLAY_REASONS[reason](job.userName), count })),
   };
 }
 
 /** Who asks for a replay (an admin), and the rule document it reads: a proposal's, a rule's, or one given inline. */
 export const replayJob = internalQuery({
-  args: { versionId: v.optional(v.id("automationVersions")), ruleId: v.optional(v.id("automationRules")), object: v.optional(v.string()), trigger: v.optional(triggerValidator), conditions: v.optional(v.array(conditionValidator)) },
+  args: {
+    versionId: v.optional(v.id("automationVersions")), ruleId: v.optional(v.id("automationRules")),
+    object: v.optional(v.string()), trigger: v.optional(triggerValidator), conditions: v.optional(v.array(conditionValidator)), actions: v.optional(v.array(actionValidator)),
+  },
   handler: async (ctx, args): Promise<ReplayJob | null> => {
     const admin = await adminReader(ctx);
     if (!admin) return null;
@@ -1207,17 +1468,17 @@ export const replayJob = internalQuery({
     if (args.versionId) {
       const row = await ctx.db.get(args.versionId);
       if (!row || row.orgId !== orgId) throw new ConvexError("Proposal not found");
-      return { ...asked, ...(row.ruleId ? { ruleId: row.ruleId } : {}), ...(row.status === "proposed" ? { versionId: row._id } : {}), object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions };
+      return { ...asked, ...(row.ruleId ? { ruleId: row.ruleId } : {}), ...(row.status === "proposed" ? { versionId: row._id } : {}), object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions, actions: row.spec.actions };
     }
     if (args.ruleId) {
       const rule = await ownRule(ctx, orgId, args.ruleId);
-      return { ...asked, ruleId: rule._id, object: rule.object, trigger: rule.trigger, conditions: rule.conditions };
+      return { ...asked, ruleId: rule._id, object: rule.object, trigger: rule.trigger, conditions: rule.conditions, actions: rule.actions };
     }
     if (!args.object || !args.trigger) throw new ConvexError("Name a proposal (versionId), a rule (ruleId), or a rule's object, trigger and conditions");
     if (!isAutomationObject(args.object)) throw new ConvexError(`Rules do not run on ${args.object} records yet`);
     const problem = conditionsProblem(await loadDef(ctx, orgId, args.object), args.conditions ?? []);
     if (problem) throw new ConvexError(problem);
-    return { ...asked, object: args.object, trigger: args.trigger, conditions: args.conditions ?? [] };
+    return { ...asked, object: args.object, trigger: args.trigger, conditions: args.conditions ?? [], ...(args.actions ? { actions: args.actions } : {}) };
   },
 });
 
@@ -1229,14 +1490,14 @@ export const replayVersionJob = internalQuery({
     if (!row || row.status !== "proposed") return null;
     return {
       orgId: row.orgId, userId: row.author.userId, userName: await nameOf(ctx, row.author.userId), ...(row.ruleId ? { ruleId: row.ruleId } : {}), versionId: row._id,
-      object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions,
+      object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions, actions: row.spec.actions,
     };
   },
 });
 
 const replaySummary = (result: ReplayResult, by: Id<"users">) => ({
   at: result.until, by, since: result.since, wouldRun: result.wouldRun, skipped: result.skipped, partial: result.partial, through: result.through, scanned: result.scanned,
-  notes: result.notes, runs: result.runs.slice(0, REPLAY_LISTED).map((x) => ({ streamId: x.streamId, at: x.at, title: x.title })),
+  notes: result.notes, runs: result.runs.slice(0, REPLAY_LISTED).map((x) => ({ streamId: x.streamId, at: x.at, title: x.title, ...(x.path ? { path: x.path } : {}) })),
 });
 
 /** Keep a replay on the proposal it was run for, so the approver sees it without running it again. A decided proposal keeps the one it had. */
@@ -1264,7 +1525,10 @@ export const replayVersion = internalAction({
  * `{ schedule: true }`: use the dry run (preview) for what it would act on.
  */
 export const replay = action({
-  args: { versionId: v.optional(v.id("automationVersions")), ruleId: v.optional(v.id("automationRules")), object: v.optional(v.string()), trigger: v.optional(triggerValidator), conditions: v.optional(v.array(conditionValidator)) },
+  args: {
+    versionId: v.optional(v.id("automationVersions")), ruleId: v.optional(v.id("automationRules")),
+    object: v.optional(v.string()), trigger: v.optional(triggerValidator), conditions: v.optional(v.array(conditionValidator)), actions: v.optional(v.array(actionValidator)),
+  },
   handler: async (ctx, args): Promise<ReplayResult | { schedule: true }> => {
     await requireCaller(ctx, { read: true });
     const job: ReplayJob | null = await ctx.runQuery(internal.automations.replayJob, args);
@@ -1282,7 +1546,7 @@ export const replay = action({
  * Every minute: wake the fan-out for each org with an active rule (a lost
  * wake-up costs a minute, not a run), start scheduled rules' due slots, send
  * runs whose executor died (their lease ran out; finished steps are not
- * repeated), and drop old runs.
+ * repeated), send on waiting runs that are due, and drop old runs.
  */
 export const sweep = internalMutation({
   args: {},
@@ -1307,6 +1571,9 @@ export const sweep = internalMutation({
         await ctx.scheduler.runAfter(0, internal.automations.execute, { runId: run._id });
       }
     }
+    // Waiting runs that are due go on (or end, or wait for their paused rule).
+    const resuming = await ctx.db.query("automationRuns").withIndex("by_status_and_resumeAt", (q) => q.eq("status", "waiting").gte("resumeAt", 0).lte("resumeAt", now)).take(100);
+    for (const run of resuming) if (run.resumeAt !== undefined && run.resumeAt <= now) await resumeRun(ctx, run, now);
     for (const status of ["done", "failed", "skipped"] as const) {
       const old = await ctx.db.query("automationRuns").withIndex("by_status_and_leaseUntil", (q) => q.eq("status", status).lt("leaseUntil", now - KEEP_RUNS_MS)).take(100);
       for (const run of old) if (run.leaseUntil < now - KEEP_RUNS_MS) await ctx.db.delete(run._id);
