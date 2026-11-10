@@ -1,4 +1,3 @@
-// GENERATED from engine/src/evidence.ts by scripts/sync-object-core.ts. Edit the source, then rerun the script. Apache-2.0, as engine/LICENSE.
 /**
  * The verbatim rule: an AI-claimed fact counts only when its quote is found word for word in the source it names.
  * One matcher for every gate that applies the rule: a conversation's CRM facts (convex/lib/conversations/facts.ts) and a

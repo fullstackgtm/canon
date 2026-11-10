@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { quoteFound } from "../engine/src/evidence.ts";
+import { quoteFound } from "../modules/kernel/evidence.ts";
 import { aiProblems, choiceValues, fakeAnswer, gateAnswer, outputSchema, type AiDecl } from "../modules/kernel/ai.ts";
 import type { ModuleManifest } from "../modules/kernel/manifest.ts";
 

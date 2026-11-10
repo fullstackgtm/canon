@@ -1032,6 +1032,27 @@ export const seedGmailAccount = mutation({
   },
 });
 
+/**
+ * Local stack only: the dev user's stand-in Gmail account reading its mail, and a logging address with `token`, so
+ * conversations.storeLogged (what /email-log/* stores) and conversations.storeEmail (what inbox sync stores) can be
+ * run on one thread to see them meet. A local stack has no EMAIL_LOG_DOMAIN, so the endpoints themselves are off.
+ */
+export const seedEmailLogging = internalMutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    if (!isDevAuthBypassEnabled()) throw new ConvexError("Demo workspace seeding is disabled");
+    const user = await ctx.db.query("users").withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", DEV_USER_CLERK_ID)).first();
+    const inbox = await ctx.db.query("emailAccounts").withIndex("by_unipileAccountId", (q) => q.eq("unipileAccountId", "local-gmail")).first();
+    if (!user || !inbox) throw new ConvexError("Run devSeed:ensureWorkspace and devSeed:seedGmailAccount first");
+    const now = Date.now();
+    await ctx.db.patch(inbox._id, { ingest: true, ingestConsentAt: now, ingestBackfilledAt: now, ingestSyncedAt: now, updatedAt: now });
+    if (!(await ctx.db.query("emailLogAddresses").withIndex("by_token", (q) => q.eq("token", args.token)).first())) {
+      await ctx.db.insert("emailLogAddresses", { orgId: user.orgId, userId: user._id, token: args.token, createdAt: now });
+    }
+    return { inboxId: inbox._id, userId: user._id, address: inbox.address };
+  },
+});
+
 /** Local-only legacy data for proving the read-only DNC rollout against an actual backend. */
 export const seedSuppressionLegacy = mutation({
   args: {},

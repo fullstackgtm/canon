@@ -40,6 +40,6 @@ than including credentials or exploit details in a public issue.
 
 ## License
 
-The application uses AGPL-3.0-only. The `engine/` directory uses Apache-2.0.
-Contributions follow the license of the files they change, and the
+The `engine/` and `modules/kernel/` directories use Apache-2.0. Everything
+else uses AGPL-3.0-only. Contributions follow the license of the files they change, and the
 contributor license agreement also licenses them to Full Stack GTM LLC.

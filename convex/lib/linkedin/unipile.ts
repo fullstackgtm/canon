@@ -91,22 +91,27 @@ export type Profile = {
   invitePending: boolean;
 };
 
-/** A linked Gmail account: Unipile's id, its status and the address it sends from. */
-export type UnipileMailAccount = { id: string; status: string; address: string; name: string | null };
+/** A linked mailbox: Unipile's id, whose it is (Google or Microsoft), its status and the address it sends from. */
+export type UnipileMailAccount = { id: string; provider: "google" | "microsoft"; status: string; address: string; name: string | null };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** A Google account (Unipile type GOOGLE_OAUTH) with a readable address, or null for any other account. */
+/**
+ * A Google (Unipile type GOOGLE_OAUTH) or Microsoft (OUTLOOK) mail account with a readable address, or null for any
+ * other account. Both keep the address in `connection_params.mail` (developer.unipile.com/reference/accountscontroller_getaccountbyid).
+ */
 export function mailAccountOf(raw: unknown): UnipileMailAccount | null {
   const a = raw as { id?: unknown; type?: unknown; name?: unknown; sources?: unknown; connection_params?: { mail?: { id?: unknown; username?: unknown } } };
   const id = str(a?.id);
-  if (!id || typeof a.type !== "string" || !a.type.toUpperCase().startsWith("GOOGLE")) return null;
+  const type = typeof a?.type === "string" ? a.type.toUpperCase() : "";
+  const provider = type.startsWith("GOOGLE") ? "google" : type === "OUTLOOK" ? "microsoft" : null;
+  if (!id || !provider) return null;
   const mail = a.connection_params?.mail;
   const address = [str(mail?.username), str(mail?.id), str(a.name)].find((x) => x && EMAIL.test(x));
   if (!address) return null;
   const sources = Array.isArray(a.sources) ? (a.sources as { status?: unknown }[]) : [];
   const name = str(a.name);
-  return { id, status: str(sources[0]?.status) ?? "OK", address: address.toLowerCase(), name: name && name !== address ? name : null };
+  return { id, provider, status: str(sources[0]?.status) ?? "OK", address: address.toLowerCase(), name: name && name !== address ? name : null };
 }
 
 export function profileOf(raw: unknown): Profile | null {
@@ -230,7 +235,7 @@ export function createUnipileClient(config: UnipileConfig) {
       expiresAt: Date;
       reconnectAccountId?: string;
       /** Which login the page offers: LinkedIn unless told otherwise. */
-      provider?: "LINKEDIN" | "GOOGLE";
+      provider?: "LINKEDIN" | "GOOGLE" | "OUTLOOK";
     }): Promise<string> {
       const out = await call<{ url?: unknown }>("POST", "/hosted/accounts/link", {
         type: opts.reconnectAccountId ? "reconnect" : "create",

@@ -5,8 +5,9 @@
 This summary is not part of the agreement. The agreement is the text under
 [the agreement](#the-agreement), and that text is what you sign.
 
-Canon is open source. The application is licensed under AGPL-3.0 and the
-`engine/` directory under Apache-2.0. Full Stack GTM LLC maintains it. The
+Canon is open source. The `engine/` and `modules/kernel/` directories are
+licensed under Apache-2.0 and everything else under AGPL-3.0. Full Stack GTM
+LLC maintains it. The
 company also runs CanonCRM as a hosted service and sells modules that are not
 open source, and both include the code in this repository. We ask every outside
 contributor to sign this agreement before their first pull request is merged,

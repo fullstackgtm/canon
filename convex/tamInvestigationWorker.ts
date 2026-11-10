@@ -7,7 +7,7 @@ import type { Doc } from "./_generated/dataModel";
 import { publicHttpGet, resolvePublicAddresses } from "../engine/src/publicHttp.ts";
 import { forcedToolCall } from "../engine/src/llm.ts";
 import { DEFAULT_ICP_DERIVATION_MODEL, OPENROUTER_API_BASE } from "../engine/src/icpDerive.ts";
-import { websiteText } from "../engine/src/portable/websiteSources.ts";
+import { websiteText } from "../modules/kernel/websiteSources.ts";
 import { domainForName } from "./lib/companyenrich";
 import { quickEnrichPage } from "./lib/quickenrich";
 import { marketQueries } from "./lib/addRecords";

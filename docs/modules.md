@@ -15,7 +15,8 @@ the end, lists what each milestone added.
 
 A module is a directory in your own repository. It needs the module kit,
 `@fullstackgtm/canon-module-kit`, and nothing else from Canon. The kit holds the
-contract's types and a command that checks and builds a module. Use Node.js
+contract's types and a command that checks and builds a module. It is licensed
+Apache-2.0, so your module can use any license. Use Node.js
 22.6 or newer.
 
 ### Install the kit
@@ -1235,7 +1236,7 @@ This call summarizes a visit from its notes. In the open modules, `draftReview` 
   a list), the path of the id of what it quotes in the same list item (`source`: a module doc's key or a Canon record's
   id), the read it must come from (`in`) and the fields of that read's docs it may quote (`text`; every text field
   without it). A quote is kept only when, case, spacing and curly quotes aside, it is found in that doc's text and is at
-  least `minLength` (12, the least) characters: `engine/src/evidence.ts` `quoteFound`, the rule Canon's meeting facts
+  least `minLength` (12, the least) characters: `modules/kernel/evidence.ts` `quoteFound`, the rule Canon's meeting facts
   use too. A quote that fails drops its list item; `dropParent` (`drivers[]`) drops each item of an outer list left
   with no quote. A choice outside its read drops its list item the same way. A module can't opt out: every quote an
   `evidence` entry names is checked by Canon.

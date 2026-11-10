@@ -16,7 +16,7 @@ import type { Id } from "./_generated/dataModel";
 import type { BackfillStep, EmailIntakeAccount, IntakeAccount } from "./conversations";
 import { unipileEnv } from "./linkedinActions";
 import { principalClient } from "./records";
-import { teamOf, type Team } from "./lib/calls/suggestions";
+import { isOurSide, teamOf, type Team } from "./lib/calls/suggestions";
 import { intakeMailOf, mailVerdict, type IntakeMail, type MailPerson } from "./lib/conversations/email";
 import { contactBySlug, slugOf } from "./lib/conversations/intake";
 import { MESSAGE_TEXT_MAX } from "./lib/linkedin/inbound";
@@ -182,9 +182,12 @@ const addresses = (people: readonly MailPerson[]) => people.map((p) => p.email).
  */
 export async function ingestMails(ctx: ActionCtx, account: EmailIntakeAccount, team: Team, mails: readonly IntakeMail[], live: boolean): Promise<number> {
   const threads = new Map<string, Array<{ mail: IntakeMail; counterpart: MailPerson & { domain?: string }; participants: MailPerson[] }>>();
-  for (const mail of mails) {
+  for (let mail of mails) {
     const verdict = mailVerdict(mail, account.address, team);
     if (!verdict.keep) continue;
+    // Sent or received as the team sees it, not this inbox: a teammate's email in a cc'd inbox is ours going out, so
+    // every inbox's copy, and the one timeline line the first of them writes, says the same.
+    if (mail.direction === "in" && isOurSide(team, mail.from.email)) mail = { ...mail, direction: "out" };
     const key = mail.threadId ?? `msg:${mail.messageId}`;
     threads.set(key, [...(threads.get(key) ?? []), { mail, counterpart: verdict.counterpart, participants: verdict.participants }]);
   }
@@ -203,7 +206,7 @@ export async function ingestMails(ctx: ActionCtx, account: EmailIntakeAccount, t
       contacts: participants.flatMap((p) => { const contactId = contacts.get(p.email); return contactId ? [{ email: p.email, contactId }] : []; }),
       live,
       messages: kept.map(({ mail }) => ({
-        messageId: mail.messageId, ...(mail.inReplyTo ? { inReplyTo: mail.inReplyTo } : {}), direction: mail.direction, at: mail.at,
+        messageId: mail.messageId, ...(mail.inReplyTo ? { inReplyTo: mail.inReplyTo } : {}), ...(mail.references.length ? { references: mail.references } : {}), direction: mail.direction, at: mail.at,
         from: mail.from.email, to: addresses(mail.recipients), subject: mail.subject, text: mail.text, viaCanon: mail.viaCanon,
       })),
     });

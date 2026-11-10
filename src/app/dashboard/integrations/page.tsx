@@ -40,8 +40,8 @@ function useReturnParams(select: (key: IntegrationKey) => void) {
       if (error.startsWith("salesforce")) select("salesforce");
     }
     const gmail = searchParams.get("gmail");
-    if (gmail === "connected") void toast.success("Gmail linked. It shows here once Google confirms.");
-    if (gmail === "failed") void toast.error("Gmail wasn't linked. Try again.");
+    if (gmail === "connected") void toast.success("Mailbox linked. It shows here once Google or Microsoft confirms.");
+    if (gmail === "failed") void toast.error("The mailbox wasn't linked. Try again.");
     if (gmail) select("gmail");
     const linkedin = searchParams.get("linkedin");
     if (linkedin === "connected") void toast.success("LinkedIn connected.");

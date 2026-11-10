@@ -11,7 +11,7 @@
  * Pure: no database access, no Node-only imports.
  */
 import type { CallsModel } from "../../../recipes/models.ts";
-import { foldText as fold, quoteFound } from "../../../engine/src/evidence.ts";
+import { foldText as fold, quoteFound } from "../../../modules/kernel/evidence.ts";
 import type { ReadForSuggestions } from "../calls/suggestions.ts";
 
 /** Where a proposal must quote from, at most this much of it, so a long conversation still fits a prompt. */

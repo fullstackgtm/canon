@@ -11,6 +11,7 @@ import { FREE_EMAIL_DOMAINS } from "../../../engine/src/freeEmailDomains.ts";
 import { domainOfEmail } from "../calls/granola.ts";
 import { isOurSide, type Team } from "../calls/suggestions.ts";
 import { stripQuoted } from "../email/replies.ts";
+import { bareMessageId, headerIds } from "../email/messageIds.ts";
 import { plainOf } from "../linkedin/inbound.ts";
 import { timeOf } from "../linkedin/unipile.ts";
 
@@ -24,6 +25,8 @@ export type IntakeMail = {
   /** Unipile's thread id; null when Unipile sent none (the thread is then found through `inReplyTo`). */
   threadId: string | null;
   inReplyTo: string | null;
+  /** The References header's ids, root first (the thread's key, conversations.ts). */
+  references: string[];
   direction: "in" | "out";
   at: number;
   from: MailPerson;
@@ -74,7 +77,8 @@ export function intakeMailOf(raw: unknown, inbox: string): IntakeMail | null {
   const at = timeOf(r.date);
   const role = str(r.role)?.toLowerCase() ?? "";
   const folders = Array.isArray(r.folders) ? r.folders.map((f) => String(f).toUpperCase()) : [];
-  if (!emailId || !from || !at || SKIPPED_ROLES.has(role) || folders.some((f) => /DRAFT|TRASH|SPAM/.test(f))) return null;
+  // Outlook's folders are "Deleted Items" and "Junk Email"; Unipile's `role` names them for every provider.
+  if (!emailId || !from || !at || SKIPPED_ROLES.has(role) || folders.some((f) => /DRAFT|TRASH|SPAM|DELETED|JUNK/.test(f))) return null;
   const headers = new Map<string, string>();
   for (const h of Array.isArray(r.headers) ? r.headers : []) {
     const name = str(rec(h).name)?.toLowerCase();
@@ -89,9 +93,10 @@ export function intakeMailOf(raw: unknown, inbox: string): IntakeMail | null {
   const out = from.email === me || role === "sent" || folders.some((f) => f.includes("SENT"));
   return {
     emailId: emailId.slice(0, 300),
-    messageId: (str(r.message_id) ?? emailId).slice(0, 300),
+    messageId: bareMessageId(str(r.message_id) ?? emailId).slice(0, 300),
     threadId: str(r.thread_id)?.slice(0, 300) ?? null,
-    inReplyTo: str(rec(r.in_reply_to).message_id)?.slice(0, 300) ?? null,
+    inReplyTo: ((id) => (id ? bareMessageId(id).slice(0, 300) : null))(str(rec(r.in_reply_to).message_id) ?? headerIds(headers.get("in-reply-to"))[0]),
+    references: ((ids) => (ids.length > 50 ? [ids[0], ...ids.slice(-49)] : ids))(headerIds(headers.get("references"))),
     direction: out ? "out" : "in",
     at,
     from,

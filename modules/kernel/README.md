@@ -50,5 +50,5 @@ for module API 1.
 
 ## License
 
-The kit is licensed under AGPL-3.0-only (`LICENSE`). Two of its files, `evidence.js` and `websiteSources.js`, are
-copies of Canon's engine and keep the engine's Apache-2.0 license (`LICENSE-APACHE`).
+The kit is licensed under Apache-2.0 (`LICENSE`). A module you build with it can use any license. The rest of Canon
+is AGPL-3.0-only, except its engine, which is also Apache-2.0.

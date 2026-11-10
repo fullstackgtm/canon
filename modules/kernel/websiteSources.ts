@@ -1,4 +1,3 @@
-// GENERATED from engine/src/portable/websiteSources.ts by scripts/sync-object-core.ts. Edit the source, then rerun the script. Apache-2.0, as engine/LICENSE.
 export function normalizeCompanyWebsite(raw: string): { domain: string; url: string } {
   const candidate = raw.trim().match(/^https?:\/\//i) ? raw.trim() : `https://${raw.trim()}`;
   let url: URL;

@@ -5,7 +5,7 @@
  *
  *   1. `checkResearch`: structure. Every claim has a citation with a URL and a quote; a divested or not-owned entity
  *      says who owns it now; an `internal:` citation names the person who vouches for it.
- *   2. `verifyResearch`: the verbatim rule (engine/src/evidence.ts). A web citation counts only when its quote is
+ *   2. `verifyResearch`: the verbatim rule (modules/kernel/evidence.ts). A web citation counts only when its quote is
  *      found word for word in the page it names. The page text comes from the agent's own fetches when it has them,
  *      else from a fresh fetch. A page that can't be read (403, timeout) leaves the claim unverified, never passed.
  *
@@ -14,7 +14,7 @@
  *
  * Pure apart from `fetch`, which Node and the Convex runtime both provide.
  */
-import { foldText, quoteFound } from "../evidence.ts";
+import { foldText, quoteFound } from "../../../modules/kernel/evidence.ts";
 
 export const ENTITY_STATUSES = ["owned", "divested", "not_owned", "sale_pending"] as const;
 export type EntityStatus = (typeof ENTITY_STATUSES)[number];

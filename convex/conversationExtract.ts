@@ -18,7 +18,7 @@ import { modelSettings } from "./lib/recipes";
 import type { CallsModel } from "../recipes/models.ts";
 import { messagesToRead, THREAD_READ_MAX } from "./lib/conversations/extract";
 import { ownerThread } from "./lib/conversations/store";
-import { matchLate } from "./conversations";
+import { accountOf, intakeClosed, matchLate } from "./conversations";
 
 /** Conversations one cron tick starts. The rest wait for the next tick. */
 const BATCH = 25;
@@ -43,14 +43,10 @@ export const startDue = internalMutation({
   },
 });
 
-/** Why a conversation's account no longer lets it be read, or null when intake is on. */
-async function intakeClosed(ctx: QueryCtx, c: Doc<"conversations">): Promise<string | null> {
-  const linkedin = ctx.db.normalizeId("linkedinAccounts", c.accountRef);
-  const email = ctx.db.normalizeId("emailAccounts", c.accountRef);
-  const row = linkedin ? await ctx.db.get(linkedin) : email ? await ctx.db.get(email) : null;
-  if (!row || row.orgId !== c.orgId || row.status === "disconnected") return "account is gone";
-  // emailAccounts gains `ingest` with CI2; until then an email account never reads.
-  return (row as { ingest?: boolean }).ingest ? null : "intake is off";
+/** Why a conversation's account no longer lets it be read (conversations.ts intakeClosed), or null when it does. Logged mail has no account, so is never read. */
+async function accountClosed(ctx: QueryCtx, c: Doc<"conversations">): Promise<string | null> {
+  const found = await accountOf(ctx, c.accountRef);
+  return found && found.row.orgId !== c.orgId ? "account is gone" : intakeClosed(ctx, found);
 }
 
 export type ExtractContext =
@@ -90,7 +86,7 @@ export const context = internalQuery({
   handler: async (ctx, args): Promise<ExtractContext> => {
     const c = await ctx.db.get(args.conversationId);
     if (!c) return { skip: "conversation is gone" };
-    const closed = await intakeClosed(ctx, c);
+    const closed = await accountClosed(ctx, c);
     if (closed) return { skip: closed };
     const user = await ctx.db.get(c.ownerUserId);
     if (!user || user.orgId !== c.orgId || !user.isActive) return { skip: "owner is no longer a member" };

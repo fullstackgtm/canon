@@ -2,7 +2,7 @@
   "name": "@fullstackgtm/canon-module-kit",
   "version": "1.0.0",
   "description": "Canon's module contract: the types a module's server code uses, and a CLI that checks and builds a module.",
-  "license": "AGPL-3.0-only AND Apache-2.0",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/fullstackgtm/canon.git",
@@ -33,7 +33,6 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "LICENSE",
-    "LICENSE-APACHE",
     "README.md"
   ],
   "scripts": {

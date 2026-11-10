@@ -5252,13 +5252,13 @@ export default defineSchema({
     .index("by_orgId_and_contactId", ["orgId", "contactId"])
     .index("by_conversationId_and_contactId", ["conversationId", "contactId"]),
 
-  // A Gmail account a user linked through Unipile's hosted login (docs/gmail-sending.md).
+  // A Gmail or Outlook account a user linked through Unipile's hosted login (docs/gmail-sending.md).
   // Canon stores only Unipile's account id; only the owner sends from it.
   emailAccounts: defineTable({
     orgId: v.id("organizations"),
     userId: v.id("users"),
     unipileAccountId: v.string(),
-    provider: v.literal("google"),
+    provider: v.union(v.literal("google"), v.literal("microsoft")),
     address: v.string(),
     displayName: v.optional(v.string()),
     status: v.union(v.literal("ok"), v.literal("credentials"), v.literal("paused"), v.literal("disconnected")),

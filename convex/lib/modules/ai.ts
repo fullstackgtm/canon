@@ -15,7 +15,7 @@ import { CREDIT_RATES, MICRO } from "../creditPacks";
 import { AI_INPUT_DEFAULT, AI_PER_DAY_DEFAULT, aiPrompt, answerSchema, choiceValues, fakeAnswer, gateAnswer, textHash, type Dropped, type Gated } from "../../../modules/kernel/ai.ts";
 import type { Intent, ReadValue } from "../../../modules/kernel/calls.ts";
 import type { AiRun } from "./scope";
-import { buildEvidenceRepairPrompt } from "../../../engine/src/evidence.ts";
+import { buildEvidenceRepairPrompt } from "../../../modules/kernel/evidence.ts";
 import { superseded, moduleErrorMessage } from "./revision";
 
 /**

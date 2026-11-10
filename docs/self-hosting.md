@@ -392,5 +392,6 @@ verification applies to Docker hosts you control.
 
 ## License
 
-The application uses AGPL-3.0-only. The `engine/` directory uses Apache-2.0.
+The `engine/` and `modules/kernel/` directories use Apache-2.0. Everything
+else uses AGPL-3.0-only.
 The bundled Convex backend uses FSL-1.1-Apache-2.0 separately.

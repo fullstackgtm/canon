@@ -15,6 +15,7 @@ import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
 import { appUrl } from "./lib/operatorConfig";
 import { postToSlack, shouldNotify, slackMessage, webhookUrlProblem, type SlackDelivery } from "./lib/agents/slack";
 import { withEventDefinition } from "./lib/agents/definitions";
+import { standing } from "./agents";
 
 /** A local stack (its own site URL is loopback) may point the webhook at a local receiver; a deployment may not. */
 const allowLoopback = () => /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.CONVEX_SITE_URL ?? "");
@@ -100,28 +101,36 @@ export const sendTest = action({
 });
 
 /**
- * After a turn reaches an end state (and, for a routed turn, after its routing
- * is recorded): queue a message if its agent opted in for this kind of turn.
+ * The turn and its agent when the turn is worth a message: the agent opted in
+ * for this kind of turn and may act now. A paused or archived agent posts
+ * nothing, whatever paused it; its skipped turns stay in its history.
+ * notifyTurn (queue a send) and prepare (send it) both ask here.
  */
-export async function notifyTurn(ctx: MutationCtx, turnId: Id<"agentTurns">): Promise<void> {
+async function notification(ctx: MutationCtx, turnId: Id<"agentTurns">) {
   const turn = await ctx.db.get(turnId);
   const principal = turn && (await ctx.db.get(turn.agentId));
-  const agent = principal && turn && principal.orgId === turn.orgId ? await withEventDefinition(ctx, principal) : null;
-  if (!turn || turn.slack || !agent?.slack) return;
-  if (!shouldNotify(agent.slack.mode, { status: turn.status, routing: turn.routing, hasRoute: Boolean(agent.route) })) return;
-  await ctx.scheduler.runAfter(0, internal.agentSlack.send, { turnId });
+  if (!turn || turn.slack || !principal || principal.orgId !== turn.orgId) return null;
+  const agent = await withEventDefinition(ctx, principal);
+  if (!agent.slack || !shouldNotify(agent.slack.mode, { status: turn.status, routing: turn.routing, hasRoute: Boolean(agent.route) })) return null;
+  if ((await standing(ctx, principal)).status !== "active") return null;
+  return { turn, agent };
+}
+
+/**
+ * After a turn reaches an end state (and, for a routed turn, after its routing
+ * is recorded): queue a message if it is worth one (notification).
+ */
+export async function notifyTurn(ctx: MutationCtx, turnId: Id<"agentTurns">): Promise<void> {
+  if (await notification(ctx, turnId)) await ctx.scheduler.runAfter(0, internal.agentSlack.send, { turnId });
 }
 
 /** Claim the turn's one notification and build its message. Null when there is nothing to send. */
 export const prepare = internalMutation({
   args: { turnId: v.id("agentTurns") },
   handler: async (ctx, args): Promise<{ cipher: string; text: string } | null> => {
-    const turn = await ctx.db.get(args.turnId);
-    const principal = turn && (await ctx.db.get(turn.agentId));
-    const agent = principal && turn && principal.orgId === turn.orgId ? await withEventDefinition(ctx, principal) : null;
-    if (!turn || turn.slack || !agent?.slack) return null;
-    const hasRoute = Boolean(agent.route);
-    if (!shouldNotify(agent.slack.mode, { status: turn.status, routing: turn.routing, hasRoute })) return null;
+    const found = await notification(ctx, args.turnId);
+    if (!found) return null;
+    const { turn, agent } = found;
     const row = await slackRow(ctx, turn.orgId);
     const cipher = row && row.isActive ? row.accessToken : null;
     if (!cipher) {

@@ -14,7 +14,7 @@ import { linkedinEventOf } from "../convex/lib/signals/contactLog.ts";
 import { recordTimeline } from "../convex/lib/timeline.ts";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
-const M = loadConvex(["conversations.ts", "emailAccounts.ts"]);
+const M = loadConvex(["conversations.ts", "emailAccounts.ts", "conversationExtract.ts", "observations.ts", "lib/tokenHelpers.ts"]);
 /** The same modules with the signed-in member taken from `ctx.user`. */
 const signedIn = loadConvex(["conversations.ts"], { "lib.ts": (real) => ({ ...real, requireUser: async (ctx: { user: unknown }) => ctx.user, getCurrentUser: async (ctx: { user: unknown }) => ctx.user }) });
 const { isFillJob, jobEntry, jobShownTo } = loadConvex(["lib/runs.ts"])["lib/runs.ts"] as unknown as {
@@ -22,6 +22,8 @@ const { isFillJob, jobEntry, jobShownTo } = loadConvex(["lib/runs.ts"])["lib/run
 };
 /** Rows from the loaded modules' realm, as plain values. */
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
+/** Active members of the test workspace, by id: intake reads only an active member's accounts. */
+const members = (...ids: string[]) => ids.map((id) => ({ _id: `users:${id}`, orgId: "organizations:o", email: `${id}@acme.com`, isActive: true }));
 
 test("the webhook parser keeps 1:1 messages either way and drops group chats and spam", () => {
   const base = {
@@ -43,6 +45,7 @@ test("the webhook parser keeps 1:1 messages either way and drops group chats and
 function setup(ingest = true) {
   const now = Date.now();
   const db = memoryDb({
+    users: members("owner", "mate"),
     linkedinAccounts: [
       { _id: "linkedinAccounts:a", orgId: "organizations:o", userId: "users:owner", unipileAccountId: "u-a", status: "ok", publicIdentifier: "ada-rep", ingest },
       { _id: "linkedinAccounts:b", orgId: "organizations:o", userId: "users:mate", unipileAccountId: "u-b", status: "ok", publicIdentifier: "bob-rep" },
@@ -124,7 +127,7 @@ test("an email is kept with its reply text when it is with someone outside the t
     body_plain: "Tuesday works.\n\nOn Mon, Ada wrote:\n> hi", headers: [{ name: "Received", value: "x" }],
   };
   const mail = intakeMailOf(raw, "ada@acme.com")!;
-  assert.deepEqual([mail.direction, mail.from.email, mail.messageId, mail.threadId, mail.text], ["in", "grace@hopper.io", "<m1@hopper.io>", "t1", "Tuesday works."]);
+  assert.deepEqual([mail.direction, mail.from.email, mail.messageId, mail.threadId, mail.text], ["in", "grace@hopper.io", "m1@hopper.io", "t1", "Tuesday works."]);
   assert.deepEqual(mailVerdict(mail, "ada@acme.com", team), {
     keep: true, counterpart: { email: "grace@hopper.io", name: "Grace", domain: "hopper.io" }, participants: [{ email: "grace@hopper.io", name: "Grace" }],
   });
@@ -139,8 +142,27 @@ test("an email is kept with its reply text when it is with someone outside the t
   assert.deepEqual(mailEventOf({ event: "mail_sent", account_id: "acc", email_id: "e1" }), { accountId: "acc", emailId: "e1" });
 });
 
+test("an Outlook email, in the shape Unipile documents for every provider, is read as the same email from Gmail", () => {
+  const team = teamOf(["ada@example.com"], []);
+  const common = {
+    message_id: "<m1@mail.example.org>", date: "2026-10-20T10:00:00Z", role: "inbox", subject: "Pricing",
+    from_attendee: { identifier: "grace@example.org", display_name: "Grace" }, to_attendees: [{ identifier: "ada@example.com" }],
+    in_reply_to: { message_id: "<m0@mail.example.com>", id: "u-m0" }, body_plain: "Tuesday works.\n\nOn Mon, Ada wrote:\n> hi",
+  };
+  const gmail = intakeMailOf({ ...common, id: "g1", type: "GOOGLE_OAUTH", thread_id: "t1", folders: ["INBOX"], headers: [] }, "ada@example.com")!;
+  // developer.unipile.com/reference/mailscontroller_getmail: Outlook adds provider_immutable_id and categories; thread_id is optional.
+  const outlook = intakeMailOf({ ...common, id: "o1", type: "OUTLOOK", folders: ["Inbox"], provider_immutable_id: "AAkALg-fixture", categories: [] }, "ada@example.com")!;
+  assert.deepEqual({ ...outlook, emailId: "g1", threadId: "t1" }, gmail);
+  assert.deepEqual(mailVerdict(outlook, "ada@example.com", team), mailVerdict(gmail, "ada@example.com", team));
+  for (const folder of ["Sent Items", "Deleted Items", "Junk Email", "Drafts"]) {
+    const mail = intakeMailOf({ ...common, id: "o2", type: "OUTLOOK", folders: [folder], role: "unknown" }, "ada@example.com");
+    assert.equal(folder === "Sent Items" ? mail?.direction : mail, folder === "Sent Items" ? "out" : null, folder);
+  }
+});
+
 test("email intake logs each email once without text, and leaves Canon's sends and live replies to their own lines", async () => {
   const db = memoryDb({
+    users: members("owner"),
     emailAccounts: [
       { _id: "emailAccounts:g", orgId: "organizations:o", userId: "users:owner", unipileAccountId: "u-g", address: "ada@acme.com", status: "ok", ingest: true },
       { _id: "emailAccounts:off", orgId: "organizations:o", userId: "users:owner", unipileAccountId: "u-off", address: "ada2@acme.com", status: "ok" },
@@ -161,10 +183,10 @@ test("email intake logs each email once without text, and leaves Canon's sends a
   assert.equal(await store([mail("m1", "out"), mail("m2", "in"), mail("m3", "out", { viaCanon: true })]), 3);
   assert.deepEqual(keys(), ["email:msg:m1", "email:received:m2"]);
   // A webhook's received email is the reply path's to log; a reply without Unipile's thread joins its parent's.
-  assert.equal(await store([mail("m4", "in")], { live: true }), 1);
+  assert.equal(await store([mail("m4", "in", { references: ["m1"] })], { live: true }), 1);
   assert.equal(await store([mail("m5", "in", { inReplyTo: "m1" })], { threadId: null }), 1);
   assert.deepEqual(keys(), ["email:msg:m1", "email:msg:m5", "email:received:m2"]);
-  assert.deepEqual(plain(db.rows("conversations").map((c) => [c.channel, c.externalThreadId, c.contactIds, c.subject])), [["email", "t1", ["contact-grace"], "Pricing"]]);
+  assert.deepEqual(plain(db.rows("conversations").map((c) => [c.channel, c.externalThreadId, c.contactIds, c.subject])), [["email", "msg:m1", ["contact-grace"], "Pricing"]]);
   assert.doesNotMatch(JSON.stringify(db.rows("observations")), /text of/);
   const owner = accessOf({ userId: "users:owner", role: "rep", rules: [{ object: "note", visibility: "own" as const }] });
   assert.deepEqual(plain(await readableTexts(ctx as never, owner, "organizations:o" as never, ["email:received:m2", "email:sent-elsewhere"])), { "email:received:m2": { text: "text of m2" } });
@@ -184,6 +206,7 @@ test("email intake logs each email once without text, and leaves Canon's sends a
 
 test("two teammates' inboxes keep their own copy of one email, and a live email logs every contact but the sender's", async () => {
   const db = memoryDb({
+    users: members("ada", "bob"),
     emailAccounts: [
       { _id: "emailAccounts:ada", orgId: "organizations:o", userId: "users:ada", unipileAccountId: "u-a", address: "ada@acme.com", status: "ok", ingest: true },
       { _id: "emailAccounts:bob", orgId: "organizations:o", userId: "users:bob", unipileAccountId: "u-b", address: "bob@acme.com", status: "ok", ingest: true },
@@ -209,9 +232,75 @@ test("two teammates' inboxes keep their own copy of one email, and a live email 
   assert.deepEqual([await read("users:ada"), await read("users:bob")], [{ "email:msg:m1": { hidden: true, ownerUserId: "users:bob" } }, { "email:msg:m1": { text: "text of m1" } }]);
 });
 
+test("a mailbox whose owner left the workspace is not read by the webhook, the backfill, the daily pass or extraction", async () => {
+  const db = memoryDb({
+    users: [
+      { _id: "users:ada", orgId: "organizations:o", email: "ada@acme.com", isActive: true },
+      { _id: "users:gone", orgId: "organizations:o", email: "gone@acme.com", isActive: false },
+    ],
+    emailAccounts: ["ada", "gone"].map((id) => ({ _id: `emailAccounts:${id}`, orgId: "organizations:o", userId: `users:${id}`, unipileAccountId: `u-${id}`, address: `${id}@acme.com`, status: "ok", ingest: true, ingestSince: 1, ingestBackfilledAt: 2 })),
+    conversations: [{ _id: "conversations:c", orgId: "organizations:o", ownerUserId: "users:gone", channel: "email", accountRef: "emailAccounts:gone", externalThreadId: "msg:m0", counterpart: {}, contactIds: [], extractDueAt: 1 }],
+  });
+  const scheduled: string[] = [];
+  const ctx = { db, scheduler: { runAfter: async (_ms: number, fn: unknown, args: { accountId?: string }) => { scheduled.push(`${String(fn)} ${args.accountId ?? ""}`); } } };
+  const call = (fn: string, args: Record<string, unknown>) => M["conversations.ts"][fn].handler(ctx, args);
+  assert.deepEqual(plain(await call("emailIntakeAccount", { unipileAccountId: "u-gone" })), null);
+  assert.equal(await call("storeEmail", {
+    accountId: "emailAccounts:gone", threadId: "t1", subject: "Pricing", counterpart: { email: "grace@hopper.io" }, participants: [], contacts: [], live: true,
+    messages: [{ messageId: "m1", direction: "in", at: 1, from: "grace@hopper.io", to: "gone@acme.com", subject: "Pricing", text: "secret", viaCanon: false }],
+  }), 0);
+  assert.deepEqual(plain(await call("backfillState", { accountId: "emailAccounts:gone" })), { run: false });
+  Object.assign(process.env, { UNIPILE_API_KEY: "k", UNIPILE_DSN: "api.test:1" });
+  try {
+    await call("reconcile", {});
+  } finally {
+    delete process.env.UNIPILE_API_KEY;
+    delete process.env.UNIPILE_DSN;
+  }
+  assert.deepEqual(scheduled, ["internal.conversationActions.backfillEmail emailAccounts:ada"]);
+  assert.deepEqual(plain(await M["conversationExtract.ts"].context.handler(ctx, { conversationId: "conversations:c" })), { skip: "owner is no longer a member" });
+  assert.equal(db.rows("conversationMessages").length, 0);
+});
+
+test("erasing a person erases the conversations they were on, with their address", async () => {
+  const db = memoryDb({
+    users: [{ _id: "users:owner", orgId: "organizations:o", email: "ada@acme.com", isActive: true }],
+    emailAccounts: [{ _id: "emailAccounts:g", orgId: "organizations:o", userId: "users:owner", unipileAccountId: "u-g", address: "ada@acme.com", status: "ok", ingest: true }],
+  });
+  const ctx = { db, scheduler: { runAfter: async () => {} } };
+  await M["conversations.ts"].storeEmail.handler(ctx, {
+    accountId: "emailAccounts:g", threadId: "t1", subject: "Pricing", counterpart: { email: "grace@hopper.io", name: "Grace", domain: "hopper.io" },
+    participants: [{ email: "grace@hopper.io", name: "Grace" }], contacts: [{ email: "grace@hopper.io", contactId: "contact-grace" }], live: false,
+    messages: [
+      { messageId: "m1", direction: "out", at: 1, from: "ada@acme.com", to: "grace@hopper.io", subject: "Pricing", text: "sent through Canon", viaCanon: true },
+      { messageId: "m2", direction: "in", at: 2, from: "grace@hopper.io", to: "ada@acme.com", subject: "Pricing", text: "Tuesday works", viaCanon: false },
+    ],
+  });
+  assert.match(JSON.stringify(db.rows("conversations")), /grace@hopper\.io/);
+  await M["observations.ts"].eraseContact.handler(ctx, { orgId: "organizations:o", contactId: "contact-grace" });
+  assert.deepEqual(["conversations", "conversationMessages", "conversationContacts"].map((t) => db.rows(t).length), [0, 0, 0]);
+  assert.doesNotMatch(JSON.stringify(["conversations", "conversationMessages", "conversationContacts", "observations"].map((t) => db.rows(t))), /grace@hopper\.io|Tuesday works|through Canon/);
+});
+
+test("a mailbox credential is never stored in plain text", async () => {
+  const encryptCredential = M["lib/tokenHelpers.ts"].encryptCredential as unknown as (s: string) => Promise<string>;
+  const saved = process.env.TOKEN_ENCRYPTION_KEY;
+  try {
+    delete process.env.TOKEN_ENCRYPTION_KEY;
+    await assert.rejects(encryptCredential("refresh-token-1"));
+    process.env.TOKEN_ENCRYPTION_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
+    const stored = await encryptCredential("refresh-token-1");
+    assert.ok(stored.length > 0 && !stored.includes("refresh-token-1"));
+  } finally {
+    if (saved === undefined) delete process.env.TOKEN_ENCRYPTION_KEY;
+    else process.env.TOKEN_ENCRYPTION_KEY = saved;
+  }
+});
+
 test("an unlinked account's reads can still be deleted, and a long chat's backfill resumes inside it (issue #920)", async () => {
   const since = Date.now() - 90 * 86_400_000;
   const db = memoryDb({
+    users: members("owner"),
     linkedinAccounts: [
       { _id: "linkedinAccounts:gone", orgId: "organizations:o", userId: "users:owner", status: "disconnected", profileName: "Ada", ingest: true },
       { _id: "linkedinAccounts:a", orgId: "organizations:o", userId: "users:owner", status: "ok", ingest: true, ingestSince: since },
@@ -250,6 +339,7 @@ test("an unlinked account's reads can still be deleted, and a long chat's backfi
 test("an inbox's 90-day read is a tray job its owner alone sees, also when it began before jobs existed", async () => {
   const since = Date.UTC(2026, 6, 27);
   const db = memoryDb({
+    users: members("owner"),
     emailAccounts: [{ _id: "emailAccounts:a", orgId: "organizations:o", userId: "users:owner", status: "ok", address: "ada@acme.test", ingest: true, ingestSince: since }],
   });
   const ctx = { db, user: { _id: "users:owner", orgId: "organizations:o", role: "rep" }, scheduler: { runAfter: async () => {} } };

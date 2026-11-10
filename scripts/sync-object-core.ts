@@ -14,10 +14,8 @@
  * The other way, the kernel checks a manifest's reports over Canon's objects against the fields every workspace has:
  * the script writes them from the registry into modules/kernel/standardRecordFields.generated.ts.
  *
- * WHOLE_COPIES are dependency-free files copied whole from the one place each is defined. The kernel is the module kit's
- * package and imports nothing outside itself, but the engine is Apache-2.0 and the kernel AGPL-3.0: the engine keeps
- * its two files and the kernel a copy under the engine's license. The recipe runtime deploys from its own directory, so
- * it carries a copy of the kernel's bundleHash.
+ * WHOLE_COPIES are dependency-free files copied whole from the one place each is defined. The recipe runtime deploys
+ * from its own directory, so it carries a copy of the kernel's bundleHash.
  *
  *   node --experimental-strip-types scripts/sync-object-core.ts           write the copies
  *   node --experimental-strip-types scripts/sync-object-core.ts --check   exit 1 if any copy is stale
@@ -41,8 +39,6 @@ export const COPIES = [...CORE_FILES, ...KERNEL_FILES.map((file) => `${KERNEL_CO
 
 /** Copy path -> source path, both repo-relative. */
 export const WHOLE_COPIES: Record<string, string> = {
-  "modules/kernel/evidence.ts": "engine/src/evidence.ts",
-  "modules/kernel/websiteSources.ts": "engine/src/portable/websiteSources.ts",
   "services/recipe-runtime/src/bundleHash.ts": "modules/kernel/bundleHash.ts",
 };
 
@@ -51,8 +47,7 @@ export function expectedWholeCopy(copy: string): string {
   const text = readFileSync(join(ROOT, source), "utf8");
   const spec = [...text.matchAll(IMPORT_FROM)][0]?.[2];
   if (spec) throw new Error(`${source} imports ${spec}: a file scripts/sync-object-core.ts copies whole imports nothing`);
-  const license = source.startsWith("engine/") ? " Apache-2.0, as engine/LICENSE." : "";
-  return `// GENERATED from ${source} by scripts/sync-object-core.ts. Edit the source, then rerun the script.${license}\n${text}`;
+  return `// GENERATED from ${source} by scripts/sync-object-core.ts. Edit the source, then rerun the script.\n${text}`;
 }
 
 export const sourcePath = (copy: string) => (copy.startsWith(KERNEL_COPY) ? join(ROOT, "modules", copy) : join(ROOT, "convex/lib", copy));
