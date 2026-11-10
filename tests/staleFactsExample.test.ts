@@ -23,19 +23,19 @@ test("the committed bundle is what module:build makes of the source", async () =
 test("stale lists contested fields first, then the oldest confirmed, then empty ones, then fields the workspace lacks", async () => {
   const out = await run("stale", {
     deals: [{ id: "deals:big", name: "Big deal", companyId: null, companyName: "Atlas" }],
-    watched: [{ key: "acc_a", data: { company: "acc_a" } }, { key: "acc_gone", data: { company: "acc_gone" } }],
-    companies: [{ id: "acc_a", name: "Atlas Cloud" }, { id: "acc_gone", name: "Gone Co" }],
+    companies: [{ id: "acc_a", name: "Atlas Cloud" }, { id: "acc_gone", name: "Gone Co", next: "cursor-2" }],
     dealFacts: [{ id: "deals:big", fields: [
       { attribute: "amount", value: 1_450_000, state: "resolved", winner: "f1", confirmedAt: NOW - 3 * DAY },
       { attribute: "nextStep", value: null, state: "empty", winner: null },
     ] }],
     dealCompanyFacts: [],
-    watchedFacts: [{ id: "acc_a", fields: [
+    companyFacts: [{ id: "acc_a", fields: [
       { attribute: "industry", value: "SaaS", state: "contested", winner: "f2", contestedBy: ["f3"], confirmedAt: NOW - DAY },
       { attribute: "employees", value: 640, state: "resolved", winner: "f4", confirmedAt: NOW - 40 * DAY },
     ] }, { id: "acc_gone", fields: [{ attribute: "industry", value: null, state: "empty", winner: null }, { attribute: "custom.tier", value: null, state: "unknown", winner: null }] }],
   });
-  const rows = (out.value as { rows: Array<Record<string, unknown>> }).rows;
+  const { rows, next } = out.value as { rows: Array<Record<string, unknown>>; next: string | null };
+  assert.equal(next, "cursor-2", "the page's next links the following page");
   assert.deepEqual(rows.map((r) => [r.name, r.attribute, r.valueText, r.stateText, r.ageDays, r.proposable]), [
     ["Atlas Cloud", "industry", "SaaS", "Contested by 1", 1, true],
     ["Atlas Cloud", "employees", "640", "Resolved", 40, true],

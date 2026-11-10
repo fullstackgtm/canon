@@ -2452,7 +2452,9 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
         continue;
       }
       if ("canon" in r && isRecordServiceRead(r.canon)) {
-        records[key] = await planRecordRead(ctx, orgId, system ? null : access, manifest, r.canon, given, limit, moduleId);
+        // Ids from an earlier read of companies or people come in the action, once that read is read (recordReads.ts withIdsFrom).
+        const from = Object.values(r.args ?? {}).map(unwrapDate).find((x): x is { read: string; field?: string } => x !== null && typeof x === "object" && "read" in x && Object.hasOwn(records, x.read));
+        records[key] = { ...await planRecordRead(ctx, orgId, system ? null : access, manifest, r.canon, given, limit, moduleId), ...(from ? { idsFrom: { read: from.read, ...(from.field ? { field: from.field } : {}) } } : {}) };
         reads[key] = [];
         continue;
       }

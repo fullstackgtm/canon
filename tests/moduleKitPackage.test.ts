@@ -39,7 +39,7 @@ test("a project outside the repository installs the packed kit, then typechecks,
     mkdirSync(join(app, "node_modules/.bin"));
     symlinkSync(join(installed, PKG.bin["canon-module-kit"]), join(app, "node_modules/.bin/canon-module-kit"));
     writeFileSync(join(app, "package.json"), JSON.stringify({ name: "outside", private: true, type: "module" }));
-    writeFileSync(join(app, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "es2022", module: "nodenext", moduleResolution: "nodenext", strict: true, noEmit: true }, include: ["stale-facts/server.ts"] }));
+    writeFileSync(join(app, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "es2022", module: "nodenext", moduleResolution: "nodenext", resolveJsonModule: true, strict: true, noEmit: true }, include: ["stale-facts/server.ts"] }));
     const server = readFileSync(join(EXAMPLE, "server.ts"), "utf8");
     assert.ok(server.includes(`from "${PKG.name}/calls"`), "the example imports the kit by its package name");
     for (const [dir, code] of [["stale-facts", server], ["planted", `${server}\nimport { api } from "../../canon/convex/_generated/api.js";\n`]]) {
