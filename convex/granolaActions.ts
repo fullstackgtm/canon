@@ -90,6 +90,7 @@ async function importMeeting(ctx: ActionCtx, orgId: Id<"organizations">, state: 
       logged = await ctx.runMutation(internal.granola.logMeeting, {
         orgId, userId: writer, callId,
         title: meeting.title, startAt: meeting.startAt, ...(meeting.endAt !== null ? { endAt: meeting.endAt } : {}),
+        ...(meeting.scheduledStartAt !== null ? { scheduledStartAt: meeting.scheduledStartAt } : {}),
         notes: meetingNotes(meeting), contactIds: match.contactIds, companies: match.companies,
       });
     }

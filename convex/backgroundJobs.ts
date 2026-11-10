@@ -8,7 +8,7 @@ import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 
 const status = v.union(v.literal("pending"), v.literal("processing"), v.literal("completed"), v.literal("failed"));
-const kind = v.union(v.literal("contact_sweep"), v.literal("conversation_intake"), v.literal("meeting_import"), v.literal("deal_gaps"), v.literal("field_consolidation"));
+const kind = v.union(v.literal("contact_sweep"), v.literal("conversation_intake"), v.literal("meeting_import"), v.literal("deal_gaps"), v.literal("field_consolidation"), v.literal("unique_field"));
 const phase = v.object({ key: v.string(), label: v.string(), status, count: v.optional(v.number()), done: v.optional(v.number()), total: v.optional(v.number()), note: v.optional(v.string()) });
 
 export const create = internalMutation({

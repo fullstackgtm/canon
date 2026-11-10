@@ -107,19 +107,34 @@ const STAGE_BYTES = 2_000_000;
 const APPLY_BYTES = 6_000_000;
 const DROP_CHUNK = 2000;
 const AGENT_REFUSED = "An agent can't install, turn on or uninstall modules. An admin or manager does that on the Customization page.";
+/**
+ * Development installs (docs/modules.md, "Change it and install again"): a module built on an admin's own machine,
+ * installed into their own instance without pushing it to GitHub. Only a self-hosted install (`CANON_AUTH=local`,
+ * where the admin already runs the machine) or a local development stack takes one. A hosted deployment, where a
+ * workspace's admin is not the deployment's operator, refuses: there a module's code comes from a pinned GitHub
+ * commit or ships with Canon.
+ */
+const developmentInstallsEnabled = () => process.env.CANON_AUTH === "local" || isDevAuthBypassEnabled();
+const DEVELOPMENT_REFUSED = "Development installs are for a self-hosted Canon. Here, install a module from GitHub.";
+/** How a development install's source reads wherever Canon names one: never a release. */
+const DEVELOPMENT_SOURCE = "development install (not a release)";
 const repoFields = { owner: v.string(), repo: v.string(), path: v.optional(v.string()), ref: v.string(), sha: v.string() };
 const pinnedSource = v.union(
   v.object({ kind: v.literal("github-public"), ...repoFields }), v.object({ kind: v.literal("github-app"), installationId: v.number(), ...repoFields }),
   v.object({ kind: v.literal("canon"), id: v.string(), ref: v.string(), sha: v.string() }),
+  v.object({ kind: v.literal("development"), id: v.string(), ref: v.string(), sha: v.string() }),
 );
 /** A first-party example Canon ships (modules/examples/): `id` its slug, `ref` its version, `sha` the hash of its files. */
 type CanonSource = { kind: "canon"; id: string; ref: string; sha: string };
-type ModuleSource = PinnedSource | CanonSource;
+/** A self-hosted admin's local build (developmentInstallsEnabled): `id` the module's id, `ref` its version, `sha` the hash of its files. */
+type DevelopmentSource = { kind: "development"; id: string; ref: string; sha: string };
+type ModuleSource = PinnedSource | CanonSource | DevelopmentSource;
 const CANON_PREFIX = "canon:";
-/** How a source reads: `github:owner/repo/path@ref`, or `canon:<example>` for one Canon ships. */
-const moduleSourceText = (s: ModuleSource) => (s.kind === "canon" ? `${CANON_PREFIX}${s.id}` : sourceText(s));
-/** Whether two sources are the same package: one repo and path, or one example of Canon's. */
-const sameSource = (a: ModuleSource, b: ModuleSource) => (a.kind === "canon" || b.kind === "canon" ? a.kind === b.kind && (a as CanonSource).id === (b as CanonSource).id : sameRepo(a, b));
+/** How a source reads: `github:owner/repo/path@ref`, `canon:<example>` for one Canon ships, or a development install. */
+const moduleSourceText = (s: ModuleSource) => (s.kind === "canon" ? `${CANON_PREFIX}${s.id}` : s.kind === "development" ? DEVELOPMENT_SOURCE : sourceText(s));
+/** Whether two sources are the same package: one repo and path, one example of Canon's, or a development install. */
+const sameSource = (a: ModuleSource, b: ModuleSource) => (a.kind === "canon" || b.kind === "canon" || a.kind === "development" || b.kind === "development"
+  ? a.kind === b.kind && (a as CanonSource | DevelopmentSource).id === (b as CanonSource | DevelopmentSource).id : sameRepo(a, b));
 const scalar = v.union(v.string(), v.number(), v.boolean(), v.null());
 
 const notOn = (module: string) => new ConvexError(`This workspace has no module ${module} turned on.`);
@@ -256,7 +271,7 @@ export const installed = query({
       const m = manifestOf(pkg);
       return {
         moduleId: m.id, slug: pkg.slug, title: m.title, description: m.description, version: pkg.version, author: m.author.org,
-        source: moduleSourceText(pkg.source), sha: pkg.source.sha, enabled: await isEnabled(ctx, caller.user.orgId, m.id), nav: navOf(m), links: linksOf(m),
+        source: moduleSourceText(pkg.source), development: pkg.source.kind === "development", sha: pkg.source.sha, enabled: await isEnabled(ctx, caller.user.orgId, m.id), nav: navOf(m), links: linksOf(m),
         collections: Object.keys(m.collections), pages: m.pages.length,
         imports: Object.entries(pkg.imports ?? {}).map(([name, state]) => ({ name, label: MODULE_IMPORTS[name]?.label ?? name, ...state })),
         // Its background work: keys waiting, running and failed, and how far its deal feed is behind the ledger.
@@ -265,7 +280,7 @@ export const installed = query({
         upgrade: upgradeOf(pkg), autoUpgrade: autoUpgradeOf(pkg),
       };
     }));
-    return { canEdit: mayDecide(caller), modules };
+    return { canEdit: mayDecide(caller), developmentInstalls: developmentInstallsEnabled(), modules };
   },
 });
 
@@ -2697,80 +2712,120 @@ async function fetchModule(ctx: ActionCtx, source: string, sha: string | null, b
   return { state, checked, code, codeHash, previewHash, pinned: { ...resolved, sha: pinned } as ModuleSource, source: sourceText(resolved) };
 }
 
-/** What installing `source` would add: the module at the commit its ref names now. Stores nothing. */
-export const previewInstall = action({
-  args: { source: v.string() },
-  handler: async (ctx, args) => {
-    const { state, checked: { manifest: m }, code, codeHash, previewHash, pinned, source } = await fetchModule(ctx, args.source, null);
-    const existing = state.installed.find((p) => p.moduleId === m.id) ?? null;
-    // Installing over an installed version upgrades it in place: what that does to its data, and what it newly reads.
-    let upgrade: (Omit<UpgradePlan, "slots" | "work"> & { from: string; older: boolean; sameCommit: boolean; running: string | null; kept: boolean }) | null = null;
-    // Installing again over the data an uninstall kept also upgrades it in place, as install plans it (installAt).
-    const kept = existing ? null : state.kept.find((p) => p.moduleId === m.id) ?? null;
-    const base = existing ?? kept;
-    if (base) {
-      const from = JSON.parse(base.manifest) as ModuleManifest;
-      const { slots: _s, work: _w, ...plan } = planUpgrade(from, base.slots ?? defaultSlots(from), m, base.version);
-      upgrade = existing
-        ? { ...plan, from: existing.version, older: compareVersions(m.version, existing.version) < 0, sameCommit: existing.source.sha === pinned.sha, running: existing.upgrading, kept: false }
-        : { ...plan, from: base.version, older: false, sameCommit: false, running: null, kept: true };
-    }
-    return {
-      upgrade,
-      imports: importsOf(m),
-      source, pinned, manifestHash: previewHash,
-      // What the module reads of Canon's records, which installing grants, and its server code.
-      feeds: Object.entries(m.feeds ?? {}).map(([name, f]) => {
-        const owner = feedOf(f.feed)!;
-        return { name, label: owner.decl.label, fields: f.fields.map((field) => owner.decl.fields[field].label), perMember: owner.connector.scope === "member" };
-      }),
-      reads: [
-        ...Object.entries(m.reads ?? {}).map(([object, fields]) => ({ object, fields: object === "records" ? [...fields] : ["id", ...fields] })),
-        // The fact ledger's attributes, with their sources and evidence (docs/modules.md, "Facts").
-        ...Object.entries(m.facts ?? {}).filter(([, grant]) => grant.read).map(([object, grant]) => ({ object: `facts.${object}`, fields: [...grant.read!] })),
-      ],
-      // The writes to Canon's records it may propose, each held for a person's approval unless an admin's standing grant
-      // covers it (docs/modules.md, "Writes to Canon records", "Standing grants"); and the facts it may propose, each
-      // for a person to review, never under a grant ("Proposing facts").
-      proposes: [
-        ...(m.proposes ?? []).map((operation) => ({ operation, label: PROPOSAL_OPERATIONS[operation].label, grantable: grantableLabel(operation) })),
-        ...Object.entries(m.facts ?? {}).filter(([, grant]) => grant.propose).map(([object, grant]) => ({
-          operation: `facts.${object}`, label: `${PROPOSAL_OPERATIONS[FACTS_PROPOSE].label}, about ${object}: ${grant.propose!.join(", ")}`, grantable: null,
-        })),
-      ],
-      // What it may send (docs/modules.md, "Outbound"): each channel stays off until an admin turns it on.
-      outbound: [
-        ...(m.outbound?.email ? [{ channel: "email", what: `Email: ${m.outbound.email.kinds.join(", ")} from ${m.outbound.email.from.map((f) => (f === "workspace" ? "the workspace" : "a member's mailbox")).join(" or ")}` }] : []),
-        ...(m.outbound?.slack ? [{ channel: "slack", what: `Slack: ${m.outbound.slack.channels.map((c) => `#${c}`).join(", ")}` }] : []),
-        ...(m.outbound?.webhook ? [{ channel: "webhook", what: `Webhooks: ${m.outbound.webhook.events.join(", ")}` }] : []),
-      ],
-      // Other modules' interfaces it reads, and the ones it publishes (docs/modules.md, "Reading another module").
-      uses: Object.entries(m.uses ?? {}).flatMap(([module, names]) => names.map((name) => ({ module, name }))),
-      provides: Object.entries(m.provides ?? {}).map(([name, p]) => ({ name, fields: [...p.fields] })),
-      server: code === null ? null : { path: m.server!, hash: codeHash!, bytes: code.length },
-      calls: Object.entries(m.calls ?? {}).map(([name, c]) => ({ name, label: c.label, agent: c.agent, writes: c.writes, ...(c.canon ? { canon: c.canon } : {}) })),
-      // Team aggregates read every doc of a collection as figures (docs/modules.md, "Team aggregates"): the install says so.
-      aggregates: Object.values(m.calls ?? {}).flatMap((c) => Object.values(c.reads).flatMap((r) => ("aggregate" in r ? [{ call: c.label, collection: r.aggregate.collection, minOwners: r.aggregate.minOwners ?? MIN_AGGREGATE_OWNERS }] : []))),
-      id: m.id, version: m.version, title: m.title, description: m.description, author: m.author.org, nav: navOf(m), links: linksOf(m),
-      collections: Object.entries(m.collections).map(([name, c]) => ({ name, fields: Object.keys(c.schema.value), setOf: c.setOf?.parent ?? null, access: c.access })),
-      pages: m.pages.map((p) => ({ path: p.path, title: p.title })),
-      ops: [
-        ...Object.entries(m.ops).map(([name, op]) => ({ name, label: op.label, agent: op.agent })),
-        ...Object.entries(m.machines ?? {}).flatMap(([mn, mc]) => Object.entries(mc.transitions).map(([tn, t]) => ({ name: `${mn}.${tn}`, label: t.label, agent: agentModeOf(m, mn, tn).mode }))),
-        ...Object.entries(m.calls ?? {}).map(([name, c]) => ({ name: `call ${name}`, label: c.label, agent: c.agent })),
-      ],
-      installed: existing && { version: existing.version, sha: existing.source.sha, source: moduleSourceText(existing.source), sameSource: sameSource(existing.source, pinned) },
-      canInstall: state.canDecide,
-    };
-  },
-});
-
 type Consent = { approveReads?: boolean; drop?: string[] };
 const consentArgs = { approveReads: v.optional(v.boolean()), drop: v.optional(v.array(v.string())) };
 
+/**
+ * A development install (docs/modules.md, "Change it and install again"): a self-hosted admin's local build, its
+ * module.json and bundle sent from their own machine. Pinned to the hash of both, it goes through the same check,
+ * install screen and upgrade as a module from GitHub. Refused on a hosted deployment.
+ */
+async function developmentModule(ctx: ActionCtx, files: { manifest: string; bundle?: string }) {
+  if (!developmentInstallsEnabled()) throw new ConvexError(DEVELOPMENT_REFUSED);
+  const state: InstallState = await ctx.runQuery(internal.modules.installState, {});
+  if (!state.canDecide) throw new ConvexError(AGENT_REFUSED);
+  if (files.manifest.length > MODULE_MAX_BYTES) throw new ConvexError(`module.json is larger than ${MODULE_MAX_BYTES} bytes.`);
+  const checked = await checkModule(files.manifest);
+  const code = checked.manifest.server ? files.bundle ?? null : null;
+  if (checked.manifest.server && code === null) throw new ConvexError(`module.json names ${checked.manifest.server}: choose that file too.`);
+  if (code !== null && code.length > BUNDLE_MAX_BYTES) throw new ConvexError(`${checked.manifest.server} is larger than ${BUNDLE_MAX_BYTES} bytes.`);
+  const codeHash = code === null ? null : await bundleHash(code);
+  const previewHash = codeHash === null ? checked.hash : await bundleHash(`${checked.hash}:${codeHash}`);
+  const pinned: DevelopmentSource = { kind: "development", id: checked.manifest.id, ref: checked.manifest.version, sha: previewHash };
+  return { state, checked, code, codeHash, previewHash, pinned: pinned as ModuleSource, source: DEVELOPMENT_SOURCE };
+}
+
+/** What installing `source` would add: the module at the commit its ref names now. Stores nothing. */
+export const previewInstall = action({
+  args: { source: v.string() },
+  handler: async (ctx, args) => previewOf(await fetchModule(ctx, args.source, null)),
+});
+
+/** What a development install of these files would add, as previewInstall says it for a source. Stores nothing. */
+export const previewDevelopment = action({
+  args: { manifest: v.string(), bundle: v.optional(v.string()) },
+  handler: async (ctx, args) => previewOf(await developmentModule(ctx, args)),
+});
+
+/** Install the files a development preview showed: refused if they changed since. Over an installed one, upgrades it in place. */
+export const installDevelopment = action({
+  args: { manifest: v.string(), bundle: v.optional(v.string()), manifestHash: v.string(), ...consentArgs },
+  handler: async (ctx, args) => storeFetched(ctx, await developmentModule(ctx, args), args.manifestHash, { approveReads: args.approveReads, drop: args.drop }),
+});
+
+type Fetched = Awaited<ReturnType<typeof fetchModule>>;
+async function previewOf(fetched: Fetched) {
+  const { state, checked: { manifest: m }, code, codeHash, previewHash, pinned, source } = fetched;
+  const existing = state.installed.find((p) => p.moduleId === m.id) ?? null;
+  // Installing over an installed version upgrades it in place: what that does to its data, and what it newly reads.
+  let upgrade: (Omit<UpgradePlan, "slots" | "work"> & { from: string; older: boolean; sameCommit: boolean; running: string | null; kept: boolean }) | null = null;
+  // Installing again over the data an uninstall kept also upgrades it in place, as install plans it (installAt).
+  const kept = existing ? null : state.kept.find((p) => p.moduleId === m.id) ?? null;
+  const base = existing ?? kept;
+  if (base) {
+    const from = JSON.parse(base.manifest) as ModuleManifest;
+    const { slots: _s, work: _w, ...plan } = planUpgrade(from, base.slots ?? defaultSlots(from), m, base.version);
+    upgrade = existing
+      ? { ...plan, from: existing.version, older: compareVersions(m.version, existing.version) < 0, sameCommit: existing.source.sha === pinned.sha, running: existing.upgrading, kept: false }
+      : { ...plan, from: base.version, older: false, sameCommit: false, running: null, kept: true };
+  }
+  return {
+    upgrade,
+    imports: importsOf(m),
+    source, pinned, manifestHash: previewHash,
+    // What the module reads of Canon's records, which installing grants, and its server code.
+    feeds: Object.entries(m.feeds ?? {}).map(([name, f]) => {
+      const owner = feedOf(f.feed)!;
+      return { name, label: owner.decl.label, fields: f.fields.map((field) => owner.decl.fields[field].label), perMember: owner.connector.scope === "member" };
+    }),
+    reads: [
+      ...Object.entries(m.reads ?? {}).map(([object, fields]) => ({ object, fields: object === "records" ? [...fields] : ["id", ...fields] })),
+      // The fact ledger's attributes, with their sources and evidence (docs/modules.md, "Facts").
+      ...Object.entries(m.facts ?? {}).filter(([, grant]) => grant.read).map(([object, grant]) => ({ object: `facts.${object}`, fields: [...grant.read!] })),
+    ],
+    // The writes to Canon's records it may propose, each held for a person's approval unless an admin's standing grant
+    // covers it (docs/modules.md, "Writes to Canon records", "Standing grants"); and the facts it may propose, each
+    // for a person to review, never under a grant ("Proposing facts").
+    proposes: [
+      ...(m.proposes ?? []).map((operation) => ({ operation, label: PROPOSAL_OPERATIONS[operation].label, grantable: grantableLabel(operation) })),
+      ...Object.entries(m.facts ?? {}).filter(([, grant]) => grant.propose).map(([object, grant]) => ({
+        operation: `facts.${object}`, label: `${PROPOSAL_OPERATIONS[FACTS_PROPOSE].label}, about ${object}: ${grant.propose!.join(", ")}`, grantable: null,
+      })),
+    ],
+    // What it may send (docs/modules.md, "Outbound"): each channel stays off until an admin turns it on.
+    outbound: [
+      ...(m.outbound?.email ? [{ channel: "email", what: `Email: ${m.outbound.email.kinds.join(", ")} from ${m.outbound.email.from.map((f) => (f === "workspace" ? "the workspace" : "a member's mailbox")).join(" or ")}` }] : []),
+      ...(m.outbound?.slack ? [{ channel: "slack", what: `Slack: ${m.outbound.slack.channels.map((c) => `#${c}`).join(", ")}` }] : []),
+      ...(m.outbound?.webhook ? [{ channel: "webhook", what: `Webhooks: ${m.outbound.webhook.events.join(", ")}` }] : []),
+    ],
+    // Other modules' interfaces it reads, and the ones it publishes (docs/modules.md, "Reading another module").
+    uses: Object.entries(m.uses ?? {}).flatMap(([module, names]) => names.map((name) => ({ module, name }))),
+    provides: Object.entries(m.provides ?? {}).map(([name, p]) => ({ name, fields: [...p.fields] })),
+    server: code === null ? null : { path: m.server!, hash: codeHash!, bytes: code.length },
+    calls: Object.entries(m.calls ?? {}).map(([name, c]) => ({ name, label: c.label, agent: c.agent, writes: c.writes, ...(c.canon ? { canon: c.canon } : {}) })),
+    // Team aggregates read every doc of a collection as figures (docs/modules.md, "Team aggregates"): the install says so.
+    aggregates: Object.values(m.calls ?? {}).flatMap((c) => Object.values(c.reads).flatMap((r) => ("aggregate" in r ? [{ call: c.label, collection: r.aggregate.collection, minOwners: r.aggregate.minOwners ?? MIN_AGGREGATE_OWNERS }] : []))),
+    id: m.id, version: m.version, title: m.title, description: m.description, author: m.author.org, nav: navOf(m), links: linksOf(m),
+    collections: Object.entries(m.collections).map(([name, c]) => ({ name, fields: Object.keys(c.schema.value), setOf: c.setOf?.parent ?? null, access: c.access })),
+    pages: m.pages.map((p) => ({ path: p.path, title: p.title })),
+    ops: [
+      ...Object.entries(m.ops).map(([name, op]) => ({ name, label: op.label, agent: op.agent })),
+      ...Object.entries(m.machines ?? {}).flatMap(([mn, mc]) => Object.entries(mc.transitions).map(([tn, t]) => ({ name: `${mn}.${tn}`, label: t.label, agent: agentModeOf(m, mn, tn).mode }))),
+      ...Object.entries(m.calls ?? {}).map(([name, c]) => ({ name: `call ${name}`, label: c.label, agent: c.agent })),
+    ],
+    installed: existing && { version: existing.version, sha: existing.source.sha, source: moduleSourceText(existing.source), sameSource: sameSource(existing.source, pinned) },
+    canInstall: state.canDecide,
+  };
+}
+
+
 type Installed = { moduleId: string; version: string; slug: string; status: "installed" | "upgrading" };
 async function installAt(ctx: ActionCtx, source: string, sha: string, manifestHash: string | null, consent: Consent, bases?: SourceBases): Promise<Installed> {
-  const { state, checked, code, codeHash, previewHash, pinned } = await fetchModule(ctx, source, sha, bases);
+  return storeFetched(ctx, await fetchModule(ctx, source, sha, bases), manifestHash, consent);
+}
+
+async function storeFetched(ctx: ActionCtx, fetched: Fetched, manifestHash: string | null, consent: Consent): Promise<Installed> {
+  const { state, checked, code, codeHash, previewHash, pinned } = fetched;
   if (!state.canDecide) throw new ConvexError(AGENT_REFUSED);
   if (manifestHash !== null && previewHash !== manifestHash) throw new ConvexError("The module at this commit isn't the one you previewed. Preview it again.");
   const storageId = code === null ? undefined : await ctx.storage.store(new Blob([code], { type: "text/javascript" }));

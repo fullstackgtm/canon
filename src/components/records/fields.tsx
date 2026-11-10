@@ -9,6 +9,8 @@ import { SelectField } from "@/components/ui/select";
 import type { FieldValue } from "../../../convex/lib/objects/registry";
 import type { Stored } from "../../../convex/lib/objects/validators";
 import { MAX_SPLITS, parseSplits, type SplitAllocation } from "../../../modules/kernel/splits";
+import { contactHref } from "@/lib/contact-href";
+import { LookupInput } from "./lookup-field";
 
 export type ObjectDescription = NonNullable<FunctionReturnType<typeof api.objects.describe>>;
 export type FieldDescription = ObjectDescription["fields"][number];
@@ -49,6 +51,26 @@ export function optionChips(field: FieldDescription, value: CellValue | undefine
   return (
     <span className="flex flex-wrap gap-1">
       {opts.map((o) => <span key={o.value} className={cn("px-1.5 py-0.5 text-xs", OPTION_CHIP[o.color ?? "gray"])}>{o.label}</span>)}
+    </span>
+  );
+}
+
+/** An email, phone or web address field's values as links (mailto, tel, a new tab); a value unsafe to open stays text. Null for other fields. */
+export function contactLinks(field: FieldDescription, value: CellValue | undefined): React.ReactNode | null {
+  if (field.type !== "emails" && field.type !== "phones" && field.type !== "links") return null;
+  const values = stringsOf(value);
+  if (!values.length) return null;
+  const kind = field.type;
+  return (
+    <span className="flex min-w-0 flex-wrap gap-x-2">
+      {values.map((v, i) => {
+        const href = contactHref(kind, v);
+        const text = <>{v}{i < values.length - 1 ? "," : ""}</>;
+        if (!href) return <span key={v}>{text}</span>;
+        return kind === "links"
+          ? <a key={v} href={href} target="_blank" rel="noopener noreferrer" className="truncate text-primary underline">{text}</a>
+          : <a key={v} href={href} className="truncate text-primary underline">{text}</a>;
+      })}
     </span>
   );
 }
@@ -298,6 +320,8 @@ export function FieldInput({
           options={[{ value: "", label: "Unassigned" }, ...(team ?? []).filter((u) => u.isActive !== false || u._id === value).map((u) => ({ value: u._id, label: u.name }))]}
         />
       );
+    case "lookup":
+      return <LookupInput field={field} value={value} onChange={onChange} />;
     case "date":
       return <input {...common} type="date" value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value || null)} />;
     case "datetime":
@@ -439,8 +463,9 @@ export function InlineField({
     <a href={linkedinHref} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2 py-1 text-sm underline">Open LinkedIn</a>
   );
   const chips = optionChips(field, value);
+  const links = contactLinks(field, value);
   if (readOnly || !isEditable(field)) {
-    return <div className="flex items-start gap-1"><span className={cn("block min-w-0 whitespace-pre-wrap break-words px-2 py-1 text-sm", !shown && "text-muted-foreground")}>{(shown && chips) || shown || "—"}</span>{linkedinLink}</div>;
+    return <div className="flex items-start gap-1"><span className={cn("block min-w-0 whitespace-pre-wrap break-words px-2 py-1 text-sm", !shown && "text-muted-foreground")}>{links || (shown && chips) || shown || "—"}</span>{linkedinLink}</div>;
   }
   if (editing) {
     return (
@@ -458,14 +483,24 @@ export function InlineField({
       </div>
     );
   }
+  const startEdit = () => {
+    startedAt.current = version;
+    setDraft(value ?? null);
+  };
+  // Links can't sit inside the edit button: they show as links, with Change beside them, as a lookup does.
+  if (links) {
+    return (
+      <div className="flex items-start gap-3 px-2 py-1 text-sm">
+        {links}
+        <button type="button" onClick={startEdit} className="shrink-0 text-xs text-muted-foreground underline hover:text-foreground">Change</button>
+      </div>
+    );
+  }
   return (
     <div className="flex items-start gap-1">
       <button
         type="button"
-        onClick={() => {
-          startedAt.current = version;
-          setDraft(value ?? null);
-        }}
+        onClick={startEdit}
         className="min-w-0 w-full whitespace-pre-wrap break-words px-2 py-1 text-left text-sm hover:bg-muted"
         title="Click to edit"
       >

@@ -49,6 +49,13 @@ test("a dry run sorts rows into create, update by domain, skip and error, with r
   ]);
 });
 
+test("a company file's checkbox cells read Yes and No as Canon's export writes them", () => {
+  const withPartner = resolveObjectDef(STANDARD_OBJECTS.account, { registryVersion: 1, customFields: [{ fieldId: "custom.partner" as never, apiName: "custom.partner", label: "Partner", type: "checkbox" }] });
+  const records = parseCsv("Company,Website,Partner\nAcme,acme.com,Yes\nGlobex,globex.com,No\n");
+  const rows = readRows("account", withPartner, autoMap("account", withPartner, records[0]), records);
+  assert.deepEqual(rows.map((r) => (r.kind === "read" ? r.values["custom.partner"] : r.kind)), [true, false]);
+});
+
 test("a Company cell links by domain first, then by exact name; several names are ambiguous; none is unmatched or created", () => {
   const cells = ["https://www.ACME.com/", "Globex", "Hooli", "Umbrella", "globex.io"];
   assert.deepEqual([...matchCompanies(cells, COMPANIES, false).values()], [
@@ -108,15 +115,16 @@ test("a deals dry run: stage by label in its pipeline, money in cents, duplicate
   assert.deepEqual(["7.5k", "$1.2M", "48,000"].map((c) => cleanCell("deal", deal.byApiName.get("amount")!, c)), ["750000", "120000000", "4800000"]);
 });
 
-test("a deal's Owner column names a member by email: a known one owns the deal, an unknown one is listed and the row still imports", () => {
+test("a deal's Owner column names a member by email or name, as the export writes it: a known one owns the deal, an unknown one is listed and the row still imports", () => {
   const stage = deal.byApiName.get("stage")!;
   const pipelines = resolvePipelines("options" in stage ? stage.options : [], [{ id: "p1", name: "Sales", stages: [{ value: "proposal", probability: 50, forecastCategory: "pipeline" }], createdAt: 1 }]);
-  const csv = parseCsv(["Deal name,Close date,Stage,Deal owner", "A,2026-12-01,Proposal,Rep@Co.com", "B,2026-12-01,Proposal,nobody@co.com", "C,2026-12-01,Proposal,not an email"].join("\n"));
+  const csv = parseCsv(["Deal name,Close date,Stage,Deal owner", "A,2026-12-01,Proposal,Rep@Co.com", "B,2026-12-01,Proposal,nobody@co.com", "C,2026-12-01,Proposal,Rita Rep"].join("\n"));
   const mapping = autoMap("deal", deal, csv[0]);
   assert.equal(mapping[3], "owner");
-  const outcomes = classifyDeals(readRows("deal", deal, mapping, csv, pipelines), new Map(), new Map(), pipelines, false, deal, new Map(), new Map([["rep@co.com", "user_rep"]]));
-  assert.deepEqual(outcomes.map((o) => [o.kind, "ownerId" in o ? o.ownerId : null]), [["create", "user_rep"], ["create", null], ["error", null]]);
-  assert.deepEqual(summarize(outcomes).owners, { matched: 1, unknown: ["nobody@co.com"] });
+  const owners = new Map([["Rep@Co.com", "user_rep"], ["Rita Rep", "user_rita"]]);
+  const outcomes = classifyDeals(readRows("deal", deal, mapping, csv, pipelines), new Map(), new Map(), pipelines, false, deal, new Map(), owners);
+  assert.deepEqual(outcomes.map((o) => [o.kind, "ownerId" in o ? o.ownerId : null]), [["create", "user_rep"], ["create", null], ["create", "user_rita"]]);
+  assert.deepEqual(summarize(outcomes).owners, { matched: 2, unknown: ["nobody@co.com"] });
 });
 
 test("a deal file's revenue type, contract length and products are typed for the row; an unknown owner's rows can be skipped", () => {

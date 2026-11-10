@@ -29,7 +29,7 @@ import { normalizeDomain, normalizeEmail } from "./lib/canon/identity";
 import { resubmitUnprocessed, syncPartyBatch, type PartyObject, type PartyValues, type RecordAccountSnapshot, type RecordContactSnapshot } from "./lib/canon/partyLedger";
 import {
   autoMap, cellDomain, classify, classifyDeals, companyCells, dealCreateInput, importColumns, importIdOf, importKeys, IMPORT_ROWS_MAX, matchCompanies,
-  ownerEmails, parseCsv, personEmails, readRows, summarize, writeImportRow,
+  memberNamed, ownerCells, parseCsv, personEmails, readRows, summarize, writeImportRow,
   type CompanyLink, type DealMatch, type DealOutcome, type ImportMapping, type ImportMatch, type ImportObject, type ImportPreview,
   type ImportWrite, type RegisterCompany, type RowOutcome,
 } from "./lib/objects/csvImport";
@@ -141,13 +141,21 @@ export const dealsByRef = internalQuery({
   },
 });
 
-/** The org members with these (lowercased) emails: who an Owner cell names. */
-export const membersByEmail = internalQuery({
-  args: { orgId: v.id("organizations"), emails: v.array(v.string()) },
-  handler: async (ctx, args): Promise<Array<{ email: string; userId: string }>> => {
-    const found = await Promise.all(args.emails.map((email) =>
-      ctx.db.query("users").withIndex("by_orgId_email", (q) => q.eq("orgId", args.orgId).eq("email", email)).first()));
-    return found.flatMap((u, i) => (u ? [{ email: args.emails[i], userId: u._id as string }] : []));
+/** Members read to match Owner cells by name: an org has at most a few hundred. */
+const MEMBERS_SCAN = 1000;
+
+/** The members Owner cells name, by email or exact name, active only (csvImport.ts memberNamed): each matched cell and its member. */
+export const membersByRef = internalQuery({
+  args: { orgId: v.id("organizations"), refs: v.array(v.string()) },
+  handler: async (ctx, args): Promise<Array<{ ref: string; userId: string }>> => {
+    const byEmail = await Promise.all(args.refs.filter((r) => r.includes("@")).map((r) =>
+      ctx.db.query("users").withIndex("by_orgId_email", (q) => q.eq("orgId", args.orgId).eq("email", r.trim().toLowerCase())).first()));
+    const all = args.refs.some((r) => !r.includes("@")) ? await ctx.db.query("users").withIndex("by_orgId", (q) => q.eq("orgId", args.orgId)).take(MEMBERS_SCAN) : [];
+    const members = [...byEmail.flatMap((u) => (u ? [u] : [])), ...all].map((u) => ({ id: u._id as string, name: u.name, email: u.email, active: u.isActive }));
+    return args.refs.flatMap((ref) => {
+      const found = memberNamed(ref, members);
+      return found.ok ? [{ ref, userId: found.id }] : [];
+    });
   },
 });
 
@@ -331,7 +339,7 @@ async function planFile(ctx: ActionCtx, a: PlanArgs): Promise<Plan> {
     const read = readRecordRows(target.object, defs, mapping, records, { kind: a.kind });
     const keys = recordKeys(read);
     const [members, companyRows, people, dealRefs] = await Promise.all([
-      keys.owners.length ? ctx.runQuery(internal.csvImports.membersByEmail, { orgId: a.orgId, emails: keys.owners }) : [],
+      keys.owners.length ? ctx.runQuery(internal.csvImports.membersByRef, { orgId: a.orgId, refs: keys.owners }) : [],
       keys.companies.length ? lookupCompanies(client, a.orgId, keys.companies) : [],
       lookupPeople(client, a.orgId, keys.people),
       keys.deals.length ? ctx.runQuery(internal.csvImports.dealsByRef, { orgId: a.orgId, cells: keys.deals }) : [],
@@ -344,7 +352,7 @@ async function planFile(ctx: ActionCtx, a: PlanArgs): Promise<Plan> {
       for (const row of await lookupSeen(ctx, a.orgId, `csv:${importId}:${kind}`, rows)) again.add(row);
     }
     const outcomes = classifyRecords(read, defs, {
-      members: new Map(members.map((m) => [m.email, m.userId])), companies: matchCompanies(keys.companies, companyRows, false), people, deals, again,
+      members: new Map(members.map((m) => [m.ref, m.userId])), companies: matchCompanies(keys.companies, companyRows, false), people, deals, again,
     }, { allowUntargeted: a.allowUntargeted ?? false });
     return { columns, header, mapping, importId, object: "records", name: target.object, outcomes };
   }
@@ -359,12 +367,12 @@ async function planFile(ctx: ActionCtx, a: PlanArgs): Promise<Plan> {
   const companies = matchCompanies(cells, cells.length ? await lookupCompanies(client, a.orgId, cells) : [], a.createCompanies ?? false);
   const base = { columns, header, mapping, importId, def };
   if (target.kind === "deal") {
-    const emails = ownerEmails(read);
+    const refs = ownerCells(read);
     const [deals, people, owners] = await Promise.all([
       lookupDeals(ctx, a.orgId, importKeys(read)), lookupPeople(client, a.orgId, personEmails(read)),
-      emails.length ? ctx.runQuery(internal.csvImports.membersByEmail, { orgId: a.orgId, emails }) : [],
+      refs.length ? ctx.runQuery(internal.csvImports.membersByRef, { orgId: a.orgId, refs }) : [],
     ]);
-    return { ...base, object: "deal", outcomes: classifyDeals(read, deals, companies, pipelines, mapping.includes("company"), def, people, new Map(owners.map((o) => [o.email, o.userId])), a.skipUnknownOwners ?? false) };
+    return { ...base, object: "deal", outcomes: classifyDeals(read, deals, companies, pipelines, mapping.includes("company"), def, people, new Map(owners.map((o) => [o.ref, o.userId])), a.skipUnknownOwners ?? false) };
   }
   const matches = await lookupMatches(client, a.orgId, target.object, importKeys(read));
   // A row with no key is found again by its file row: an earlier run of this file already wrote it.

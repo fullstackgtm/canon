@@ -62,6 +62,14 @@ test("a project outside the repository installs the packed kit, then typechecks,
     assert.equal(passed.length, 1);
     assert.equal(failed.length, 1);
     assert.ok(failed[0].includes("planted") && failed[0].includes("../../canon/convex/_generated/api.js"), failed[0]);
+
+    // The packed kit's runCall runs the built bundle on reads its manifest grants, and refuses one it doesn't.
+    const kitFile = (name: string) => import(pathToFileURL(join(installed, `dist/${name}.js`)).href);
+    const [{ parseModuleManifest }, { runCall }, bundle] = await Promise.all([kitFile("manifest"), kitFile("testing"), import(pathToFileURL(join(app, "stale-facts/dist/module.js")).href)]);
+    const parsed = parseModuleManifest(JSON.parse(readFileSync(join(EXAMPLE, "module.json"), "utf8")));
+    assert.ok(parsed.ok, JSON.stringify(parsed));
+    assert.deepEqual((await runCall(parsed.manifest, bundle.calls, "outcomes", { reads: { corrections: [], proposals: [] } })).value, { rows: [] });
+    await assert.rejects(runCall(parsed.manifest, bundle.calls, "outcomes", { reads: { corrections: [] } }), /reads.proposals is missing/);
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }

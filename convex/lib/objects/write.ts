@@ -15,7 +15,7 @@ import {
   fold, foldAll, project, SNAPSHOT_SOURCES, watermarkOf, writeRule,
   type Assertion, type Decision, type EntryActor, type EntryBody, type EntrySource, type FoldState, type LedgerEntry, type MergedRecord, type ProjectedRow, type RevertedField,
 } from "./fold.ts";
-import { coerce, PRIMARY_LISTS, ruleModeFor, type CoerceError, type FieldDef, type FieldValue, type ResolvedObjectDef } from "./registry.ts";
+import { claimsUnique, coerce, PRIMARY_LISTS, ruleModeFor, type CoerceError, type FieldDef, type FieldValue, type ResolvedObjectDef } from "./registry.ts";
 
 /**
  * Objects the public object API (convex/objects.ts) serves. Deals, accounts
@@ -248,7 +248,8 @@ type ClaimReader = Pick<ObjectStore, "findByExternalId"> & Partial<Pick<ObjectSt
 
 async function uniqueConflicts(store: ClaimReader, ctx: Pick<SaveContext, "orgId" | "def">, assertions: readonly Assertion[], streamId: string | null): Promise<SaveResult | null> {
   for (const a of assertions) {
-    if (!ctx.def.byFieldId.get(a.fieldId)?.unique) continue;
+    const field = ctx.def.byFieldId.get(a.fieldId);
+    if (!field || !claimsUnique(field)) continue;
     for (const item of itemsOf(a.value)) {
       const holder = await heldElsewhere(store, ctx, a.fieldId, item, streamId);
       if (holder) return takenValue(store, ctx.def, a.fieldId, item, holder);
@@ -303,7 +304,8 @@ async function dropAliases(store: Pick<ObjectStore, "findByExternalId" | "surviv
   };
   const out: Assertion[] = [];
   for (const a of assertions) {
-    if (a.value === null || !ctx.def.byFieldId.get(a.fieldId)?.unique) {
+    const field = ctx.def.byFieldId.get(a.fieldId);
+    if (a.value === null || !field || !claimsUnique(field)) {
       out.push(a);
       continue;
     }
@@ -424,6 +426,32 @@ export async function checkUnique(
   return taken?.status === "invalid" ? taken.errors : [];
 }
 
+/** The external-id provider a field's unique claims are kept under. */
+export const uniqueClaimProvider = uniqueProvider;
+
+/** A unique field's claim keys for a value: one per list item, normalized as the claims are. */
+export const uniqueClaimKeys = (def: ResolvedObjectDef, fieldId: string, value: FieldValue | undefined): Array<{ key: string; value: FieldValue }> =>
+  itemsOf(value).map((item) => ({ key: claimKey(def, fieldId, item), value: item }));
+
+/**
+ * Claim a record's current values of one field (convex/uniqueFields.ts, when an admin turns uniqueness on): each
+ * value with no claim is claimed for `streamId`; a value another record has claimed is returned with its holder.
+ */
+export async function claimFieldValues(
+  store: ObjectStore, ctx: Pick<SaveContext, "orgId" | "def">, streamId: string, fieldId: Assertion["fieldId"],
+): Promise<Array<{ value: FieldValue; holder: string }>> {
+  const state = (await store.getHotRow(streamId)) ?? (await foldStream(store, streamId));
+  if (!state) return [];
+  const provider = uniqueProvider(ctx.def, fieldId);
+  const taken: Array<{ value: FieldValue; holder: string }> = [];
+  for (const { key, value } of uniqueClaimKeys(ctx.def, fieldId, project(ctx.def, state).values[fieldId])) {
+    const holder = await store.findByExternalId(ctx.orgId, provider, key);
+    if (holder === null) await store.addExternalId(ctx.orgId, streamId, provider, key);
+    else if (holder !== streamId) taken.push({ value, holder });
+  }
+  return taken;
+}
+
 /**
  * The unique values a projected row shows, by claim provider and claim key: a
  * list field's items one by one, and a person's primary and other emails in one
@@ -432,7 +460,7 @@ export async function checkUnique(
 function claimedValues(def: ResolvedObjectDef, row: ProjectedRow | null): Map<string, Map<string, { fieldId: Assertion["fieldId"]; value: FieldValue }>> {
   const out = new Map<string, Map<string, { fieldId: Assertion["fieldId"]; value: FieldValue }>>();
   for (const field of def.fields) {
-    if (!field.unique) continue;
+    if (!claimsUnique(field)) continue;
     const provider = uniqueProvider(def, field.fieldId);
     const keys = out.get(provider) ?? new Map<string, { fieldId: Assertion["fieldId"]; value: FieldValue }>();
     out.set(provider, keys);

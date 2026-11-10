@@ -220,6 +220,18 @@ The record API (`/api/v1`) and the MCP tools limit each token to 600 reads and
 to `.env` and run `docker compose up -d`. `0` turns a limit off.
 [Rate limits](record-api.md#rate-limits) explains the defaults.
 
+A module with server code runs its calls in Canon's recipe runtime
+(`services/recipe-runtime`), which this image doesn't start. Until one runs, such a
+module's pages say "Needs RECIPE_RUNTIME_URL and RECIPE_RUNTIME_SECRET". Run the
+runtime yourself: in `services/recipe-runtime`, put `RECIPE_RUNTIME_SECRET=<a long
+random value>` in `.dev.vars` and run `npx wrangler dev --local --ip 0.0.0.0 --port 8790`.
+Then add `RECIPE_RUNTIME_URL` (as the container reaches it, on Docker Desktop
+`http://host.docker.internal:8790`) and the same
+`RECIPE_RUNTIME_SECRET` to `.env` and run `docker compose up -d`. Modules without
+server code need no runtime. To try a module you are building without pushing it,
+choose **A module you're building** on Customization: see
+[Change it and install again](modules.md#change-it-and-install-again).
+
 Optional integrations need their own keys, listed in
 [Optional integrations](selfhost-integrations.md). To log members' email by BCC
 or forward, follow [Logging email by BCC or forward](email-logging.md).

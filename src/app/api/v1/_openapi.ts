@@ -16,7 +16,7 @@ import type { GenericValidator } from "convex/values";
 import { accessOf } from "../../../../convex/lib/access.ts";
 import { describeObject, type DescribedObject } from "../../../../convex/lib/objects/describe.ts";
 import { dealCreateArgs, upsertAccount, upsertContact } from "../../../../convex/lib/objects/createArgs.ts";
-import { isLedgerObjectName, MULTI_VALUES_MAX, resolveOrgObject, STANDARD_OBJECTS, type FieldDef } from "../../../../convex/lib/objects/registry.ts";
+import { claimsUnique, isLedgerObjectName, MULTI_VALUES_MAX, resolveOrgObject, STANDARD_OBJECTS, type FieldDef } from "../../../../convex/lib/objects/registry.ts";
 import { API_VERSION, ApiRecordSchema, ErrorBody, ObjectsBody, OPERATIONS, TIMELINE_OBJECTS, WriteBody, WriteResult, type ObjectGate, type Operation, type QueryParam } from "./_contract.ts";
 import { V1_ERROR_CODES, V1_STATUS, type V1Client, type V1ErrorCode } from "./_lib.ts";
 import { api } from "../../../../convex/_generated/api.js";
@@ -46,7 +46,7 @@ export function objectsBody(objects: readonly DescribedObject[]): z.infer<typeof
     data: objects.filter((d) => d.readable).map((d) => ({
       object: d.apiName, label: d.label, pluralLabel: d.pluralLabel, kind: d.kind, writable: d.writable, canCreate: d.canCreate || d.register, canDelete: d.canDelete,
       fields: d.fields.map((f) => ({
-        apiName: f.apiName, label: f.label, type: f.type, required: f.required === true,
+        apiName: f.apiName, label: f.label, type: f.type, required: f.required === true, unique: claimsUnique(f),
         readOnly: Boolean(f.system) || f.type === "formula" || d.readOnlyFields.includes(f.apiName),
         ...("options" in f ? { options: f.options.map(({ value, label, active }) => ({ value, label, active })) } : {}),
         ...(f.type === "lookup" ? { lookupTo: f.lookupTo } : {}),
@@ -96,8 +96,11 @@ function convexObject(fields: Record<string, GenericValidator>): Schema {
 const nullable = (s: Schema): Schema =>
   typeof s.type === "string" ? { ...s, type: [s.type, "null"], ...(Array.isArray(s.enum) ? { enum: [...s.enum, null] } : {}) } : { anyOf: [s, { type: "null" }] };
 
+/** Money is stored and sent in the currency's minor unit (cents), never in whole units. */
+const CURRENCY: Schema = { type: "number", description: "Minor units (cents): 2400050 is 24,000.50", "x-canon-type": "currency", "x-canon-unit": "minor" };
+
 const COMPUTED: Record<string, Schema> = {
-  number: { type: "number" }, currency: { type: "number" }, text: { type: "string" },
+  number: { type: "number" }, currency: CURRENCY, text: { type: "string" },
   date: { type: "string", format: "date" }, datetime: { type: "integer" }, checkbox: { type: "boolean" },
 };
 
@@ -111,7 +114,7 @@ function fieldSchema(field: FieldDef, mode: "read" | "write"): Schema {
       case "user": return { type: "string", "x-canon-id": "users" };
       case "lookup": return { type: "string", "x-canon-lookup": field.lookupTo };
       case "number": return { type: "number" };
-      case "currency": return { type: "number", "x-canon-type": "currency" };
+      case "currency": return CURRENCY;
       case "checkbox": return { type: "boolean" };
       case "date": return { type: "string", format: "date" };
       case "datetime":
@@ -121,10 +124,10 @@ function fieldSchema(field: FieldDef, mode: "read" | "write"): Schema {
       case "multipicklist": return { type: "array", items: oneOf(options(mode === "read")), uniqueItems: true };
       case "emails": case "phones": case "links": return { type: "array", items: { type: "string" }, maxItems: MULTI_VALUES_MAX, description: "The first is the primary", "x-canon-type": field.type };
       case "splits": return { type: "array", items: { type: "object", properties: { userId: { type: "string", "x-canon-id": "users" }, percentage: { type: "number" }, kind: { type: "string", enum: ["revenue", "overlay"] } }, required: ["userId", "percentage", "kind"], additionalProperties: false } };
-      case "formula": return { ...COMPUTED[field.returns], "x-canon-type": field.rollup ? "rollup" : "formula" };
+      case "formula": return { ...COMPUTED[field.returns], "x-canon-type": field.rollup ? "rollup" : "formula", ...(field.returns === "currency" ? { "x-canon-unit": "minor" } : {}) };
     }
   })();
-  return { ...nullable(base), title: field.label };
+  return { ...nullable(base), title: field.label, ...(claimsUnique(field) ? { "x-canon-unique": true } : {}) };
 }
 
 const pascal = (name: string) => name.split(/[_.]/).map((w) => w[0]!.toUpperCase() + w.slice(1)).join("");

@@ -1053,6 +1053,56 @@ export const seedEmailLogging = internalMutation({
   },
 });
 
+/**
+ * Local stack only: the calendar transport's stand-in (docs/calendar-meetings.md). Fixture events for the dev user go
+ * through calendarEvents.ingest, the path a real calendar will use: a meeting tomorrow with `attendee` (a Canon
+ * person's email) and an unknown colleague of theirs, the same meeting moved an hour later, an internal one, a
+ * private one, and a weekly series' instances from 100 days back to 40 ahead. Returns what each came to.
+ */
+export const seedCalendarEvents = action({
+  args: { attendee: v.string() },
+  handler: async (ctx, args): Promise<string[]> => {
+    if (!isDevAuthBypassEnabled()) throw new ConvexError("Demo workspace seeding is disabled");
+    const seeded: { orgId: Id<"organizations">; userId: Id<"users">; email: string } = await ctx.runMutation(internal.devSeed.devCalendarOwner, {});
+    const HOUR = 3_600_000;
+    const day = Math.floor(Date.now() / (24 * HOUR)) * 24 * HOUR;
+    const domain = args.attendee.split("@")[1] ?? "example.org";
+    const event = (uid: string, start: number, extra: Record<string, unknown> = {}) => ({
+      icalUid: uid, instanceStart: start, title: "Pilot review", startAt: start, endAt: start + HOUR, allDay: false, cancelled: false,
+      visibility: "default" as const, eventType: "default",
+      attendees: [
+        { email: seeded.email, response: "accepted" as const },
+        { email: args.attendee, response: "accepted" as const },
+        { email: `new.colleague@${domain}`, name: "New Colleague", response: "pending" as const },
+      ],
+      ...extra,
+    });
+    const tomorrow = day + 24 * HOUR + 15 * HOUR;
+    const weekly = Array.from({ length: 20 }, (_, i) => day - 100 * 24 * HOUR + i * 7 * 24 * HOUR + 16 * HOUR)
+      .map((at) => event("local-weekly-sync", at, { title: "Weekly sync" }));
+    return ctx.runAction(internal.calendarEvents.ingest, {
+      orgId: seeded.orgId, userId: seeded.userId, memberEmail: seeded.email,
+      events: [
+        event("local-pilot-review", tomorrow),
+        event("local-pilot-review", tomorrow, { startAt: tomorrow + HOUR, endAt: tomorrow + 2 * HOUR }),
+        event("local-internal", tomorrow + 3 * HOUR, { title: "Team standup", attendees: [{ email: seeded.email, response: "accepted" }] }),
+        event("local-private", tomorrow + 5 * HOUR, { title: "Doctor", visibility: "private" }),
+        ...weekly,
+      ],
+    });
+  },
+});
+
+export const devCalendarOwner = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    if (!isDevAuthBypassEnabled()) throw new ConvexError("Demo workspace seeding is disabled");
+    const user = await ctx.db.query("users").withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", DEV_USER_CLERK_ID)).first();
+    if (!user) throw new ConvexError("Run devSeed:ensureWorkspace first");
+    return { orgId: user.orgId, userId: user._id, email: user.email };
+  },
+});
+
 /** Local-only legacy data for proving the read-only DNC rollout against an actual backend. */
 export const seedSuppressionLegacy = mutation({
   args: {},

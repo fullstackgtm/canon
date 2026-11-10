@@ -78,7 +78,7 @@ function harness(examples?: Record<string, Example>, imports: Record<string, Mod
   const ctx = () => ({ db: new Proxy(db, { get: (target, key) => { const value = Reflect.get(target, key, target); return typeof value === "function" ? value.bind(target) : value; } }), scheduler, storage, runQuery, runMutation, // Claim requires an invitation for the verified email (#1030); the fixture caller is invited.
     auth: { getUserIdentity: async () => (caller.user ? { email: caller.user.email, emailVerified: true } : null) } });
   const action = { storage, scheduler, runQuery, runMutation };
-  const actions = new Set(["reconcile", "previewInstall", "install"]);
+  const actions = new Set(["reconcile", "previewInstall", "install", "previewDevelopment", "installDevelopment"]);
   const queries = new Set(["list", "installed", "migrationRead"]);
   const task = (ref: string, args: Record<string, unknown>) => ref === "internal.moduleActivityPublications.run" || actions.has(ref.split(".")[2])
     ? handler(ref).handler(action, args) : queries.has(ref.split(".")[2]) ? runQuery(ref, args) : runMutation(ref, args);
@@ -576,4 +576,29 @@ test("claims build missing plans for admins, import without module changes for m
   }
   caller.user = admin;
   caller.agent = null;
+});
+
+test("a development install is refused on a hosted deployment; self-hosted, it installs labelled and upgrades in place on a rebuild", async () => {
+  const files = (title: string) => ({ manifest: JSON.stringify({ ...fixture(true), title }), bundle: CODE });
+  const hosted = harness();
+  await assert.rejects(hosted.run("previewDevelopment", files("Dev")), /self-hosted/);
+  await assert.rejects(hosted.run("installDevelopment", { ...files("Dev"), manifestHash: "x" }), /self-hosted/);
+  assert.equal((await hosted.run("installed")).developmentInstalls, false);
+
+  const h = harness(undefined, {}, { CANON_AUTH: "local" });
+  const first = await h.run("previewDevelopment", files("Dev"));
+  assert.equal(first.source, "development install (not a release)");
+  await h.run("installDevelopment", { ...files("Dev"), manifestHash: first.manifestHash });
+  const pkg = (await h.rows("modulePackages")).find((r) => r.moduleId === ID)!;
+  assert.deepEqual([pkg.source.kind, pkg.source.id, pkg.version, h.files.get(pkg.bundleStorageId)], ["development", ID, "0.1.0", CODE]);
+  const listed = (await h.run("installed")).modules.find((m: { moduleId: string }) => m.moduleId === ID);
+  assert.deepEqual([listed.development, listed.source, listed.title], [true, "development install (not a release)", "Dev"]);
+  await assert.rejects(h.run("installDevelopment", { ...files("Dev"), manifestHash: first.manifestHash }), /already installed at this commit/);
+
+  const rebuilt = await h.run("previewDevelopment", files("Dev, rebuilt"));
+  assert.equal(rebuilt.upgrade?.from, "0.1.0");
+  await assert.rejects(h.run("installDevelopment", { ...files("Dev, changed again"), manifestHash: rebuilt.manifestHash }), /isn't the one you previewed/);
+  // The install screen sends its consent with an upgrade, as for a GitHub source.
+  await h.run("installDevelopment", { ...files("Dev, rebuilt"), manifestHash: rebuilt.manifestHash, approveReads: false, drop: [] });
+  assert.equal((await h.run("installed")).modules.find((m: { moduleId: string }) => m.moduleId === ID).title, "Dev, rebuilt");
 });

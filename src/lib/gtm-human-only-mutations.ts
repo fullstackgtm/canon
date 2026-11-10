@@ -107,6 +107,8 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   // docs/modules.md: agents list, describe, read and write modules through canon_module; a person installs and turns them on.
   "api.modules.issueLink": "issuing a customer link grants access outside the workspace; the share requires a person",
   "api.modules.install": "installing a module adds another author's collections and pages to the workspace; an admin reviews what it adds and decides",
+  "api.modules.previewDevelopment": "a development install reads module files from the admin's own machine, on a self-hosted Canon only; the admin chooses them in the app",
+  "api.modules.installDevelopment": "installing a module's code from a local build is a self-hosted admin's decision on the install screen; agents never install code",
   "api.modules.setEnabled": "turning a module on or off adds or removes its nav entry and pages for the whole workspace; an admin's call",
   "api.modules.uninstall": "uninstalling a module removes it from the workspace; an admin's call",
   "api.modules.cancelUpgrade": "cancelling a module's upgrade decides which version serves; an admin's call",

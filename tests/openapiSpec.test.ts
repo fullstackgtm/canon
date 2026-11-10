@@ -22,3 +22,9 @@ test("a removed stable operation or field, a newly required one and a dropped en
     "LeadCreate.company is newly required",
   ]);
 });
+
+test("a currency field is described as minor units (cents)", () => {
+  const amount = JSON.parse(expectedSpec()).components.schemas.DealValues.properties.amount;
+  assert.equal(amount["x-canon-unit"], "minor");
+  assert.match(amount.description, /cents/i);
+});

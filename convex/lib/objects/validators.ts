@@ -43,6 +43,7 @@ const fieldCommon = {
   required: v.optional(v.boolean()),
   rules: v.optional(v.array(fieldRule)),
   unique: v.optional(v.boolean()),
+  uniqueClaiming: v.optional(v.number()),
   hidden: v.optional(v.boolean()),
   archivedAt: v.optional(v.number()),
 };

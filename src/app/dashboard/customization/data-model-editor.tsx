@@ -8,7 +8,7 @@ import { ArrowDown, ArrowUp, Archive, Eye, EyeOff, Pencil, Undo2 } from "lucide-
 import { api } from "../../../../convex/_generated/api";
 import { BUILDER_TYPES, LOOKUP_TARGETS, type BuilderType, type ComputeSpec } from "../../../../convex/lib/objects/fieldBuilder";
 import { COMPUTED_TYPES, FUNCTIONS, ROLLUP_FNS, type ComputedType, type RollupFn } from "../../../../convex/lib/objects/formula";
-import { OBJECT_ICONS, PICKLIST_COLORS, STANDARD_OBJECTS, type ObjectIcon } from "../../../../convex/lib/objects/registry";
+import { canBeUnique, OBJECT_ICONS, PICKLIST_COLORS, STANDARD_OBJECTS, type FieldType, type ObjectIcon } from "../../../../convex/lib/objects/registry";
 import { RULES_BY_TYPE, type FieldRule } from "../../../../convex/lib/objects/rules";
 import { LoadingRows } from "@/components/dashboard";
 import { OPTION_CHIP } from "@/components/records/fields";
@@ -337,6 +337,15 @@ function FieldLine({ object, field, canEdit, fields, sources }: { object: Modele
     ? STANDARD_OBJECTS[field.lookupTo as keyof typeof STANDARD_OBJECTS]?.label ?? own?.find((o) => o.apiName === field.lookupTo)?.label ?? null
     : null;
   const opts = "options" in field ? field.options : [];
+  const claiming = field.uniqueClaiming !== undefined;
+  const refused = !field.unique && !claiming && field.uniqueCheck?.status === "failed" ? field.uniqueCheck.error : null;
+  const uniqueAble = custom && !computed && canBeUnique(field.type as FieldType);
+  const setUnique = (on: boolean) => {
+    // Companies and people nobody has worked yet hold no claim: they are checked now, and held to it when someone edits them.
+    const unworked = on && (object === "account" || object === "contact") ? " Companies and people nobody has worked yet are checked now; each is held to it the next time someone edits it." : "";
+    const ask = on ? `Make ${field.label} unique? Canon checks every record for a value two of them share first; with none, no two records can take one value again.${unworked}` : `Stop holding ${field.label} unique? Records may then share a value.`;
+    if (window.confirm(ask)) void run(() => update({ object, fieldId: field.fieldId, unique: on }), on ? "Checking for duplicates. Progress is in the activity tray." : "No longer unique");
+  };
 
   return (
     <>
@@ -361,12 +370,15 @@ function FieldLine({ object, field, canEdit, fields, sources }: { object: Modele
             {field.isName ? "Name" : field.kind === "standard" ? "Standard" : field.kind === "ai" ? "AI field" : "Custom"}
             {field.hidden ? " · hidden" : ""}
           </span>
-          {(field.required || field.rules?.length) && !checks ? (
+          {(field.required || field.rules?.length || field.unique || claiming) && !checks ? (
             <div className="mt-1 flex flex-wrap gap-1 text-xs">
               {field.required && <span className="border border-border px-1.5 py-0.5">Required</span>}
+              {field.unique && <span className="border border-border px-1.5 py-0.5">Unique</span>}
+              {claiming && <span className="border border-border px-1.5 py-0.5">Checking for duplicates…</span>}
               {field.rules?.map((r) => <span key={r.kind} className="border border-border px-1.5 py-0.5">{ruleSummary(r)}</span>)}
             </div>
           ) : null}
+          {refused && <p role="status" className="mt-1 max-w-prose text-xs text-destructive">{refused}</p>}
           {computed && !compute && <ComputeSummary field={computed} sources={sources} />}
           {hasOptions(field.type) && !options && (
             <div className="mt-1 flex flex-wrap gap-1">
@@ -395,6 +407,7 @@ function FieldLine({ object, field, canEdit, fields, sources }: { object: Modele
                     <button type="button" disabled={busy} onClick={() => setChecks(true)} className={btn}>{takesRules(field.type) ? "Required and rules" : "Required"}</button>
                   )}
                   {hasOptions(field.type) && <button type="button" disabled={busy} onClick={() => setOptions(opts.map((o) => ({ ...o })))} className={btn}>Options</button>}
+                  {uniqueAble && <button type="button" disabled={busy} onClick={() => setUnique(!(field.unique || claiming))} className={btn}>{field.unique || claiming ? "Not unique" : "Make unique"}</button>}
                   {!field.isName && (
                     <>
                       <button type="button" disabled={busy} onClick={() => void run(() => update({ object, fieldId: field.fieldId, hidden: !field.hidden }), field.hidden ? "Shown" : "Hidden")} className={btn}>

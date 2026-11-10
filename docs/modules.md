@@ -173,15 +173,39 @@ enable" has the details.
 
 ### Change it and install again
 
-1. Edit `module.json` or `server.ts`, then run `npx canon-module-kit build`
-   again. The kit needs no Canon backend.
-2. Test each call as a function. A call takes a context and the reads its plan
-   names, so a test passes both and checks what it returns.
-   `tests/staleFactsExample.test.ts` tests Stale facts this way and checks that
-   the committed bundle matches a fresh build.
-3. Commit, push, and install the same source again. A new commit of the same
-   version upgrades the module in place and keeps its data. An older version is
-   refused. "Upgrades" says what an upgrade checks.
+1. Edit `module.json` or `server.ts`, then run `npx canon-module-kit build` again. The kit needs no Canon backend.
+2. Test each call with the kit's `runCall`. It hands a call the context and the reads you give it, after checking the
+   reads against your `module.json`: the call declares each read and no other, each Canon record holds only `id`,
+   `createdAt` and the fields `reads` grants, each module doc only its collection's fields, fact rows only the
+   attributes `facts` declares, and no list is longer than its read's limit. A test that feeds the call data Canon
+   wouldn't read for it fails, naming the read.
+
+   ```ts
+   import { readFileSync } from "node:fs";
+   import { parseModuleManifest } from "@fullstackgtm/canon-module-kit/manifest";
+   import { runCall } from "@fullstackgtm/canon-module-kit/testing";
+   import { calls } from "./server.ts";
+
+   const parsed = parseModuleManifest(JSON.parse(readFileSync("module.json", "utf8")));
+   if (!parsed.ok) throw new Error(parsed.errors.join("\n"));
+   const out = await runCall(parsed.manifest, calls, "count", { reads: { notes: [] } });
+   ```
+
+   `runCall` does not run Canon's read plan. Which records the caller sees, the fields a role hides, the order and
+   pages of a read, and the shape of reports, aggregates, trees and other modules' interfaces are Canon's.
+   `tests/staleFactsExample.test.ts` tests Stale facts this way, and checks that the committed bundle matches a fresh
+   build.
+3. Try it on a self-hosted Canon (`docs/self-hosting.md`) without pushing it. On Customization, under **From GitHub**,
+   **A module you're building** takes `module.json` and the bundle from your computer. The install screen is the same
+   as for GitHub: what the module reads, proposes and runs, for an admin or a manager to approve. The module shows as a
+   **Development install**, never as a release, and its source reads `development install (not a release)`. After
+   the next build, choose the new files: the same module upgrades in place and keeps its data, as a new commit does.
+   The same files again are refused as already installed, and an older version as going back. A hosted Canon refuses
+   development installs; only a self-hosted one (`CANON_AUTH=local`) or a local development stack takes them. An
+   agent can't make one. A module with server code also needs the recipe runtime, which a self-hosted Canon doesn't
+   start: `docs/self-hosting.md` says how to give it one (`RECIPE_RUNTIME_URL`, `RECIPE_RUNTIME_SECRET`).
+4. To release it, commit, push and install the same directory from GitHub. A development install and a GitHub install
+   of one module are different sources: uninstall the development one first. "Upgrades" says what an upgrade checks.
 
 ### Find the reference and the examples
 

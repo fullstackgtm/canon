@@ -67,7 +67,7 @@ const UPGRADES = {
 /** The functions that read only modulePackages and recipeEnablements: no module docs. */
 /** Uploads: the route's ticket check and record, through scope.ts's own functions (no caller: the ticket is the capability). */
 const UPLOADS = { uploadTicket: /\bticketOpen\(/, recordUpload: /\brecordUploadOf\(/ };
-const PACKAGE_ONLY = ["list", "examples", "installed", "installState", "previewInstall", "install", "installFromLocalBase", "setEnabled", "uninstall", "cancelUpgrade"];
+const PACKAGE_ONLY = ["list", "examples", "installed", "installState", "previewInstall", "install", "installFromLocalBase", "previewDevelopment", "installDevelopment", "setEnabled", "uninstall", "cancelUpgrade"];
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

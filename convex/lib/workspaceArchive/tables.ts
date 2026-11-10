@@ -166,6 +166,7 @@ export const ARCHIVE_TABLES = {
   callInsights: data("by_orgId"),
   callInsightTags: data("by_orgId"),
   callSuggestions: data("by_orgId_and_userId_and_status"),
+  calendarEventLinks: local("which calendar event each meeting came from; the member's calendar links them again"),
   patchPlans: data("by_orgId"),
   patchOperations: data("by_orgId"),
   approvalRequests: data("by_orgId"),

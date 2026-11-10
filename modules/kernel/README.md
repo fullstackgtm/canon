@@ -39,9 +39,26 @@ Import types with `import type`: the build drops them, so the bundle holds no co
 
 ## Tests
 
-A call is a plain function of a context and the reads its plan names. Test it by calling it with both and checking what
-it returns. Canon's [`tests/staleFactsExample.test.ts`](https://github.com/fullstackgtm/canon/blob/main/tests/staleFactsExample.test.ts)
-tests the Stale facts example this way.
+A call is a plain function of a context and the reads its plan names. `runCall` from
+`@fullstackgtm/canon-module-kit/testing` runs one with the reads a test gives it, after checking them against the
+module's `module.json`, and throws every problem it finds:
+
+```ts
+import { runCall } from "@fullstackgtm/canon-module-kit/testing";
+const out = await runCall(manifest, calls, "count", { reads: { notes: [] }, now: Date.UTC(2026, 0, 1) });
+```
+
+It checks that the call declares each read and no other, that each Canon record holds only `id`, `createdAt` and the
+fields `reads` grants, that each module doc holds only its collection's fields, that fact rows hold only the
+attributes `facts` declares, and that no list is longer than its read's limit. `readProblems` returns the same
+problems as a list, and `callContext` builds the context alone.
+
+It does not run Canon's read plan, which lives in Canon. It doesn't know which records a caller sees, which fields a
+role hides, how a read orders or pages its rows, or the shape of reports, aggregates, trees and other modules'
+interfaces: those reads pass unchecked. To run the real thing, install the module into a self-hosted Canon as a
+development install ([docs/modules.md](https://github.com/fullstackgtm/canon/blob/main/docs/modules.md#change-it-and-install-again)).
+Canon's [`tests/staleFactsExample.test.ts`](https://github.com/fullstackgtm/canon/blob/main/tests/staleFactsExample.test.ts)
+tests the Stale facts example with `runCall`.
 
 ## Versions
 

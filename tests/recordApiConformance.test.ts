@@ -441,6 +441,76 @@ test("past its budget a token is answered 429 with Retry-After, as the document 
   }
 });
 
+/** An object with a field of every filterable type, and a unique code. Added by the tests that use it, so the sweep above does not cover it. */
+const KIT = {
+  apiName: "custom_kit", registryVersion: 1, object: { label: "Kit", pluralLabel: "Kits", icon: "box", titleField: "custom.name" },
+  customFields: [
+    { fieldId: "custom.name", apiName: "custom.name", label: "Name", type: "text", required: true },
+    { fieldId: "custom.code", apiName: "custom.code", label: "Code", type: "text", unique: true },
+    { fieldId: "custom.seats", apiName: "custom.seats", label: "Seats", type: "number" },
+    { fieldId: "custom.budget", apiName: "custom.budget", label: "Budget", type: "currency" },
+    { fieldId: "custom.due", apiName: "custom.due", label: "Due", type: "date" },
+    { fieldId: "custom.kickoff", apiName: "custom.kickoff", label: "Kickoff", type: "datetime" },
+    { fieldId: "custom.signed", apiName: "custom.signed", label: "Signed", type: "checkbox" },
+    { fieldId: "custom.stage", apiName: "custom.stage", label: "Stage", type: "picklist", options: [{ value: "plan", label: "Plan", active: true }] },
+    { fieldId: "custom.tags", apiName: "custom.tags", label: "Tags", type: "multipicklist", options: [{ value: "red", label: "Red", active: true }] },
+    { fieldId: "custom.inboxes", apiName: "custom.inboxes", label: "Inboxes", type: "emails" },
+    { fieldId: "custom.sponsor", apiName: "custom.sponsor", label: "Sponsor", type: "user" },
+    { fieldId: "custom.client", apiName: "custom.client", label: "Client", type: "lookup", lookupTo: "account" },
+    { fieldId: "custom.double", apiName: "custom.double", label: "Double", type: "formula", formula: "custom.seats * 2", returns: "number" },
+  ],
+};
+let kitAdded = false;
+async function withKit() {
+  if (kitAdded) return;
+  kitAdded = true;
+  await db.insert("objectDefs", { orgId: ORG, ...KIT, updatedAt: 1 });
+  await db.patch("rolePermissions:rep", { rules: [{ object: "custom_project", fields: [{ apiName: "custom.budget", level: "hidden" }] }, { object: "custom_kit", visibility: "own", unowned: false }] });
+}
+
+test("a list filters by a field of every filterable type, each value typed as its field is", async () => {
+  await withKit();
+  const live = (await call([staticDoc], "get", "/openapi.json")).body as Doc;
+  const kickoff = Date.UTC(2026, 11, 1, 15, 30);
+  const values = {
+    "custom.name": "Starter kit", "custom.seats": 12, "custom.budget": 2400050, "custom.due": "2026-12-01", "custom.kickoff": kickoff, "custom.signed": true,
+    "custom.stage": "plan", "custom.tags": ["red"], "custom.inboxes": ["a@kit.example"], "custom.sponsor": "users:ada", "custom.client": "acc_1",
+  };
+  const id = ((await call([live], "post", "/records/custom_kit", { body: { values } })).body as { id: string }).id;
+  const matched = [
+    "custom.seats:gt:5", "custom.budget:gte:2400050", "custom.due:lt:2027-01-01", "custom.kickoff:gt:2026-12-01T15:00:00Z", `custom.kickoff:lte:${kickoff}`,
+    "custom.signed:eq:true", "custom.stage:in:plan", "custom.tags:hasAny:red", "custom.inboxes:hasAll:a@kit.example", "custom.sponsor:eq:users:ada",
+    "custom.client:eq:acc_1", "recordTitle:startsWith:Starter", `id:eq:${id}`, "createdAt:gt:2000-01-01T00:00:00Z", "custom.code:empty",
+  ];
+  for (const filter of matched) {
+    const res = await call([live], "get", "/records/custom_kit", { query: [["filter", filter]] });
+    assert.deepEqual([res.status, (res.body as { data: Array<{ id: string }> }).data.map((r) => r.id)], [200, [id]], filter);
+  }
+  // A formula filters as the type it gives (its values are computed by the record service, not here).
+  assert.equal((await call([live], "get", "/records/custom_kit", { query: [["filter", "custom.double:gt:5"]] })).status, 200);
+  assert.equal((await call([live], "get", "/records/custom_kit", { query: [["filter", "custom.kickoff:gt:tomorrow"]], invalid: true })).status, 400);
+});
+
+test("a value another record holds on a unique field is refused with 422 naming the field, and names the holder only to someone who sees it", async () => {
+  await withKit();
+  const live = (await call([staticDoc], "get", "/openapi.json")).body as Doc;
+  assert.equal((await call([live], "post", "/records/custom_kit", { body: { values: { "custom.name": "Admin's kit", "custom.code": "K-1" } } })).status, 201);
+  const refused = async () => {
+    const res = await call([live], "post", "/records/custom_kit", { body: { values: { "custom.name": "Second kit", "custom.code": "k-1" } }, invalid: true });
+    const { error } = res.body as { error: { code: string; errors: Array<{ field: string; message: string }> } };
+    assert.equal(res.status, 422, JSON.stringify(res.body));
+    assert.deepEqual([error.code, error.errors.map((e) => e.field)], ["validation_failed", ["custom.code"]]);
+    return error.errors[0]!.message;
+  };
+  assert.match(await refused(), /Admin's kit/);
+  user = REP;
+  try {
+    assert.doesNotMatch(await refused(), /Admin's kit/);
+  } finally {
+    user = ADMIN;
+  }
+});
+
 test("the live document leaves out a field the caller's role cannot see", async () => {
   user = REP;
   try {

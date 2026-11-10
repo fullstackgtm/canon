@@ -34,6 +34,13 @@ export const isMultiValueType = (t: FieldType): t is MultiValueType => (MULTI_VA
 /** The most values one multi-value field holds. */
 export const MULTI_VALUES_MAX = 20;
 
+/** Field types an admin may mark unique: values that name one record. A date, an amount, a choice or an owner is shared by many. */
+export const UNIQUE_TYPES = ["text", "number", "emails", "phones", "links"] as const;
+export const canBeUnique = (t: FieldType): boolean => (UNIQUE_TYPES as readonly string[]).includes(t);
+
+/** Whether the writer holds a field's values to unique claims: it is unique, or its claims are being taken. */
+export const claimsUnique = (f: { unique?: boolean; uniqueClaiming?: number }): boolean => f.unique === true || f.uniqueClaiming !== undefined;
+
 /** The stable key of a field: never renamed, the hot-row key and the DuckDB column `c_<fieldId>`. */
 export type FieldId = string & { readonly __brand: "FieldId" };
 
@@ -73,6 +80,11 @@ type FieldCommon = {
   rules?: readonly FieldRule[];
   /** Enforced by the writer against an index; `coerce` cannot see other records. */
   unique?: boolean;
+  /**
+   * When an admin turned uniqueness on and the existing values are still being claimed (convex/uniqueFields.ts).
+   * Writes are already held to the claims; the field becomes `unique` once every value is claimed.
+   */
+  uniqueClaiming?: number;
   /** Maintained by the object layer itself (timestamps); never writable. */
   system?: boolean;
   /** A custom field left off record pages and the column chooser; its values are still stored, listed and written. */

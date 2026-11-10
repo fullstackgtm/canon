@@ -86,7 +86,7 @@ function ModuleRow({ m, status: { fromCanon, update }, canEdit, busy, grants, on
           <span className="text-sm font-medium">{m.title}</span>
           <span className={cn(tag, m.enabled && "border-primary text-primary")}>{m.enabled ? "On" : "Off"}</span>
           <span className={tag}>v{m.version}</span>
-          <span className={tag}>{fromCanon ? "Canon" : "GitHub"}</span>
+          <span className={cn(tag, m.development && "border-warning text-warning")}>{m.development ? "Development install" : fromCanon ? "Canon" : "GitHub"}</span>
           <span className="text-xs text-muted-foreground">{navEntries(m)[0]?.section} · {m.pages} {m.pages === 1 ? "page" : "pages"}</span>
           {update && <span className={cn(tag, "border-warning text-warning")}>v{update.version} available</span>}
           {m.upgrade && !m.upgrade.error && <span className={cn(tag, "border-warning text-warning")}>Upgrading</span>}
@@ -125,7 +125,7 @@ function ModuleRow({ m, status: { fromCanon, update }, canEdit, busy, grants, on
           {canEdit && (
             <div className="flex flex-wrap gap-2 pt-1">
               <button type="button" role="switch" aria-checked={m.enabled} aria-label={`${m.title} on`} className={btn} disabled={busy} onClick={onToggle}>{m.enabled ? "Turn off" : "Turn on"}</button>
-              {(!m.upgrade || m.upgrade.error) && (
+              {(!m.upgrade || m.upgrade.error) && !m.development && (
                 <button type="button" className={btn} disabled={busy} onClick={() => onInstall(update?.source ?? m.source)}><ArrowUpCircle className="h-3.5 w-3.5" />{m.upgrade ? "Upgrade to a fixed version" : "Check for updates"}</button>
               )}
               <button type="button" className={btn} disabled={busy || m.enabled} title={m.enabled ? "Turn it off first" : undefined} onClick={onUninstall}><Trash2 className="h-3.5 w-3.5" />Uninstall</button>
@@ -257,24 +257,32 @@ function GrantsLine({ moduleId, operations, canManage, signingReady, maxDays }: 
  * version it upgrades in place: what it newly reads needs approving here, and a collection it removes with its docs
  * needs ticking.
  */
-export function InstallModuleSheet({ initial, onClose }: { initial: string; onClose: () => void }) {
+export function InstallModuleSheet({ initial, development = false, onClose }: { initial: string; development?: boolean; onClose: () => void }) {
   const previewInstall = useAction(api.modules.previewInstall);
   const install = useAction(api.modules.install);
+  const previewDevelopment = useAction(api.modules.previewDevelopment);
+  const installDevelopment = useAction(api.modules.installDevelopment);
   const [source, setSource] = useState(initial);
   const [drop, setDrop] = useState<string[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // A development install's files, read from the admin's own machine.
+  const [files, setFiles] = useState<{ manifest?: string; bundle?: string }>({});
   const imports = preview?.imports ?? [];
 
   async function onPreview() {
     setBusy(true); setError(null); setPreview(null); setDrop([]);
-    try { setPreview(await previewInstall({ source })); } catch (e) { setError(getErrorMessage(e)); } finally { setBusy(false); }
+    try { setPreview(development ? await previewDevelopment({ manifest: files.manifest ?? "", ...(files.bundle ? { bundle: files.bundle } : {}) }) : await previewInstall({ source })); }
+    catch (e) { setError(getErrorMessage(e)); } finally { setBusy(false); }
   }
   async function onInstall(p: Preview) {
     setBusy(true);
     try {
-      const out = await install({ source: p.source, sha: p.pinned.sha, manifestHash: p.manifestHash, ...(p.upgrade ? { approveReads: p.upgrade.newReads.length > 0, drop } : {}) });
+      const consent = p.upgrade ? { approveReads: p.upgrade.newReads.length > 0, drop } : {};
+      const out = development
+        ? await installDevelopment({ manifest: files.manifest ?? "", ...(files.bundle ? { bundle: files.bundle } : {}), manifestHash: p.manifestHash, ...consent })
+        : await install({ source: p.source, sha: p.pinned.sha, manifestHash: p.manifestHash, ...consent });
       toast.success(!p.upgrade ? `${p.title} installed. Turn it on to add it to the nav.` : out.status === "upgrading" ? `${p.title}: upgrading to v${p.version}. Its data is being rebuilt.` : `${p.title} upgraded to v${p.version}.`);
       onClose();
     } catch (e) { toast.error(getErrorMessage(e)); } finally { setBusy(false); }
@@ -284,14 +292,26 @@ export function InstallModuleSheet({ initial, onClose }: { initial: string; onCl
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent className="w-full gap-0 overflow-y-auto sm:max-w-xl">
         <div className="border-b border-border p-4 pr-10">
-          <SheetTitle className="text-base">Install a module from GitHub</SheetTitle>
-          <SheetDescription className="text-xs">A repo, or a directory in one, holding module.json. Pinned to the commit its tag or branch names now.</SheetDescription>
+          <SheetTitle className="text-base">{development ? "Install a module you're building" : "Install a module from GitHub"}</SheetTitle>
+          <SheetDescription className="text-xs">{development
+            ? "module.json and the bundle npx canon-module-kit build wrote. It installs as a development install, not a release; choose new files after each build to upgrade it in place."
+            : "A repo, or a directory in one, holding module.json. Pinned to the commit its tag or branch names now."}</SheetDescription>
         </div>
         <div className="flex-1 space-y-6 p-4">
-          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void onPreview(); }}>
-            <input className="w-full border border-border bg-background px-2 py-1 font-mono text-xs" placeholder="github:owner/repo/path@v1.0.0" value={source} onChange={(e) => setSource(e.target.value)} aria-label="Module source" spellCheck={false} />
-            <button type="submit" className={btn} disabled={busy || !source.trim()}>{busy && !preview ? "Reading…" : "Preview"}</button>
-          </form>
+          {development ? (
+            <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); void onPreview(); }}>
+              <label className="block text-xs">module.json <input type="file" accept=".json,application/json" className="mt-1 block text-xs" aria-label="module.json"
+                onChange={async (e) => { const f = e.target.files?.[0]; const text = f ? await f.text() : undefined; setPreview(null); setFiles((x) => ({ ...x, manifest: text })); }} /></label>
+              <label className="block text-xs">Bundle (dist/module.js), for a module with server code <input type="file" accept=".js,.mjs,text/javascript" className="mt-1 block text-xs" aria-label="Bundle"
+                onChange={async (e) => { const f = e.target.files?.[0]; const text = f ? await f.text() : undefined; setPreview(null); setFiles((x) => ({ ...x, bundle: text })); }} /></label>
+              <button type="submit" className={btn} disabled={busy || !files.manifest}>{busy && !preview ? "Reading…" : "Preview"}</button>
+            </form>
+          ) : (
+            <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void onPreview(); }}>
+              <input className="w-full border border-border bg-background px-2 py-1 font-mono text-xs" placeholder="github:owner/repo/path@v1.0.0" value={source} onChange={(e) => setSource(e.target.value)} aria-label="Module source" spellCheck={false} />
+              <button type="submit" className={btn} disabled={busy || !source.trim()}>{busy && !preview ? "Reading…" : "Preview"}</button>
+            </form>
+          )}
           {error && <p className="text-xs text-destructive">{error}</p>}
           {preview && (
             <div className="space-y-4 text-sm">
