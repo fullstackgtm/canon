@@ -28,6 +28,7 @@ const M = loadConvex(["researchAgents.ts", "canonGate.ts", "agentTurns.ts", "age
   "records.ts": (real) => ({
     ...real,
     requireCaller: async () => caller,
+    clientFor: () => records,
     callerClient: (_ctx: unknown, c: { access: Access }) => scopedRecordClient(records, [c.access], async () => null),
     principalClient: (_ctx: unknown, _org: string, accesses: Access[]) => scopedRecordClient(records, accesses, async () => null),
   }),
@@ -249,4 +250,25 @@ test("module answer actions admit record-service scope before projecting evidenc
   const hidden = await as(db, AVERY);
   await actionReads.readRecordsOf(hidden.ctx as never, snap, read);
   assert.deepEqual(plain(read.answers), []);
+});
+
+test("a module's company page and the facts it feeds hold only the companies the caller sees; a job reads every one", async () => {
+  records = await workspace();
+  const actionReads = M["lib/modules/recordReadAction.ts"] as unknown as typeof import("../convex/lib/modules/recordReadAction.ts");
+  const canon = M["lib/modules/canonReads.ts"] as unknown as typeof import("../convex/lib/modules/canonReads.ts");
+  const manifest = { reads: { companies: ["name"] }, facts: { companies: { read: ["custom.sells_gov"] } } } as never;
+  const db = seed();
+  const page = (access: Access | null) => canon.planRecordRead({ db } as never, ORG as never, access, manifest, "companies.updatedSince", { since: 0 }, 1000);
+  const h = await as(db, AVERY);
+  const read: Record<string, import("../modules/kernel/calls.ts").ReadValue> = {};
+  // The plan reaches the action with its keys sorted, so the read that takes the page's ids can come first.
+  await actionReads.readRecordsOf(h.ctx as never, { records: {
+    facts: { ...await canon.planRecordRead({ db } as never, ORG as never, caller!.access, manifest, "facts.forRecords", { object: "companies", ids: [] }, 1000), idsFrom: { read: "page" } },
+    page: await page(caller!.access),
+  } }, read);
+  assert.deepEqual(plain(read.page), [{ id: "atlas", createdAt: 1, updatedAt: 1, name: "Atlas Cloud" }]);
+  assert.deepEqual(plain(read.facts as Array<{ id: string }>).map((r) => r.id), ["atlas"]);
+  const job: Record<string, import("../modules/kernel/calls.ts").ReadValue> = {};
+  await actionReads.readRecordsOf(h.ctx as never, { records: { page: await page(null) } }, job, ORG as never);
+  assert.deepEqual(plain(job.page as Array<{ id: string }>).map((r) => r.id), ["atlas", "northstar"]);
 });

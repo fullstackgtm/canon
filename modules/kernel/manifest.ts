@@ -465,7 +465,27 @@ export const CANON_READS = {
    * winning fact was last confirmed and, with `receipts`, the newest facts behind it. Only attributes `facts.<object>.read` declares.
    */
   "facts.forRecords": { object: "facts", args: { object: "string", ids: "string[]", attributes: "string[]", receipts: "number" }, optional: ["attributes", "receipts"], stability: "preview", since: "2026-11-09" },
+  /**
+   * One page of the companies (people) the caller sees that changed at or after `since` (ms), oldest change first: at
+   * most the read's limit (`RECORD_PAGE_MAX`). The last row of a page with more after it carries `next`, the `cursor`
+   * that reads the following page with the same `since` and `owner`.
+   */
+  "companies.updatedSince": { object: "companies", args: { since: "number", cursor: "string", owner: "string" }, optional: ["cursor", "owner"], stability: "preview", since: "2026-11-10" },
+  "people.updatedSince": { object: "people", args: { since: "number", cursor: "string", owner: "string" }, optional: ["cursor", "owner"], stability: "preview", since: "2026-11-10" },
 } as const satisfies Record<string, CanonReadDecl>;
+/** The most companies or people one page of `companies.updatedSince` or `people.updatedSince` holds, and its default. */
+export const RECORD_PAGE_MAX = 500;
+export const RECORD_PAGE_READS: readonly CanonRead[] = ["companies.updatedSince", "people.updatedSince"];
+/** Record-service reads whose rows are companies or people, by their `id`: a later record read may take its ids from one. */
+export const RECORD_ROW_READS: readonly CanonRead[] = ["companies.byIds", "companies.bestFit", "companies.updatedSince", "people.byIds", "people.forCompanies", "people.updatedSince", "deals.people", "audiences.members", "people.snapshotPage"];
+/**
+ * The record-service reads that may take a list argument from an earlier `RECORD_ROW_READS` read, by that argument:
+ * Canon reads them in order in the call's action, so the later one reads the ids the earlier one returned.
+ */
+export const RECORD_IDS_ARG: Partial<Record<CanonRead, string>> = {
+  "companies.byIds": "ids", "people.byIds": "ids", "people.forCompanies": "ids", "activities.forCompanies": "ids",
+  "facts.forRecords": "ids", "suppression.check": "ids", "observations.forPeople": "people",
+};
 /**
  * A Canon read's declaration. `stability` "preview" marks a read whose shape may still change before it is stable
  * (docs/modules.md, "Preview reads"), with the date it shipped in `since`; a read without one is stable.
@@ -2838,6 +2858,10 @@ function callChecks(m: ModuleManifest, e: string[]) {
         if (r.custom && (object !== "deals" || r.canon === "deals.asOf" || r.canon === "deals.changesBetween")) e.push(`${rat}.custom: only a flat read of deals carries their custom fields`);
         else if (r.custom && !m.reads?.deals?.includes("custom")) e.push(`${rat}.custom needs reads.deals to grant custom`);
         if (r.custom && r.limit !== undefined && r.limit > 500) e.push(`${rat}.limit: a read with custom fields reads at most 500 deals`);
+        if (RECORD_PAGE_READS.includes(r.canon)) {
+          if (r.limit !== undefined && r.limit > RECORD_PAGE_MAX) e.push(`${rat}.limit: ${r.canon} reads a page of at most ${RECORD_PAGE_MAX}`);
+          if (r.args?.owner !== undefined && !m.reads?.[object]?.includes("ownerId" as never)) e.push(`${rat}.args.owner filters by owner, which reads.${object} doesn't grant (ownerId)`);
+        }
         if (r.canon === "suppression.check" && !m.reads?.people?.includes("suppression")) e.push(`${rat}.canon needs reads.people to grant suppression`);
         if (r.canon === "suppression.check" && call.system) e.push(`${rat}.canon reads as a caller, so a system call can't read suppression.check`);
         if (r.canon === "people.snapshot" || r.canon === "people.count") {
@@ -2867,7 +2891,8 @@ function callChecks(m: ModuleManifest, e: string[]) {
           const one = from !== undefined && "view" in from && m.views[from.view]?.kind === "one";
           if (!from) e.push(`${where} names ${x.read}, which is not an earlier read of ${name}`);
           else if ("report" in from || "aggregate" in from) e.push(`${where} names ${x.read}, ${"report" in from ? "a report" : "an aggregate"}: a read takes its values from docs or records`);
-          else if ("canon" in from && (isRecordServiceRead(from.canon) || from.canon === "research.answers" || from.canon === "me.context" || from.canon === "social.search" || from.canon === "web.pages" || from.canon === "web.search" || from.canon === "market.facets" || from.canon === "market.sample")) e.push(`${where} names ${x.read}, which Canon reads from the record service after the plan: a read takes its values from deals, members, teams or module docs`);
+          // A record read may take ids from an earlier read of companies or people: both are read, in order, in the call's action.
+          else if ("canon" in from && !("canon" in r && RECORD_ROW_READS.includes(from.canon) && RECORD_IDS_ARG[r.canon] === k) && (isRecordServiceRead(from.canon) || from.canon === "research.answers" || from.canon === "me.context" || from.canon === "social.search" || from.canon === "web.pages" || from.canon === "web.search" || from.canon === "market.facets" || from.canon === "market.sample")) e.push(`${where} names ${x.read}, which Canon reads from the record service after the plan: a read takes its values from deals, members, teams or module docs`);
           else if ("icpTree" in from) e.push(`${where} names an ICP tree counted after the read plan`);
           else if (x.field !== undefined && !("module" in from) && !("tree" in from) && !readFields(from).includes(x.field)) e.push(`${where}.field names ${x.field}, which ${x.read} doesn't read`);
           if (from && !isListArg(types[k]) && !one) e.push(`${where} takes one value: an earlier read gives one only when it reads one doc`);

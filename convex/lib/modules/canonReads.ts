@@ -31,7 +31,7 @@ import { stateForReader } from "../plays/state";
 import { mayReadText } from "../conversations/intake";
 import { runsRead } from "../runs";
 import { agentsRead } from "../agentReads";
-import { CANON_READS, MAX_IN_VALUES, SNAPSHOT_PAGE, type CanonRead, type ModuleManifest } from "../../../modules/kernel/manifest.ts";
+import { CANON_READS, MAX_IN_VALUES, RECORD_PAGE_MAX, SNAPSHOT_PAGE, type CanonRead, type ModuleManifest } from "../../../modules/kernel/manifest.ts";
 import { planFactsRead } from "../../../modules/kernel/facts.ts";
 import { isStructuredAttribute } from "../canon/attributes.ts";
 import type { AddedSource, RecordReadSpec } from "./recordReads";
@@ -487,6 +487,18 @@ export async function planRecordRead(ctx: QueryCtx, orgId: Id<"organizations">, 
     const ms = (k: "since" | "until") => args[k] === null || args[k] === undefined ? null : typeof args[k] === "number" ? args[k] as number : refuse(`${read} needs ${k} as a time in ms.`);
     const types = args.types === null || args.types === undefined ? undefined : Array.isArray(args.types) && args.types.every((t) => (OBSERVATION_CHANNELS as readonly unknown[]).includes(t)) ? args.types as string[] : refuse(`${read} types are some of ${OBSERVATION_CHANNELS.join(", ")}.`);
     return { read, ids: idsOf(read, args.people), since: ms("since"), until: ms("until"), ...(types ? { types } : {}), limit, fields: [...(manifest.reads?.observations ?? [])] };
+  }
+  if (read === "companies.updatedSince" || read === "people.updatedSince") {
+    const object = read === "companies.updatedSince" ? "companies" : "people";
+    if (typeof args.since !== "number") return refuse(`${read} needs since, a time in ms.`);
+    const text = (k: "cursor" | "owner") => args[k] === null || args[k] === undefined || args[k] === "" ? null : typeof args[k] === "string" && (args[k] as string).length <= 400 ? args[k] as string : refuse(`${read} takes ${k} as text.`);
+    const owner = text("owner");
+    if (owner !== null && !manifest.reads?.[object]?.includes("ownerId" as never)) return refuse(`${read} filters by owner, which reads.${object} doesn't grant (ownerId).`);
+    const granted = [...(manifest.reads?.[object] ?? [])] as string[];
+    return {
+      read, ids: [], since: args.since, limit: Math.min(limit, RECORD_PAGE_MAX), fields: granted.filter((f) => f !== "suppression"), page: { cursor: text("cursor"), owner },
+      ...(object === "people" && access && access.userId !== "system" && granted.includes("suppression") ? { withSuppression: true } : {}),
+    };
   }
   const object = CANON_READS[read].object as "companies" | "people" | "activities";
   const since = args.since === null || args.since === undefined ? null : typeof args.since === "number" ? args.since : refuse(`${read} needs since as a time in ms.`);

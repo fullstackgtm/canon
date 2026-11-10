@@ -3,8 +3,10 @@
 An example module built the way a module outside Canon is built. It uses only the module contract
 ([docs/modules.md](../../../docs/modules.md)) and type imports from the module kit, `@fullstackgtm/canon-module-kit`.
 
-For the deals closing from 30 days ago to 90 days out, and the companies a member watches, it reads Canon's fact
-ledger with `facts.forRecords`. It lists the contested fields first, then the ones confirmed longest ago. A member
+For the deals closing from 30 days ago to 90 days out, and the companies the member sees, 50 at a time from
+`companies.updatedSince` (the ones changed longest ago first), it reads Canon's fact ledger with `facts.forRecords`.
+The company page's ids go straight into `facts.forRecords`, and **Next 50 companies** reads the following page with
+the `next` the last row carries. It lists the contested fields first, then the ones confirmed longest ago. A member
 proposes a corrected value with evidence through `facts.propose`. A member who reviews facts accepts or rejects it on
 the fact review queue, and the page shows each proposal's outcome from `proposals.byIds`.
 
@@ -25,7 +27,8 @@ npm run module:build -- examples/modules/stale-facts
 
 Each checks `module.json` and writes `dist/module.js`. Commit both. `server.ts` imports only types from the kit, so
 the bundle needs nothing from Canon at run time, and both builds write the same bytes. Inside Canon, a `paths` entry in
-`tsconfig.json` points the kit's package name at `modules/kernel/`.
+`tsconfig.json` points the kit's package name at `modules/kernel/`. `server.ts` imports `module.json`, so the attributes
+it may propose come from the manifest's `facts` and aren't written twice.
 
 ## Install
 
@@ -36,10 +39,10 @@ On a local stack, serve the directory as a GitHub fixture and install from it (d
 The tag directory holds the repository at that tag:
 
 ```sh
-mkdir -p /tmp/tags/v0.2.0/examples/modules
-cp -r examples/modules/stale-facts /tmp/tags/v0.2.0/examples/modules/
+mkdir -p /tmp/tags/v0.3.0/examples/modules
+cp -r examples/modules/stale-facts /tmp/tags/v0.3.0/examples/modules/
 node --experimental-strip-types scripts/recipe-github-fixture.ts --repo <owner>/<repo> --tags /tmp/tags --port 4829
-convex run modules:installFromLocalBase '{"base": "http://127.0.0.1:4829", "source": "github:<owner>/<repo>/examples/modules/stale-facts@v0.2.0"}'
+convex run modules:installFromLocalBase '{"base": "http://127.0.0.1:4829", "source": "github:<owner>/<repo>/examples/modules/stale-facts@v0.3.0"}'
 convex run modules:setEnabled '{"moduleId": "@examples/stale-facts", "enabled": true}'
 ```
 

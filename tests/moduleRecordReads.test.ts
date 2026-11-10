@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ListRow } from "../convex/lib/objects/listSpec.ts";
+import { decodeCursor, type ListRow } from "../convex/lib/objects/listSpec.ts";
 import { plainObjectDef, resolveObjectDef, STANDARD_OBJECTS } from "../convex/lib/objects/registry.ts";
 import { createFakeRecordClient, createMemoryRecordStore } from "../convex/lib/recordClient.ts";
-import { ProjectionBehind, readRecord, type RecordReadPorts, type RecordReadSpec } from "../convex/lib/modules/recordReads.ts";
+import { ProjectionBehind, readRecord, withIdsFrom, type RecordReadPorts, type RecordReadSpec } from "../convex/lib/modules/recordReads.ts";
 import { accessOf } from "../convex/lib/access.ts";
 import { scopedRecordClient } from "../convex/lib/scopedRecordClient.ts";
 import { peopleContacts } from "../convex/lib/modules/peopleExport.ts";
@@ -51,21 +51,76 @@ test("a company's people and the company come from the register with only their 
   assert.deepEqual(await readRecord(client, "org1", ports, spec({ read: "people.forCompanies", ids: ["acc_1"], fields: ["name", "title", "companyId"] })), [{ id: "con_1", createdAt: 1, name: "Sam Rivera", title: "CFO", companyId: "acc_1" }]);
 });
 
-test("a read can't take its ids from a record-service read, which Canon reads after the plan", () => {
-  const m = JSON.parse(JSON.stringify({
-    kind: "module", id: "@t/m", version: "1.0.0", title: "M", description: "d", author: { org: "t" }, engines: { moduleApi: "1" },
-    nav: { label: "M", icon: "box", section: "Work", landing: "p" }, collections: {}, views: {}, ops: {},
-    reads: { companies: ["name"], people: ["name"] }, server: "dist/module.js",
-    calls: { c: { label: "C", roles: ["admin"], agent: "allowed", writes: [], returns: "value",
-      args: { type: "object", value: { ids: { fieldType: { type: "array", value: { type: "string" } }, optional: false } } }, reads: {
-      co: { canon: "companies.byIds", args: { ids: { arg: "ids" } } },
-      ppl: { canon: "people.forCompanies", args: { ids: { read: "co" } } },
-    } } },
-    pages: [{ path: "p", title: "P", body: [] }],
+const manifestWith = (reads: Record<string, unknown>) => parseModuleManifest(JSON.parse(JSON.stringify({
+  kind: "module", id: "@t/m", version: "1.0.0", title: "M", description: "d", author: { org: "t" }, engines: { moduleApi: "1" },
+  nav: { label: "M", icon: "box", section: "Work", landing: "p" }, collections: {}, views: {}, ops: {},
+  reads: { companies: ["name"], people: ["name"], deals: ["name"] }, facts: { companies: { read: ["industry"] } }, server: "dist/module.js",
+  calls: { c: { label: "C", roles: ["admin"], agent: "allowed", writes: [], returns: "value",
+    args: { type: "object", value: { ids: { fieldType: { type: "array", value: { type: "string" } }, optional: false } } }, reads } },
+  pages: [{ path: "p", title: "P", body: [] }],
+})));
+const problems = (parsed: ReturnType<typeof parseModuleManifest>) => (parsed.ok ? [] : parsed.errors);
+
+test("a record read takes ids from an earlier read of companies or people; a plan read can't", () => {
+  assert.deepEqual(problems(manifestWith({
+    page: { canon: "companies.updatedSince", args: { since: 0 }, limit: 100 },
+    facts: { canon: "facts.forRecords", args: { object: "companies", ids: { read: "page" } } },
+    ppl: { canon: "people.forCompanies", args: { ids: { read: "page" } } },
+  })), []);
+  const refused = problems(manifestWith({
+    co: { canon: "companies.byIds", args: { ids: { arg: "ids" } } },
+    deals: { canon: "deals.byIds", args: { ids: { read: "co" } } },
   }));
-  const parsed = parseModuleManifest(m);
-  assert.equal(parsed.ok, false);
-  assert.ok(!parsed.ok && parsed.errors.some((e) => e.includes("reads from the record service after the plan")), JSON.stringify(parsed));
+  assert.ok(refused.some((e) => e.includes("reads from the record service after the plan")), JSON.stringify(refused));
+});
+
+test("a page of companies is at most 500, and filters by owner only with the ownerId grant", () => {
+  const refused = problems(manifestWith({ page: { canon: "companies.updatedSince", args: { since: 0, owner: { arg: "ids" } }, limit: 501 } }));
+  assert.equal(refused.filter((e) => e.includes("at most 500") || e.includes("(ownerId)")).length, 2, JSON.stringify(refused));
+});
+
+async function pagedFixture() {
+  const store = createMemoryRecordStore();
+  const account = (id: string, updatedAt: number, ownerId: string) => ({ id, domain: `${id}.example`, name: id.toUpperCase(), industry: "Cloud", ownerId, fit: 0, status: "new" as const, segmentIds: [], source: "t", updatedAt, version: 1 });
+  // c2 and c3 changed at the same time; c0 before `since`.
+  await store.putAccounts("org1", [account("c3", 20, "rep"), account("c1", 10, "rep"), account("c4", 30, "other"), account("c2", 20, "other"), account("c0", 5, "rep"), account("c5", 40, "other")]);
+  const { ports } = await fixture();
+  const page = (cursor: string | null, extra: Partial<RecordReadSpec> = {}): RecordReadSpec => ({ read: "companies.updatedSince", ids: [], since: 10, limit: 2, fields: ["name"], page: { cursor, owner: null }, ...extra });
+  return { base: createFakeRecordClient({ store }), ports, page };
+}
+const idsOf = (rows: Array<Record<string, unknown>>) => rows.map((r) => [r.id, r.updatedAt, typeof r.next]);
+
+test("companies page oldest change first, by id within one time, each next reading on with only the granted fields", async () => {
+  const { base, ports, page } = await pagedFixture();
+  const first = await readRecord(base, "org1", ports, page(null));
+  assert.deepEqual(first.map(({ next: _, ...r }) => r), [{ id: "c1", createdAt: 10, updatedAt: 10, name: "C1" }, { id: "c2", createdAt: 20, updatedAt: 20, name: "C2" }]);
+  const next = String(first[1].next);
+  assert.equal(decodeCursor(next).total, 0, "a cursor holds no count");
+  const second = await readRecord(base, "org1", ports, page(next));
+  assert.deepEqual(idsOf(second), [["c3", 20, "undefined"], ["c4", 30, "string"]]);
+  assert.deepEqual(idsOf(await readRecord(base, "org1", ports, page(String(second[1].next)))), [["c5", 40, "undefined"]]);
+  // A cursor reads only with the since it was given for.
+  await assert.rejects(readRecord(base, "org1", ports, page(next, { since: 11 })), /reads only with the since and owner/);
+  assert.deepEqual(idsOf(await readRecord(base, "org1", ports, page(null, { limit: 5, page: { cursor: null, owner: "rep" } }))), [["c1", 10, "undefined"], ["c3", 20, "undefined"]]);
+});
+
+test("a rep's page holds only the companies they see, a hidden field as null, and no next when only hidden ones follow", async () => {
+  const { base, ports, page } = await pagedFixture();
+  const rep = scopedRecordClient(base, [accessOf({ userId: "rep", role: "rep", rules: [{ object: "account", visibility: "own", unowned: false, fields: [{ apiName: "industry", level: "hidden" }] }] })], async () => null);
+  const own = await readRecord(rep, "org1", ports, page(null, { fields: ["name", "industry"] }));
+  assert.deepEqual(own, [{ id: "c1", createdAt: 10, updatedAt: 10, name: "C1", industry: null }, { id: "c3", createdAt: 20, updatedAt: 20, name: "C3", industry: null }]);
+  // Another caller's cursor doesn't read for the rep: it is bound to its scope.
+  const managers = await readRecord(base, "org1", ports, page(null));
+  await assert.rejects(readRecord(rep, "org1", ports, page(String(managers[1].next))), /reads only with the since and owner/);
+  // A job reads as Canon: every company.
+  assert.equal((await readRecord(base, "org1", ports, page(null, { limit: 10 }))).length, 5);
+});
+
+test("a later read's ids come from an earlier page, each once, and refuse past its cap", () => {
+  const spec: RecordReadSpec = { read: "facts.forRecords", ids: [], since: null, limit: 1000, fields: [], idsFrom: { read: "page" } };
+  assert.deepEqual(withIdsFrom(spec, { page: [{ id: "a" }, { id: "b" }, { id: "a" }] }).ids, ["a", "b"]);
+  assert.deepEqual(withIdsFrom({ ...spec, read: "companies.byIds", idsFrom: { read: "people", field: "companyId" } }, { people: [{ id: "p1", companyId: "a" }, { id: "p2", companyId: null }] }).ids, ["a"]);
+  assert.throws(() => withIdsFrom(spec, { page: Array.from({ length: 101 }, (_, i) => ({ id: `c${i}` })) }), /at most 100 records, and page gave 101/);
 });
 
 test("what was said: notes' and calls' text, and each recording's transcript joined to its activity or as a call of its own", async () => {

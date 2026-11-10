@@ -121,7 +121,7 @@ export const calls: CallFunctions = {
 
 ```json
 {
-  "compilerOptions": { "target": "es2022", "module": "nodenext", "moduleResolution": "nodenext", "strict": true, "noEmit": true },
+  "compilerOptions": { "target": "es2022", "module": "nodenext", "moduleResolution": "nodenext", "resolveJsonModule": true, "strict": true, "noEmit": true },
   "include": ["server.ts"]
 }
 ```
@@ -150,6 +150,10 @@ wrote dist/module.js (142 bytes, 44fa25e8ac4c08380bb134783bfee556)
 A failed check prints every problem with its path in `module.json`, for example
 `pages[0].body[1].from names count, whose call count declares no result to draw`.
 Commit `dist/module.js` beside the source. Install reads the committed bundle.
+
+Server code can read its own manifest: `import manifest from "./module.json" with { type: "json" }` bundles it, so a
+list such as the attributes `facts.<object>.propose` declares lives in one place. `examples/modules/stale-facts/`
+does this. The bundle then holds the manifest's text, and changes when it does.
 
 Import the kit's types with `import type`. The build drops a type-only import,
 so the bundle holds none of the kit's code. A value import, such as `migration`
@@ -860,7 +864,13 @@ reclamation. This change does not add an orphan cleanup sweep.
   "lines": { "view": "lineItems.ofStatements", "args": { "statements": { "read": "prior" } } }
   ```
 
-  More than 500 values refuses the call. An argument that takes one value can
+  More than 500 values refuses the call. Canon reads companies, people and activities after the plan's query (below),
+  so a read of the plan can't take its values from one of them. One exception: a record read's ids (`facts.forRecords`,
+  `companies.byIds`, `people.byIds`, `people.forCompanies`, `activities.forCompanies`, `suppression.check`, and
+  `observations.forPeople`'s `people`) may come from an earlier read whose rows are companies or people
+  (`companies.updatedSince`, `people.updatedSince`, `companies.byIds`, `people.byIds`, `people.forCompanies`,
+  `deals.people`, `audiences.members`, `people.snapshotPage`, `companies.bestFit`). Canon reads both in order in the
+  call's action, and past the later read's cap (100 for `facts.forRecords`, else 500) the call refuses. An argument that takes one value can
   take `{ "read", "field"? }` of an earlier read of **one** doc: that doc's
   field (a period's `start`). When that doc isn't there, the read that names it
   reads nothing (an empty list, or null) rather than refusing.
@@ -897,6 +907,8 @@ reclamation. This change does not add an orphan cleanup sweep.
   | `people.byIds` | `ids` (at most 500) | those people, in order |
   | `suppression.check` | `ids` (at most 500), `purpose`? | visible people's email, LinkedIn and voice status; requires `reads.people` to grant `suppression` |
   | `people.forCompanies` | `ids` (companies, at most 500) | the people whose company each is |
+  | `companies.updatedSince` (preview) | `since` (ms), `cursor?`, `owner?` (a member's id) | one page of the companies the caller sees that changed at or after `since`, oldest change first; see "Paging companies and people" |
+  | `people.updatedSince` (preview) | `since` (ms), `cursor?`, `owner?` | the same, for people |
   | `deals.people` | `ids` (deals, at most 500) | the people on each deal the caller sees, by its contacts and their roles (or its legacy roles while it has none): a row per deal and person, with the granted people fields, `dealId` and `role`. People the caller can't see are left out, and so is a legacy role whose person the register no longer has (the deal page shows its saved name to unrestricted roles; a module reads only people the register holds). Needs `reads.people`. |
   | `deals.conversations` | `ids` (deals, at most 500) | Matched email and LinkedIn threads from the deal owner's inboxes, using DS1's inventory and `sourceMatches` (contacts, company domain or deal name). Needs `reads.conversations`. Rows have `id`, `createdAt` and granted `dealId`, `channel`, `at`, `ownerUserId`, `counterpart`, `subject`, `messages`, `more`, `inventoryLimited`. Threads are newest first; each holds its latest 100 messages oldest first, with `id`, `direction`, `at`, `from`, and `buyer` using DS1's team rules. `readableThread` includes `text` only from an inbox whose owner passes `mayReadText`; otherwise messages have `hidden: true` and `ownerUserId`. A hidden owner's subject is null. `more` marks older messages; `inventoryLimited` marks DS1 inventory caps. Refuses past the read's thread limit or 3,000,000 characters. Available in call actions, with caller-scoped company domains; requires a member. |
   | `deals.state` | `ids` (deals, at most 500) | DS1 state for visible, unarchived deals in this workspace. Needs `reads.dealState: ["state", "stateHidden"]`. Each row has `id`, `createdAt` and the granted fields. `stateForReader` applies DS1's reader policy; a restricted reader gets no rows, and email or LinkedIn quotes without a readable inbox owner are blank. A deal without a saved state has `state: null`. |
@@ -941,7 +953,8 @@ reclamation. This change does not add an orphan cleanup sweep.
   Deals are the ones the caller sees, never archived ones, with the granted
   fields their role doesn't hide: `name`, `amount`, `currency`, `closeDate`,
   `stage`, `dealType`, `revenueType`, `forecastCategory`, `probability`,
-  `isClosed`, `isWon`, `closedAt`, `nextStep`, `ownerId` (the owner), `splits` (split
+  `isClosed`, `isWon`, `closedAt`, `nextStep`, `ownerId` (the owner, a member's id: the fact ledger's deal attribute
+  `crmOwnerId` is the CRM's user id instead, a different value), `splits` (split
   allocations), `companyId`, `products`, `contractLengthMonths`, `arr`, `mrr`,
   `createdAt`, `updatedAt`, `crmProvider` and `crmId`, `source` (how the deal came in: the CRM it syncs from, as
   `crmProvider` names it, else `manual` for a deal a person, an agent or a rule created in Canon, or `csv` for one a CSV
@@ -965,6 +978,8 @@ reclamation. This change does not add an orphan cleanup sweep.
   year it ends in), `fyStart` (its first month), `total`, `months` (the workspace's target by fiscal month, the teams'
   summed), `repMonths` and `teamMonths` (each member's and team's by fiscal month, by their id) and `repTeam` (the team
   each member's target counts toward). Amounts are minor units. Every member reads the plan, as Reports does.
+  Money is an integer in minor units (cents for USD) on every read: a deal's `amount`, `arr` and `mrr`, a company's
+  `annualRevenue`, a target, and the fact ledger's money attributes. A page shows it in whole units with `|money`.
 - **Deal history.** Canon folds every deal's ledger stream into versions (`dealVersions`, convex/dealHistory.ts), each
   valid from its entry's time until the next one's, in shard order from per-shard cursors as the module feed reads the
   ledger. The first fold is a workspace's backfill; while it runs, `deals.asOf` and `deals.changesBetween` refuse with
@@ -982,7 +997,8 @@ reclamation. This change does not add an orphan cleanup sweep.
 - **Companies, people and activities** are the record service's. Canon plans them in the plan's one query (the ids,
   checked; a deal's ledger stream for its activities) and reads them in the call's action, through the caller's record
   client, so they are the records the caller sees, a second behind at most, and a field their role hides reads as null.
-  A system call reads them as Canon. So no later read takes its values from one of them (the manifest refuses it).
+  A system call reads them as Canon. So no read of the plan's query takes its values from one of them (the manifest
+  refuses it); only another record read takes ids from one ("Earlier reads").
   `ids` takes a list, or one id (a page's bound deal); `deals.byIds` takes one id too. Companies grant `name`,
   `domain`, `industry`, `employees`, `annualRevenue`, `country`, `city`, `status` and `ownerId`; people grant `name`,
   `title`, `email`, `phone`, `linkedinUrl`, `companyId`, `ownerId`, `lifecycleStage` and the derived `suppression` field; activities grant `kind`
@@ -992,6 +1008,36 @@ reclamation. This change does not add an orphan cleanup sweep.
   `outcome`. An activity is about a deal or company when its lookup names it or an activity edge points at it;
   `since` keeps those logged since then. Each read refuses past its limit, edges included. Emails aren't activities
   yet: nothing in Canon writes them.
+- **Paging companies and people.** `companies.updatedSince` and `people.updatedSince` read a workspace's companies or
+  people a page at a time, as the caller sees them: those that changed at or after `since`, ordered by when they last
+  changed, oldest first, then by id. A page holds the read's `limit` rows, 500 by default and at most (the manifest
+  check refuses more). Each row has `id`, `createdAt`, `updatedAt` and the granted fields. The last row of a page that
+  has more after it carries `next`. Pass it back as `cursor`, with the same `since` and `owner`, to read the next page.
+  A page with no `next` is the last one. Unlike other reads, a page never refuses because more rows follow.
+  - A record changed while a module pages moves to the end, so a module that reads to the last page sees it again
+    rather than missing it.
+  - `owner` keeps the companies or people one member owns, and needs `ownerId` in the grant. A role that hides the
+    owner refuses it.
+  - The cursor is bound to the caller's visibility. A record the caller can't see is never on a page, and a page that
+    only hidden records follow has no `next`. The cursor holds no count. A cursor another caller read, or one read with
+    another `since` or `owner`, refuses ("Read again without it").
+  - A job, a watch or a schedule reads every company or person, as Canon, as `deals.updatedSince` does. Its cursor
+    reads only for Canon's own calls.
+  - One page costs up to three record-service list requests of 200 rows, plus a count on the first (measured on the
+    local stack with 10,000 companies; see the PR).
+
+  ```json
+  "args": { "type": "object", "value": { "cursor": { "fieldType": { "type": "string", "maxLength": 400 }, "optional": true } } },
+  "reads": {
+    "companies": { "canon": "companies.updatedSince", "args": { "since": 0, "cursor": { "arg": "cursor" } }, "limit": 100 },
+    "facts": { "canon": "facts.forRecords", "args": { "object": "companies", "ids": { "read": "companies" } } }
+  }
+  ```
+
+  ```ts
+  const companies = reads.companies as Array<{ id: string; name: string | null; next?: string }>;
+  const next = companies.at(-1)?.next ?? null; // the cursor of the following page, or null after the last
+  ```
 - **Custom deal fields** (win-loss.md PW3). `reads.deals` may grant `custom`, every custom field of a deal (Settings >
   Data model; a CRM's custom fields imported there), and a flat deal read asks for them with `"custom": true`: each deal
   then comes with `custom`, its custom fields' values by slug (`{ "loss_reason": "Price" }`), read from its ledger stream
@@ -3671,7 +3717,8 @@ return { intents: [{ op: "propose", operation: "facts.propose", reason: "From th
 
 A read marked **preview** in `CANON_READS` (`stability: "preview"`, with the date it shipped in `since`) works and is
 supported, but its arguments and rows may still change before it is marked stable. A change to a preview read ships
-with a note here; a stable read changes only by adding. `facts.forRecords` is preview since 2026-11-09. A proposal
+with a note here; a stable read changes only by adding. `facts.forRecords` is preview since 2026-11-09, and
+`companies.updatedSince` and `people.updatedSince` since 2026-11-10. A proposal
 operation is marked the same way in `PROPOSAL_OPERATIONS`: `facts.propose` is preview since 2026-11-09.
 
 ## Writes to Canon records

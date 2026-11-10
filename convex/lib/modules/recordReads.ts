@@ -11,10 +11,10 @@ import type { InboundMatchInput } from "../../../modules/kernel/inboundMatchInpu
 import type { ChannelSuppressions, SuppressionIdentifiers, SuppressionPurpose } from "../suppressions/domain";
 import { ConvexError } from "convex/values";
 import { ACTIVITY_OBJECTS, activityOf, type ActivityObject, type ModuleActivityRow } from "../activities.ts";
-import { IN_VALUES_MAX, LIST_LIMIT_MAX, type ListFilter, type ListRequest, type ListResponse, type ListRow } from "../objects/listSpec.ts";
+import { decodeCursor, encodeCursor, IN_VALUES_MAX, ListRequestError, LIST_LIMIT_MAX, type ListFilter, type ListRequest, type ListResponse, type ListRow } from "../objects/listSpec.ts";
 import type { RecordClient } from "../recordClient.ts";
-import { SNAPSHOT_PAGE, type CanonRead } from "../../../modules/kernel/manifest.ts";
-import type { FactObject, FactsForRecordsRow } from "../../../modules/kernel/facts.ts";
+import { MAX_IN_VALUES, SNAPSHOT_PAGE, type CanonRead } from "../../../modules/kernel/manifest.ts";
+import { FACTS_MAX_IDS, type FactObject, type FactsForRecordsRow } from "../../../modules/kernel/facts.ts";
 import { visibleIds } from "../scopedRecordClient.ts";
 import { customVariablesOf } from "./peopleExport.ts";
 import { AUDIENCE_MAX } from "../outbound/audience.ts";
@@ -41,6 +41,10 @@ export type RecordReadSpec = {
   audience?: { moduleId: string; filter: ListFilter[]; source?: string; added?: AddedSource };
   /** Activities: the ledger's shard heads when the plan ran. The read sees every activity logged before it, or refuses. */
   through?: Record<string, number>;
+  /** companies.updatedSince and people.updatedSince: where the page starts (a `next` a page gave) and the owner it keeps. */
+  page?: { cursor: string | null; owner: string | null };
+  /** Ids from an earlier read of companies or people (`{ read, field }`), filled in the action once that read is read. */
+  idsFrom?: { read: string; field?: string };
 };
 /** The set under a module doc that holds the people added to it one at a time (`provides.<name>.people.added`). */
 export type AddedSource = { module: string; set: string; parentKey: string; field: string };
@@ -176,6 +180,69 @@ async function peopleOf(rows: ListRow[], ports: RecordReadPorts, spec: RecordRea
 }
 
 /**
+ * One page of companies.updatedSince or people.updatedSince: the records the client sees that changed at or after
+ * `since`, oldest change first and by id within one time, from the page's cursor. The record service's own keyset cursor
+ * carries the position, bound to the filter and the caller's scope, so a page never starts inside another caller's
+ * records. The last row carries `next` when more follow, with no count in it.
+ */
+async function recordPage(client: RecordClient, ws: string, ports: RecordReadPorts, spec: RecordReadSpec): Promise<Array<Record<string, unknown>>> {
+  const { cursor: start, owner } = spec.page!;
+  const object = spec.read === "companies.updatedSince" ? "account" : "contact";
+  if (start !== null) { try { decodeCursor(start); } catch { refuse(`${spec.read} takes as cursor the next of one of its pages.`); } }
+  const filter: ListFilter[] = [{ field: "updatedAt", op: "gte", value: spec.since ?? 0 }, ...(owner ? [{ field: "ownerId", op: "eq" as const, value: owner }] : [])];
+  const rows: ListRow[] = [];
+  let cursor = start;
+  do {
+    const req: ListRequest = { filter, sort: { field: "updatedAt", dir: "asc" }, limit: Math.min(LIST_LIMIT_MAX, spec.limit - rows.length), ...(cursor ? { cursor } : {}) };
+    let page: ListResponse;
+    try { page = await client.listRegister(ws, object, req); }
+    catch (e) {
+      if (e instanceof ListRequestError && cursor === start && start !== null) refuse(`${spec.read}'s cursor reads only with the since and owner it was given for, by whoever read it. Read again without it.`);
+      throw e;
+    }
+    rows.push(...page.rows);
+    cursor = page.nextCursor;
+  } while (cursor && rows.length < spec.limit);
+  const shaped = object === "account" ? rows.map((r) => companyOf(r, spec.fields)) : await peopleOf(rows, ports, spec);
+  const out: Array<Record<string, unknown>> = shaped.map((r, i) => ({ ...r, updatedAt: rows[i].updatedAt }));
+  if (cursor && out.length) out[out.length - 1].next = encodeCursor({ ...decodeCursor(cursor), total: 0 });
+  return out;
+}
+
+/**
+ * A plan's record reads in an order that reads each one after the read its ids come from (`idsFrom`). The plan
+ * crosses from its query to the call's action as an object whose keys Convex sorts, so the manifest's order is lost.
+ */
+export function inReadOrder<T extends RecordReadSpec>(specs: ReadonlyArray<readonly [string, T]>): Array<readonly [string, T]> {
+  const names = new Set(specs.map(([name]) => name));
+  const done = new Set<string>();
+  const out: Array<readonly [string, T]> = [];
+  let rest = [...specs];
+  while (rest.length) {
+    const ready = rest.filter(([, s]) => !s.idsFrom || !names.has(s.idsFrom.read) || done.has(s.idsFrom.read));
+    if (!ready.length) refuse(`${rest.map(([name]) => name).join(", ")} take their ids from each other.`);
+    for (const r of ready) { out.push(r); done.add(r[0]); }
+    rest = rest.filter((r) => !ready.includes(r));
+  }
+  return out;
+}
+
+/**
+ * The ids an earlier read of companies or people gave a later record read (`spec.idsFrom`): its rows' `field` (`id` by
+ * default), each once. Past the later read's cap it refuses rather than read part of them.
+ */
+export function withIdsFrom(spec: RecordReadSpec, reads: Readonly<Record<string, unknown>>): RecordReadSpec {
+  if (!spec.idsFrom) return spec;
+  const { read, field = "id" } = spec.idsFrom;
+  const got = reads[read];
+  const rows = (Array.isArray(got) ? got : []) as Array<Record<string, unknown>>;
+  const ids = [...new Set(rows.map((r) => r[field]).filter((v): v is string => typeof v === "string" && v !== ""))];
+  const cap = spec.read === "facts.forRecords" ? FACTS_MAX_IDS : MAX_IN_VALUES;
+  if (ids.length > cap) refuse(`${spec.read} reads at most ${cap} records, and ${read} gave ${ids.length}. Lower ${read}'s limit.`);
+  return { ...spec, ids };
+}
+
+/**
  * Activities about the records `ids` (deal streams or company ids): those naming one in their `lookup`, and those
  * with an edge to one, logged since `since`, newest first. Each carries the record it was found by.
  */
@@ -229,6 +296,7 @@ export async function readRecord(client: RecordClient, ws: string, ports: Record
     const page = await client.listRegister(ws, "account", { sort: { field: "fit", dir: "desc" }, limit: Math.min(spec.limit, 15) });
     return page.rows.slice(0, Math.min(spec.limit, 15)).map((r) => companyOf(r, spec.fields));
   }
+  if (spec.page) return recordPage(client, ws, ports, spec);
   if (!spec.ids.length) return [];
   if (spec.read === "audiences.snapshot" || spec.read === "people.snapshot" || spec.read === "people.count") return [await snapshotOf(client, ws, ports, spec)];
   if (spec.read === "companies.byIds") return (await registerByIds(client, ws, "account", spec.ids, spec.limit, over)).map((r) => companyOf(r, spec.fields));

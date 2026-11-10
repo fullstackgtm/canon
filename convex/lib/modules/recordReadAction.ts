@@ -10,7 +10,7 @@ import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import { callerClient, clientFor, requireCaller } from "../../records";
 import { ConvexError } from "convex/values";
-import { ProjectionBehind, readRecord, type AddedSource, type SnapshotSource, type RecordReadSpec } from "./recordReads";
+import { inReadOrder, ProjectionBehind, readRecord, withIdsFrom, type AddedSource, type SnapshotSource, type RecordReadSpec } from "./recordReads";
 import { SNAPSHOT_PAGE } from "../../../modules/kernel/manifest.ts";
 import type { ReadValue } from "../../../modules/kernel/calls.ts";
 import { admitThenRead } from "../scopedRecordClient";
@@ -86,7 +86,8 @@ export async function readRecordsOf(ctx: ActionCtx, snap: Pick<Snapshot, "record
     addedTo: (source: string | AddedSource) => addedTo(ctx, orgId, source),
     snapshot: (moduleId: string, source: SnapshotSource, ids: string[]) => storeSnapshot(ctx, orgId, moduleId, source, ids),
   };
-  for (const [name, spec] of specs) {
+  for (const [name, planned] of inReadOrder(specs)) {
+    const spec = withIdsFrom(planned, reads);
     let got;
     try { got = await readRecord(client, orgId, ports, spec); }
     catch (e) {

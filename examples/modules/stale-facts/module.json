@@ -2,24 +2,13 @@
   "kind": "module",
   "visibility": "open",
   "id": "@examples/stale-facts",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "title": "Stale facts",
-  "description": "For deals closing soon and the companies you watch, shows the contested facts and the ones confirmed longest ago, and lets a member propose a correction with evidence for review.",
+  "description": "For deals closing soon and the companies you see, a page at a time, shows the contested facts and the ones confirmed longest ago, and lets a member propose a correction with evidence for review.",
   "author": { "org": "canon" },
   "engines": { "moduleApi": "1" },
   "nav": { "label": "Stale facts", "icon": "clipboard", "section": "CRM", "landing": "facts" },
   "collections": {
-    "watched": {
-      "label": "Watched company",
-      "schema": { "type": "object", "value": {
-        "company": { "fieldType": { "type": "ref", "to": "companies" }, "optional": false, "label": "Company" },
-        "by": { "fieldType": { "type": "ref", "to": "users" }, "optional": false, "label": "Added by" }
-      } },
-      "key": { "from": ["company"] },
-      "owner": "by",
-      "indexes": {},
-      "access": { "manager": "all", "rep": "all" }
-    },
     "corrections": {
       "label": "Correction",
       "schema": { "type": "object", "value": {
@@ -40,13 +29,9 @@
     }
   },
   "views": {
-    "watched.all": { "kind": "list", "collection": "watched", "limit": 100 },
     "corrections.all": { "kind": "list", "collection": "corrections", "order": "desc", "limit": 200 }
   },
-  "ops": {
-    "watched.create": { "label": "Watch a company", "kind": "create", "collection": "watched", "fields": ["company"], "set": { "by": { "caller": "userId" } }, "roles": ["admin", "manager", "rep"], "agent": "allowed" },
-    "watched.delete": { "label": "Stop watching", "kind": "delete", "collection": "watched", "roles": ["admin", "manager", "rep"], "agent": "allowed" }
-  },
+  "ops": {},
   "reads": {
     "deals": ["name", "companyId", "companyName"],
     "companies": ["name"],
@@ -66,13 +51,15 @@
   "calls": {
     "stale": {
       "label": "Find stale facts", "roles": ["admin", "manager", "rep"], "agent": "allowed",
+      "args": { "type": "object", "value": {
+        "cursor": { "fieldType": { "type": "string", "maxLength": 400 }, "optional": true }
+      } },
       "reads": {
         "deals": { "canon": "deals.closedBetween", "args": { "from": { "nowPlusDays": -30, "as": "date" }, "to": { "nowPlusDays": 90, "as": "date" } }, "limit": 100 },
-        "watched": { "view": "watched.all", "limit": 100 },
-        "companies": { "canon": "companies.byIds", "args": { "ids": { "read": "watched", "field": "company" } } },
+        "companies": { "canon": "companies.updatedSince", "args": { "since": 0, "cursor": { "arg": "cursor" } }, "limit": 50 },
         "dealFacts": { "canon": "facts.forRecords", "args": { "object": "deals", "ids": { "read": "deals" } } },
         "dealCompanyFacts": { "canon": "facts.forRecords", "args": { "object": "companies", "ids": { "read": "deals", "field": "companyId" } } },
-        "watchedFacts": { "canon": "facts.forRecords", "args": { "object": "companies", "ids": { "read": "watched", "field": "company" } } }
+        "companyFacts": { "canon": "facts.forRecords", "args": { "object": "companies", "ids": { "read": "companies" } } }
       },
       "writes": [], "returns": "value",
       "result": { "kind": "table", "rows": "rows", "empty": "{$result.message}", "columns": [
@@ -124,19 +111,16 @@
     {
       "path": "facts", "title": "Stale facts",
       "bind": {
-        "watched": { "view": "watched.all" },
         "corrections": { "view": "corrections.all" },
-        "stale": { "call": "stale", "refreshOn": ["watched"] },
+        "stale": { "call": "stale", "args": { "cursor": { "query": "after", "default": "" } } },
         "outcomes": { "call": "outcomes", "refreshOn": ["corrections"] }
       },
       "body": [
-        { "c": "header", "title": "Stale facts", "subtitle": "Deals closing from 30 days ago to 90 days out, and the companies you watch: contested facts first, then the ones confirmed longest ago.",
-          "actions": [{ "op": "watched.create", "label": "Watch a company" }] },
+        { "c": "header", "title": "Stale facts", "subtitle": "Deals closing from 30 days ago to 90 days out, and 50 of the companies you see, the ones changed longest ago first: contested facts first, then the ones confirmed longest ago." },
         { "c": "callResult", "from": "stale", "label": "Facts to check" },
-        { "c": "callResult", "from": "outcomes", "label": "Corrections you can see" },
-        { "c": "table", "from": "watched", "empty": "No companies watched yet.", "columns": [
-          { "label": "Watched company", "value": "{$row.company|ref}" }, { "label": "Added by", "value": "{$row.by|user}" }
-        ], "rowActions": [{ "op": "watched.delete", "label": "Stop watching" }] }
+        { "c": "actions", "when": { "bind": "stale", "field": "next", "set": true }, "items": [{ "navigate": "facts?after={$stale.next}", "label": "Next 50 companies" }] },
+        { "c": "actions", "when": { "bind": "stale", "field": "paged", "in": [true] }, "items": [{ "navigate": "facts", "label": "First 50 companies" }] },
+        { "c": "callResult", "from": "outcomes", "label": "Corrections you can see" }
       ]
     }
   ]

@@ -5,13 +5,11 @@
 import type { CallContext, CallFunctions, Intent, ReadDoc } from "@fullstackgtm/canon-module-kit/calls";
 import type { FactObject, FactsForRecordsRow, FactValue, FieldState } from "@fullstackgtm/canon-module-kit/facts";
 import type { ProposalOutcome } from "@fullstackgtm/canon-module-kit/proposals";
+import manifest from "./module.json" with { type: "json" };
 
-/** The attributes this module may propose, as module.json's facts.<object>.propose declares them. */
-const PROPOSABLE: Record<FactObject, readonly string[]> = {
-  companies: ["industry", "employees", "annualRevenue", "country"],
-  deals: ["closeDate", "nextStep"],
-  people: [],
-};
+/** The attributes this module may propose: module.json's own facts.<object>.propose, bundled with the code. */
+const grants: Partial<Record<FactObject, { propose?: readonly string[] }>> = manifest.facts;
+const PROPOSABLE = (object: FactObject): readonly string[] => grants[object]?.propose ?? [];
 /** Ledger money is in minor units; a person reads and types it in whole units. */
 const MONEY = new Set(["amount", "annualRevenue"]);
 const NUMBER = new Set(["employees"]);
@@ -19,7 +17,8 @@ const DAY = 86_400_000;
 const STATE_ORDER = { contested: 0, resolved: 1, empty: 2, unknown: 3 } as const;
 
 type Deal = { id: string; name?: string | null; companyId?: string | null; companyName?: string | null };
-type Company = { id: string; name?: string | null };
+/** A row of a companies.updatedSince page: the last one of a page with more after it carries `next`. */
+type Company = { id: string; name?: string | null; next?: string };
 export type StaleRow = {
   object: FactObject; id: string; name: string; type: string; attribute: string;
   valueText: string; state: FieldState; stateText: string;
@@ -45,7 +44,7 @@ export function staleRows(now: number, names: Map<string, string>, groups: Array
       ...row(object, r.id), attribute: f.attribute, valueText: valueText(f.attribute, f.value), state: f.state,
       stateText: f.state === "contested" ? `Contested by ${f.contestedBy?.length ?? 0}` : STATE_TEXT[f.state],
       confirmedAt: f.confirmedAt ?? null, ageDays: f.confirmedAt === undefined ? null : Math.floor((now - f.confirmedAt) / DAY),
-      proposable: f.state !== "unknown" && PROPOSABLE[object].includes(f.attribute),
+      proposable: f.state !== "unknown" && PROPOSABLE(object).includes(f.attribute),
     }));
   }));
   return rows.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || (a.confirmedAt ?? Infinity) - (b.confirmedAt ?? Infinity) || a.name.localeCompare(b.name));
@@ -55,7 +54,7 @@ type ProposeArgs = { object: FactObject; record: string; recordName?: string; at
 
 /** A correction doc and its facts.propose, stamped on the doc. The put comes first: the stamp writes a doc that exists. */
 export function proposeIntents(ctx: Pick<CallContext, "now" | "caller">, a: ProposeArgs): Intent[] {
-  if (!PROPOSABLE[a.object].includes(a.attribute)) throw new Error(`Stale facts doesn't propose ${a.attribute}.`);
+  if (!PROPOSABLE(a.object).includes(a.attribute)) throw new Error(`Stale facts doesn't propose ${a.attribute}.`);
   const raw = a.value.trim();
   const number = Number(raw.replace(/[,\s]/g, ""));
   if ((MONEY.has(a.attribute) || NUMBER.has(a.attribute)) && !Number.isFinite(number)) throw new Error(`${a.attribute} is a number, and ${raw} isn't one.`);
@@ -91,18 +90,19 @@ export function outcomeText(p: ProposalOutcome | undefined): string {
 export const calls: CallFunctions = {
   stale(ctx, reads) {
     const deals = reads.deals as Deal[];
+    const companies = reads.companies as Company[];
     const names = new Map<string, string>([
       ...deals.map((d): [string, string] => [d.id, d.name ?? d.id]),
       ...deals.flatMap((d): Array<[string, string]> => (d.companyId ? [[d.companyId, d.companyName ?? d.companyId]] : [])),
-      ...(reads.companies as Company[]).map((c): [string, string] => [c.id, c.name ?? c.id]),
+      ...companies.map((c): [string, string] => [c.id, c.name ?? c.id]),
     ]);
     const rows = staleRows(ctx.now, names, [
       { object: "deals", rows: reads.dealFacts as FactsForRecordsRow[] },
       { object: "companies", rows: reads.dealCompanyFacts as FactsForRecordsRow[] },
-      { object: "companies", rows: reads.watchedFacts as FactsForRecordsRow[] },
+      { object: "companies", rows: reads.companyFacts as FactsForRecordsRow[] },
     ]);
-    const message = "No deals close between 30 days ago and 90 days from now, and you watch no companies.";
-    return { value: { rows, message } };
+    const message = "No deals close between 30 days ago and 90 days from now, and there are no companies you can see.";
+    return { value: { rows, message, next: companies.at(-1)?.next ?? null, paged: Boolean(ctx.args.cursor) } };
   },
   propose(ctx) {
     return { intents: proposeIntents(ctx, ctx.args as ProposeArgs), value: "Sent for review. Its outcome shows under Corrections: a member who reviews facts accepts or rejects it." };
