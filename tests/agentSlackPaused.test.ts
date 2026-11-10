@@ -25,7 +25,7 @@ function world(mode: "all" | "failures", pause?: Record<string, unknown>) {
   const sends: unknown[] = [];
   const ctx = () => ({
     db, auth: { getUserIdentity: async () => null }, storage: {},
-    scheduler: { runAfter: async (_delay: number, ref: unknown, args: unknown) => { if (String(ref).endsWith("agentSlack.send")) sends.push(plain(args)); return null; } },
+    scheduler: { runAfter: async (_delay: number, ref: unknown, args: unknown) => { if (String(ref).includes("agentSlack.send")) sends.push(plain(args)); return null; } },
   }) as never;
   const call = (file: string, name: string, args: Record<string, unknown>) => loaded[file][name].handler(ctx(), args);
   let n = 0;
@@ -60,11 +60,20 @@ test("a paused agent records its skipped turns and posts none of them to Slack, 
   }
 });
 
-test("an agent the system pauses for its owner latches the pause on the event and posts nothing", async () => {
-  const w = world("all");
-  await w.db.patch(OWNER, { isActive: false });
+test("an agent the system pauses for its owner latches the pause on the event and tells Slack once, without naming the owner", async () => {
+  const w = world("failures");
+  await w.db.patch(OWNER, { isActive: false, name: "Quinn Ortega" });
   const { turnId } = await w.event();
-  assert.equal(plain(await w.db.get(AGENT))?.pause?.reason, "owner_inactive");
+  await w.event();
+  const pause = plain(await w.db.get(AGENT))?.pause;
+  assert.equal(pause?.reason, "owner_inactive");
   assert.equal((await w.db.get(turnId))?.status, "skipped");
-  assert.deepEqual(w.sends, []);
+  assert.deepEqual(w.sends, [{ agentId: AGENT, at: pause.at }]);
+  const { text } = await w.call("agentSlack.ts", "preparePause", w.sends[0] as Record<string, unknown>);
+  assert.match(text, /Watch/);
+  assert.match(text, /deactivated/);
+  assert.doesNotMatch(text, /Quinn/);
+  // Once a person resumes it, the old pause's notice has nothing to say.
+  await w.db.patch(AGENT, { pause: { reason: "paused_by_user", at: pause.at + 1, by: OWNER } });
+  assert.equal(await w.call("agentSlack.ts", "preparePause", w.sends[0] as Record<string, unknown>), null);
 });

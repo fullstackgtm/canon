@@ -14,6 +14,7 @@ import { roleBasesOf } from "./permissions";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import {
@@ -55,8 +56,11 @@ export async function actingAgent(ctx: MutationCtx, agentId: Id<"agents">): Prom
   const s = await standing(ctx, agent);
   if (s.status === "active") return { ok: true, agent: agent as ActingAgent };
   if (s.status === "paused" && !agent.pause) {
-    await ctx.db.patch(agent._id, { pause: { reason: s.reason, at: Date.now() }, updatedAt: Date.now() });
+    const at = Date.now();
+    await ctx.db.patch(agent._id, { pause: { reason: s.reason, at }, updatedAt: at });
     await audit(ctx, agent, undefined, "agent.pause", { reason: s.reason });
+    // The latch happens once per pause, so this is its one Slack notice (agentSlack.preparePause).
+    await ctx.scheduler.runAfter(0, internal.agentSlack.sendPause, { agentId: agent._id, at });
   }
   return { ok: false, message: standingMessage(s)! };
 }

@@ -31,14 +31,29 @@ export function checkDataEpoch(dataDir, contract) {
   return { ok: true, epoch, fresh };
 }
 
-/** Record that the volume's data is at this image's epoch, once it ran healthy and no listed migration is pending. */
-export function recordDataEpoch(dataDir, contract, from) {
+/**
+ * Bring the volume to this image's epoch once it runs healthy: each migration the release lists past `from`, in
+ * order, then the record. A migration that fails stops there and leaves the volume at `from`, so an image that needs
+ * the new epoch still refuses, and the next start runs the list again (a listed migration must be safe to rerun).
+ * @param {string} dataDir
+ * @param {ReturnType<typeof parseContract>} contract
+ * @param {number} from
+ * @param {(migration: { epoch: number, run: string }) => Promise<unknown>} run
+ * @returns {Promise<{ epoch: number, failed?: { run: string, error: string } }>}
+ */
+export async function advanceDataEpoch(dataDir, contract, from, run) {
   const [plan] = planData({ epoch: from, minEpoch: 0, migrations: [] }, [{ name: "this image", contract }]);
-  if (plan.migrations.length) return plan.migrations;
+  for (const migration of plan.migrations) {
+    try {
+      await run(migration);
+    } catch (error) {
+      return { epoch: from, failed: { run: migration.run, error: error instanceof Error ? error.message : String(error) } };
+    }
+  }
   const file = join(dataDir, FILE);
   writeFileSync(`${file}.tmp`, `${contract.epoch}\n`);
   renameSync(`${file}.tmp`, file);
-  return [];
+  return { epoch: contract.epoch };
 }
 
 export function imageContract(appDir = "/app") {

@@ -9,13 +9,14 @@ import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
 import { appUrl } from "./lib/operatorConfig";
 import { postToSlack, shouldNotify, slackMessage, webhookUrlProblem, type SlackDelivery } from "./lib/agents/slack";
 import { withEventDefinition } from "./lib/agents/definitions";
 import { standing } from "./agents";
+import { PAUSE_REASONS, isOwnerCaused } from "./lib/agents/standing";
 
 /** A local stack (its own site URL is loopback) may point the webhook at a local receiver; a deployment may not. */
 const allowLoopback = () => /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.CONVEX_SITE_URL ?? "");
@@ -101,18 +102,29 @@ export const sendTest = action({
 });
 
 /**
- * The turn and its agent when the turn is worth a message: the agent opted in
- * for this kind of turn and may act now. A paused or archived agent posts
- * nothing, whatever paused it; its skipped turns stay in its history.
- * notifyTurn (queue a send) and prepare (send it) both ask here.
+ * The agent with its Slack settings when it may post: it opted in and may act now. A paused or archived agent posts
+ * nothing, whatever paused it, with one exception: `pauseAt` names the system pause it stands under now, and this is
+ * that pause's one notice. Turns (notification) and the pause notice (preparePause) both ask here.
+ */
+async function slackAgent(ctx: MutationCtx, principal: Doc<"agents">, pauseAt?: number) {
+  const agent = await withEventDefinition(ctx, principal);
+  if (!agent.slack) return null;
+  const p = principal.pause;
+  const notice = pauseAt !== undefined && principal.archivedAt === undefined && p?.at === pauseAt && !p.by && isOwnerCaused(p.reason);
+  if (!notice && (await standing(ctx, principal)).status !== "active") return null;
+  return agent;
+}
+
+/**
+ * The turn and its agent when the turn is worth a message: the agent opted in for this kind of turn and may act now.
+ * Its skipped turns stay in its history. notifyTurn (queue a send) and prepare (send it) both ask here.
  */
 async function notification(ctx: MutationCtx, turnId: Id<"agentTurns">) {
   const turn = await ctx.db.get(turnId);
   const principal = turn && (await ctx.db.get(turn.agentId));
   if (!turn || turn.slack || !principal || principal.orgId !== turn.orgId) return null;
-  const agent = await withEventDefinition(ctx, principal);
-  if (!agent.slack || !shouldNotify(agent.slack.mode, { status: turn.status, routing: turn.routing, hasRoute: Boolean(agent.route) })) return null;
-  if ((await standing(ctx, principal)).status !== "active") return null;
+  const agent = await slackAgent(ctx, principal);
+  if (!agent?.slack || !shouldNotify(agent.slack.mode, { status: turn.status, routing: turn.routing, hasRoute: Boolean(agent.route) })) return null;
   return { turn, agent };
 }
 
@@ -176,6 +188,39 @@ export const send = internalAction({
       result = { ok: false, error: "could not read the stored URL" };
     }
     await ctx.runMutation(internal.agentSlack.record, { turnId: args.turnId, ...result });
+    return null;
+  },
+});
+
+/**
+ * The one message for a pause the system latched (agents.ts actingAgent), whatever the agent's Slack mode: which
+ * agent stopped and why, never who its owner is, since the channel's readers may not see them. Null once the pause
+ * it names has ended or Slack is off.
+ */
+export const preparePause = internalMutation({
+  args: { agentId: v.id("agents"), at: v.number() },
+  handler: async (ctx, args): Promise<{ cipher: string; text: string } | null> => {
+    const principal = await ctx.db.get(args.agentId);
+    const agent = principal && (await slackAgent(ctx, principal, args.at));
+    const row = agent && (await slackRow(ctx, agent.orgId));
+    if (!agent?.pause || !row?.isActive) return null;
+    const origin = appUrl();
+    const why = PAUSE_REASONS[agent.pause.reason].message.replace(/^Paused: /, "");
+    const text = `Canon paused the agent ${agent.label}: ${why}. It does nothing until an admin reassigns or resumes it.${origin ? ` ${origin}/dashboard/agents` : ""}`;
+    return { cipher: row.accessToken, text };
+  },
+});
+
+export const sendPause = internalAction({
+  args: { agentId: v.id("agents"), at: v.number() },
+  handler: async (ctx, args): Promise<null> => {
+    const job: { cipher: string; text: string } | null = await ctx.runMutation(internal.agentSlack.preparePause, args);
+    if (!job) return null;
+    try {
+      await postToSlack(await decryptFromStorage(job.cipher), job.text);
+    } catch {
+      return null;
+    }
     return null;
   },
 });
