@@ -117,7 +117,9 @@ test("record API line-item CRUD updates Products and its consumer with CAS, perm
     catch (cause) { db.rollback(checkpoint); throw cause; }
   };
   const invoke = (ref: any, args: any) => call(getFunctionName(ref), args);
-  const client = { query: invoke, mutation: invoke } as unknown as V1Client;
+  // writeScoped admits the companies and people a write names, which these writes have none of: objects.write is the same save.
+  const action = (ref: any, args: any) => (getFunctionName(ref) === "objects:writeScoped" ? call("objects:write", args) : invoke(ref, args));
+  const client = { query: invoke, mutation: invoke, action } as unknown as V1Client;
   await call("deals:create", { name: "API deal", amount: 1234, currency: "USD", closeDate: "2026-11-01", stage: "prospecting" });
   const entity = db.rows("canonEntities").find((r) => r.projectionTable === "deals")!;
   const product = await call("objects:write", { object: "product", values: { name: "Training", active: true } });

@@ -239,7 +239,7 @@ export async function createRecord(client: V1Client, object: string, body: unkno
     const res = await client.action(api.deals.createScoped, { ...standard, ...(Object.keys(custom).length ? { custom } : {}), ...(idempotencyKey ? { idempotencyKey } : {}) } as never);
     return { status: 201, body: { status: "applied", id: res.streamId } };
   }
-  return saved(client, def, object, (await client.mutation(api.objects.write, { object: object as never, values: b.values, ...agentOptions(b), ...(idempotencyKey ? { idempotencyKey } : {}) })) as SaveResult, true);
+  return saved(client, def, object, (await client.action(api.objects.writeScoped, { object: object as never, values: b.values, ...agentOptions(b), ...(idempotencyKey ? { idempotencyKey } : {}) })) as SaveResult, true);
 }
 
 export async function updateRecord(client: V1Client, object: string, id: string, body: unknown): Promise<V1Result> {
@@ -269,7 +269,7 @@ export async function updateRecord(client: V1Client, object: string, id: string,
     const res = await registerWrite(() => client.action(api.records.edit, { object: object as "account" | "contact", id, patch, idempotencyKey: globalThis.crypto.randomUUID() }));
     return { status: 200, body: { status: "applied", id, version: res.version } };
   }
-  const result = await byId(object, id, () => client.mutation(api.objects.write, {
+  const result = await byId(object, id, () => client.action(api.objects.writeScoped, {
     object: object as never, streamId: id as Id<"canonEntities">, values: b.values!,
     ...(b.expectedVersion !== undefined ? { expectedVersion: b.expectedVersion } : {}), ...agentOptions(b),
   }));

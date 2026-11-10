@@ -2,11 +2,11 @@ import { action, internalMutation, query, mutation, type MutationCtx, type Query
 import { can, refusal } from "./lib/capabilities";
 import { internal } from "./_generated/api";
 import { callerClient, requireCaller } from "./records";
-import { visibleIds } from "./lib/scopedRecordClient";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
-import { accessFor, dealForCaller, dealVisible, requireWriteAccess, sightJudge, visibleDeals } from "./permissions";
+import { accessFor, dealForCaller, dealVisible, requireWriteAccess, visibleDeals } from "./permissions";
+import { admitRegisterIds, referenceErrors } from "./lib/recordReferences";
 import { may, refuseLockedWrite, type Access } from "./lib/access";
 
 /** Refuse an edit of a deal the caller's role may not edit or see, or of a field they may not change (CP14); a hidden deal reads as missing. */
@@ -333,8 +333,7 @@ export const createScoped = action({
   args: { ...dealCreateArgs, idempotencyKey: v.optional(v.string()) },
   handler: async (ctx, args): Promise<Awaited<ReturnType<typeof createDealAsUser>>> => {
     const caller = await requireCaller(ctx);
-    const company = args.companyId?.trim();
-    const admitted = company ? [...await visibleIds(callerClient(ctx, caller), caller.orgId, "account", [company])] : [];
+    const admitted = await admitRegisterIds(callerClient(ctx, caller), caller.orgId, { companyId: args.companyId, ...args.custom });
     return ctx.runMutation(internal.deals.createAdmitted, { ...args, admitted });
   },
 });
@@ -357,8 +356,13 @@ export async function createDealAsUser(ctx: MutationCtx, user: Doc<"users">, { p
   if (!can(user, "deals.write")) throw new ConvexError(refusal("deals.write"));
   const access = await requireWriteAccess(ctx, user);
   if (!may(access, "deal", "create")) throw new ConvexError("Your role cannot create deal records");
-  // A company the caller may not see reads as missing (CP14).
-  if (opts.admitted && companyId?.trim() && !sightJudge(ctx, [access], opts.admitted).record("account", companyId.trim())) throw new ConvexError("Company not found");
+  // The owner is an active member and the company one the caller sees; a company they may not see reads as missing (CP14).
+  if (opts.admitted) {
+    const named = { ownerId: primaryRepId, companyId, ...custom };
+    const errors = (await referenceErrors(ctx, { orgId: user.orgId, access, admitted: opts.admitted }, resolveObjectDef(STANDARD_OBJECTS.deal, (await readDealDef(ctx, user.orgId)).ext), named))
+      .map((e) => (e.field === "ownerId" ? { ...e, field: "primaryRepId" } : e));
+    if (errors.length) throw new ConvexError({ code: "validation_failed", message: errors.map((e) => e.message).join("; "), errors });
+  }
   refuseLockedWrite(access, "deal", [...Object.keys(input), ...(primaryRepId ? ["ownerId"] : []), ...(companyId ? ["companyId"] : []), ...Object.keys(custom ?? {})]);
   const rep = primaryRepId ? await ctx.db.get(primaryRepId) : user;
   if (!rep || rep.orgId !== user.orgId) throw new ConvexError("That owner is not in this workspace");

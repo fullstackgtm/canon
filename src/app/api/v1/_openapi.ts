@@ -111,8 +111,8 @@ function fieldSchema(field: FieldDef, mode: "read" | "write"): Schema {
   const base = ((): Schema => {
     switch (field.type) {
       case "text": return { type: "string" };
-      case "user": return { type: "string", "x-canon-id": "users" };
-      case "lookup": return { type: "string", "x-canon-lookup": field.lookupTo };
+      case "user": return { type: "string", "x-canon-id": "users", ...(mode === "write" ? { description: "An active member's user id; anything else answers 422" } : {}) };
+      case "lookup": return { type: "string", "x-canon-lookup": field.lookupTo, ...(mode === "write" ? { description: `The id of a ${field.lookupTo} record you can see; anything else answers 422` } : {}) };
       case "number": return { type: "number" };
       case "currency": return CURRENCY;
       case "checkbox": return { type: "boolean" };

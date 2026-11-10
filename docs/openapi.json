@@ -7394,6 +7394,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Account owner"
           },
           "linkedinUrl": {
@@ -7789,6 +7790,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Contact owner"
           },
           "lifecycleStage": {
@@ -8233,6 +8235,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "amount": {
@@ -8305,6 +8308,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Deal owner"
           },
           "dealType": {
@@ -8744,6 +8748,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           }
         },
@@ -8825,6 +8830,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           }
         },
@@ -9184,6 +9190,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           },
           "accountId": {
@@ -9192,6 +9199,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "contactId": {
@@ -9200,6 +9208,7 @@
               "null"
             ],
             "x-canon-lookup": "contact",
+            "description": "The id of a contact record you can see; anything else answers 422",
             "title": "Person"
           },
           "dealId": {
@@ -9208,6 +9217,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           }
         },
@@ -9275,6 +9285,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           },
           "accountId": {
@@ -9283,6 +9294,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "contactId": {
@@ -9291,6 +9303,7 @@
               "null"
             ],
             "x-canon-lookup": "contact",
+            "description": "The id of a contact record you can see; anything else answers 422",
             "title": "Person"
           },
           "dealId": {
@@ -9299,6 +9312,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           }
         },
@@ -9572,6 +9586,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           },
           "accountId": {
@@ -9580,6 +9595,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "contactId": {
@@ -9588,6 +9604,7 @@
               "null"
             ],
             "x-canon-lookup": "contact",
+            "description": "The id of a contact record you can see; anything else answers 422",
             "title": "Person"
           },
           "dealId": {
@@ -9596,6 +9613,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           }
         },
@@ -9620,6 +9638,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           },
           "accountId": {
@@ -9628,6 +9647,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "contactId": {
@@ -9636,6 +9656,7 @@
               "null"
             ],
             "x-canon-lookup": "contact",
+            "description": "The id of a contact record you can see; anything else answers 422",
             "title": "Person"
           },
           "dealId": {
@@ -9644,6 +9665,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           }
         },
@@ -10042,6 +10064,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           },
           "accountId": {
@@ -10050,6 +10073,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "contactId": {
@@ -10058,6 +10082,7 @@
               "null"
             ],
             "x-canon-lookup": "contact",
+            "description": "The id of a contact record you can see; anything else answers 422",
             "title": "Person"
           },
           "dealId": {
@@ -10066,6 +10091,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           }
         },
@@ -10156,6 +10182,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           },
           "accountId": {
@@ -10164,6 +10191,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "contactId": {
@@ -10172,6 +10200,7 @@
               "null"
             ],
             "x-canon-lookup": "contact",
+            "description": "The id of a contact record you can see; anything else answers 422",
             "title": "Person"
           },
           "dealId": {
@@ -10180,6 +10209,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           }
         },
@@ -10569,6 +10599,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           },
           "accountId": {
@@ -10577,6 +10608,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "contactId": {
@@ -10585,6 +10617,7 @@
               "null"
             ],
             "x-canon-lookup": "contact",
+            "description": "The id of a contact record you can see; anything else answers 422",
             "title": "Person"
           },
           "dealId": {
@@ -10593,6 +10626,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           }
         },
@@ -10689,6 +10723,7 @@
               "null"
             ],
             "x-canon-id": "users",
+            "description": "An active member's user id; anything else answers 422",
             "title": "Owner"
           },
           "accountId": {
@@ -10697,6 +10732,7 @@
               "null"
             ],
             "x-canon-lookup": "account",
+            "description": "The id of a account record you can see; anything else answers 422",
             "title": "Account"
           },
           "contactId": {
@@ -10705,6 +10741,7 @@
               "null"
             ],
             "x-canon-lookup": "contact",
+            "description": "The id of a contact record you can see; anything else answers 422",
             "title": "Person"
           },
           "dealId": {
@@ -10713,6 +10750,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           }
         },
@@ -11446,6 +11484,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           },
           "productId": {
@@ -11454,6 +11493,7 @@
               "null"
             ],
             "x-canon-lookup": "product",
+            "description": "The id of a product record you can see; anything else answers 422",
             "title": "Product"
           },
           "quantity": {
@@ -11507,6 +11547,7 @@
               "null"
             ],
             "x-canon-lookup": "deal",
+            "description": "The id of a deal record you can see; anything else answers 422",
             "title": "Opportunity"
           },
           "productId": {
@@ -11515,6 +11556,7 @@
               "null"
             ],
             "x-canon-lookup": "product",
+            "description": "The id of a product record you can see; anything else answers 422",
             "title": "Product"
           },
           "quantity": {

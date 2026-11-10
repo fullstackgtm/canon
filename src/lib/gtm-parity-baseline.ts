@@ -70,7 +70,7 @@ export const gtmParityBaseline: Readonly<Record<string, GtmParityReason>> = {
   "api.linkedinCadences.enroll": "todo",
   "api.marketActions.runCapture": "todo",
   "api.marketActions.runClassify": "todo",
-  "api.objects.bulk": "todo",
+  "api.objects.bulkScoped": "todo",
   "api.paidRuns.start": "todo",
   "api.providerTests.run": "todo",
   "api.salesforceActions.syncAll": "todo",
