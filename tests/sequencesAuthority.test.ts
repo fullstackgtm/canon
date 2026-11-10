@@ -109,8 +109,11 @@ test("SQ1 consent requires a live human and same transaction while manual-only s
   await h.op("steps.update", { key: h.step, expect: 1, data: { delayDays: 1 } });
   await modules.transition.handler(h.ctx(), { module: "sequences", machine: "sequence", name: "launch", key: h.sequence, expect: 1 });
   assert.equal(dataOf(h.db.rows("moduleDocs").find((r) => r.key === h.sequence)).status, "active");
+  // Turned off where Canon keeps the member: what reads their role judges the stored row.
   caller = { ...rep, isActive: false };
+  await h.db.patch("rep", { isActive: false });
   await assert.rejects(lifecycle.sq1HumanContext(h.ctx()), /signed-in person/);
+  await h.db.patch("rep", { isActive: true });
   caller = rep;
   agent = "agent";
   await assert.rejects(lifecycle.sq1HumanContext(h.ctx()), /signed-in person/);

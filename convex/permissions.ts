@@ -12,6 +12,7 @@ import { ConvexError, v } from "convex/values";
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
+import { activeRoleIn } from "./lib/membership";
 import type { OwnerScope } from "./lib/objects/listSpec";
 import { accessOf, canSeeRecord, CONFIGURABLE_ROLES, hasOwnerField, hiddenFields, intersectScopes, narrowsReads, ownerScope, permissionOf, refuseNarrowed, unhideableFields, type Access, type ObjectRule, type Role, type RoleKey } from "./lib/access";
 import { loadOrgObject } from "./lib/objects/orgDefs";
@@ -26,11 +27,9 @@ export const PREVIEW_MS = 30 * 60 * 1000;
 
 export { hasOwnerField } from "./lib/access";
 
-/** A member's role in a workspace: their membership's, else their home row's; null when they are not in it. */
+/** A member's role in a workspace: their membership's, else their home row's; null when they are not an active member of it (lib/membership.ts). */
 export async function roleIn(ctx: QueryCtx, user: Doc<"users">, orgId: Id<"organizations">): Promise<RoleKey | null> {
-  const membership = await ctx.db.query("orgMemberships").withIndex("by_userId_orgId", (q) => q.eq("userId", user._id).eq("orgId", orgId)).first();
-  if (membership) return membership.isActive ? membership.role : null;
-  return user.orgId === orgId && user.isActive ? user.role : null;
+  return activeRoleIn(ctx, user, orgId);
 }
 
 async function accessAs(ctx: QueryCtx, orgId: Id<"organizations">, userId: Id<"users">, role: RoleKey, preview?: Access["preview"]): Promise<Access> {

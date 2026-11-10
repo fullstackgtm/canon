@@ -11,6 +11,7 @@ import { internalMutation, mutation, query, type ActionCtx, type QueryCtx } from
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
+import { credentialMember } from "./lib/membership";
 import { integrationEnabled } from "./lib/integrationsAvailable";
 import { rateLimitHit } from "./lib/rateLimit";
 import { planSuggestions, teamOf } from "./lib/calls/suggestions";
@@ -35,8 +36,8 @@ export const loggingDomain = () => (integrationEnabled("emailLog") ? process.env
 export async function loggingMember(ctx: QueryCtx, token: string) {
   const row = await ctx.db.query("emailLogAddresses").withIndex("by_token", (q) => q.eq("token", token)).first();
   if (!row || row.revokedAt !== undefined) return null;
-  const user = await ctx.db.get(row.userId);
-  if (!user?.isActive || user.orgId !== row.orgId) return null;
+  const user = await credentialMember(ctx, await ctx.db.get(row.userId), row.orgId);
+  if (!user || user.orgId !== row.orgId) return null;
   return { row, user, orgId: row.orgId, userId: row.userId };
 }
 
