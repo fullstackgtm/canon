@@ -6,117 +6,62 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { LoadingRows } from "@/components/dashboard";
+import { LoadingRows, StatusBadge } from "@/components/dashboard";
 import { recordHref } from "@/components/records/list-view";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
-import { FlowCanvas, FlowRows, chain, type FlowNode } from "@/components/flow/flow-canvas";
+import { FlowCanvas, chain, type FlowNode } from "@/components/flow/flow-canvas";
+import { TODAY, describe, describeParts, type AutomationAction, type Condition, type OwnerChoice, type RuleNames, type RuleShape, type Trigger } from "../../../../modules/kernel/automation";
 
 const btn = "border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40";
 const input = "border border-border bg-background px-2 py-1 text-sm";
 const when = (t: number) => new Date(t).toLocaleString();
 
-type Workspace = NonNullable<FunctionReturnType<typeof api.automations.workspace>>;
+export type Workspace = NonNullable<FunctionReturnType<typeof api.automations.workspace>>;
 type ObjectInfo = Workspace["objects"][number];
 type FieldInfo = ObjectInfo["fields"][number];
-type Rule = NonNullable<FunctionReturnType<typeof api.automations.list>>[number];
+export type Rule = NonNullable<FunctionReturnType<typeof api.automations.list>>[number];
 type Scalar = string | number | boolean;
-type Trigger =
-  | { kind: "created" } | { kind: "deleted" } | { kind: "updated"; field?: string; from?: Scalar[]; to?: Scalar[] }
-  | { kind: "schedule"; cadence: "daily" | "weekly"; minute: number; weekday?: number };
-type Condition = { field: string; op: string; value?: unknown };
-type Owner =
-  | { kind: "member"; userId: Id<"users"> }
-  | { kind: "record_owner" }
-  | { kind: "round_robin"; userIds: Id<"users">[] }
-  | { kind: "team"; teamId: Id<"teamGroups"> }
-  | { kind: "routing_rule"; routingRuleId: Id<"routingRules"> };
-type Action =
-  | { kind: "set_field"; field: string; value: Scalar | null }
-  | { kind: "create_task"; subject: string; dueInDays: number; owner: Owner }
-  | { kind: "assign_owner"; owner: Owner };
+type Owner = OwnerChoice;
+type Action = AutomationAction;
 
 const OPS: Array<[string, string]> = [
   ["eq", "is"], ["neq", "is not"], ["contains", "contains"], ["gt", "is more than"], ["lt", "is less than"], ["empty", "is empty"], ["notEmpty", "is not empty"],
 ];
 const NUMERIC = new Set(["number", "currency", "datetime"]);
-/** A date condition's "today", read in the workspace's time zone when the rule checks it (lib/automations.ts TODAY). */
-const TODAY = "{today}";
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const clock = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+const ACTION_TITLES: Record<Action["kind"], string> = { set_field: "Set a field", create_task: "Create a task", assign_owner: "Assign an owner" };
 
-/** A typed value from a form's text, as the field stores it. */
+/** A typed value from a form's text, as the field stores it: money in cents, as the record filters store it. */
 function parseValue(field: FieldInfo | undefined, raw: string): Scalar | null {
   if (raw === "") return null;
   if (raw === TODAY) return raw;
+  if (field?.type === "currency") return Math.round(Number(raw) * 100);
   if (field && NUMERIC.has(field.type)) return Number(raw);
   if (field?.type === "checkbox") return raw === "true";
   return raw;
 }
+/** A stored value as the form shows it: money in whole units. */
+const formText = (x: unknown, field?: FieldInfo) => (x === null || x === undefined ? "" : field?.type === "currency" && typeof x === "number" ? String(x / 100) : String(x));
 
-const fieldLabel = (o: ObjectInfo | undefined, apiName: string | undefined) => (apiName ? o?.fields.find((f) => f.apiName === apiName)?.label ?? apiName : "Any field");
-const optionLabel = (f: FieldInfo | undefined, value: unknown) =>
-  value === TODAY ? "today" : typeof value === "boolean" ? (value ? "Yes" : "No") : f?.options?.find((x) => x.value === value)?.label ?? String(value ?? "empty");
-
-function ownerText(owner: Owner, ws: Workspace): string {
-  const name = (id: string) => ws.members.find((m) => m.id === id)?.name ?? "a former member";
-  switch (owner.kind) {
-    case "member": return name(owner.userId);
-    case "record_owner": return "the record's owner";
-    case "round_robin": return `round robin over ${owner.userIds.map(name).join(", ")}`;
-    case "team": return `round robin over team ${ws.teams.find((t) => t.id === owner.teamId)?.name ?? "(deleted)"}`;
-    case "routing_rule": return `routing rule ${ws.routingRules.find((r) => r.id === owner.routingRuleId)?.name ?? "(deleted)"}`;
-  }
+/** What the sentence names a rule's references by, from the builder's workspace. */
+export function namesFor(ws: Workspace, object: string): RuleNames {
+  const o = ws.objects.find((x) => x.apiName === object);
+  return { object: o ? { label: o.label, fields: o.fields } : undefined, members: ws.members, teams: ws.teams, routingRules: ws.routingRules, timezone: ws.timezone, currency: ws.currency };
 }
+export const sentence = (rule: RuleShape, ws: Workspace) => describe(rule, namesFor(ws, rule.object));
 
-/** A rule as a sentence: "When a Deal's Stage changes to Proposal, create a task ...". */
-function describe(rule: Pick<Rule, "object" | "trigger" | "conditions" | "actions">, ws: Workspace): string {
-  const o = ws.objects.find((x) => x.apiName === rule.object);
-  const label = o?.label ?? rule.object;
-  const t = rule.trigger as Trigger;
-  const f = t.kind === "updated" ? o?.fields.find((x) => x.apiName === t.field) : undefined;
-  const values = (list?: Scalar[]) => list!.map((v) => optionLabel(f, v)).join(" or ");
-  const cond = (rule.conditions as Condition[]).map((c) => `${fieldLabel(o, c.field)} ${OPS.find(([k]) => k === c.op)?.[1] ?? c.op}${c.value !== undefined && c.value !== null ? ` ${optionLabel(o?.fields.find((x) => x.apiName === c.field), c.value)}` : ""}`);
-  if (t.kind === "schedule") {
-    const at = `${t.cadence === "weekly" ? `Every ${DAYS[t.weekday ?? 1]}` : "Every day"} at ${clock(t.minute)} (${ws.timezone})`;
-    return `${at}, for each ${label}${cond.length ? ` where ${cond.join(" and ")}` : ""}: ${actionsText(rule.actions as Action[], o, ws)}.`;
-  }
-  const when = t.kind === "created" ? `a ${label} is created`
-    : t.kind === "deleted" ? `a ${label} is deleted`
-    : `a ${label}'s ${fieldLabel(o, t.field)} changes${t.from?.length ? ` from ${values(t.from)}` : ""}${t.to?.length ? ` to ${values(t.to)}` : ""}`;
-  return `When ${when}${cond.length ? `, and ${cond.join(" and ")}` : ""}: ${actionsText(rule.actions as Action[], o, ws)}.`;
-}
-
-function actionsText(actions: Action[], o: ObjectInfo | undefined, ws: Workspace): string {
-  return actions.map((a) =>
-    a.kind === "set_field" ? `set ${fieldLabel(o, a.field)} to ${optionLabel(o?.fields.find((x) => x.apiName === a.field), a.value)}`
-    : a.kind === "assign_owner" ? `assign the owner: ${ownerText(a.owner, ws)}`
-    : `create a task "${a.subject}" due in ${a.dueInDays} day${a.dueInDays === 1 ? "" : "s"} for ${ownerText(a.owner, ws)}`).join(", then ");
-}
-
-/** A rule as a flow: its trigger, the conditions a record must meet (one node), then each action in order. */
-function ruleNodes(rule: Pick<Rule, "object" | "trigger" | "conditions" | "actions">, ws: Workspace): FlowNode[] {
-  const o = ws.objects.find((x) => x.apiName === rule.object);
-  const label = o?.label ?? rule.object;
-  const t = rule.trigger as Trigger;
-  const f = t.kind === "updated" ? o?.fields.find((x) => x.apiName === t.field) : undefined;
-  const values = (list?: Scalar[]) => (list ?? []).map((v) => optionLabel(f, v)).join(" or ");
-  const trigger = t.kind === "schedule" ? { title: t.cadence === "weekly" ? `Every ${DAYS[t.weekday ?? 1]}` : "Every day", rows: [["At", `${clock(t.minute)} (${ws.timezone})`], ["For each", label]] as const }
-    : t.kind === "updated" ? { title: `${label} ${t.field ? fieldLabel(o, t.field) : "field"} changes`, rows: [["From", t.from?.length ? values(t.from) : "anything"], ["To", t.to?.length ? values(t.to) : "anything"]] as const }
-    : { title: `${label} ${t.kind}`, rows: [["Object", label]] as const };
-  const conds = (rule.conditions as Condition[]).map((c) => `${fieldLabel(o, c.field)} ${OPS.find(([k]) => k === c.op)?.[1] ?? c.op}${c.value !== undefined && c.value !== null ? ` ${optionLabel(o?.fields.find((x) => x.apiName === c.field), c.value)}` : ""}`);
-  const actions = rule.actions as Action[];
+/** A rule as a flow: its trigger, the conditions a record must meet (one node), then each action in order, in the sentence's words. */
+function ruleNodes(rule: RuleShape, ws: Workspace): FlowNode[] {
+  const parts = describeParts(rule, namesFor(ws, rule.object));
+  const text = (s: string) => <p className="line-clamp-3">{s}</p>;
   return chain([
-    { id: "trigger", title: trigger.title, tone: "active", card: <FlowRows rows={trigger.rows} />, detail: <FlowRows rows={trigger.rows} /> },
-    ...(conds.length ? [{ id: "conditions", title: "Only if", action: "check", metric: String(conds.length), tone: "neutral" as const,
-      card: <p className="line-clamp-2">{conds.join(" and ")}</p>, detail: <ul className="list-disc space-y-1 pl-4">{conds.map((c) => <li key={c}>{c}</li>)}</ul> }] : []),
-    ...actions.map((a, i) => {
-      const [title, rows]: [string, Array<[string, string]>] = a.kind === "set_field" ? [`Set ${fieldLabel(o, a.field)}`, [["To", optionLabel(o?.fields.find((x) => x.apiName === a.field), a.value)]]]
-        : a.kind === "assign_owner" ? ["Assign owner", [["Owner", ownerText(a.owner, ws)]]]
-        : ["Create task", [["Subject", a.subject], ["Due", `in ${a.dueInDays} day${a.dueInDays === 1 ? "" : "s"}`], ["For", ownerText(a.owner, ws)]]];
-      return { id: `action-${i}`, title, action: i === 0 ? "then" : "and then", tone: "planned" as const, card: <FlowRows rows={rows.slice(0, 2)} />, detail: <FlowRows rows={rows} /> };
-    }),
+    { id: "trigger", title: rule.trigger.kind === "schedule" ? "On a schedule" : "When", tone: "active", card: text(parts.trigger), detail: <p>{parts.trigger}</p> },
+    ...(parts.conditions.length ? [{ id: "conditions", title: "Only if", action: "check", metric: String(parts.conditions.length), tone: "neutral" as const,
+      card: text(parts.conditions.join(" and ")), detail: <ul className="list-disc space-y-1 pl-4">{parts.conditions.map((c) => <li key={c}>{c}</li>)}</ul> }] : []),
+    ...rule.actions.map((a, i) => ({ id: `action-${i}`, title: ACTION_TITLES[a.kind], action: i === 0 ? "then" : "and then", tone: "planned" as const, card: text(parts.actions[i]), detail: <p>{parts.actions[i]}</p> })),
   ]);
 }
 
@@ -157,17 +102,52 @@ function DryRun({ args, label }: { args: PreviewArgs; label: string }) {
   );
 }
 
-/** Rules that act when records change (CP17). Admins only. */
-export function AutomationsTab() {
+const lastRunText = (r: Rule) => (r.lastRun ? `Last run ${r.lastRun.status}, ${when(r.lastRun.at)}` : "No runs yet");
+
+/**
+ * Automation rules (CP17): the list, each rule in words, and one rule's detail. Admins only, as the functions are.
+ * `selected` is the open rule's id, `creating` whether the new rule form is open; the page keeps both in its URL.
+ */
+export function AutomationRules({ selected, creating, onSelect }: { selected: string | null; creating: boolean; onSelect: (id: string | null) => void }) {
   const ws = useQuery(api.automations.workspace);
   const rules = useQuery(api.automations.list);
-  const setStatus = useMutation(api.automations.setStatus);
-  const remove = useMutation(api.automations.remove);
-  const [open, setOpen] = useState<Id<"automationRules"> | null>(null);
-  const [busy, setBusy] = useState(false);
   if (ws === undefined || rules === undefined) return <LoadingRows count={2} height="h-24" />;
   if (ws === null || rules === null) return <p className="text-sm text-muted-foreground">Only admins manage automation rules.</p>;
+  const open = rules.find((r) => r.id === selected);
+  if (open) return <RuleDetail rule={open} ws={ws} onClose={() => onSelect(null)} />;
+  return (
+    <div className="max-w-5xl space-y-4">
+      {creating && <Builder ws={ws} onDone={() => onSelect(null)} />}
+      {rules.length === 0 && !creating && (
+        <p className="border border-border p-4 text-sm text-muted-foreground">No rules yet. A rule could create a follow-up task when a deal reaches Proposal, or hand each new lead to the next rep in turn.</p>
+      )}
+      {rules.length > 0 && (
+        <ul className="divide-y divide-border border border-border bg-card" aria-label="Automation rules">
+          {rules.map((r) => (
+            <li key={r.id} data-testid="automation-rule">
+              <button type="button" onClick={() => onSelect(r.id)} className="block w-full p-3 text-left hover:bg-muted/50">
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">{r.name}</span>
+                  <StatusBadge status={r.status} label={r.status === "active" ? "Active" : "Paused"} />
+                </span>
+                <span className="mt-1 block text-sm">{sentence(r, ws)}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Acts as {r.actsAs} · {lastRunText(r)}{r.nextSlotAt ? ` · next run ${when(r.nextSlotAt)}` : ""}{r.recipe ? ` · from ${r.recipe.id} v${r.recipe.version}` : ""}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
+function RuleDetail({ rule, ws, onClose }: { rule: Rule; ws: Workspace; onClose: () => void }) {
+  const setStatus = useMutation(api.automations.setStatus);
+  const remove = useMutation(api.automations.remove);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
   async function run(fn: () => Promise<unknown>) {
     setBusy(true);
     try {
@@ -178,40 +158,37 @@ export function AutomationsTab() {
       setBusy(false);
     }
   }
-
   return (
-    <div className="max-w-5xl space-y-4">
-      <p className="text-sm text-muted-foreground">
-        A rule acts when a record changes in Canon (when it is created, when a field changes, or when it is deleted), or on a schedule over the records that match. It runs as the admin who made it, with their access, and never on what an import or CRM sync brings in.
-      </p>
-      {rules.map((r) => (
-        <section key={r.id} className="border border-border bg-card p-4" data-testid="automation-rule">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <h2 className="font-medium">{r.name}</h2>
-              <p className="text-sm text-muted-foreground">{describe(r, ws)}</p>
-              <div className="mt-3"><FlowCanvas scenario={{ id: `automation-${r.id}`, title: r.name, nodes: ruleNodes(r, ws) }} height={220} /></div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {r.status === "active" ? "Active" : r.pausedReason ?? "Paused"} · by {r.createdBy}
-                {r.recipe ? ` · from customization ${r.recipe.id} v${r.recipe.version}` : ""}
-                {r.lastRun ? ` · last run ${r.lastRun.status}, ${when(r.lastRun.at)}` : " · no runs yet"}
-                {r.nextSlotAt ? ` · next run ${when(r.nextSlotAt)}` : ""}
-                {r.lastSlot ? ` · last slot ${when(r.lastSlot.at)}: ${r.lastSlot.runs} record${r.lastSlot.runs === 1 ? "" : "s"}${r.lastSlot.done ? "" : ", in progress"}${r.lastSlot.note ? ` (${r.lastSlot.note})` : ""}` : ""}
-              </p>
-              <div className="mt-2"><DryRun label="Dry run" args={{ object: r.object, trigger: r.trigger as Trigger, conditions: r.conditions as Condition[] }} /></div>
-            </div>
-            <div className="flex shrink-0 gap-2">
-              <button type="button" className={btn} onClick={() => setOpen(open === r.id ? null : r.id)}>Runs</button>
-              <button type="button" disabled={busy} className={btn} onClick={() => void run(() => setStatus({ id: r.id, status: r.status === "active" ? "paused" : "active" }))}>
-                {r.status === "active" ? "Pause" : "Resume"}
-              </button>
-              <button type="button" disabled={busy} className={btn} onClick={() => { if (window.confirm("Delete this rule?")) void run(() => remove({ id: r.id })); }}>Delete</button>
-            </div>
+    <div className="max-w-5xl space-y-4" data-testid="automation-detail">
+      <button type="button" className="text-xs text-muted-foreground underline underline-offset-2" onClick={onClose}>All rules</button>
+      <section className="space-y-3 border border-border bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h2 className="min-w-0 font-medium">{rule.name}</h2>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button type="button" className={btn} onClick={() => setEditing(!editing)}>{editing ? "Close editor" : "Edit"}</button>
+            <button type="button" disabled={busy} className={btn} onClick={() => void run(() => setStatus({ id: rule.id, status: rule.status === "active" ? "paused" : "active" }))}>
+              {rule.status === "active" ? "Pause" : "Resume"}
+            </button>
+            <button type="button" disabled={busy} className={btn} onClick={() => { if (window.confirm("Delete this rule?")) void run(async () => { await remove({ id: rule.id }); onClose(); }); }}>Delete</button>
           </div>
-          {open === r.id && <Runs ruleId={r.id} ws={ws} object={r.object} />}
-        </section>
-      ))}
-      <Builder ws={ws} />
+        </div>
+        <p className="text-sm">{sentence(rule, ws)}</p>
+        <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-[max-content_1fr]">
+          <dt className="text-muted-foreground">Status</dt><dd>{rule.status === "active" ? "Active" : rule.pausedReason ?? "Paused"}</dd>
+          <dt className="text-muted-foreground">Acts as</dt><dd>{rule.actsAs}, with their access as it is when the rule runs</dd>
+          <dt className="text-muted-foreground">Last run</dt><dd>{lastRunText(rule)}</dd>
+          {rule.nextSlotAt ? <><dt className="text-muted-foreground">Next run</dt><dd>{when(rule.nextSlotAt)}</dd></> : null}
+          {rule.lastSlot ? <><dt className="text-muted-foreground">Last slot</dt><dd>{when(rule.lastSlot.at)}: {rule.lastSlot.runs} record{rule.lastSlot.runs === 1 ? "" : "s"}{rule.lastSlot.done ? "" : ", in progress"}{rule.lastSlot.note ? ` (${rule.lastSlot.note})` : ""}</dd></> : null}
+          {rule.recipe ? <><dt className="text-muted-foreground">From</dt><dd>Customization {rule.recipe.id} v{rule.recipe.version}</dd></> : null}
+        </dl>
+        <FlowCanvas scenario={{ id: `automation-${rule.id}`, title: rule.name, nodes: ruleNodes(rule, ws) }} height={220} />
+        <DryRun label="Dry run" args={{ object: rule.object, trigger: rule.trigger, conditions: rule.conditions }} />
+      </section>
+      {editing && <Builder ws={ws} initial={rule} onDone={() => setEditing(false)} />}
+      <section className="border border-border bg-card p-4">
+        <h2 className="text-xs font-medium text-muted-foreground">Runs</h2>
+        <Runs ruleId={rule.id} ws={ws} object={rule.object} />
+      </section>
     </div>
   );
 }
@@ -220,21 +197,24 @@ function Runs({ ruleId, ws, object }: { ruleId: Id<"automationRules">; ws: Works
   const rows = useQuery(api.automations.runs, { ruleId });
   const retry = useMutation(api.automations.retryRun);
   const o = ws.objects.find((x) => x.apiName === object);
+  const label = (field: string | undefined, value: unknown) => {
+    const f = o?.fields.find((x) => x.apiName === field);
+    return value === TODAY ? "today" : typeof value === "boolean" ? (value ? "Yes" : "No") : f?.options?.find((x) => x.value === value)?.label ?? String(value ?? "empty");
+  };
   if (rows === undefined) return <LoadingRows count={1} height="h-8" />;
-  if (!rows.length) return <p className="mt-3 text-xs text-muted-foreground">No runs yet. A run appears when a record changes the way the trigger says.</p>;
+  if (!rows.length) return <p className="mt-2 text-xs text-muted-foreground">No runs yet. A run appears when a record changes the way the trigger says.</p>;
   return (
-    <table className="mt-3 w-full text-xs" data-testid="automation-runs">
-      <thead className="text-left text-muted-foreground">
-        <tr><th className="py-1 pr-3">When</th><th className="pr-3">Record</th><th className="pr-3">Trigger</th><th className="pr-3">Conditions</th><th className="pr-3">Actions</th><th>Status</th></tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => {
-          const f = o?.fields.find((x) => x.apiName === r.change?.field);
-          return (
+    <div className="mt-2 overflow-x-auto">
+      <table className="w-full min-w-[640px] text-xs" data-testid="automation-runs">
+        <thead className="text-left text-muted-foreground">
+          <tr><th className="py-1 pr-3">When</th><th className="pr-3">Record</th><th className="pr-3">Trigger</th><th className="pr-3">Conditions</th><th className="pr-3">Actions</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
             <tr key={r.id} className="border-t border-border/60 align-top">
               <td className="py-1 pr-3 whitespace-nowrap">{when(r.createdAt)}</td>
               <td className="pr-3">{r.title ? <Link className="underline" href={recordHref(r.object, r.streamId)}>{r.title}</Link> : "Hidden record"}</td>
-              <td className="pr-3">{r.change ? `${f?.label ?? r.change.field}: ${optionLabel(f, r.change.from)} → ${optionLabel(f, r.change.to)}` : r.event === "schedule" && r.triggeredAt ? `Schedule, ${when(r.triggeredAt)}` : r.event}{r.depth ? ` (from a rule, depth ${r.depth})` : ""}</td>
+              <td className="pr-3">{r.change ? `${o?.fields.find((x) => x.apiName === r.change?.field)?.label ?? r.change.field}: ${label(r.change.field, r.change.from)} → ${label(r.change.field, r.change.to)}` : r.event === "schedule" && r.triggeredAt ? `Schedule, ${when(r.triggeredAt)}` : r.event}{r.depth ? ` (from a rule, depth ${r.depth})` : ""}</td>
               <td className="pr-3">{r.matched ? "Met" : r.reason ?? "Not met"}</td>
               <td className="pr-3">
                 {r.steps.map((s, i) => (
@@ -249,10 +229,10 @@ function Runs({ ruleId, ws, object }: { ruleId: Id<"automationRules">; ws: Works
                 )}
               </td>
             </tr>
-          );
-        })}
-      </tbody>
-    </table>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -280,7 +260,7 @@ function ValueInput({ field, value, onChange, label }: { field: FieldInfo | unde
       </span>
     );
   }
-  return <input aria-label={label} className={input} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Value" />;
+  return <input aria-label={label} className={`${input} min-w-0`} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Value" />;
 }
 
 function OwnerPicker({ owner, onChange, ws, allowRecordOwner }: { owner: Owner; onChange: (o: Owner) => void; ws: Workspace; allowRecordOwner: boolean }) {
@@ -324,19 +304,28 @@ function OwnerPicker({ owner, onChange, ws, allowRecordOwner }: { owner: Owner; 
   );
 }
 
-function Builder({ ws }: { ws: Workspace }) {
+/** The new rule form, or with `initial` the form for changing that rule. A value list the form cannot show (a trigger's several values, a condition's list) is kept until it is replaced. */
+function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDone: () => void }) {
   const create = useMutation(api.automations.create);
-  const [name, setName] = useState("");
-  const [object, setObject] = useState(ws.objects[0]?.apiName ?? "deal");
-  const [kind, setKind] = useState<Trigger["kind"]>("updated");
-  const [field, setField] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [cadence, setCadence] = useState<"daily" | "weekly">("daily");
-  const [weekday, setWeekday] = useState(1);
-  const [time, setTime] = useState("09:00");
-  const [conditions, setConditions] = useState<Array<{ field: string; op: string; value: string }>>([]);
-  const [actions, setActions] = useState<Action[]>([]);
+  const update = useMutation(api.automations.update);
+  const t0 = initial?.trigger;
+  /** A field of the rule being changed, for reading its stored values into the form. */
+  const fieldIn = (apiName: string) => ws.objects.find((x) => x.apiName === initial?.object)?.fields.find((f) => f.apiName === apiName);
+  const [name, setName] = useState(initial?.name ?? "");
+  const [object, setObject] = useState(initial?.object ?? ws.objects[0]?.apiName ?? "deal");
+  const [kind, setKind] = useState<Trigger["kind"]>(t0?.kind ?? "updated");
+  const [field, setField] = useState(t0?.kind === "updated" ? t0.field ?? "" : "");
+  const triggerField = t0?.kind === "updated" && t0.field ? fieldIn(t0.field) : undefined;
+  const [from, setFrom] = useState<string | Scalar[]>(t0?.kind === "updated" && t0.from?.length ? (t0.from.length > 1 ? t0.from : formText(t0.from[0], triggerField)) : "");
+  const [to, setTo] = useState<string | Scalar[]>(t0?.kind === "updated" && t0.to?.length ? (t0.to.length > 1 ? t0.to : formText(t0.to[0], triggerField)) : "");
+  const [cadence, setCadence] = useState<"daily" | "weekly">(t0?.kind === "schedule" ? t0.cadence : "daily");
+  const [weekday, setWeekday] = useState(t0?.kind === "schedule" ? t0.weekday ?? 1 : 1);
+  const [time, setTime] = useState(t0?.kind === "schedule" ? clock(t0.minute) : "09:00");
+  // A list value (`in`, `hasAny`, `hasAll`) the form can't show is kept as it is until it is replaced.
+  const [conditions, setConditions] = useState<Array<{ field: string; op: string; value: string | Scalar[] }>>(
+    initial?.conditions.map((c) => ({ field: c.field, op: c.op, value: Array.isArray(c.value) ? (c.value as Scalar[]) : formText(c.value, fieldIn(c.field)) })) ?? [],
+  );
+  const [actions, setActions] = useState<Action[]>(initial?.actions ?? []);
   const [busy, setBusy] = useState(false);
   const o = ws.objects.find((x) => x.apiName === object);
   const fieldOf = (apiName: string) => o?.fields.find((f) => f.apiName === apiName);
@@ -358,29 +347,36 @@ function Builder({ ws }: { ws: Workspace }) {
     return Number.isInteger(h) && Number.isInteger(m) ? h * 60 + m : -1;
   })();
   const f = fieldOf(field);
+  const valueList = (x: string | Scalar[]) => (Array.isArray(x) ? x : x ? [parseValue(f, x)!] : []);
   const trigger: Trigger = kind === "updated"
-    ? { kind, ...(field ? { field } : {}), ...(from ? { from: [parseValue(f, from)!] } : {}), ...(to ? { to: [parseValue(f, to)!] } : {}) }
+    ? { kind, ...(field ? { field } : {}), ...(valueList(from).length ? { from: valueList(from) } : {}), ...(valueList(to).length ? { to: valueList(to) } : {}) }
     : kind === "schedule" ? { kind, cadence, minute, ...(cadence === "weekly" ? { weekday } : {}) }
     : { kind };
-  const conditionList: Condition[] = conditions.filter((c) => c.field).map((c) => ({ field: c.field, op: c.op, ...(c.op === "empty" || c.op === "notEmpty" ? {} : { value: parseValue(fieldOf(c.field), c.value) }) }));
+  const conditionList: Condition[] = conditions.filter((c) => c.field).map((c) => ({
+    field: c.field, op: c.op, ...(c.op === "empty" || c.op === "notEmpty" ? {} : { value: Array.isArray(c.value) ? c.value : parseValue(fieldOf(c.field), c.value) }),
+  }));
+  const draft: RuleShape = { object, trigger, conditions: conditionList, actions };
 
   async function save() {
     setBusy(true);
     try {
-      await create({ name, object, trigger, conditions: conditionList, actions });
-      setName("");
-      reset(object);
-      void toast.success("Rule saved. It acts on changes from now on.");
+      if (initial) await update({ id: initial.id, name, ...draft, conditions: conditionList, actions });
+      else await create({ name, ...draft, conditions: conditionList, actions });
+      void toast.success(initial ? "Rule saved." : "Rule saved. It acts on changes from now on.");
+      onDone();
     } catch (cause) {
       void toast.error(getErrorMessage(cause));
     } finally {
       setBusy(false);
     }
   }
+  const listInput = (label: string, x: string | Scalar[], set: (v: string) => void) => Array.isArray(x)
+    ? <button type="button" className={btn} aria-label={label} onClick={() => set("")}>{x.length} values (replace)</button>
+    : <ValueInput label={label} field={fieldOf(field)} value={x} onChange={set} />;
 
   return (
     <section className="space-y-3 border border-border bg-card p-4" data-testid="automation-builder">
-      <h2 className="font-medium">New rule</h2>
+      <h2 className="font-medium">{initial ? `Change ${initial.name}` : "New rule"}</h2>
       <input aria-label="Rule name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name, e.g. Proposal follow-up" className={`${input} w-full`} />
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -414,9 +410,9 @@ function Builder({ ws }: { ws: Workspace }) {
             {field && (
               <>
                 <span className="text-muted-foreground">from</span>
-                <ValueInput label="From value" field={fieldOf(field)} value={from} onChange={setFrom} />
+                {listInput("From value", from, setFrom)}
                 <span className="text-muted-foreground">to</span>
-                <ValueInput label="To value" field={fieldOf(field)} value={to} onChange={setTo} />
+                {listInput("To value", to, setTo)}
                 <span className="text-xs text-muted-foreground">(blank: any)</span>
               </>
             )}
@@ -431,10 +427,10 @@ function Builder({ ws }: { ws: Workspace }) {
             <SelectField aria-label="Condition field" value={c.field} onValueChange={(v) => setConditions(conditions.map((x, j) => (j === i ? { ...x, field: v, value: "" } : x)))}
               options={[{ value: "", label: "Field…" }, ...(o?.fields ?? []).map((f) => ({ value: f.apiName, label: f.label }))]} />
             <SelectField aria-label="Condition operator" value={c.op} onValueChange={(v) => setConditions(conditions.map((x, j) => (j === i ? { ...x, op: v } : x)))}
-              options={OPS.map(([k, label]) => ({ value: k, label }))} />
-            {c.op !== "empty" && c.op !== "notEmpty" && (
-              <ValueInput label="Condition value" field={fieldOf(c.field)} value={c.value} onChange={(value) => setConditions(conditions.map((x, j) => (j === i ? { ...x, value } : x)))} />
-            )}
+              options={[...OPS, ...(OPS.some(([k]) => k === c.op) ? [] : [[c.op, c.op] as [string, string]])].map(([k, label]) => ({ value: k, label }))} />
+            {c.op !== "empty" && c.op !== "notEmpty" && (Array.isArray(c.value)
+              ? <button type="button" className={btn} aria-label="Condition value" onClick={() => setConditions(conditions.map((x, j) => (j === i ? { ...x, value: "" } : x)))}>{c.value.length} values (replace)</button>
+              : <ValueInput label="Condition value" field={fieldOf(c.field)} value={c.value} onChange={(value) => setConditions(conditions.map((x, j) => (j === i ? { ...x, value } : x)))} />)}
             <button type="button" className={btn} onClick={() => setConditions(conditions.filter((_, j) => j !== i))}>Remove</button>
           </div>
         ))}
@@ -452,13 +448,13 @@ function Builder({ ws }: { ws: Workspace }) {
                 <SelectField aria-label="Field to set" value={a.field} onValueChange={(v) => setAction(i, { ...a, field: v, value: null })}
                   options={[{ value: "", label: "Field…" }, ...editable.map((f) => ({ value: f.apiName, label: f.label }))]} />
                 <span>to</span>
-                <ValueInput label="Value to set" field={fieldOf(a.field)} value={a.value === null ? "" : String(a.value)} onChange={(raw) => setAction(i, { ...a, value: parseValue(fieldOf(a.field), raw) })} />
+                <ValueInput label="Value to set" field={fieldOf(a.field)} value={formText(a.value, fieldOf(a.field))} onChange={(raw) => setAction(i, { ...a, value: parseValue(fieldOf(a.field), raw) })} />
               </>
             )}
             {a.kind === "create_task" && (
               <>
                 <span>Create a task</span>
-                <input aria-label="Task subject" className={input} value={a.subject} onChange={(e) => setAction(i, { ...a, subject: e.target.value })} placeholder="Follow up on {record}" />
+                <input aria-label="Task subject" className={`${input} min-w-0`} value={a.subject} onChange={(e) => setAction(i, { ...a, subject: e.target.value })} placeholder="Follow up on {record}" />
                 <span>due in</span>
                 <input aria-label="Due in days" type="number" min={0} max={365} className={`${input} w-16`} value={a.dueInDays} onChange={(e) => setAction(i, { ...a, dueInDays: Number(e.target.value) })} />
                 <span>days for</span>
@@ -483,9 +479,13 @@ function Builder({ ws }: { ws: Workspace }) {
         </div>
       </div>
 
-      <FlowCanvas scenario={{ id: "automation-draft", title: name || "New rule", nodes: ruleNodes({ object, trigger, conditions: conditionList, actions }, ws) }} height={220} />
+      <p className="border-l-2 border-primary pl-2 text-sm" data-testid="automation-sentence">{sentence(draft, ws)}</p>
+      <FlowCanvas scenario={{ id: initial ? `automation-edit-${initial.id}` : "automation-draft", title: name || "New rule", nodes: ruleNodes(draft, ws) }} height={220} />
       <DryRun label="Dry run: which records match now" args={{ object, trigger, conditions: conditionList }} />
-      <button type="button" disabled={busy || !name.trim() || !actions.length} onClick={() => void save()} className="bg-primary px-3 py-1 text-xs text-primary-foreground disabled:opacity-40">Save rule</button>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={busy || !name.trim() || !actions.length} onClick={() => void save()} className="bg-primary px-3 py-1 text-xs text-primary-foreground disabled:opacity-40">Save rule</button>
+        <button type="button" className={btn} onClick={onDone}>Cancel</button>
+      </div>
     </section>
   );
 }

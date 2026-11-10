@@ -78,7 +78,7 @@ for (const [surface, pattern] of [
       "/dashboard/accounts", "/dashboard/contacts", "/dashboard/icps", "/dashboard/audiences",
       "/dashboard/tasks", "/dashboard/facts",
       "/dashboard/deals", "/dashboard/dashboards", "/dashboard/linkedin", "/dashboard/m/dialer/dialer", "/dashboard/runs", "/dashboard/agents",
-      "/dashboard/settings", "/dashboard/customization", "/dashboard/integrations", "/dashboard/canon-fields", "/dashboard/account-hierarchy", "/dashboard/fields", "/dashboard/cli-auth",
+      "/dashboard/settings", "/dashboard/customization", "/dashboard/automations", "/dashboard/integrations", "/dashboard/canon-fields", "/dashboard/account-hierarchy", "/dashboard/fields", "/dashboard/cli-auth",
     ]);
     assert.match(sidebar, /href="\/dashboard\/contacts"/);
     assert.match(sidebar, />People<\/span>/);

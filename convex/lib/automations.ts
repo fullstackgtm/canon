@@ -1,6 +1,7 @@
 /**
- * Automation rules (CP17): the pure parts. What a rule is, which ledger
- * entries may start it, whether an entry is the change its trigger names,
+ * Automation rules (CP17): the pure parts of running one. What a rule is (its
+ * document and its sentence) is the kernel's, modules/kernel/automation.ts.
+ * Here: which ledger entries may start it, whether an entry is the change its trigger names,
  * whether the record passes its conditions, and who round robin picks next.
  * convex/automations.ts drives it from the ledger.
  *
@@ -13,7 +14,6 @@
  *
  * Free of database and Node-only imports.
  */
-import { v, type Infer } from "convex/values";
 import { sameValue } from "./canon/policy.ts";
 import type { EntryBody, EntrySource, EntryActor, FoldState } from "./objects/fold.ts";
 import { compileListRequest, listRowOf, matchesFilter, type ListFilter, type ListRow } from "./objects/listSpec.ts";
@@ -21,73 +21,10 @@ import { FILTER_OPS } from "../../modules/kernel/reportLanguage.ts";
 import type { FieldValue, ResolvedObjectDef } from "./objects/registry.ts";
 import { localTime } from "./linkedin/limits.ts";
 
-/** Rules one workspace keeps, and actions one rule runs. */
-export const RULES_MAX = 50;
-export const ACTIONS_MAX = 10;
-export const CONDITIONS_MAX = 10;
-/** A rule's write may start another rule's run, down to this depth; an entry written at it starts nothing. */
-export const MAX_DEPTH = 3;
-
-/** Objects a rule can watch and act on in this release: the ones Convex writes whole (companies and people live in the record service). */
-export const AUTOMATION_OBJECTS = ["deal", "lead", "task"] as const;
-export const isAutomationObject = (o: string): boolean => (AUTOMATION_OBJECTS as readonly string[]).includes(o) || o.startsWith("custom_");
-
-// ───────────────────────────── Shape ─────────────────────────────
-
-const scalar = v.union(v.string(), v.number(), v.boolean());
-
-export const triggerValidator = v.union(
-  v.object({ kind: v.literal("created") }),
-  /** A field changed (any field when `field` is absent), optionally from one of `from` and to one of `to`. */
-  v.object({ kind: v.literal("updated"), field: v.optional(v.string()), from: v.optional(v.array(scalar)), to: v.optional(v.array(scalar)) }),
-  v.object({ kind: v.literal("deleted") }),
-  /**
-   * Daily, or weekly on `weekday` (0 Sunday to 6 Saturday), at `minute` past
-   * local midnight in the workspace's time zone: over the records that match
-   * the rule's conditions then.
-   */
-  v.object({ kind: v.literal("schedule"), cadence: v.union(v.literal("daily"), v.literal("weekly")), minute: v.number(), weekday: v.optional(v.number()) }),
-);
-
-export const conditionValidator = v.object({ field: v.string(), op: v.string(), value: v.optional(v.any()) });
-
-/**
- * Who a task or a record is given to: one member; the triggering record's
- * own owner (tasks only); or the next in turn of a member list, a team, or a
- * saved routing rule (whose rotation it advances, so those rules run here).
- */
-export const ownerChoiceValidator = v.union(
-  v.object({ kind: v.literal("member"), userId: v.id("users") }),
-  v.object({ kind: v.literal("record_owner") }),
-  v.object({ kind: v.literal("round_robin"), userIds: v.array(v.id("users")) }),
-  v.object({ kind: v.literal("team"), teamId: v.id("teamGroups") }),
-  v.object({ kind: v.literal("routing_rule"), routingRuleId: v.id("routingRules") }),
-);
-
-export const actionValidator = v.union(
-  v.object({ kind: v.literal("set_field"), field: v.string(), value: v.union(scalar, v.null()) }),
-  v.object({ kind: v.literal("create_task"), subject: v.string(), dueInDays: v.number(), owner: ownerChoiceValidator }),
-  v.object({ kind: v.literal("assign_owner"), owner: ownerChoiceValidator }),
-);
-
-export type Trigger = Infer<typeof triggerValidator>;
-export type ScheduleTrigger = Extract<Trigger, { kind: "schedule" }>;
-export type Condition = Infer<typeof conditionValidator>;
-export type OwnerChoice = Infer<typeof ownerChoiceValidator>;
-export type AutomationAction = Infer<typeof actionValidator>;
-
-/** One action's progress in a run. */
-export const stepValidator = v.object({
-  kind: v.string(),
-  status: v.union(v.literal("pending"), v.literal("done"), v.literal("failed"), v.literal("skipped")),
-  attempts: v.number(),
-  /** What it did ("Task created", "Owner set to Avery") or why it failed. */
-  detail: v.optional(v.string()),
-  /** The record it made or changed, for the run log's link. */
-  streamId: v.optional(v.string()),
-  at: v.optional(v.number()),
-});
-export type Step = Infer<typeof stepValidator>;
+import {
+  ACTIONS_MAX, CONDITIONS_MAX, MAX_DEPTH, TODAY,
+  type AutomationAction, type Condition, type ScheduleTrigger, type Step, type Trigger,
+} from "../../modules/kernel/automation.ts";
 
 // ───────────────────────────── Origins ─────────────────────────────
 
@@ -169,13 +106,6 @@ export function triggerFires(trigger: Trigger, def: ResolvedObjectDef, before: R
 }
 
 // ───────────────────────────── Conditions ─────────────────────────────
-
-/**
- * A condition on a date may compare with `{today}`, the workspace's date when
- * the rule checks it ("close date is less than today"); on a date and time,
- * with now. The list grammar itself has no relative dates.
- */
-export const TODAY = "{today}";
 
 /** The conditions as list filters, `{today}` read in `tz` at `now`. */
 export function resolveConditions(def: ResolvedObjectDef, conditions: readonly Condition[], now: number, tz: string): ListFilter[] {

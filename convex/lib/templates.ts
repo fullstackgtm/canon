@@ -74,7 +74,7 @@ export const INSTALLERS: { [K in TemplateKind]: Installer<K> } = {
   },
   automation: {
     table: "automationRules",
-    href: () => "/dashboard/agents#automations",
+    href: (id) => `/dashboard/automations?rule=${id}`,
     install: async (ctx, _user, t, recipe, from) =>
       insertRule(ctx, await requireAdmin(ctx), { name: t.title, object: t.spec.object, trigger: t.spec.trigger, conditions: t.spec.conditions, actions: t.spec.actions },
         { paused: `Installed from ${from.recipe.title}. Resume it to start.`, recipe }),

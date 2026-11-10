@@ -12,7 +12,6 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { getErrorMessage } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { SelectField } from "@/components/ui/select";
-import { AutomationsTab } from "./automations";
 
 type Agent = NonNullable<ReturnType<typeof useQuery<typeof api.agentTurns.list>>>["agents"][number];
 type Turn = NonNullable<ReturnType<typeof useQuery<typeof api.agentTurns.turns>>>[number];
@@ -51,17 +50,20 @@ export default function AgentsPage() {
   );
 }
 
-/** Automation rules are deterministic agents: no AI, the same change always gets the same action. Admins manage them. */
+/** Automation rules have their own page, outside the ChatGPT gate: they run no AI. An old #automations link goes there. */
 function RuleAgents() {
   const ws = useQuery(api.automations.workspace);
+  useEffect(() => {
+    if (window.location.hash === "#automations") window.location.replace("/dashboard/automations");
+  }, []);
   if (!ws) return null;
   return (
     <section id="automations" className="mt-10 scroll-mt-8">
       <h2 className="text-xs font-medium text-muted-foreground">Rule agents</h2>
-      <p className="mb-4 mt-1 max-w-[72ch] text-sm text-muted-foreground">
-        Deterministic agents: no AI and no ChatGPT plan, and the same change always gets the same actions.
+      <p className="mt-1 max-w-[72ch] text-sm text-muted-foreground">
+        Automation rules run no AI and need no ChatGPT plan: the same change always gets the same actions. They are on{" "}
+        <Link href="/dashboard/automations" className="underline underline-offset-2">Automations</Link>.
       </p>
-      <AutomationsTab />
     </section>
   );
 }

@@ -54,9 +54,9 @@ test("Applied lists changed pages first and folds the ones Canon ships as is", (
   assert.match(html, /<h1>Customization<\/h1>/);
   assert.match(html, /role="tab" aria-selected="true"[^>]*>Applied</);
   assert.match(html, /<a>Opportunities<\/a><span[^>]*><span[^>]*>Deal page: Enterprise multi-touch deal<\/span>/);
-  assert.match(html, /10 pages as Canon ships them/);
+  assert.match(html, /11 pages as Canon ships them/);
   assert.match(html, /Modules on<\/dt><dd[^>]*>1 of 2</);
-  assert.match(html, /Pages changed<\/dt><dd[^>]*>2 of 12</);
+  assert.match(html, /Pages changed<\/dt><dd[^>]*>2 of 13</);
 });
 
 test("module rows and install previews render responses from before Canon imports shipped", () => {

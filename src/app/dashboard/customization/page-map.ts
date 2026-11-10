@@ -17,6 +17,7 @@ export const CANON_PAGES = [
   { id: "abm", label: "Target accounts", href: "/dashboard/abm" },
   { id: "linkedin", label: "LinkedIn", href: "/dashboard/linkedin" },
   { id: "agents", label: "Agents", href: "/dashboard/agents" },
+  { id: "automations", label: "Automations", href: "/dashboard/automations" },
   { id: "ai-fields", label: "AI fields", href: "/dashboard/fields" },
 ] as const;
 export type CanonPageId = (typeof CANON_PAGES)[number]["id"] | "workspace";
@@ -39,7 +40,7 @@ export const POINT_PAGE: Record<PointId, CanonPageId> = {
   fields: "ai-fields",
   "templates.reports": "reports",
   "templates.dashboards": "reports",
-  "templates.automations": "agents",
+  "templates.automations": "automations",
   "templates.icps": "icps",
   "templates.pipelines": "deals",
   "templates.cadences": "linkedin",

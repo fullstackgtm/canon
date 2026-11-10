@@ -51,10 +51,13 @@ import { coerce, type FieldValue, type ResolvedObjectDef } from "./lib/objects/r
 import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { archivedObjectNames } from "./lib/objects/orgDefs";
 import {
-  ACTIONS_MAX, AUTOMATION_OBJECTS, RULES_MAX, SLOT_CAP, actionProblem, actionValidator, conditionValidator, conditionsMet, conditionsProblem, dueDate,
-  entryOrigin, initialSteps, isAutomationObject, mayTrigger, nextInTurn, nextSlot, resolveConditions, rowOf, scheduleProblem, triggerFires, triggerValidator,
-  weightedCycle, type AutomationAction, type AutomationMark, type Condition, type OwnerChoice, type Step, type Trigger,
+  SLOT_CAP, actionProblem, conditionsMet, conditionsProblem, dueDate, entryOrigin, initialSteps, mayTrigger, nextInTurn, nextSlot, resolveConditions, rowOf,
+  scheduleProblem, triggerFires, weightedCycle, type AutomationMark,
 } from "./lib/automations";
+import {
+  ACTIONS_MAX, AUTOMATION_OBJECTS, RULES_MAX, actionValidator, conditionValidator, isAutomationObject, triggerValidator,
+  type AutomationAction, type Condition, type OwnerChoice, type Step, type Trigger,
+} from "../modules/kernel/automation";
 
 /** Ledger entries one fan-out reads per shard, and stream entries it may fold in all before it hands the rest to a continuation. */
 const BATCH = 25;
@@ -287,7 +290,7 @@ const ruleView = async (ctx: QueryCtx, r: Doc<"automationRules">) => {
   const creator = await ctx.db.get(r.createdBy);
   return {
     id: r._id, name: r.name, object: r.object, trigger: r.trigger, conditions: r.conditions, actions: r.actions, status: r.status,
-    pausedReason: r.pausedReason ?? null, createdBy: creator?.name ?? "A former member", createdAt: r.createdAt, recipe: r.recipe ?? null,
+    pausedReason: r.pausedReason ?? null, createdBy: creator?.name ?? "A former member", actsAs: creator?.name ?? "A former member", createdAt: r.createdAt, recipe: r.recipe ?? null,
     lastRun: last ? { status: last.status, at: last.createdAt } : null,
     nextSlotAt: r.status === "active" ? r.nextSlotAt ?? null : null,
     lastSlot: r.slotRun ? { at: r.slotRun.slot, runs: r.slotRun.count, done: r.slotRun.done, note: r.slotRun.note ?? null } : null,
@@ -332,6 +335,7 @@ export const workspace = query({
     return {
       objects,
       timezone: await timezoneOf(ctx, orgId),
+      currency: (await ctx.db.get(orgId))?.defaultCurrency ?? "USD",
       members: (await workspaceMembers(ctx, orgId)).map((m) => ({ id: m.id, name: m.name })),
       teams: teams.map((t) => ({ id: t._id, name: t.name, size: t.memberIds.length })),
       routingRules: routing.map((r) => ({ id: r._id, name: r.name, size: r.assignees.length, isActive: r.isActive })),

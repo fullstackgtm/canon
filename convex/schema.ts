@@ -19,7 +19,7 @@ import { icpGapCheckValidator } from "./lib/icpGapCheck";
 import { icpSpecValidator } from "../modules/kernel/icpSpec";
 import { targetPlanFields } from "./lib/reports/validators";
 import { FORECAST_CATEGORIES } from "./lib/pipelines";
-import * as automation from "./lib/automations";
+import * as automation from "../modules/kernel/automation";
 import { draftReviewValidator, dealRole, playChannel, playItemKind, playOrigin } from "./lib/plays/validators";
 import { stateValidator, stateSummaryValidator } from "./lib/plays/state";
 import { recordingPolicyFields } from "./lib/recordingPolicy";

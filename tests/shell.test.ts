@@ -27,7 +27,7 @@ const SIDEBAR_HREFS = [
   "/dashboard/accounts", "/dashboard/contacts", "/dashboard/icps", "/dashboard/audiences",
   "/dashboard/tasks", "/dashboard/facts",
   "/dashboard/deals", "/dashboard/m/reports/pacing", "/dashboard/linkedin", "/dashboard/m/dialer/dialer", "/dashboard/runs", "/dashboard/agents",
-  "/dashboard/settings", "/dashboard/customization", "/dashboard/integrations", "/dashboard/canon-fields", "/dashboard/account-hierarchy", "/dashboard/fields", "/dashboard/cli-auth",
+  "/dashboard/settings", "/dashboard/customization", "/dashboard/automations", "/dashboard/integrations", "/dashboard/canon-fields", "/dashboard/account-hierarchy", "/dashboard/fields", "/dashboard/cli-auth",
 ];
 
 test("the sidebar groups and orders CRM, Work, Activity and Admin destinations, Work from its module", () => {
@@ -39,18 +39,18 @@ test("the sidebar groups and orders CRM, Work, Activity and Admin destinations, 
     ["CRM", ["Accounts", "People", "ICPs", "Audiences"]],
     ["Work", ["My work", "Review"]],
     ["Activity", ["Opportunities", "Reports", "LinkedIn", "Dialer", "Runs", "Agents"]],
-    ["Admin", ["Settings", "Customization", "Integrations", "Canon fields", "Account hierarchy", "AI fields", "CLI Pairing"]],
+    ["Admin", ["Settings", "Customization", "Automations", "Integrations", "Canon fields", "Account hierarchy", "AI fields", "CLI Pairing"]],
   ]);
   assert.equal(NAV_SECTIONS[0].items.find((i) => i.href === "/dashboard/contacts")?.label, "People");
   const visits: NavModule = { slug: "visit-log", nav: { label: "Visit log", icon: "map", section: "Work", href: "/dashboard/m/visit-log/visits" } };
   assert.deepEqual(visibleSections([], [visits, WORK]).find((s) => s.label === "Work")?.items.map((i) => i.label), ["My work", "Review", "Visit log"], "linked Canon pages lead their section");
 });
 
-test("workspace.nav hides pages by id, drops an emptied section, keeps Settings, Customization, Canon fields and Account hierarchy, and lands on a visible page", () => {
+test("workspace.nav hides pages by id, drops an emptied section, keeps Settings, Customization, Automations, Canon fields and Account hierarchy, and lands on a visible page", () => {
   assert.deepEqual(SIDEBAR.flatMap((s) => s.items.flatMap((i) => (i.id ? [i.id] : []))), [...NAV_PAGES]);
   const all = [...NAV_PAGES];
   const left = withoutHidden(SIDEBAR, all);
-  assert.deepEqual(left.map((s) => [s.label, s.items.map((i) => i.label)]), [["Admin", ["Settings", "Customization", "Canon fields", "Account hierarchy"]]]);
+  assert.deepEqual(left.map((s) => [s.label, s.items.map((i) => i.label)]), [["Admin", ["Settings", "Customization", "Automations", "Canon fields", "Account hierarchy"]]]);
   const some = withoutHidden(withModules(NAV_SECTIONS, [REPORTS]), ["deals", "accounts"]);
   assert.equal(homeHref(some, "reports"), "/dashboard/m/reports/pacing");
   assert.equal(homeHref(some, "deals"), "/dashboard/contacts", "a hidden landing page falls back to the first visible page");
