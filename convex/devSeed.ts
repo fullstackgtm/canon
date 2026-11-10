@@ -1,3 +1,4 @@
+import type { Sealed } from "./lib/sealed";
 import { assertLegacyIcpsWritable } from "./lib/modules/interfaceOwnership";
 import { ConvexError, v } from "convex/values";
 import { seedDefaultModules } from "./moduleDefaults";
@@ -369,8 +370,9 @@ export const ensureWorkspace = mutation({
     const hubspotPatch = {
       orgId,
       provider: "hubspot" as const,
-      accessToken: "demo-access-token",
-      refreshToken: "demo-refresh-token",
+      // The demo connection's tokens are fake and never reach HubSpot, so the local stack needs no key for them.
+      accessToken: "demo-access-token" as Sealed,
+      refreshToken: "demo-refresh-token" as Sealed,
       instanceUrl: "https://api.hubapi.com",
       scopes: ["crm.objects.deals.read", "crm.objects.contacts.read"],
       lastSyncAt: now,

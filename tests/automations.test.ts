@@ -20,7 +20,7 @@ let agentClient: string | null = null;
 /** The companies the record service holds, as list rows by id, and who each read of one ran as: an If reads a related company through its member's sight. */
 const companies = new Map<string, Record<string, unknown>>();
 const companyReads: Array<{ id: unknown; userIds: string[] }> = [];
-const M = loadConvex(["automations.ts", "objects.ts"], {
+const M = loadConvex(["automations.ts", "objects.ts", "recordWebhooks.ts"], {
   "lib.ts": (real) => ({
     ...real, getCurrentUser: async () => signedIn, requireUser: async () => { if (!signedIn) throw new Error("Not authenticated"); return signedIn; }, agentClientOf: async () => agentClient,
   }),
@@ -37,6 +37,7 @@ const M = loadConvex(["automations.ts", "objects.ts"], {
   }),
 });
 const automations = M["automations.ts"]!;
+const recordWebhooks = M["recordWebhooks.ts"]!;
 const objects = M["objects.ts"]!;
 
 function workspace(riley: Record<string, unknown> = {}) {
@@ -504,4 +505,53 @@ test("a Wait until a date field waits for that day, goes straight on when it is 
   await sweep(w);
   const ended = runOf(w, dated.streamId);
   assert.deepEqual(plain([ended.status, ended.reason, ended.steps.map((s: { status: string }) => s.status)]), ["skipped", "The record was archived while this run waited", ["done", "skipped"]]);
+});
+
+// ───────────────────────────── Notify and webhooks: what leaves Canon ─────────────────────────────
+
+test("notify steps post to a mapped Slack channel and email the record's owner through the outbox, filled from the record as the approver sees it", async () => {
+  const w = workspace();
+  await w.db.insert("outboundTargets", { orgId: ORG, channel: "slack", name: "sales", url: "sealed", hint: "hooks.slack.com/…", createdBy: RILEY, createdAt: 0 });
+  await inPerson(w, RILEY);
+  const notify = (channel: string) => automations.propose.handler(w.ctx, {
+    name: "Tell sales", object: "lead", trigger: { kind: "created" }, conditions: [],
+    actions: [
+      { kind: "notify_slack", channel, message: "{record} at {company}, phone {phone}" },
+      { kind: "notify_email", to: { kind: "record_owner" }, subject: "New lead: {record}", message: "Call {phone} at {company}" },
+    ],
+  });
+  await assert.rejects(notify("nope"), /No Slack channel is mapped to nope/);
+  await notify("sales");
+  // After approving it, Riley becomes a manager whose role doesn't see a lead's phone: nothing the rule sends carries it.
+  // Avery, the lead's owner, is a rep whose role doesn't see its company: their email leaves that out too.
+  await w.db.patch(RILEY, { role: "manager" });
+  await w.db.insert("rolePermissions", { orgId: ORG, role: "manager", rules: [{ object: "lead", fields: [{ apiName: "phone", level: "hidden" }] }] });
+  await w.db.insert("rolePermissions", { orgId: ORG, role: "rep", rules: [{ object: "lead", fields: [{ apiName: "company", level: "hidden" }] }] });
+  await as(w, await withQuinn(w));
+  await write(w, { lastName: "Okafor", company: "Orbit Labs", phone: "555-0100", ownerId: AVERY });
+  await fanout(w);
+  await drain(w);
+  const sent = plain((w.db.rows("outboundMessages") as Array<Record<string, any>>).map((r) => [r.channel, r.to, r.state, r.rendered.subject ?? null, r.rendered.text]));
+  assert.deepEqual(sent, [["slack", { slack: "sales" }, "queued", null, "Okafor at Orbit Labs, phone "], ["email", { member: AVERY }, "queued", "New lead: Okafor", "Call  at "]]);
+  assert.equal(runs(w)[0].status, "done");
+});
+
+test("a webhook step queues a signed record-webhook delivery of the record, and it never goes once the admin the rule acts as leaves", async () => {
+  const w = workspace();
+  const endpointId = await w.db.insert("recordWebhookEndpoints", { orgId: ORG, url: "http://127.0.0.1:9/hook", objects: ["lead"], events: [], secret: "sealed", enabled: true, cursors: {}, createdBy: RILEY, createdAt: 0, updatedAt: 0 });
+  await inPerson(w, RILEY);
+  await automations.propose.handler(w.ctx, { name: "Send leads", object: "lead", trigger: { kind: "created" }, conditions: [], actions: [{ kind: "call_webhook", endpointId }] });
+  const a = await write(w, { lastName: "Okafor", company: "Orbit Labs" });
+  await fanout(w);
+  await drain(w);
+  const [delivery] = w.db.rows("recordWebhookDeliveries") as Array<Record<string, any>>;
+  const body = JSON.parse(delivery.payload);
+  assert.deepEqual(plain([body.event, body.id, body.values.lastName, body.values.company, delivery.actsAs, delivery.deliveryKey]), ["automation.rule", a.streamId, "Okafor", "Orbit Labs", RILEY, `automation:${runs(w)[0]._id}:0`]);
+  assert.ok(w.scheduled.some((s) => s.ref === "internal.recordWebhooks.deliver"));
+  // The receiver dedupes on the step's own key; once Riley leaves, the queued call is refused instead of sent.
+  assert.equal((await recordWebhooks.claim.handler(w.ctx, { deliveryId: delivery._id }))?.eventId, delivery.deliveryKey);
+  await w.db.patch(delivery._id, { nextAttemptAt: 0 });
+  await w.db.patch(RILEY, { isActive: false });
+  assert.equal(await recordWebhooks.claim.handler(w.ctx, { deliveryId: delivery._id }), null);
+  assert.deepEqual(plain([(w.db.rows("recordWebhookDeliveries") as Array<Record<string, any>>)[0].status]), ["failed"]);
 });

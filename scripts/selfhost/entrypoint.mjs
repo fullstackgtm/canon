@@ -4,7 +4,7 @@ import { chown, mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/
 import { join } from "node:path";
 import { INTEGRATIONS_AVAILABLE, integrationEnabled, integrationNeeds } from "../../convex/lib/integrationsAvailable.ts";
 import { functionsDigest, mustPush } from "./functions.mjs";
-import { newSetupCode, platformSiteUrl, SETUP_CODE_FILE } from "./platform.mjs";
+import { newSetupCode, newTokenEncryptionKey, platformSiteUrl, SETUP_CODE_FILE } from "./platform.mjs";
 
 // How the processes in this container reach each other. SITE_URL and its port are the browser's
 // address: the published port can differ from the container's, and a public domain may not
@@ -139,7 +139,7 @@ async function main() {
   env.CONVEX_SELF_HOSTED_ADMIN_KEY = await persisted(`${credentials}/admin_key`, () =>
     start("admin key generation", "/convex/generate_admin_key.sh", [], env, "/convex", true).done);
   env.RECORD_SERVICE_TOKEN = await persisted(`${credentials}/record_service_token`, () => randomBytes(32).toString("hex"));
-  env.TOKEN_ENCRYPTION_KEY = await persisted(`${credentials}/token_encryption_key`, () => randomBytes(32).toString("base64"));
+  env.TOKEN_ENCRYPTION_KEY = await persisted(`${credentials}/token_encryption_key`, newTokenEncryptionKey);
   env.CANON_SERVICE_JWT_PRIVATE_KEY = await persisted(`${credentials}/service_jwt_private.pem`, () =>
     generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey);
   env.CANON_SERVICE_JWT_ISSUER = `${site}/service`;

@@ -4,6 +4,10 @@
  * credential, every lookup of one by its secret, every lookup of a member by sign-in id and every read of the
  * signed-in identity, and fails on one it doesn't judge, so the next credential type can't skip the gate.
  * tests/deactivatedMemberAccess.test.ts proves the gate's behavior through each path.
+ *
+ * A credential Canon reads back (a provider token, a webhook URL or secret) is stored sealed: its field's validator
+ * is lib/sealed.ts sealedV, so a write of anything but lib/tokenHelpers.ts encryptForStorage's result fails the
+ * typecheck. The last test lists every such field and fails on a new one that isn't sealed or judged, and on a cast.
  */
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -132,7 +136,7 @@ test("every table holding a credential is judged", () => {
   const starts = [...schema.matchAll(/^ {2}(\w+): defineTable\(/gm)];
   const holding = starts.flatMap((m, i) => {
     const block = schema.slice(m.index!, starts[i + 1]?.index ?? schema.length);
-    return /(?:^|[\s,{])(?:token|secret|\w*(?:[tT]oken|[kK]ey|[sS]ession|[cC]ode|[pP]assword|[sS]tate)Hash):\s*v\./m.test(block) ? [m[1]!] : [];
+    return /(?:^|[\s,{])(?:token|secret|\w*(?:[tT]oken|[kK]ey|[sS]ession|[cC]ode|[pP]assword|[sS]tate)Hash):\s*(?:v\.|sealedV)/m.test(block) ? [m[1]!] : [];
   });
   assert.deepEqual(holding.filter((t) => !(t in CREDENTIAL_TABLES)).sort(), [], "a table holds a credential the census doesn't judge: name its gate in CREDENTIAL_TABLES, or why it reaches no member");
   assert.deepEqual(Object.keys(CREDENTIAL_TABLES).filter((t) => !holding.includes(t)).sort(), [], "a judged table no longer holds a credential");
@@ -159,4 +163,57 @@ test("every lookup of a credential or a signed-in member goes through a gate or 
   // The public export leaves Canon's operator files out; a judgment of a file that isn't here isn't stale.
   const present = (key: string) => existsSync(join(ROOT, key.split("#")[0]!));
   assert.deepEqual(Object.keys(NOT_A_CREDENTIAL).filter((k) => present(k) && !seen.has(k)).sort(), [], "a judged lookup is gone: remove it from the census");
+});
+
+/** Each stored field holding a credential Canon reads back: sealed, or why it is kept as it is. */
+const STORED_CREDENTIALS: Record<string, "sealed" | string> = {
+  "integrations.accessToken": "sealed",
+  "integrations.refreshToken": "sealed",
+  "integrations.clientCredentials": "sealed",
+  "chatgptAuth.deviceAuthId": "sealed",
+  "chatgptAuth.accessToken": "sealed",
+  "chatgptAuth.refreshToken": "sealed",
+  "chatgptAuth.idToken": "sealed",
+  "agentWebhooks.secret": "sealed",
+  "recordWebhookEndpoints.secret": "sealed",
+  "outboundTargets.url": "sealed",
+  "outboundTargets.secret": "sealed",
+  "connectorLinks.secret": "sealed",
+  "operatorGithubApps.encryptedClientSecret": "sealed",
+  "operatorGithubApps.encryptedPrivateKey": "sealed",
+  "operatorGithubApps.encryptedWebhookSecret": "sealed",
+  "moduleFiles.secret": "a one-time upload ticket the upload route matches by value; cleared once the file is recorded",
+  "researchSessions.token": "a public research link's id, looked up by value",
+  "researchSessions.cachedFromToken": "the public research link a session was copied from",
+  "signalBoards.token": "a public job board's id, not a credential",
+  "emailLogAddresses.token": "the logging address itself, looked up by value",
+};
+/** The only places that make a Sealed without encrypting: the brand itself, and the local stack's fake demo tokens. */
+const SEALED_CASTS = ["convex/lib/sealed.ts", "convex/lib/tokenHelpers.ts", "convex/devSeed.ts"];
+
+test("every stored credential is sealed or judged, and only encryptForStorage seals one", () => {
+  const fields = new Map<string, string>();
+  // The public export leaves Canon's operator tables out.
+  const operator = existsSync(join(ROOT, "convex/lib/operatorTables.ts"));
+  for (const file of ["convex/schema.ts", ...(operator ? ["convex/lib/operatorTables.ts"] : [])]) {
+    let table = "";
+    for (const line of read(file).split("\n")) {
+      table = /^ {2}(\w+): defineTable\(/.exec(line)?.[1] ?? table;
+      const field = /^ {4}(\w+): (.*)/.exec(line);
+      if (table && field) fields.set(`${table}.${field[1]}`, field[2]!);
+    }
+  }
+  const named = [...fields.keys()].filter((key) => /\.(?:\w*[a-z])?(?:[tT]oken|[sS]ecret|[cC]redentials|AuthId)$|\.encrypted[A-Z]/.test(key));
+  assert.deepEqual(named.filter((key) => !(key in STORED_CREDENTIALS)).sort(), [], "a stored credential isn't judged: seal it (lib/sealed.ts sealedV, written with encryptForStorage), or say why it is kept as it is");
+  for (const [key, judged] of Object.entries(STORED_CREDENTIALS)) {
+    if (!operator && key.startsWith("operatorGithubApps.")) continue;
+    assert.ok(fields.has(key), `${key} is gone: update the census`);
+    if (judged === "sealed") assert.match(fields.get(key)!, /^(?:v\.optional\()?sealedV\b/, `${key} must use sealedV`);
+    else assert.ok(key.split(".")[0]! in CREDENTIAL_TABLES, `${key} is kept as it is, so the credential census must judge its table`);
+  }
+  for (const file of files("convex")) {
+    const text = read(file);
+    if (/\bas Sealed\b|VString<Sealed>/.test(text)) assert.ok(SEALED_CASTS.includes(file), `${file} makes a Sealed without encrypting: use encryptForStorage`);
+    if (/\bencryptToken\(/.test(text)) assert.ok(["convex/lib/encryption.ts", "convex/lib/tokenHelpers.ts"].includes(file), `${file} encrypts around encryptForStorage`);
+  }
 });

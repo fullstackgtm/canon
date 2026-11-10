@@ -1,3 +1,4 @@
+import { sealedV } from "./lib/sealed";
 import { ConvexError, v } from "convex/values";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -88,6 +89,7 @@ export const restoreSession = internalAction({
       return "off:unreadable";
     }
     if (!session?.accessToken || !session.refreshToken || !session.idToken || !session.accountId) return "off:incomplete";
+    if (!process.env.TOKEN_ENCRYPTION_KEY?.trim()) return "off:no-TOKEN_ENCRYPTION_KEY";
     return ctx.runMutation(internal.devChatgpt.writeSession, {
       accessToken: await encryptForStorage(session.accessToken),
       refreshToken: await encryptForStorage(session.refreshToken),
@@ -104,9 +106,9 @@ export const restoreSession = internalAction({
 
 export const writeSession = internalMutation({
   args: {
-    accessToken: v.string(),
-    refreshToken: v.string(),
-    idToken: v.string(),
+    accessToken: sealedV,
+    refreshToken: sealedV,
+    idToken: sealedV,
     accessTokenExpiresAt: v.optional(v.number()),
     accountId: v.string(),
     email: v.optional(v.string()),

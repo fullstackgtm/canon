@@ -1,12 +1,21 @@
+import { ConvexError } from "convex/values";
 import { decryptToken, encryptToken, isEncrypted } from "./encryption";
+import { NO_CREDENTIAL, type Sealed } from "./sealed";
 
-export async function encryptForStorage(token: string): Promise<string> {
-  if (!process.env.TOKEN_ENCRYPTION_KEY) {
-    return token;
+/**
+ * A credential (an OAuth or API token, a webhook URL or signing secret), encrypted for storage. Every install has
+ * TOKEN_ENCRYPTION_KEY (every setup path generates one), so a deployment without it refuses to keep a credential
+ * rather than keep it readable. An empty value clears a credential and needs no key.
+ */
+export async function encryptForStorage(token: string): Promise<Sealed> {
+  if (!process.env.TOKEN_ENCRYPTION_KEY?.trim()) {
+    if (token === "") return NO_CREDENTIAL;
+    throw new ConvexError("TOKEN_ENCRYPTION_KEY is not set, so Canon will not store this credential. See \"Keep the token encryption key\" in docs/self-hosting.md.");
   }
-  return encryptToken(token);
+  return (await encryptToken(token)) as Sealed;
 }
 
+/** A stored credential in the clear. A value kept in plain text before every install had a key reads as it is. */
 export async function decryptFromStorage(token: string): Promise<string> {
   if (!process.env.TOKEN_ENCRYPTION_KEY) {
     return token;
@@ -15,14 +24,4 @@ export async function decryptFromStorage(token: string): Promise<string> {
     return token;
   }
   return decryptToken(token);
-}
-
-/**
- * A mailbox or calendar credential, encrypted for storage, or a refusal: unlike encryptForStorage there is no
- * plain-text fallback, so a deployment without TOKEN_ENCRYPTION_KEY cannot keep one. A feature that stores one
- * lists the key among its required keys (lib/integrationsAvailable.ts), so it is off there to begin with.
- */
-export async function encryptCredential(credential: string): Promise<string> {
-  if (!process.env.TOKEN_ENCRYPTION_KEY?.trim()) throw new Error("TOKEN_ENCRYPTION_KEY is not set, so this credential is not stored");
-  return encryptToken(credential);
 }

@@ -12,6 +12,7 @@
  * re-dispatches deliveries whose send never settled. `deliver` sends one
  * delivery: at-least-once, with backoff, then `failed`.
  */
+import { sealedV } from "./lib/sealed";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { action, internalAction, internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
@@ -117,7 +118,7 @@ export const create = action({
 });
 
 export const insertEndpoint = internalMutation({
-  args: { url: v.string(), description: v.optional(v.string()), objects: v.array(v.string()), events: v.array(v.string()), secret: v.string() },
+  args: { url: v.string(), description: v.optional(v.string()), objects: v.array(v.string()), events: v.array(v.string()), secret: sealedV },
   handler: async (ctx, args) => {
     const user = await admin(ctx);
     const url = args.url.trim();
@@ -251,8 +252,14 @@ export const claim = internalMutation({
       await ctx.db.patch(d._id, { status: "failed", lastError: "Webhook disabled", nextAttemptAt: now });
       return null;
     }
+    // An automation rule's call goes only while the admin it acts as is still a member here.
+    const actsAs = d.actsAs ? await ctx.db.get(d.actsAs) : null;
+    if (d.actsAs && !(actsAs && (await roleIn(ctx, actsAs, d.orgId)))) {
+      await ctx.db.patch(d._id, { status: "failed", lastError: "The admin this rule acts as is no longer a member", nextAttemptAt: now });
+      return null;
+    }
     await ctx.db.patch(d._id, { attempts: d.attempts + 1, nextAttemptAt: now + LEASE_MS });
-    return { url: endpoint.url, secret: endpoint.secret, payload: d.payload, eventId: `${d.shard}.${d.seq}`, event: d.event };
+    return { url: endpoint.url, secret: endpoint.secret, payload: d.payload, eventId: d.deliveryKey ?? `${d.shard}.${d.seq}`, event: d.event };
   },
 });
 

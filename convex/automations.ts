@@ -47,6 +47,7 @@ import { shardHeads } from "./ledgerFeed";
 import { asEntry, loadDef, recordVisibleTo, requireWritable, saveAsCaller, saveDealAsCaller } from "./objects";
 import { LEAD_READ_ONLY } from "./lib/objects/describe";
 import { attachTargets } from "./activityTargets";
+import { hostOf, sendStep } from "./lib/automationOutbound";
 import { boundedPage } from "./lib/objects/tail";
 import { foldAll, project, type EntryBody, type FoldState } from "./lib/objects/fold";
 import { fromStored } from "./lib/objects/validators";
@@ -231,6 +232,16 @@ async function checkSteps(ctx: QueryCtx, orgId: Id<"organizations">, def: Resolv
       if (!coerced.ok) throw new ConvexError(coerced.errors.map((e) => e.message).join("; "));
     }
     if ("owner" in a) await checkOwner(ctx, orgId, a.owner);
+    if (a.kind === "notify_email") await checkOwner(ctx, orgId, a.to);
+    if (a.kind === "notify_slack") {
+      const name = a.channel.replace(/^#/, "").toLowerCase();
+      const mapped = await ctx.db.query("outboundTargets").withIndex("by_orgId_and_channel_and_name", (q) => q.eq("orgId", orgId).eq("channel", "slack").eq("name", name)).first();
+      if (!mapped) throw new ConvexError(`No Slack channel is mapped to ${name}. An admin maps it in Settings > Outbound.`);
+    }
+    if (a.kind === "call_webhook") {
+      const endpoint = a.endpointId ? await ctx.db.get(a.endpointId) : null;
+      if (!endpoint || endpoint.orgId !== orgId) throw new ConvexError("That webhook isn't one of this workspace's record webhooks");
+    }
   }
 }
 
@@ -461,9 +472,16 @@ async function namesFor(ctx: QueryCtx, orgId: Id<"organizations">, object: strin
     members: (await workspaceMembers(ctx, orgId)).map((m) => ({ id: m.id, name: m.name })),
     teams: teams.map((t) => ({ id: t._id, name: t.name })),
     routingRules: routing.map((r) => ({ id: r._id, name: r.name })),
+    webhooks: (await webhooksOf(ctx, orgId)).map((w) => ({ id: w.id, name: w.name })),
     timezone: await timezoneOf(ctx, orgId),
     currency: (await ctx.db.get(orgId))?.defaultCurrency ?? "USD",
   };
+}
+
+/** The record webhooks an admin registered, by where they send: what a webhook step may call. */
+async function webhooksOf(ctx: QueryCtx, orgId: Id<"organizations">) {
+  const rows = await ctx.db.query("recordWebhookEndpoints").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(20);
+  return rows.map((e) => ({ id: e._id, name: hostOf(e.url), enabled: e.enabled }));
 }
 
 /** A definition's fields as a sentence and the builder name them, with their options' labels. */
@@ -603,6 +621,9 @@ export const workspace = query({
       members: (await workspaceMembers(ctx, orgId)).map((m) => ({ id: m.id, name: m.name })),
       teams: teams.map((t) => ({ id: t._id, name: t.name, size: t.memberIds.length })),
       routingRules: routing.map((r) => ({ id: r._id, name: r.name, size: r.assignees.length, isActive: r.isActive })),
+      // Where a notify or webhook step may send: the Slack channels an admin mapped, the record webhooks an admin registered.
+      slackChannels: (await ctx.db.query("outboundTargets").withIndex("by_orgId_and_channel_and_name", (q) => q.eq("orgId", orgId).eq("channel", "slack")).take(20)).map((t) => t.name),
+      webhooks: await webhooksOf(ctx, orgId),
     };
   },
 });
@@ -897,6 +918,19 @@ async function perform(ctx: MutationCtx, p: Principal, rule: Doc<"automationRule
   const mark: AutomationMark = { ruleId: rule._id, depth: run.depth + 1 };
   // The record must still be one the creator sees now, whatever the action (a retry can come long after the trigger).
   if (!(await recordVisibleTo(ctx, p.access, rule.orgId, run.streamId))) throw new ConvexError("Record not found");
+  if (a.kind === "notify_slack" || a.kind === "notify_email" || a.kind === "call_webhook") {
+    const def = await loadDef(ctx, rule.orgId, run.object);
+    let row = await recordNow(ctx, def, p.access, run.streamId, run.object);
+    let to: Id<"users"> | null = null;
+    if (a.kind === "notify_email") {
+      to = await resolveOwner(ctx, rule, run, a.to, ref);
+      // The email says what the record holds: only to a member who sees it, and only the fields both they and the admin see.
+      const [theirs] = (await principalAccess(ctx, rule.orgId, [to])) ?? [];
+      if (!theirs || !(await recordVisibleTo(ctx, theirs, rule.orgId, run.streamId))) throw new ConvexError(`${(await ctx.db.get(to))?.name ?? "That member"} can't see this record`);
+      row = { ...row, values: withoutHidden(theirs, run.object, row.values) };
+    }
+    return sendStep(ctx, { rule, run, ref, actsAs: p.user._id, def, row }, a, to);
+  }
   if (a.kind === "set_field") return { detail: `${await writeRecord(ctx, p, run, { [a.field]: a.value }, mark)}: ${a.field}` };
   if (a.kind === "assign_owner") {
     const owner = await resolveOwner(ctx, rule, run, a.owner, ref);

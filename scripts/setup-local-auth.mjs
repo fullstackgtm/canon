@@ -1,6 +1,7 @@
 import { generateKeyPairSync, createPrivateKey, createPublicKey } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
-import { newSetupCode } from "./selfhost/platform.mjs";
+import { parseEnv } from "node:util";
+import { newSetupCode, newTokenEncryptionKey } from "./selfhost/platform.mjs";
 
 const args = process.argv.slice(2);
 const options = {};
@@ -29,6 +30,11 @@ function update(file, values) {
 }
 // The code the first owner enters at /sign-in (src/lib/setupCode.ts), kept across reruns.
 const setupCode = process.env.CANON_SETUP_CODE ?? newSetupCode();
+// The backend's credential key, kept across reruns: a new one would make every stored credential unreadable.
+const keptKey = existsSync(convexFile) ? parseEnv(readFileSync(convexFile, "utf8")).TOKEN_ENCRYPTION_KEY : undefined;
+const givenKey = process.env.TOKEN_ENCRYPTION_KEY?.trim() || undefined;
+if (keptKey && givenKey && keptKey !== givenKey) throw new Error(`TOKEN_ENCRYPTION_KEY differs from the one in ${convexFile}. Keep the key your backend already has: a new one makes every stored credential unreadable.`);
+const tokenKey = keptKey || givenKey || newTokenEncryptionKey();
 update(appFile, { CANON_AUTH: "local", NEXT_PUBLIC_SITE_URL: site.origin, CANON_SERVICE_JWT_PRIVATE_KEY: pem, CANON_SERVICE_JWT_ISSUER: issuer, CANON_SERVICE_JWT_KID: kid, CANON_SETUP_CODE: setupCode });
-update(convexFile, { CANON_AUTH: "local", FSGTM_ENABLE_DEMO_DATA: "false", CANON_SERVICE_JWT_ISSUER: issuer, CANON_SERVICE_JWKS: jwks });
-console.log(`Local auth configured in ${appFile}. Apply ${convexFile} to your own Convex backend before deploying functions. No private key is included in the backend file. The first owner enters CANON_SETUP_CODE from ${appFile} at /sign-in.`);
+update(convexFile, { CANON_AUTH: "local", FSGTM_ENABLE_DEMO_DATA: "false", CANON_SERVICE_JWT_ISSUER: issuer, CANON_SERVICE_JWKS: jwks, TOKEN_ENCRYPTION_KEY: tokenKey });
+console.log(`Local auth configured in ${appFile}. Apply ${convexFile} to your own Convex backend before deploying functions. The signing key stays out of the backend file. That file holds TOKEN_ENCRYPTION_KEY, which encrypts stored credentials: keep it and back it up with your database. The first owner enters CANON_SETUP_CODE from ${appFile} at /sign-in.`);

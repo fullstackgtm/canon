@@ -75,7 +75,7 @@ const thrown = (f: () => void): string[] => {
 };
 
 /** A recipe can't know a workspace's ids, so a template gives tasks and records only to the record's owner. */
-const ownerProblem = (a: LeafAction) => ("owner" in a && a.owner.kind !== "record_owner" ? "a template gives tasks and records only to the record's owner (owner: { kind: record_owner })" : null);
+const ownerProblem = (a: LeafAction) => (a.kind === "call_webhook" ? "a template can't know a workspace's webhooks" : a.kind === "notify_email" && a.to.kind !== "record_owner" ? "a template emails only the record's owner (to: { kind: record_owner })" : "owner" in a && a.owner.kind !== "record_owner" ? "a template gives tasks and records only to the record's owner (owner: { kind: record_owner })" : null);
 
 export const TEMPLATE_KINDS: { [K in TemplateKind]: KindDef<K> } = {
   report: {

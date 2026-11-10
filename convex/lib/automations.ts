@@ -181,6 +181,12 @@ export function pathThrough(steps: readonly RuleStep[], holds: (s: IfStep) => bo
 
 /** Why an action cannot run on this object, or null. */
 export function actionProblem(def: ResolvedObjectDef, a: LeafAction): string | null {
+  if (a.kind === "notify_slack") {
+    if (!SLACK_NAME.test(a.channel.replace(/^#/, "").toLowerCase())) return "Name the Slack channel as Settings > Outbound maps it";
+    return messageProblem(a.message);
+  }
+  if (a.kind === "notify_email") return a.subject.trim() && a.subject.length <= SUBJECT_MAX ? messageProblem(a.message) : `An email needs a subject of up to ${SUBJECT_MAX} characters`;
+  if (a.kind === "call_webhook") return a.endpointId ? null : "Pick a webhook";
   if (a.kind === "wait") {
     if ((a.days === undefined) === (a.until === undefined)) return "A wait is a number of days or a date field, not both";
     if (a.days !== undefined) return Number.isInteger(a.days) && a.days >= 1 && a.days <= WAIT_DAYS_MAX ? null : `Wait 1 to ${WAIT_DAYS_MAX} days`;
@@ -274,6 +280,37 @@ export function nextSlot(t: ScheduleTrigger, after: number, tz: string): number 
     if (at > after) return at;
   }
   throw new Error("No slot in the next eight days");
+}
+
+// ───────────────────────────── Messages ─────────────────────────────
+
+/** A Slack channel's name as Settings > Outbound maps it (convex/outbound.ts mapSlack). */
+export const SLACK_NAME = /^[a-z0-9][a-z0-9._-]{0,59}$/;
+const MESSAGE_MAX = 2000;
+const SUBJECT_MAX = 200;
+const messageProblem = (m: string) => (m.trim() && m.length <= MESSAGE_MAX ? null : `A message has 1 to ${MESSAGE_MAX} characters`);
+
+/** A field's value as a message reads it: an option's label, money in whole units, Yes or No, a list joined. Empty reads "". */
+function plainValue(def: ResolvedObjectDef, apiName: string, value: FieldValue | undefined): string {
+  if (value === null || value === undefined || value === "") return "";
+  const f = def.byApiName.get(apiName);
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (f && "options" in f && f.options) return f.options.find((o) => o.value === value)?.label ?? String(value);
+  if (f?.type === "currency" && typeof value === "number") return (value / 100).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return String(value);
+}
+
+/**
+ * A notify step's text, filled from the record as the rule's member sees it: `{record}` is its name, `{<field>}` a
+ * field's value (a field hidden from them, or one the record doesn't have, reads empty). Other braces stay as written.
+ */
+export function renderMessage(template: string, def: ResolvedObjectDef, row: ListRow): string {
+  return template.replace(/\{([A-Za-z0-9_.]+)\}/g, (all, name: string) => {
+    if (name === "record") return row.title || "the record";
+    const f = def.byApiName.get(name);
+    return f ? plainValue(def, name, row.values[f.fieldId]) : all;
+  }).slice(0, MESSAGE_MAX);
 }
 
 /** The instant a date (YYYY-MM-DD) starts in `tz`: its local midnight. */

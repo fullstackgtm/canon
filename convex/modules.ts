@@ -1,3 +1,4 @@
+import { sealedV } from "./lib/sealed";
 import { captureInstalledPackage, capturePackageState, moduleSource, continuationSource, withModulePublication, retainedSourcePublication } from "./lib/modules/activityCapture";
 /**
  * Installable modules (docs/modules.md). An admin or manager installs a module from a GitHub package pinned to a
@@ -23,7 +24,7 @@ import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { executeCanonOperation } from "./lib/modules/canonOperations";
-import { encryptToken } from "./lib/encryption";
+import { encryptForStorage } from "./lib/tokenHelpers";
 import type { CanonCallAuthorization } from "./lib/modules/scope";
 import { agentClientOf, isDevAuthBypassEnabled, requireUser, withRole } from "./lib";
 import { callerOf, mayDecide, requireDecider } from "./recipes";
@@ -965,7 +966,7 @@ export const callDispatch = internalQuery({
 });
 
 export const executeCanonCall = internalMutation({
-  args: { module: v.string(), call: v.string(), args: v.record(v.string(), v.any()), authorization: canonAuthorizationV, encryptedSecret: v.optional(v.string()) },
+  args: { module: v.string(), call: v.string(), args: v.record(v.string(), v.any()), authorization: canonAuthorizationV, encryptedSecret: v.optional(sealedV) },
   handler: async (ctx, a): Promise<CallResult> => {
     const scope = await scopeOrRefuse(ctx, a.module, undefined, undefined, a.authorization.epoch);
     const fresh = await scope.authorizeCanonCall(a.call, a.args);
@@ -984,7 +985,7 @@ export const prepareCanonSecret = internalAction({
     if (a.authorization.operation !== "agents.rotateSecret") throw new ConvexError("Unsupported Canon preparation.");
     const bytes = crypto.getRandomValues(new Uint8Array(32));
     const secret = `whsec_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
-    const encryptedSecret = await encryptToken(secret);
+    const encryptedSecret = await encryptForStorage(secret);
     const out = await ctx.runMutation(internal.modules.executeCanonCall, { ...a, encryptedSecret });
     return { ...out, ...(out.value !== undefined ? { value: [{ ...(out.value as { url: string }), secret }] } : {}) };
   },

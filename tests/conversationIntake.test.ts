@@ -14,7 +14,7 @@ import { linkedinEventOf } from "../convex/lib/signals/contactLog.ts";
 import { recordTimeline } from "../convex/lib/timeline.ts";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
-const M = loadConvex(["conversations.ts", "emailAccounts.ts", "conversationExtract.ts", "observations.ts", "lib/tokenHelpers.ts"]);
+const M = loadConvex(["conversations.ts", "emailAccounts.ts", "conversationExtract.ts", "observations.ts"]);
 /** The same modules with the signed-in member taken from `ctx.user`. */
 const signedIn = loadConvex(["conversations.ts"], { "lib.ts": (real) => ({ ...real, requireUser: async (ctx: { user: unknown }) => ctx.user, getCurrentUser: async (ctx: { user: unknown }) => ctx.user }) });
 const { isFillJob, jobEntry, jobShownTo } = loadConvex(["lib/runs.ts"])["lib/runs.ts"] as unknown as {
@@ -280,21 +280,6 @@ test("erasing a person erases the conversations they were on, with their address
   await M["observations.ts"].eraseContact.handler(ctx, { orgId: "organizations:o", contactId: "contact-grace" });
   assert.deepEqual(["conversations", "conversationMessages", "conversationContacts"].map((t) => db.rows(t).length), [0, 0, 0]);
   assert.doesNotMatch(JSON.stringify(["conversations", "conversationMessages", "conversationContacts", "observations"].map((t) => db.rows(t))), /grace@hopper\.io|Tuesday works|through Canon/);
-});
-
-test("a mailbox credential is never stored in plain text", async () => {
-  const encryptCredential = M["lib/tokenHelpers.ts"].encryptCredential as unknown as (s: string) => Promise<string>;
-  const saved = process.env.TOKEN_ENCRYPTION_KEY;
-  try {
-    delete process.env.TOKEN_ENCRYPTION_KEY;
-    await assert.rejects(encryptCredential("refresh-token-1"));
-    process.env.TOKEN_ENCRYPTION_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
-    const stored = await encryptCredential("refresh-token-1");
-    assert.ok(stored.length > 0 && !stored.includes("refresh-token-1"));
-  } finally {
-    if (saved === undefined) delete process.env.TOKEN_ENCRYPTION_KEY;
-    else process.env.TOKEN_ENCRYPTION_KEY = saved;
-  }
 });
 
 test("an unlinked account's reads can still be deleted, and a long chat's backfill resumes inside it (issue #920)", async () => {

@@ -4,6 +4,7 @@
  * the meeting on the people and company it was with and on their open deal,
  * as the rep whose note it is, so it shows on every one of their timelines.
  */
+import { NO_CREDENTIAL } from "./lib/sealed";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -189,7 +190,7 @@ export const disconnect = mutation({
     }
     for (const k of ["granolaCursor", "granolaCoveredFrom", "granolaRetry", "granolaCatchingUp", "granolaRescoping", "granolaJobId"]) delete config[k];
     await ctx.db.patch(row._id, {
-      isActive: false, accessToken: "", refreshToken: "", lastSyncStatus: undefined, lastSyncError: undefined, lastSyncAt: undefined, lastSyncDealCount: undefined,
+      isActive: false, accessToken: NO_CREDENTIAL, refreshToken: NO_CREDENTIAL, lastSyncStatus: undefined, lastSyncError: undefined, lastSyncAt: undefined, lastSyncDealCount: undefined,
       syncConfig: { ...config, granolaWindow: (typeof config.granolaWindow === "number" ? config.granolaWindow : 0) + 1 }, updatedAt: now,
     });
     await ctx.scheduler.runAfter(0, internal.granola.purgeImported, { orgId: user.orgId, userId: user._id, before: now });

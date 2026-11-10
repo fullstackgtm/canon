@@ -14,6 +14,7 @@ import { deciderValidator } from "./lib/canon/decider";
 import { filterValidator, runScopeValidator } from "./lib/scopeValidators";
 import { outcomeFields, traceValidator } from "./lib/research/validators";
 import * as observations from "./lib/signals/observations";
+import { sealedV } from "./lib/sealed";
 import { icpGateValidator, icpVersionWeightsValidator } from "./lib/scoreHistory";
 import { icpGapCheckValidator } from "./lib/icpGapCheck";
 import { icpSpecValidator } from "../modules/kernel/icpSpec";
@@ -1169,8 +1170,8 @@ export default defineSchema({
       v.literal("explee"),
       v.literal("deepline"),
     ),
-    accessToken: v.string(),
-    refreshToken: v.string(),
+    accessToken: sealedV,
+    refreshToken: sealedV,
     instanceUrl: v.optional(v.string()),
     displayName: v.optional(v.string()),
     externalOrgId: v.optional(v.string()),
@@ -1179,7 +1180,7 @@ export default defineSchema({
     scopes: v.optional(v.array(v.string())),
     // Salesforce connected with a key (lib/salesforceClientCredentials.ts): the app's My Domain, consumer key and
     // secret as encrypted JSON (encryptForStorage). Absent for an OAuth connection, which refreshes with refreshToken.
-    clientCredentials: v.optional(v.string()),
+    clientCredentials: v.optional(sealedV),
     lastSyncAt: v.optional(v.number()),
     lastSyncStatus: v.optional(
       v.union(
@@ -1231,7 +1232,7 @@ export default defineSchema({
     userId: v.optional(v.id("users")),
     label: v.optional(v.string()),
     status: v.union(v.literal("ok"), v.literal("expired"), v.literal("error"), v.literal("revoked")),
-    secret: v.optional(v.string()),
+    secret: v.optional(sealedV),
     lastItemAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     lastErrorAt: v.optional(v.number()),
@@ -1553,15 +1554,15 @@ export default defineSchema({
     status: v.union(v.literal("pending"), v.literal("connected"), v.literal("error")),
     // Pending device flow (deviceAuthId encrypted: with the user code it is
     // enough to claim the login).
-    deviceAuthId: v.optional(v.string()),
+    deviceAuthId: v.optional(sealedV),
     userCode: v.optional(v.string()),
     verificationUrl: v.optional(v.string()),
     pollIntervalMs: v.optional(v.number()),
     deviceExpiresAt: v.optional(v.number()),
     // Connected session (all three tokens encrypted).
-    accessToken: v.optional(v.string()),
-    refreshToken: v.optional(v.string()),
-    idToken: v.optional(v.string()),
+    accessToken: v.optional(sealedV),
+    refreshToken: v.optional(sealedV),
+    idToken: v.optional(sealedV),
     accessTokenExpiresAt: v.optional(v.number()),
     accountId: v.optional(v.string()),
     email: v.optional(v.string()),
@@ -4128,7 +4129,7 @@ export default defineSchema({
   agentWebhooks: defineTable({
     orgId: v.id("organizations"),
     agentId: v.id("agents"),
-    secret: v.string(),
+    secret: sealedV,
     rotatedBy: v.id("users"),
     rotatedAt: v.number(),
   }).index("by_agentId", ["agentId"]),
@@ -4143,7 +4144,7 @@ export default defineSchema({
     description: v.optional(v.string()),
     objects: v.array(v.string()),
     events: v.array(v.string()),
-    secret: v.string(),
+    secret: sealedV,
     enabled: v.boolean(),
     cursors: v.record(v.string(), v.number()),
     createdBy: v.id("users"),
@@ -4170,6 +4171,10 @@ export default defineSchema({
     lastStatusCode: v.optional(v.number()),
     lastError: v.optional(v.string()),
     createdAt: v.number(),
+    // An automation rule's call (convex/lib/automationOutbound.ts): its delivery id for the receiver (absent: the
+    // entry's shard.seq), and the admin the rule acts as, without whom it never goes.
+    deliveryKey: v.optional(v.string()),
+    actsAs: v.optional(v.id("users")),
   })
     .index("by_endpointId_and_createdAt", ["endpointId", "createdAt"])
     .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"]),
@@ -5507,8 +5512,8 @@ export default defineSchema({
     // A Slack channel's name as modules know it (cs-alerts), or a webhook endpoint's label.
     name: v.string(),
     events: v.optional(v.array(v.string())),
-    url: v.string(),
-    secret: v.optional(v.string()),
+    url: sealedV,
+    secret: v.optional(sealedV),
     // What the list shows of the URL: its host and the end of its path.
     hint: v.string(),
     createdBy: v.id("users"),

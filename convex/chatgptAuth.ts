@@ -1,3 +1,4 @@
+import { sealedV } from "./lib/sealed";
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -69,7 +70,7 @@ export const getRow = internalQuery({
 export const savePending = internalMutation({
   args: {
     userId: v.id("users"),
-    deviceAuthId: v.string(),
+    deviceAuthId: sealedV,
     userCode: v.string(),
     verificationUrl: v.string(),
     pollIntervalMs: v.number(),
@@ -86,9 +87,9 @@ export const savePending = internalMutation({
 });
 
 const tokenFields = {
-  accessToken: v.string(),
-  refreshToken: v.string(),
-  idToken: v.string(),
+  accessToken: sealedV,
+  refreshToken: sealedV,
+  idToken: sealedV,
   accessTokenExpiresAt: v.optional(v.number()),
 };
 

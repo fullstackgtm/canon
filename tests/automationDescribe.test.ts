@@ -76,6 +76,9 @@ test("every trigger, condition operator, owner choice and action the rule shape 
     create_task: { kind: "create_task", subject: "Call", dueInDays: 1, owner: owners.member },
     assign_owner: { kind: "assign_owner", owner: owners.round_robin },
     wait: { kind: "wait", days: 2 },
+    notify_slack: { kind: "notify_slack", channel: "sales", message: "{record} moved" },
+    notify_email: { kind: "notify_email", to: { kind: "record_owner" }, subject: "Heads up", message: "{record}" },
+    call_webhook: { kind: "call_webhook", endpointId: "recordWebhookEndpoints:1" as never },
     if: { kind: "if", conditions: [{ field: "companyId.industry", op: "eq", value: "SaaS" }], then: [{ kind: "set_field", field: "stage", value: "won" }] },
   };
   assert.deepEqual(Object.keys(triggers).sort(), kinds(triggerValidator), "a new trigger kind needs words in describe and a case here");
