@@ -10,7 +10,7 @@ import { ViewFrame } from "@/components/dashboard";
 import { settingsDef, type SettingsKey } from "./catalog";
 import { fiscalQuarterLabel, fiscalYearLabel } from "./workspace-form";
 import { money } from "@/components/reports/pacing-chart";
-import { fiscalYearName } from "../../../../convex/lib/reports/pacing";
+import { fiscalYearName } from "../../../../modules/kernel/pacing";
 
 const num = (n: number) => Math.round(n).toLocaleString("en-US");
 const plural = (n: number, one: string) => `${num(n)} ${one}${n === 1 ? "" : "s"}`;

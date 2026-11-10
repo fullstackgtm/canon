@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
 import type { FieldValue } from "../../../convex/lib/objects/registry";
 import type { Stored } from "../../../convex/lib/objects/validators";
-import { MAX_SPLITS, parseSplits, type SplitAllocation } from "../../../convex/lib/objects/splits";
+import { MAX_SPLITS, parseSplits, type SplitAllocation } from "../../../modules/kernel/splits";
 
 export type ObjectDescription = NonNullable<FunctionReturnType<typeof api.objects.describe>>;
 export type FieldDescription = ObjectDescription["fields"][number];

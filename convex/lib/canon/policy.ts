@@ -12,7 +12,7 @@
  *               last-modified timestamp for syncs); falls back to observedAt
  */
 
-import type { SplitAllocation } from "../objects/splits.ts";
+import type { SplitAllocation } from "../../../modules/kernel/splits.ts";
 
 export type SourceKind =
   | "user"

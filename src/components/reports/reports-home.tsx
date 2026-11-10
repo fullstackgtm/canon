@@ -12,7 +12,7 @@ import { useUrlState } from "@/lib/url-state";
 import { getErrorMessage } from "@/lib/utils";
 import { Board } from "./dashboard-view";
 import { money } from "./pacing-chart";
-import { fiscalYearName } from "../../../convex/lib/reports/pacing";
+import { fiscalYearName } from "../../../modules/kernel/pacing";
 import { PacingView } from "./pacing-view";
 
 /** The year's targets live in Settings (docs/module-plans/reports.md, "Targets stay platform data"). */

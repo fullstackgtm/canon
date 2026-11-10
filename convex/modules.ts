@@ -89,7 +89,7 @@ import { everyRecordSource } from "./lib/modules/recordSources";
 import { listedDef } from "./savedViews";
 import { reportsBehind, retryFailed, REPORT_JOB } from "./lib/modules/jobs";
 import { rosterOf, fyStartOf } from "./targets";
-import { fiscalMonth, PACING_COMPARE_MAX } from "./lib/reports/pacing";
+import { fiscalMonth, PACING_COMPARE_MAX } from "../modules/kernel/pacing";
 import { runPacing, type PacingResult, type PacingPlan, type PacingSource as RunPacingSource } from "./lib/reports/runPacing";
 import { pickCalls, transcriptOf, type Transcript } from "./lib/modules/transcripts";
 

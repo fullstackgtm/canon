@@ -20,7 +20,7 @@ import { PdlIndex } from "./pdl.ts";
 import { listProjected, listRegister, searchProjected } from "./projectionQuery.ts";
 import { aggregateObject } from "./aggregate.ts";
 import { aggregateModuleDocs, syncModuleDocs } from "./moduleDocs.ts";
-import { inboundMatchInput } from "./core/objects/inboundMatch.ts";
+import { inboundMatchInput } from "./core/kernel/inboundMatchInput.ts";
 import { registerInboundMatch } from "./inboundMatch.ts";
 import { registerDuplicates } from "./duplicates.ts";
 import { exportCounts, exportRows, importRows, type ExportTable } from "./export.ts";

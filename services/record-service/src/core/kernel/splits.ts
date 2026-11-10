@@ -1,4 +1,4 @@
-// GENERATED from convex/lib/objects/splits.ts by scripts/sync-object-core.ts. Edit the source, then rerun the script.
+// GENERATED from modules/kernel/splits.ts by scripts/sync-object-core.ts. Edit the source, then rerun the script.
 export type SplitAllocation = { userId: string; percentage: number; kind: "revenue" | "overlay" };
 export const MAX_SPLITS = 100;
 

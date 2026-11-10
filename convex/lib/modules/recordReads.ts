@@ -7,7 +7,7 @@
  * fields. A field the caller's role hides reads as null.
  */
 import { observationTouch, type TouchBody } from "../signals/observationTouches.ts";
-import type { InboundMatchInput } from "../objects/inboundMatch.ts";
+import type { InboundMatchInput } from "../../../modules/kernel/inboundMatchInput.ts";
 import type { ChannelSuppressions, SuppressionIdentifiers, SuppressionPurpose } from "../suppressions/domain";
 import { ConvexError } from "convex/values";
 import { ACTIVITY_OBJECTS, activityOf, type ActivityObject, type ModuleActivityRow } from "../activities.ts";

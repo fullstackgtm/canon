@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "../../../../../convex/_generated/api";
-import type { PlanChoices } from "../../../../../convex/lib/reports/targets";
+import type { PlanChoices } from "../../../../../modules/kernel/targets";
 import { LoadingRows } from "@/components/dashboard";
 import { SettingsPage } from "../settings-ui";
 import { TargetsEditor } from "../targets-editor";

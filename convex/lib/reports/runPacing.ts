@@ -4,7 +4,7 @@ import { atLeastVersion, type RecordClient } from "../recordClient";
 import type { ViewFilter } from "../../../modules/kernel/reportValidators";
 import type { ListFilter } from "../objects/listSpec";
 import type { ReportBucket } from "../../../modules/kernel/reportLanguage";
-import { cohorts, dayOf, periodOf, shiftPeriod, PACING_COMPARE_MAX, type Grain, type Period } from "./pacing";
+import { cohorts, dayOf, periodOf, shiftPeriod, PACING_COMPARE_MAX, type Grain, type Period } from "../../../modules/kernel/pacing";
 import type { Roster } from "../../targets";
 
 const DAY_BUCKET = "1.32.0";

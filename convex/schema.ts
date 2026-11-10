@@ -2265,7 +2265,7 @@ export default defineSchema({
     .index("by_orgId", ["orgId"]),
 
   // Targets (Reports pacing): one bookings plan per workspace and year, entered
-  // top down (lib/reports/targets.ts, fields in lib/reports/validators.ts).
+  // top down (modules/kernel/targets.ts, fields in lib/reports/validators.ts).
   targetPlans: defineTable({
     orgId: v.id("organizations"),
     ...targetPlanFields,

@@ -1,4 +1,4 @@
-/** Calendar periods for the legacy gtm CLI's audit. Workspace periods follow the fiscal year: convex/lib/reports/pacing.ts. */
+/** Calendar periods for the legacy gtm CLI's audit. Workspace periods follow the fiscal year: modules/kernel/pacing.ts. */
 export function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
 }

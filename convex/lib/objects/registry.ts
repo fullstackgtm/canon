@@ -6,7 +6,7 @@
  * here in code; an org's `objectDefs` row extends one with custom fields.
  */
 import type { ComputedType, RollupDef } from "./formula.ts";
-import { parseSplits, type SplitAllocation } from "./splits.ts";
+import { parseSplits, type SplitAllocation } from "../../../modules/kernel/splits.ts";
 import { checkRules, RULE_NAMES, type FieldRule, type RuleKind } from "./rules.ts";
 import { isCustomObjectName } from "../../../modules/kernel/reportLanguage.ts";
 

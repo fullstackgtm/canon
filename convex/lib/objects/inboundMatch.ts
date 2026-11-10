@@ -1,7 +1,7 @@
 import { domainKey, domainFamily, nameKey } from "./duplicates.ts";
 import { domainOfEmail } from "./leadConversion.ts";
+import { inboundMatchInput, type InboundMatchInput } from "../../../modules/kernel/inboundMatchInput.ts";
 
-export type InboundMatchInput = { email: string; companyName?: string };
 export type MatchCompany = { id: string; name: string; domain?: string | null; ownerId?: string | null };
 export type MatchPerson = { id: string; email?: string | null; additionalEmails?: readonly string[] | null; accountId?: string | null };
 export type MatchLead = { id: string; email?: string | null };
@@ -14,13 +14,6 @@ export type InboundMatch =
 
 export const MATCH_SCAN_MAX = 50_000;
 export const MATCH_CANDIDATES_MAX = 50;
-
-export function inboundMatchInput(input: InboundMatchInput): InboundMatchInput {
-  const email = input.email.trim().toLowerCase();
-  if (email.length > 320 || !/^[^\s@]+@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/.test(email)) throw new Error("Enter a valid email address.");
-  if (input.companyName !== undefined && input.companyName.length > 200) throw new Error("Company name is too long.");
-  return { email, ...(input.companyName?.trim() ? { companyName: input.companyName.trim() } : {}) };
-}
 
 /** The duplicate keys decide identity; a company name alone is only a review candidate. */
 export function matchInbound(input: InboundMatchInput, companies: readonly MatchCompany[], people: readonly MatchPerson[], leads: readonly MatchLead[]): InboundMatch {

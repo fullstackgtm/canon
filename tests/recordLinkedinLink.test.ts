@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
-import { parseSplits } from "../convex/lib/objects/splits.ts";
+import { parseSplits } from "../modules/kernel/splits.ts";
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL("../src/components/records/fields.tsx", import.meta.url), "utf8");
@@ -16,7 +16,7 @@ runInNewContext(outputText, { exports, URL, require: (id: string) => {
   if (id === "@/lib/utils") return { cn: (...values: unknown[]) => values.filter(Boolean).join(" ") };
   if (id === "./record-context") return { useRecordDraft: (_key: string, initial: unknown) => require("react").useState(initial) };
   if (id === "@/components/ui/select") return { SelectField: () => null };
-  if (id === "../../../convex/lib/objects/splits") return { parseSplits };
+  if (id === "../../../modules/kernel/splits") return { parseSplits };
   assert.ok(["react", "react/jsx-runtime"].includes(id), `Unexpected dependency: ${id}`);
   return require(id);
 } });

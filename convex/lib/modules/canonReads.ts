@@ -16,11 +16,11 @@ import { agentOptionsRead } from "../agents/managementOptions";
  * rather than return part of what it names.
  */
 import { senderFields, senderReader } from "./senders";
-import { inboundMatchInput } from "../objects/inboundMatch.ts";
+import { inboundMatchInput } from "../../../modules/kernel/inboundMatchInput.ts";
 import { SUPPRESSION_PURPOSES, type SuppressionPurpose } from "../suppressions/domain";
 import { readPolicy } from "../recordingPolicy";
 import { ConvexError } from "convex/values";
-import { fiscalMonth } from "../reports/pacing";
+import { fiscalMonth } from "../../../modules/kernel/pacing";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { dealVisible } from "../../permissions";

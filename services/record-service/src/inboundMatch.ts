@@ -2,7 +2,8 @@ import { all } from "./db.ts";
 import { objectSource } from "./projectionQuery.ts";
 import { ident } from "./projection.ts";
 import { fieldColumn } from "./core/objects/listSpec.ts";
-import { inboundMatchInput, matchInbound, MATCH_SCAN_MAX, MATCH_CANDIDATES_MAX, type InboundMatchInput, type MatchCompany, type MatchPerson } from "./core/objects/inboundMatch.ts";
+import { matchInbound, MATCH_SCAN_MAX, MATCH_CANDIDATES_MAX, type MatchCompany, type MatchPerson } from "./core/objects/inboundMatch.ts";
+import { inboundMatchInput, type InboundMatchInput } from "./core/kernel/inboundMatchInput.ts";
 import type { Workspace } from "./workspace.ts";
 
 /** Authenticated workspace service read. The module planner admits only system calls. */

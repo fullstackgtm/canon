@@ -12,7 +12,8 @@
  *
  * Pure module: no Convex or Node imports, so tests import it directly.
  */
-import { matchInbound, type InboundMatch, type InboundMatchInput } from "./objects/inboundMatch.ts";
+import { matchInbound, type InboundMatch } from "./objects/inboundMatch.ts";
+import type { InboundMatchInput } from "../../modules/kernel/inboundMatchInput.ts";
 import type {
   AccountInput,
   AccountRow,

@@ -18,7 +18,7 @@ import { api } from "../../../../convex/_generated/api";
 import { LoadingRows, StatusBadge } from "@/components/dashboard";
 import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
-import { fiscalMonth } from "../../../../convex/lib/reports/pacing";
+import { fiscalMonth } from "../../../../modules/kernel/pacing";
 import { formatMoney, moneyDecimals } from "../../../../modules/kernel/text";
 
 export const MONTHS = [
