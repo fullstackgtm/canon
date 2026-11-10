@@ -51,6 +51,7 @@ import type * as canonGateActions from "../canonGateActions.js";
 import type * as chatgptAuth from "../chatgptAuth.js";
 import type * as chatgptAuthActions from "../chatgptAuthActions.js";
 import type * as clerkBackfill from "../clerkBackfill.js";
+import type * as clerkOrgDeletion from "../clerkOrgDeletion.js";
 import type * as cliArtifactActions from "../cliArtifactActions.js";
 import type * as cliArtifacts from "../cliArtifacts.js";
 import type * as cliAuth from "../cliAuth.js";
@@ -675,6 +676,7 @@ declare const fullApi: ApiFromModules<{
   chatgptAuth: typeof chatgptAuth;
   chatgptAuthActions: typeof chatgptAuthActions;
   clerkBackfill: typeof clerkBackfill;
+  clerkOrgDeletion: typeof clerkOrgDeletion;
   cliArtifactActions: typeof cliArtifactActions;
   cliArtifacts: typeof cliArtifacts;
   cliAuth: typeof cliAuth;
