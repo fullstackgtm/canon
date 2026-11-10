@@ -24,7 +24,8 @@ import { internalAction, internalMutation, internalQuery, query, type MutationCt
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser } from "./lib";
-import { accessFor, dealVisible } from "./permissions";
+import { accessFor, dealVisible, principalAccess } from "./permissions";
+import { referenceErrors } from "./lib/recordReferences";
 import { hiddenFields } from "./lib/access";
 import { DEAL_ATTRIBUTES, ensureEntity, type DealAttribute, type ExternalId, type LedgerStore, type NewFact, type ProjectionTable, type StoredFact } from "./lib/canon/ledger";
 import { CUSTOM_ATTRIBUTE, type EntityType } from "./lib/canon/attributes";
@@ -998,8 +999,10 @@ export const checkRecordEdit = internalQuery({
     snapshot: v.optional(v.union(accountSnapshot, contactSnapshot)),
     idempotencyKey: v.string(),
     streamId: v.optional(v.string()),
+    /** A person's edit: the members and records it names are checked as theirs to name, with these companies and people admitted. */
+    references: v.optional(v.object({ userId: v.id("users"), admitted: v.array(v.string()) })),
   },
-  handler: async (ctx, args): Promise<{ patch: RecordPatch; refused: CoerceError[] }> => {
+  handler: async (ctx, args): Promise<{ patch: RecordPatch; refused: CoerceError[]; unnamed?: CoerceError[] }> => {
     const lookup: PartyLookup = {
       async findEntityByExternalId(orgId, provider, externalId) {
         const row = await ctx.db.query("canonExternalIds")
@@ -1017,11 +1020,15 @@ export const checkRecordEdit = internalQuery({
     };
     // An edit's fields are standard ones (recordEditValues), so the stored definition is the one the save resolves.
     const def = resolveObjectDef(STANDARD_OBJECTS[args.object], (await readPartyDef(ctx, args.orgId, args.object)).ext);
-    return checkPartyEdit(lookup, {
+    const checked = await checkPartyEdit(lookup, {
       orgId: args.orgId, object: args.object, def, recordId: args.recordId, patch: args.patch, key: args.idempotencyKey,
       ownership: await orgOwnership(ctx, args.orgId), ...(args.snapshot ? { snapshot: args.snapshot } : {}),
       ...(args.streamId ? { streamId: args.streamId } : {}),
     });
+    if (!args.references) return checked;
+    const access = (await principalAccess(ctx, args.orgId, [args.references.userId]))?.[0];
+    if (!access) throw new ConvexError("You are no longer a member of this workspace");
+    return { ...checked, unnamed: await referenceErrors(ctx, { orgId: args.orgId, access, admitted: new Set(args.references.admitted) }, def, args.patch) };
   },
 });
 

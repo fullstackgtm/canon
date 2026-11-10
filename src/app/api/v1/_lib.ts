@@ -87,6 +87,7 @@ export function toV1Error(error: unknown): V1Error {
   const e = explainConvexError(error);
   const requestId = e.requestId ? { requestId: e.requestId } : undefined;
   if (e.kind === "rejected") {
+    if (e.data?.code === "validation_failed" && Array.isArray(e.data.errors)) return new V1Error("validation_failed", e.message, { errors: e.data.errors as Array<{ field: string; message: string }>, ...requestId });
     if (/^Idempotency-Key .* was already used for a different request/.test(e.message)) return new V1Error("idempotency_key_reused", e.message, requestId);
     const code = /only admins|not allowed|permission|your role can(not|'t)/i.test(e.message) ? "forbidden" : /\bnot found\b/i.test(e.message) ? "not_found" : "invalid_request";
     return new V1Error(code, e.message, requestId);

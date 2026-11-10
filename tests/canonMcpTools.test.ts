@@ -64,7 +64,7 @@ test("update_record edits accounts through the register and other objects with a
   assert.deepEqual({ ...edit.args, idempotencyKey: typeof edit.args.idempotencyKey }, { object: "account", id: "r1", patch: { industry: "Software" }, idempotencyKey: "string" });
   const deal = fakeConvex();
   await tool.run(deal.client, { object: "deal", id: "s1", values: { stage: "Won" }, expectedVersion: 3 });
-  assert.deepEqual(deal.calls, [{ kind: "mutation", name: "objects:write", args: { object: "deal", streamId: "s1", values: { stage: "Won" }, expectedVersion: 3 } }]);
+  assert.deepEqual(deal.calls, [{ kind: "action", name: "objects:writeScoped", args: { object: "deal", streamId: "s1", values: { stage: "Won" }, expectedVersion: 3 } }]);
 });
 
 test("upserts keep a caller's idempotency key so a retried batch is not added twice", async () => {
@@ -129,8 +129,8 @@ test("module writes preserve the legacy mutation until the backend advertises re
 
 test("MCP line-item CRUD schemas admit the object and forward versioned writes to Canon", async () => {
   for (const [name, args, fn] of [
-    ["canon_create_record", { object: "lineItem", values: { dealId: "d1", productId: "p1", quantity: 1, totalPrice: 999 } }, "objects:write"],
-    ["canon_update_record", { object: "lineItem", id: "s1", values: { totalPrice: 777 }, expectedVersion: 2 }, "objects:write"],
+    ["canon_create_record", { object: "lineItem", values: { dealId: "d1", productId: "p1", quantity: 1, totalPrice: 999 } }, "objects:writeScoped"],
+    ["canon_update_record", { object: "lineItem", id: "s1", values: { totalPrice: 777 }, expectedVersion: 2 }, "objects:writeScoped"],
     ["canon_delete_record", { object: "lineItem", streamId: "s1", expectedVersion: 3 }, "objects:remove"],
     ["canon_delete_record", { object: "lineItem", streamId: "s1", restore: true, expectedVersion: 4 }, "objects:restore"],
     // A company or person archives as its own page does, not through objects.remove (which refuses them).

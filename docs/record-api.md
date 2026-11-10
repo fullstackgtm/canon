@@ -57,6 +57,14 @@ rows: they have no version check (an update, archive or restore sent
 `expectedVersion` answers 405), `source` does not apply, and create is
 fill-only (dedupe by domain or person, like `canon_upsert_accounts`).
 
+A user field, such as `ownerId` or a deal's `primaryRepId`, takes the id of an
+active member of the workspace. A lookup takes the id of a record of its object
+in the workspace that you can see: a company's or person's register id, or
+another record's id. Anything else answers `422` `validation_failed` naming the
+field. A record you cannot see is refused exactly as one that does not exist.
+CRM syncs and imports are not held to this: they name CRM owners and records
+that may not have arrived yet.
+
 ## Errors
 
 `{"error": {"code": "...", "message": "..."}}`, plus `errors` (422) or

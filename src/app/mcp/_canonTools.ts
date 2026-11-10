@@ -290,7 +290,7 @@ export const canonRecordTools: CanonTool[] = [
     description: "Create a lead, task, note, call, meeting, product, deal line item or a record of a custom object. Line items require dealId and productId stream ids, positive integer quantity and an explicit totalPrice in integer hundredths; name is derived from the product. Link an activity to a company, contact or deal with accountId, contactId or dealId. Returns its stream id and version. Pass an idempotencyKey to retry a create safely: the same key and values return the first answer.",
     inputSchema: { object: ledgerObject, values: fieldValues, idempotencyKey: z.string().min(1).max(200).optional() },
     writes: true,
-    run: (convex, args) => convex.mutation(api.objects.write, { object: args.object as never, values: args.values as never, ...(args.idempotencyKey ? { idempotencyKey: String(args.idempotencyKey) } : {}) }),
+    run: (convex, args) => convex.action(api.objects.writeScoped, { object: args.object as never, values: args.values as never, ...(args.idempotencyKey ? { idempotencyKey: String(args.idempotencyKey) } : {}) }),
   },
   {
     name: "canon_create_deal",
@@ -320,7 +320,7 @@ export const canonRecordTools: CanonTool[] = [
       if (args.object === "account" || args.object === "contact") {
         return convex.action(api.records.edit, { object: args.object, id: String(args.id), patch: args.values as never, idempotencyKey: newKey() });
       }
-      return convex.mutation(api.objects.write, {
+      return convex.action(api.objects.writeScoped, {
         object: args.object as never, streamId: args.id as Id<"canonEntities">, values: args.values as never,
         ...(typeof args.expectedVersion === "number" ? { expectedVersion: args.expectedVersion } : {}),
       }).catch((error: unknown) => {

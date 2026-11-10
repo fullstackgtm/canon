@@ -42,15 +42,15 @@ test("list turns the query string into the list view's filter and sort, and answ
 });
 
 test("update passes expectedVersion through and a stale one is a 409 with the current version", async () => {
-  const f = fake({ "objects:write": { status: "conflict", streamId: "s1", version: 4, expectedVersion: 3 } });
+  const f = fake({ "objects:writeScoped": { status: "conflict", streamId: "s1", version: 4, expectedVersion: 3 } });
   const err = await rejects(updateRecord(f.client, "lead", "s1", { values: { company: "X" }, expectedVersion: 3 }));
   assert.deepEqual(f.calls[0].args, { object: "lead", streamId: "s1", values: { company: "X" }, expectedVersion: 3 });
   assert.equal(err.code, "version_conflict");
   assert.deepEqual(err.details, { currentVersion: 4, expectedVersion: 3 });
 });
 
-test("an agent source goes to objects.write as a source kind and comes back 202 proposed", async () => {
-  const f = fake({ "objects:write": { status: "proposed", streamId: "s1", version: 5, shard: 0, seq: 1 } });
+test("an agent source goes to objects.writeScoped as a source kind and comes back 202 proposed", async () => {
+  const f = fake({ "objects:writeScoped": { status: "proposed", streamId: "s1", version: 5, shard: 0, seq: 1 } });
   const res = await updateRecord(f.client, "lead", "s1", { values: { company: "X" }, source: "agent_run", evidence: "https://x.test", confidence: 0.5 });
   assert.deepEqual(f.calls[0].args, { object: "lead", streamId: "s1", values: { company: "X" }, sourceKind: "agent_run", evidence: "https://x.test", confidence: 0.5 });
   assert.deepEqual({ status: res.status, body: res.body }, { status: 202, body: { status: "proposed", id: "s1", version: 5 } });
@@ -67,7 +67,7 @@ test("bad input is rejected at the boundary before any write", async () => {
 });
 
 test("objects that cannot be deleted say so; validation errors from the ledger are 422", async () => {
-  const f = fake({ "objects:write": { status: "invalid", errors: [{ field: "x", message: "no field x" }] } }, { canDelete: false });
+  const f = fake({ "objects:writeScoped": { status: "invalid", errors: [{ field: "x", message: "no field x" }] } }, { canDelete: false });
   assert.equal((await rejects(deleteRecord(f.client, "account", "acc_1", new URLSearchParams()))).code, "unsupported");
   const err = await rejects(createRecord(f.client, "lead", { values: { x: 1 } }));
   assert.equal(err.code, "validation_failed");

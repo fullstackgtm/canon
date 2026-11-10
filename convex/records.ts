@@ -52,6 +52,7 @@ import type {
 import { EDITABLE_ACCOUNT_FIELDS, EDITABLE_CONTACT_FIELDS, editRequestKey, reusedEditKeyMessage } from "./lib/recordContract";
 import { BULK_MAX } from "./lib/objects/views";
 import { upsertAccount, upsertContact } from "./lib/objects/createArgs";
+import { admitRegisterIds } from "./lib/recordReferences";
 import { icpGateValidator, icpVersionWeightsValidator } from "./lib/scoreHistory";
 import { ACTIVITY_OBJECT } from "../modules/kernel/reportLanguage";
 import type { ActivityReportContext } from "./moduleActivities";
@@ -618,7 +619,9 @@ export const bulkRegister = action({
         });
         results.push({ streamId: id, result: out.status === "invalid" ? { status: "invalid", errors: [{ field: "", message: out.message ?? "Not saved" }] } : { status: out.status } });
       } catch (cause) {
-        results.push({ streamId: id, result: { status: "invalid", errors: [{ field: "", message: cause instanceof ConvexError ? String(cause.data) : "Could not save this record" }] } });
+        const data: unknown = cause instanceof ConvexError ? cause.data : null;
+        const errors = data && typeof data === "object" && Array.isArray((data as { errors?: unknown }).errors) ? (data as { errors: Array<{ field: string; message: string }> }).errors : null;
+        results.push({ streamId: id, result: { status: "invalid", errors: errors ?? [{ field: "", message: typeof data === "string" ? data : "Could not save this record" }] } });
       }
     }
     // The projector writes each entry back to its row; wait for it once, so the list the caller reloads is current.
@@ -657,10 +660,13 @@ export async function recordEditPorts(
     : await client.getContact(caller.orgId, args.id);
   if (!row) throw new ConvexError(`${args.object === "account" ? "Account" : "Contact"} not found`);
   // A person's edit (CP14): their role edits the object, and they see this row.
+  let references: { userId: Id<"users">; admitted: string[] } | undefined;
   if (op && caller.access) {
     requireRowAccess(caller.access, args.object, op, row);
     // A field hidden or read-only for the caller's role is not changed by them (CP14).
     refuseLockedWrite(caller.access, args.object, Object.keys(args.patch));
+    // The members and records the edit names are theirs to name (lib/recordReferences.ts).
+    references = { userId: caller.userId as Id<"users">, admitted: await admitRegisterIds(callerClient(ctx, { orgId: caller.orgId, access: caller.access }), caller.orgId, args.patch) };
   }
   // A row the register already links to a stream (a CRM-only record the projector added) is edited on that stream.
   const linked = row?.stream;
@@ -676,7 +682,12 @@ export async function recordEditPorts(
   return {
     object: args.object,
     register: client.mode === "http" && atLeastVersion(await client.contractVersion(), REGISTER_CONTRACT),
-    check: () => ctx.runQuery(internal.canon.checkRecordEdit, { orgId, ...edit }),
+    check: async () => {
+      const { unnamed, ...checked } = await ctx.runQuery(internal.canon.checkRecordEdit, { orgId, ...edit, ...(references ? { references } : {}) });
+      // Named by field, so the record API answers 422 for it (src/app/api/v1/_lib.ts toV1Error).
+      if (unnamed?.length) throw new ConvexError({ code: "validation_failed", message: unnamed.map((e) => e.message).join("; "), errors: unnamed });
+      return checked;
+    },
     ledger: async (patch, at) => {
       const out = await ctx.runMutation(internal.canon.saveRecordEdit, {
         orgId, userId: caller.userId as Id<"users">, ...edit, patch, ...(at !== undefined ? { at } : {}), ...(args.found ? { found: args.found } : {}),

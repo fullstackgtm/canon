@@ -12,6 +12,7 @@ import { ConvexError, v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { accessFor, sightJudge } from "./permissions";
 import { visibleIds } from "./lib/scopedRecordClient";
+import { admitRegisterIds } from "./lib/recordReferences";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { requireUser } from "./lib";
@@ -72,7 +73,10 @@ export const logScoped = action({
     const caller = await requireCaller(ctx);
     const client = callerClient(ctx, caller);
     const of = (object: "account" | "contact") => args.targets.filter((t) => t.object === object).map((t) => t.id);
-    const admitted = [...await visibleIds(client, caller.orgId, "account", of("account")), ...await visibleIds(client, caller.orgId, "contact", of("contact"))];
+    const admitted = [
+      ...await visibleIds(client, caller.orgId, "account", of("account")), ...await visibleIds(client, caller.orgId, "contact", of("contact")),
+      ...await admitRegisterIds(client, caller.orgId, args.values),
+    ];
     return ctx.runMutation(internal.activityTargets.logAdmitted, { ...args, admitted });
   },
 });
@@ -103,7 +107,7 @@ async function logAsUser(ctx: MutationCtx, user: Doc<"users">, args: { object: (
       const lookup = lookupOf[t.object];
       if (lookup) lookups[lookup] = t.id;
     }
-    const result = await saveAsCaller(ctx, user, args.object, { op: "create", values: { ...args.values, ...lookups } });
+    const result = await saveAsCaller(ctx, user, args.object, { op: "create", values: { ...args.values, ...lookups } }, { references: admitted });
     if (result.status === "applied" || result.status === "proposed") await attachTargets(ctx, user, result.streamId, targets.map((t) => t.id));
     return result;
   }

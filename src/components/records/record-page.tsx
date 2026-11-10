@@ -110,7 +110,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const team = useQuery(api.users.list) as TeamMember[] | undefined;
   const workspaceMoney = useWorkspaceMoney();
   const splitTeam = useQuery(api.objects.splitMembers, object === "deal" && record && desc?.fields.some((f) => f.type === "splits") ? { streamId } : "skip");
-  const write = useMutation(api.objects.write);
+  const write = useAction(api.objects.writeScoped);
   // What a CRM says about the deal's owner or company where a person's value held (lib/canon/personHold.ts).
   const crmClaims = useQuery(api.fieldClaims.forDeal, object === "deal" ? { streamId } : "skip");
   const remove = useMutation(api.objects.remove);

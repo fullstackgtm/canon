@@ -76,7 +76,7 @@ function CreateDialog({ desc, team, open, onClose, onCreated }: {
   onClose: () => void;
   onCreated: (streamId: string, save: Save[]) => void;
 }) {
-  const write = useMutation(api.objects.write);
+  const write = useAction(api.objects.writeScoped);
   const [values, setValues] = useState<Record<string, CellValue>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -210,8 +210,8 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   const createView = useMutation(api.savedViews.create);
   const updateView = useMutation(api.savedViews.update);
   const removeView = useMutation(api.savedViews.remove);
-  const bulk = useMutation(api.objects.bulk);
-  const write = useMutation(api.objects.write);
+  const bulk = useAction(api.objects.bulkScoped);
+  const write = useAction(api.objects.writeScoped);
   // Accounts and contacts (the register) are keyed by record id: their bulk changes and edits go through these actions.
   const bulkRegister = useAction(api.records.bulkRegister);
   const editRegister = useAction(api.records.edit);

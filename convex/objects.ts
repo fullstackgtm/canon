@@ -42,6 +42,7 @@ import { LEDGER_OBJECTS, materialize, save, saveBatch, shardOf, type ObjectReade
 import { currentLines, parentDeal } from "./lib/objects/lineItemRecords";
 import { lineProblem, lineTotal, MAX_DEAL_LINES, orderedProducts } from "./lib/objects/lineItems";
 import { createOnce, createdOrProposed } from "./lib/idempotency";
+import { admitRegisterIds, referenceErrors } from "./lib/recordReferences";
 
 /** Entries `get` folds for a record with no hot row. */
 const GET_FOLD_CAP = 1000;
@@ -251,7 +252,11 @@ export function convexObjectStore(ctx: MutationCtx, reads = { entries: 0 }): Obj
 type Caller = Doc<"users">;
 
 /** `automation`: a rule saves as its creator (convex/automations.ts), under its own source record. */
-type SaveOpts = { sourceKind?: "user" | (typeof AGENT_SOURCES)[number]; evidence?: string; confidence?: number; automation?: AutomationMark; moduleProposal?: { module: string; plan: Id<"patchPlans"> } };
+type SaveOpts = {
+  sourceKind?: "user" | (typeof AGENT_SOURCES)[number]; evidence?: string; confidence?: number; automation?: AutomationMark; moduleProposal?: { module: string; plan: Id<"patchPlans"> };
+  /** The caller names the write's users and lookups (lib/recordReferences.ts): checked, with these companies and people an action admitted. */
+  references?: ReadonlySet<string>;
+};
 
 async function userSaveContext(ctx: MutationCtx, user: Caller, object: string, opts: SaveOpts = {}): Promise<SaveContext> {
   const kind = opts.sourceKind ?? "user";
@@ -271,6 +276,10 @@ async function userSaveContext(ctx: MutationCtx, user: Caller, object: string, o
 }
 
 export async function saveAsCaller(ctx: MutationCtx, user: Caller, object: string, cmd: SaveCommand, opts: SaveOpts = {}): Promise<SaveResult> {
+  if (opts.references && (cmd.op === "create" || cmd.op === "update")) {
+    const errors = await callerReferenceErrors(ctx, user, opts.references, await loadDef(ctx, user.orgId, object), cmd.values);
+    if (errors.length) return { status: "invalid", errors };
+  }
   if (object === "lineItem") {
     const existing = cmd.op !== "create" ? await view(ctx, user.orgId, cmd.streamId as Id<"canonEntities">, GET_FOLD_CAP, new Map()) : null;
     const parent = cmd.op === "create" ? cmd.values.dealId : existing?.values.dealId;
@@ -281,6 +290,10 @@ export async function saveAsCaller(ctx: MutationCtx, user: Caller, object: strin
   return save(convexObjectStore(ctx), await userSaveContext(ctx, user, object, opts), cmd);
 }
 
+/** referenceErrors for `user` in their workspace. */
+export async function callerReferenceErrors(ctx: QueryCtx, user: Caller, admitted: ReadonlySet<string>, def: ResolvedObjectDef, values: Record<string, unknown>) {
+  return referenceErrors(ctx, { orgId: user.orgId, access: await accessFor(ctx, user), admitted }, def, values);
+}
 
 /** One transaction for single-record edits and whole-list replacement; validate the final set, never an intermediate total. */
 export async function saveDealLinesAsCaller(ctx: MutationCtx, user: Caller, dealId: Id<"canonEntities">, commands: readonly SaveCommand[], opts: SaveOpts = {}): Promise<SaveResult[]> {
@@ -350,7 +363,7 @@ export async function saveDealLinesAsCaller(ctx: MutationCtx, user: Caller, deal
  * row, as `save` checks it.
  */
 export async function saveDealAsCaller(
-  ctx: MutationCtx, user: Caller, streamId: Id<"canonEntities">, values: Record<string, unknown>, expectedVersion?: number, automation?: AutomationMark,
+  ctx: MutationCtx, user: Caller, streamId: Id<"canonEntities">, values: Record<string, unknown>, expectedVersion?: number, automation?: AutomationMark, references?: ReadonlySet<string>,
 ): Promise<SaveResult> {
   if (!can(user, "deals.write")) throw new ConvexError(refusal("deals.write"));
   const entity = await ctx.db.get(streamId);
@@ -367,6 +380,8 @@ export async function saveDealAsCaller(
   if (readOnly.length) return { status: "invalid", errors: readOnly.map((field) => ({ field, message: `${def.byApiName.get(field)?.label ?? field} is not edited here` })) };
   const coerced = coerce(def, values, { mode: "update" });
   if (!coerced.ok) return { status: "invalid", errors: coerced.errors };
+  const unnamed = references ? await callerReferenceErrors(ctx, user, references, def, values) : [];
+  if (unnamed.length) return { status: "invalid", errors: unnamed };
   const edited: Record<string, FactValue> = Object.fromEntries(coerced.values.map((c) => [def.byFieldId.get(c.fieldId)!.apiName, c.value as FactValue]));
   // The owner is a member of this workspace, as New deal requires.
   if (typeof edited.ownerId === "string") {
@@ -395,37 +410,64 @@ export async function saveDealAsCaller(
  * Create a record (no `streamId`) or change its fields. An agent-class
  * `sourceKind` lands the values as proposals for review.
  */
+const writeArgs = {
+  object: editableValidator,
+  streamId: v.optional(v.id("canonEntities")),
+  values: inputValues,
+  expectedVersion: v.optional(v.number()),
+  sourceKind: v.optional(userSource),
+  evidence: v.optional(v.string()),
+  confidence: v.optional(v.number()),
+  /** A create's Idempotency-Key (lib/idempotency.ts). */
+  idempotencyKey: v.optional(v.string()),
+};
+type WriteArgs = { object: string; streamId?: Id<"canonEntities">; values: Record<string, unknown>; expectedVersion?: number; sourceKind?: SaveOpts["sourceKind"]; evidence?: string; confidence?: number; idempotencyKey?: string };
+
+async function writeAs(ctx: MutationCtx, args: WriteArgs, admitted: ReadonlySet<string>): Promise<SaveResult> {
+  const user = await requireUser(ctx);
+  requireEditable(args.object);
+  if (args.streamId && args.idempotencyKey !== undefined) throw new ConvexError("idempotencyKey applies to creates");
+  refuseConversionFields(args.object, args.values);
+  await requireWritable(ctx, user, await requireWriteAccess(ctx, user), args.object, args.streamId ? "edit" : "create", args.streamId, args.values);
+  if (args.object === "deal") {
+    if (!args.streamId) throw new ConvexError("Create deals with deals.create");
+    if (args.sourceKind && args.sourceKind !== "user") throw new ConvexError("Agents propose deal values through the fact gate");
+    return saveDealAsCaller(ctx, user, args.streamId, args.values, args.expectedVersion, undefined, admitted);
+  }
+  const opts: SaveOpts = { ...args, references: admitted };
+  if (args.streamId) {
+    const cmd: SaveCommand = { op: "update", streamId: args.streamId, values: args.values, ...(args.expectedVersion !== undefined ? { expectedVersion: args.expectedVersion } : {}) };
+    return saveAsCaller(ctx, user, args.object, cmd, opts);
+  }
+  const { idempotencyKey, ...request } = args;
+  return createOnce(ctx, { orgId: user.orgId, userId: user._id }, idempotencyKey, { op: "objects.write", ...request },
+    () => saveAsCaller(ctx, user, args.object, { op: "create", values: args.values }, opts), createdOrProposed);
+}
+
+/**
+ * A write whose companies and people are judged by Convex alone: one nobody has worked yet is refused. The record
+ * page, the API and the MCP tools call writeScoped, which admits them through the caller's scoped client first.
+ */
 export const write = mutation({
-  args: {
-    object: editableValidator,
-    streamId: v.optional(v.id("canonEntities")),
-    values: inputValues,
-    expectedVersion: v.optional(v.number()),
-    sourceKind: v.optional(userSource),
-    evidence: v.optional(v.string()),
-    confidence: v.optional(v.number()),
-    /** A create's Idempotency-Key (lib/idempotency.ts). */
-    idempotencyKey: v.optional(v.string()),
-  },
+  args: writeArgs,
   returns: saveResult,
-  handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
-    requireEditable(args.object);
-    if (args.streamId && args.idempotencyKey !== undefined) throw new ConvexError("idempotencyKey applies to creates");
-    refuseConversionFields(args.object, args.values);
-    await requireWritable(ctx, user, await requireWriteAccess(ctx, user), args.object, args.streamId ? "edit" : "create", args.streamId, args.values);
-    if (args.object === "deal") {
-      if (!args.streamId) throw new ConvexError("Create deals with deals.create");
-      if (args.sourceKind && args.sourceKind !== "user") throw new ConvexError("Agents propose deal values through the fact gate");
-      return saveDealAsCaller(ctx, user, args.streamId, args.values, args.expectedVersion);
-    }
-    if (args.streamId) {
-      const cmd: SaveCommand = { op: "update", streamId: args.streamId, values: args.values, ...(args.expectedVersion !== undefined ? { expectedVersion: args.expectedVersion } : {}) };
-      return saveAsCaller(ctx, user, args.object, cmd, args);
-    }
-    const { idempotencyKey, ...request } = args;
-    return createOnce(ctx, { orgId: user.orgId, userId: user._id }, idempotencyKey, { op: "objects.write", ...request },
-      () => saveAsCaller(ctx, user, args.object, { op: "create", values: args.values }, args), createdOrProposed);
+  handler: (ctx, args) => writeAs(ctx, args, new Set()),
+});
+
+export const writeAdmitted = internalMutation({
+  args: { ...writeArgs, admitted: v.array(v.string()) },
+  returns: saveResult,
+  handler: (ctx, { admitted, ...args }) => writeAs(ctx, args, new Set(admitted)),
+});
+
+/** objects.write with the companies and people its values name admitted through the caller's scoped client. */
+export const writeScoped = action({
+  args: writeArgs,
+  returns: saveResult,
+  handler: async (ctx, args): Promise<SaveResult> => {
+    const caller = await requireCaller(ctx);
+    const admitted = await admitRegisterIds(callerClient(ctx, caller), caller.orgId, args.values);
+    return ctx.runMutation(internal.objects.writeAdmitted, { ...args, admitted });
   },
 });
 
@@ -466,18 +508,46 @@ export const restore = mutation({
  * each, delete them, or restore them. Each record gets its own result; a
  * record past the read budget comes back in `unprocessed` to resend.
  */
+const bulkArgs = {
+  object: editableValidator,
+  op: v.union(v.literal("update"), v.literal("delete"), v.literal("restore")),
+  streamIds: v.array(v.id("canonEntities")),
+  values: v.optional(inputValues),
+};
+const bulkResult = v.object({
+  results: v.array(v.object({ streamId: v.id("canonEntities"), result: saveResult })),
+  unprocessed: v.array(v.id("canonEntities")),
+});
+type BulkResult = { results: Array<{ streamId: Id<"canonEntities">; result: SaveResult }>; unprocessed: Id<"canonEntities">[] };
+
+/** A bulk change whose companies and people are judged by Convex alone, as objects.write; the list view calls bulkScoped. */
 export const bulk = mutation({
-  args: {
-    object: editableValidator,
-    op: v.union(v.literal("update"), v.literal("delete"), v.literal("restore")),
-    streamIds: v.array(v.id("canonEntities")),
-    values: v.optional(inputValues),
+  args: bulkArgs,
+  returns: bulkResult,
+  handler: (ctx, args) => bulkAs(ctx, args, new Set()),
+});
+
+export const bulkAdmitted = internalMutation({
+  args: { ...bulkArgs, admitted: v.array(v.string()) },
+  returns: bulkResult,
+  handler: (ctx, { admitted, ...args }) => bulkAs(ctx, args, new Set(admitted)),
+});
+
+/** objects.bulk with the companies and people its values name admitted through the caller's scoped client. */
+export const bulkScoped = action({
+  args: bulkArgs,
+  returns: bulkResult,
+  handler: async (ctx, args): Promise<BulkResult> => {
+    const caller = await requireCaller(ctx);
+    const admitted = await admitRegisterIds(callerClient(ctx, caller), caller.orgId, args.values ?? {});
+    return ctx.runMutation(internal.objects.bulkAdmitted, { ...args, admitted });
   },
-  returns: v.object({
-    results: v.array(v.object({ streamId: v.id("canonEntities"), result: saveResult })),
-    unprocessed: v.array(v.id("canonEntities")),
-  }),
-  handler: async (ctx, args) => {
+});
+
+async function bulkAs(
+  ctx: MutationCtx, args: { object: string; op: "update" | "delete" | "restore"; streamIds: Id<"canonEntities">[]; values?: Record<string, unknown> }, admitted: ReadonlySet<string>,
+): Promise<BulkResult> {
+  {
     if (args.streamIds.length > BULK_MAX) throw new ConvexError(`Save at most ${BULK_MAX} records at a time`);
     if (args.object === "lineItem") throw new ConvexError("Change line items individually with expectedVersion, or from their deal's Products section");
     if (args.object === "deal" && args.op === "update" && Object.hasOwn(args.values ?? {}, "splitAllocations")) throw new ConvexError("Change credit splits on one deal with its expectedVersion");
@@ -495,16 +565,20 @@ export const bulk = mutation({
       for (const streamId of new Set(args.streamIds)) {
         // Each changed field re-resolves from up to 200 facts: stop at the shared facts-read budget and hand the rest back.
         if (results.length > 0 && !partySyncHasBudget(ctx)) unprocessed.push(streamId);
-        else results.push({ streamId, result: args.op === "update" ? await saveDealAsCaller(ctx, user, streamId, args.values!) : await archiveDealAsCaller(ctx, user, streamId, args.op) });
+        else results.push({ streamId, result: args.op === "update" ? await saveDealAsCaller(ctx, user, streamId, args.values!, undefined, undefined, admitted) : await archiveDealAsCaller(ctx, user, streamId, args.op) });
       }
       return { results, unprocessed };
+    }
+    if (args.op === "update") {
+      const errors = await callerReferenceErrors(ctx, user, admitted, await loadDef(ctx, user.orgId, args.object), args.values!);
+      if (errors.length) return { results: [...new Set(args.streamIds)].map((streamId) => ({ streamId, result: { status: "invalid" as const, errors } })), unprocessed: [] };
     }
     const reads = { entries: 0 };
     const change = args.op === "update" ? { op: "update" as const, values: args.values! } : { op: args.op };
     // Same budget as importBatch: a record without a hot row folds its stream.
     return saveBatch(convexObjectStore(ctx, reads), await userSaveContext(ctx, user, args.object), change, args.streamIds, () => reads.entries >= IMPORT_ENTRY_READ_BUDGET);
-  },
-});
+  }
+}
 
 /** Rows one `createMany` call creates: each is a ledger entry, and a CSV import sends them one call after another. */
 export const CREATE_MANY_MAX = 25;

@@ -19,6 +19,9 @@ import { OPERATIONS } from "../src/app/api/v1/_contract.ts";
 const ORG = "organizations:org";
 const ADMIN = { _id: "users:ada", orgId: ORG, role: "admin", name: "Ada", isActive: true, clerkUserId: "user_ada" };
 const REP = { ...ADMIN, _id: "users:avery", role: "rep", name: "Avery", clerkUserId: "user_avery" };
+/** An admin of another workspace, and a member of this one turned off on the Team page. */
+const OUTSIDER = { ...ADMIN, _id: "users:olga", orgId: "organizations:other", name: "Olga", clerkUserId: "user_olga" };
+const GONE = { ...ADMIN, _id: "users:gus", role: "rep", name: "Gus", isActive: false, clerkUserId: "user_gus" };
 const PROJECT: OrgObjectExtension & { apiName: string } = {
   apiName: "custom_project", registryVersion: 1,
   object: { label: "Project", pluralLabel: "Projects", icon: "folder", titleField: "custom.name" },
@@ -37,7 +40,7 @@ const M = loadConvex(FILES, { "lib.ts": (real) => ({ ...real, getCurrentUser: as
 
 const db = memoryDb({
   organizations: [{ _id: ORG, name: "Acme", defaultCurrency: "USD" }],
-  users: [ADMIN, REP],
+  users: [ADMIN, REP, OUTSIDER, GONE],
   objectDefs: [{ _id: "objectDefs:project", orgId: ORG, ...PROJECT, updatedAt: 1 }],
   rolePermissions: [{ _id: "rolePermissions:rep", orgId: ORG, role: "rep", rules: [{ object: "custom_project", fields: [{ apiName: "custom.budget", level: "hidden" }] }] }],
 });
@@ -89,8 +92,10 @@ globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) =>
     const value = path === "users:me" ? user : path in STUBS ? STUBS[path] : await (kind === "mutation" ? serially(run) : run());
     return Response.json({ status: "success", value: convexToJson(JSON.parse(JSON.stringify(value ?? null)) as Value), logLines: [] });
   } catch (error) {
-    const data = error instanceof ConvexError ? { errorData: convexToJson(error.data as Value) } : {};
-    return Response.json({ status: "error", errorMessage: error instanceof ConvexError ? error.message : `[Request ID: test] Server Error\nUncaught ${String(error)}`, ...data, logLines: [] }, { status: 560 });
+    // By name: the handlers' ConvexError is another copy of the class than this file's.
+    const convexError = error instanceof ConvexError || (error as Error)?.name === "ConvexError" ? (error as ConvexError<Value>) : null;
+    const data = convexError ? { errorData: convexToJson(convexError.data) } : {};
+    return Response.json({ status: "error", errorMessage: convexError ? convexError.message : `[Request ID: test] Server Error\nUncaught ${String(error)}`, ...data, logLines: [] }, { status: 560 });
   }
 }) as typeof fetch;
 process.env.NEXT_PUBLIC_CONVEX_URL = CONVEX_URL;
@@ -457,6 +462,7 @@ const KIT = {
     { fieldId: "custom.inboxes", apiName: "custom.inboxes", label: "Inboxes", type: "emails" },
     { fieldId: "custom.sponsor", apiName: "custom.sponsor", label: "Sponsor", type: "user" },
     { fieldId: "custom.client", apiName: "custom.client", label: "Client", type: "lookup", lookupTo: "account" },
+    { fieldId: "custom.parent", apiName: "custom.parent", label: "Parent kit", type: "lookup", lookupTo: "custom_kit" },
     { fieldId: "custom.double", apiName: "custom.double", label: "Double", type: "formula", formula: "custom.seats * 2", returns: "number" },
   ],
 };
@@ -472,15 +478,16 @@ test("a list filters by a field of every filterable type, each value typed as it
   await withKit();
   const live = (await call([staticDoc], "get", "/openapi.json")).body as Doc;
   const kickoff = Date.UTC(2026, 11, 1, 15, 30);
+  const client = ((await call([staticDoc], "post", "/records/account", { body: { values: { domain: "kit-client.example", name: "Kit client" } } })).body as { id: string }).id;
   const values = {
     "custom.name": "Starter kit", "custom.seats": 12, "custom.budget": 2400050, "custom.due": "2026-12-01", "custom.kickoff": kickoff, "custom.signed": true,
-    "custom.stage": "plan", "custom.tags": ["red"], "custom.inboxes": ["a@kit.example"], "custom.sponsor": "users:ada", "custom.client": "acc_1",
+    "custom.stage": "plan", "custom.tags": ["red"], "custom.inboxes": ["a@kit.example"], "custom.sponsor": "users:ada", "custom.client": client,
   };
   const id = ((await call([live], "post", "/records/custom_kit", { body: { values } })).body as { id: string }).id;
   const matched = [
     "custom.seats:gt:5", "custom.budget:gte:2400050", "custom.due:lt:2027-01-01", "custom.kickoff:gt:2026-12-01T15:00:00Z", `custom.kickoff:lte:${kickoff}`,
     "custom.signed:eq:true", "custom.stage:in:plan", "custom.tags:hasAny:red", "custom.inboxes:hasAll:a@kit.example", "custom.sponsor:eq:users:ada",
-    "custom.client:eq:acc_1", "recordTitle:startsWith:Starter", `id:eq:${id}`, "createdAt:gt:2000-01-01T00:00:00Z", "custom.code:empty",
+    `custom.client:eq:${client}`, "recordTitle:startsWith:Starter", `id:eq:${id}`, "createdAt:gt:2000-01-01T00:00:00Z", "custom.code:empty",
   ];
   for (const filter of matched) {
     const res = await call([live], "get", "/records/custom_kit", { query: [["filter", filter]] });
@@ -506,6 +513,45 @@ test("a value another record holds on a unique field is refused with 422 naming 
   user = REP;
   try {
     assert.doesNotMatch(await refused(), /Admin's kit/);
+  } finally {
+    user = ADMIN;
+  }
+});
+
+test("a write names only active members of the workspace and records the caller sees, refused with 422 naming the field", async () => {
+  await withKit();
+  const live = (await call([staticDoc], "get", "/openapi.json")).body as Doc;
+  const kit = (values: Record<string, unknown>) => ({ values: { "custom.name": "Kit", ...values } });
+  const refusal = async (docs: Doc[], method: string, path: string, body: unknown) => {
+    const res = await call(docs, method, path, { body, invalid: true });
+    const { error } = res.body as { error: { code: string; errors?: Array<{ field: string; message: string }> } };
+    assert.deepEqual([res.status, error.code], [422, "validation_failed"], `${method} ${path} ${JSON.stringify(body)}: ${JSON.stringify(res.body)}`);
+    return error.errors!.map((e) => [e.field, e.message] as const);
+  };
+  const company = ((await call([staticDoc], "post", "/records/account", { body: { values: { domain: "refs.example", name: "Refs" } } })).body as { id: string }).id;
+  const own = ((await call([live], "post", "/records/custom_kit", { body: kit({ "custom.sponsor": "users:ada", "custom.client": company }) })).body as { id: string }).id;
+  assert.equal((await call([live], "post", "/records/custom_kit", { body: kit({ "custom.parent": own }) })).status, 201);
+  const theirs = await db.insert("canonEntities", { orgId: OUTSIDER.orgId, entityType: "custom_kit", projectionTable: "recordRows", projectionId: "x" });
+  for (const sponsor of ["users:nobody", OUTSIDER._id, GONE._id]) assert.deepEqual((await refusal([live], "post", "/records/custom_kit", kit({ "custom.sponsor": sponsor }))).map(([f]) => f), ["custom.sponsor"], sponsor);
+  assert.deepEqual((await refusal([live], "post", "/records/custom_kit", kit({ "custom.client": "acc_nowhere" }))).map(([f]) => f), ["custom.client"]);
+  const missing = await refusal([live], "patch", `/records/custom_kit/${own}`, { values: { "custom.parent": "canonEntities:nowhere" } });
+  assert.deepEqual(missing.map(([f]) => f), ["custom.parent"]);
+  assert.deepEqual(await refusal([live], "patch", `/records/custom_kit/${own}`, { values: { "custom.parent": theirs } }), missing);
+  assert.deepEqual((await refusal([staticDoc], "post", "/records/task", { values: { subject: "Call", ownerId: GONE._id, dealId: "canonEntities:nowhere" } })).map(([f]) => f).sort(), ["dealId", "ownerId"]);
+  const deal = ((await call([staticDoc], "post", "/records/deal", { body: { values: { name: "Refs deal", closeDate: "2026-12-31", stage: "prospecting", companyId: company } } })).body as { id: string }).id;
+  assert.deepEqual((await refusal([staticDoc], "patch", `/records/deal/${deal}`, { values: { ownerId: GONE._id } })).map(([f]) => f), ["ownerId"]);
+  assert.deepEqual((await refusal([staticDoc], "patch", `/records/account/${company}`, { values: { ownerId: OUTSIDER._id } })).map(([f]) => f), ["ownerId"]);
+  assert.deepEqual((await refusal([staticDoc], "post", "/records/deal", { values: { name: "Refs deal", closeDate: "2026-12-31", stage: "prospecting", primaryRepId: GONE._id, companyId: "acc_nowhere" } })).map(([f]) => f).sort(), ["companyId", "primaryRepId"]);
+  // A company id is not a person, though the caller sees it.
+  assert.deepEqual((await refusal([staticDoc], "post", "/records/task", { values: { subject: "Call", contactId: company } })).map(([f]) => f), ["contactId"]);
+  // A list's bulk edit admits the companies it names as a single edit does.
+  const task = ((await call([staticDoc], "post", "/records/task", { body: { values: { subject: "Bulk" } } })).body as { id: string }).id;
+  const bulk = async (accountId: string) => ((await runner("action")("objects:bulkScoped", { object: "task", op: "update", streamIds: [task], values: { accountId } })) as { results: Array<{ result: { status: string } }> }).results[0]!.result.status;
+  assert.deepEqual([await bulk(company), await bulk("acc_nowhere")], ["applied", "invalid"]);
+  // A record the caller cannot see is refused as one that does not exist.
+  user = REP;
+  try {
+    assert.deepEqual(await refusal([live], "post", "/records/custom_kit", kit({ ownerId: REP._id, "custom.parent": own })), [["custom.parent", missing[0]![1]]]);
   } finally {
     user = ADMIN;
   }
