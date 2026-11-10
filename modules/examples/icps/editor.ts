@@ -1,7 +1,7 @@
 import type { ConditionChoice, EditorOptions, RecordEditorValue, TokenChange, ValueControl } from "../../kernel/editor.ts";
-import { parseQuery, type Clause, type IcpQuery, type NodeKind } from "../../../convex/lib/icpQuery.ts";
-import { sentence, withClause, withValues, type AiField, type ClausePath } from "../../../src/lib/icp-sentence.ts";
-import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS } from "../../../convex/lib/icpVocabulary.ts";
+import { parseQuery, type Clause, type IcpQuery, type NodeKind } from "../../kernel/icpQuery.ts";
+import { sentence, withClause, withValues, type AiField, type ClausePath } from "../../kernel/icpSentence.ts";
+import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS } from "../../kernel/icpVocabulary.ts";
 import { INDUSTRIES } from "../../kernel/industries.ts";
 import { REGIONS } from "../../kernel/dimensions.ts";
 

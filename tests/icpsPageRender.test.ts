@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
-import { treeMoveError } from "../convex/lib/icpTreeMove.ts";
+import { treeMoveError } from "../modules/kernel/icpTreeMove.ts";
 
 const require = createRequire(import.meta.url);
 const empty = () => null;
@@ -27,8 +27,8 @@ function render(canEdit: boolean) {
       } : null,
     },
     "../../../../convex/_generated/api": { api: { icpTree: { list: "tree" }, icps: {}, icpActions: {}, researchAgents: {}, audiences: {} } },
-    "../../../../convex/lib/icpQuery": { parseQuery: () => ({ errors: [], query: {} }) },
-    "../../../../convex/lib/icpTreeMove": { treeMoveError },
+    "../../../../modules/kernel/icpQuery": { parseQuery: () => ({ errors: [], query: {} }) },
+    "../../../../modules/kernel/icpTreeMove": { treeMoveError },
     "@/components/records/object-labels": { useObjectLabels: () => (o: string) => ({ label: o, pluralLabel: o === "contact" ? "People" : o === "account" ? "Accounts" : `${o}s` }) },
     "@/components/dashboard": { ViewFrame: ({ title, secondaryActions, children }: { title: string; secondaryActions?: ReactNode; children: ReactNode }) => createElement("div", null, createElement("h1", null, title), secondaryActions, children), LoadingRows: empty },
     "@/components/crm/add-records-dialog": { AddRecordsDialog: empty },
@@ -42,7 +42,7 @@ function render(canEdit: boolean) {
     "@/components/ui/dialog": Object.fromEntries(["Dialog", "DialogContent", "DialogHeader", "DialogTitle"].map((key) => [key, childrenOnly])),
     "@/components/ui/dropdown-menu": Object.fromEntries(["DropdownMenu", "DropdownMenuContent", "DropdownMenuItem", "DropdownMenuSeparator", "DropdownMenuTrigger"].map((key) => [key, childrenOnly])),
     "@/components/ui/switch": { Switch: empty },
-    "@/lib/icp-sentence": { sentence: empty, sentenceText: () => "" },
+    "../../../../modules/kernel/icpSentence": { sentence: empty, sentenceText: () => "" },
     "@/lib/toast": {},
     "@/lib/url-state": { useUrlState: (defaults: unknown) => [defaults, empty] },
     "@/lib/utils": { cn: (...values: unknown[]) => values.filter(Boolean).join(" ") },

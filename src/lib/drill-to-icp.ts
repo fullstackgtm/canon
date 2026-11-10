@@ -9,7 +9,7 @@
 import { canonIndustry, industryLabel } from "../../modules/kernel/industries.ts";
 import { icpGeosToIso } from "../../convex/lib/researchPipeline.ts";
 import { emptySpec } from "../../convex/lib/icps.ts";
-import type { IcpSpec } from "../../convex/lib/icpSpec.ts";
+import type { IcpSpec } from "../../modules/kernel/icpSpec.ts";
 import { NONE, REGION_OF_COUNTRY, SIZE_BANDS } from "../../modules/kernel/dimensions.ts";
 import type { Pivot } from "./tam-levels.ts";
 
@@ -39,7 +39,7 @@ export function drillToSpec(pivot: Pivot, labelOf: (dim: string) => string): Dri
     else if (dim === "sizeBand") spec.market.employeeBands = known.filter((b) => BANDS.has(b));
     else if (dim === "country") countries = icpGeosToIso(known).map((c) => c.toLowerCase());
     else if (dim === "region") regionCountries = [...new Set(known.flatMap(isoInRegion))];
-    // An AI field's answers are an ICP criterion as they are (lib/icpSpec.ts custom).
+    // An AI field's answers are an ICP criterion as they are (modules/kernel/icpSpec.ts custom).
     else if (dim.startsWith("field:")) spec.custom = [...(spec.custom ?? []), { slug: dim.slice("field:".length), values: known }];
     else unsaved.push(labelOf(dim));
   }

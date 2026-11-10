@@ -8,8 +8,9 @@ credentials. Only a remote server needs SSH access.
 
 Run commands from the repository root. Allow at least 2 GiB of RAM for the
 running installation and extra memory and disk space for the image build.
-Keep access private until you create the first owner. The first successful
-registration owns the installation. Leave `FSGTM_ENABLE_DEMO_DATA` unset.
+Creating the first owner takes the setup code that the container prints in its
+log, so whoever reaches the address first can't claim the install. Leave
+`FSGTM_ENABLE_DEMO_DATA` unset.
 
 ## Prepare the machine
 
@@ -76,8 +77,12 @@ unhealthy. The image's health check covers the app, backend, and record service.
 The same origin serves the app, Convex at `/convex`, and HTTP actions at
 `/convex-site`.
 
-For this machine, open `http://localhost:3000/sign-in` and create the owner,
-or let the verification command below create it before opening public access.
+Read the setup code with `docker compose exec canoncrm node scripts/selfhost/setup-code.mjs`,
+or find it in `docker compose logs canoncrm`. Then open
+`http://localhost:3000/sign-in`, enter it and create the owner, or let the
+verification command below create the owner. The code stops working once the
+owner exists. To choose the code yourself, set `CANON_SETUP_CODE` in `.env`
+before the first start.
 Choose a password with at least 12 characters. No email provider is required.
 
 The record API (`/api/v1`) and the MCP tools limit each token to 600 reads and
@@ -168,10 +173,12 @@ The file has these names. Supply your own values without the angle brackets:
 ```dotenv
 SELFHOST_SMOKE_EMAIL=<owner-email>
 SELFHOST_SMOKE_PASSWORD=<owner-password-at-least-12-characters>
+SELFHOST_SETUP_CODE=<setup-code-from-the-log>
 ```
 
 For a fresh installation, this one command proves first owner creation as
-well as sign-in. Run it while the installation is still private:
+well as sign-in. It also checks that a wrong setup code and a second owner are
+refused:
 
 ```sh
 node --env-file=../canon-owner.env scripts/selfhost/verify.mjs http://localhost:3000 --bootstrap-owner
@@ -179,8 +186,8 @@ node --env-file=../canon-owner.env scripts/selfhost/verify.mjs http://localhost:
 
 For a throwaway test install, skip the file. With `--bootstrap-owner` and no
 credentials set, the command creates a throwaway owner with a random password it
-never saves. Do not use this on an install a client will keep, because that owner
-then owns the installation:
+never saves, and reads the setup code from the container. Do not use this on an
+install a client will keep, because that owner then owns the installation:
 
 ```sh
 node scripts/selfhost/verify.mjs http://localhost:3000 --bootstrap-owner --restart-container "$(docker compose ps -q canoncrm)"

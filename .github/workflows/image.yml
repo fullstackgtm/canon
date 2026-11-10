@@ -1,0 +1,120 @@
+name: Image
+
+# Publishes the self-hosted image for each signed release, so the image and the release can't
+# disagree: ghcr.io/fullstackgtm/canon:<date> is built from the commit release/<date> names, after
+# its signature checks against scripts/selfhost/release-signers. :latest follows the newest release.
+# Each image carries a build provenance attestation:
+#   gh attestation verify oci://ghcr.io/fullstackgtm/canon:<date> --repo fullstackgtm/canon
+# Only tag pushes run this, never pull requests. It uses no secret except this repository's GITHUB_TOKEN.
+on:
+  push:
+    tags: ["release/*"]
+
+permissions: {}
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.repository == 'fullstackgtm/canon'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      epoch: ${{ steps.read.outputs.epoch }}
+      latest: ${{ steps.read.outputs.latest }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - id: read
+        name: Check the release signature
+        run: |
+          set -euo pipefail
+          # Checkout can leave a tag lightweight; fetch the signed tag object itself.
+          git fetch --quiet --force origin '+refs/tags/release/*:refs/tags/release/*'
+          git -c gpg.format=ssh -c gpg.ssh.allowedSignersFile=scripts/selfhost/release-signers verify-tag "$GITHUB_REF"
+          [ "$(git rev-parse "$GITHUB_REF^{commit}")" = "$GITHUB_SHA" ]
+          version=${GITHUB_REF#refs/tags/release/}
+          newest=$(git tag -l 'release/*' | LC_ALL=C sort | tail -n 1)
+          {
+            echo "version=$version"
+            echo "epoch=$(jq -r .epoch scripts/selfhost/data-contract.json)"
+            echo "latest=$([ "$newest" = "release/$version" ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: release
+    strategy:
+      matrix:
+        include:
+          - { platform: linux/amd64, arch: amd64, runner: ubuntu-24.04 }
+          - { platform: linux/arm64, arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.selfhost
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          build-args: RELEASE_GIT_SHA=${{ github.sha }}
+          tags: ghcr.io/fullstackgtm/canon:${{ needs.release.outputs.version }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.title=Canon
+            org.opencontainers.image.source=https://github.com/fullstackgtm/canon
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=release/${{ needs.release.outputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+            com.canoncrm.data-epoch=${{ needs.release.outputs.epoch }}
+
+  publish:
+    needs: [release, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: merge
+        name: Tag the two platforms as one image
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          LATEST: ${{ needs.release.outputs.latest }}
+        run: |
+          set -euo pipefail
+          image=ghcr.io/fullstackgtm/canon
+          tags=(-t "$image:$VERSION")
+          if [ "$LATEST" = true ]; then tags+=(-t "$image:latest"); fi
+          docker buildx imagetools create "${tags[@]}" \
+            --annotation "index:org.opencontainers.image.source=https://github.com/fullstackgtm/canon" \
+            --annotation "index:org.opencontainers.image.revision=$GITHUB_SHA" \
+            "$image:$VERSION-amd64" "$image:$VERSION-arm64"
+          echo "digest=$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/fullstackgtm/canon
+          subject-digest: ${{ steps.merge.outputs.digest }}
+          push-to-registry: true

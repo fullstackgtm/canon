@@ -2,11 +2,11 @@ import type { CallFunctions, Intent, ReadDoc } from "../../kernel/calls.ts";
 import type { Icp } from "../../../engine/src/icp.ts";
 import { employeeBandsToRange } from "../../../engine/src/icp.ts";
 import { icpGeosToCountries } from "../../kernel/icpGeography.ts";
-import { icpIndustriesToLeadsforge } from "../../../convex/lib/icpIndustries.ts";
+import { icpIndustriesToLeadsforge } from "../../kernel/icpIndustries.ts";
 import { textHash } from "../../kernel/ai.ts";
 import { publicPageUrl, webPagesRequest } from "../../kernel/webPages.ts";
 import { freePopulationRequest } from "../../kernel/freePopulation.ts";
-import { CRM_SOURCE, MAX_READ_URLS, addCited, contextText, parseProposals, proposalSearch, verifyClaims, type ChallengeContext, type Proposal, type FetchedPage } from "./challengeDomain.ts";
+import { CRM_SOURCE, MAX_READ_URLS, addCited, contextText, parseProposals, proposalSearch, verifyClaims, type ChallengeContext, type Proposal, type FetchedPage } from "../../kernel/icpChallenge.ts";
 
 const docs = (value: unknown) => value as ReadDoc[];
 const expect = (collection: string, d: ReadDoc) => ({ collection, key: d.key, version: d.version });

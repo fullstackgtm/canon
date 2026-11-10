@@ -3,7 +3,7 @@
  * cache key a view's counts are stored under. Pure.
  */
 import type { AccountsFilter, MarketDimension, MarketFacetsResponse, MarketFilter } from "./recordContract.ts";
-import { parseQuery } from "./icpQuery.ts";
+import { parseQuery } from "../../modules/kernel/icpQuery.ts";
 import { icpGeosToCountries } from "./researchPipeline.ts";
 import { industryFilterKeys } from "../../modules/kernel/industries.ts";
 

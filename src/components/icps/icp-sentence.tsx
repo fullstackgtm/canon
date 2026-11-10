@@ -4,11 +4,11 @@ import { IcpViewer } from "./icp-viewer";
 import { useState } from "react";
 import { X } from "lucide-react";
 import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS } from "../../../convex/lib/addRecords";
-import { parseQuery, type Clause, type IcpQuery, type NodeKind } from "../../../convex/lib/icpQuery";
+import { parseQuery, type Clause, type IcpQuery, type NodeKind } from "../../../modules/kernel/icpQuery";
 import { INDUSTRIES } from "../../../modules/kernel/industries";
 import { REGIONS } from "../../../modules/kernel/dimensions";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { bandsLabel, sentence, withClause, withValues, type AiField, type ClausePath } from "@/lib/icp-sentence";
+import { bandsLabel, sentence, withClause, withValues, type AiField, type ClausePath } from "../../../modules/kernel/icpSentence";
 import { cn } from "@/lib/utils";
 
 const input = "w-full border border-border bg-background px-2 py-1 text-sm outline-none focus:border-primary";

@@ -2,8 +2,7 @@ import { SENIORITIES, type LeadsforgeFilters } from "../leadsforge.ts";
 import { icpToQuickEnrich, type QuickEnrichQuery } from "../quickenrich.ts";
 import type { Icp } from "../../../engine/src/icp.ts";
 import type { FetchedPage, PageFetcher, ToolCaller } from "../research/agentLoop.ts";
-import { MAX_READ_URLS, CRM_SOURCE, contextText, PROPOSE_SCHEMA, proposePrompt, CITE_SCHEMA, citePrompt, parseProposals, verifyClaims, addCited, type Proposal, type ChallengeContext } from "../../../modules/examples/icps/challengeDomain.ts";
-export * from "../../../modules/examples/icps/challengeDomain.ts";
+import { MAX_READ_URLS, CRM_SOURCE, contextText, PROPOSE_SCHEMA, proposePrompt, CITE_SCHEMA, citePrompt, parseProposals, verifyClaims, addCited, type Proposal, type ChallengeContext } from "../../../modules/kernel/icpChallenge.ts";
 
 /**
  * The Leadsforge search that populates a market: its industries, size and

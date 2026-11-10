@@ -28,7 +28,7 @@ import { TregRefusal } from "./lib/treg";
 import {
   accountQueries, MAX_TARGET_ACCOUNTS, marketIsNarrow, marketQueries, parseAccountList,
 } from "./lib/addRecords";
-import { icpExcludeValidator, type IcpSpec } from "./lib/icpSpec";
+import { icpExcludeValidator, type IcpSpec } from "../modules/kernel/icpSpec";
 import { emptySpec, specFromIcp } from "./lib/icps";
 import { readIcps } from "./lib/icpsInterface";
 import { isFillJob } from "./lib/runs";

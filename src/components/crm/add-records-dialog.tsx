@@ -11,7 +11,7 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { nameFromDomain } from "../../../convex/lib/peopleSources";
 import { MAX_TARGET_ACCOUNTS, parseAccountList, type Market, type Persona } from "../../../convex/lib/addRecords";
-import type { IcpExclude, IcpSpec } from "../../../convex/lib/icpSpec";
+import type { IcpExclude, IcpSpec } from "../../../modules/kernel/icpSpec";
 import { Chips, ExcludeFields, MarketFields, PersonaFields, excludeCount, input, label } from "@/components/crm/icp-fields";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";

@@ -18,9 +18,9 @@ import { invalidateFit } from "./lib/fitInvalidation";
 import { scheduleGapCheck } from "./icpFills";
 import { marketView } from "./marketSize";
 import { icpMarketFilter } from "./lib/icpGap";
-import { icpSpecValidator, type IcpSpec } from "./lib/icpSpec";
+import { icpSpecValidator, type IcpSpec } from "../modules/kernel/icpSpec";
 import { MAX_ICPS, specBuyer, specFromIcp } from "./lib/icps";
-import { queryToSpec } from "./lib/icpQuery";
+import { queryToSpec } from "../modules/kernel/icpQuery";
 import { checkQuery, removeSubtree, MAX_NODES } from "./icpTree";
 import { callerClient, clientFor, requireCaller } from "./records";
 import { atLeastVersion } from "./lib/recordClient";
@@ -28,10 +28,10 @@ import type { IcpStats } from "./lib/recordContract";
 import { modelSettings } from "./lib/recipes";
 import { assertLegacyIcpsWritable, interfaceOwner } from "./lib/modules/interfaceOwnership";
 import { systemScope } from "./lib/modules/scope";
-import { specToQuery } from "./lib/icpQuery";
+import { specToQuery } from "../modules/kernel/icpQuery";
 import { readIcps } from "./lib/icpsInterface";
-import { researchTree, type ResearchTreeNode } from "./lib/icpResearchTree";
-import { cleanResearchSpec, cleanSpecStrings } from "./lib/icpResearchSpec";
+import { researchTree, type ResearchTreeNode } from "../modules/kernel/icpResearchTree";
+import { cleanResearchSpec, cleanSpecStrings } from "../modules/kernel/icpResearchSpec";
 
 /** Whether a member (with the capabilities of a workspace role, lib.ts withRole) holds strategy.edit. */
 const isManager = (who: { role: string; capabilities?: readonly string[] }) => can(who, "strategy.edit");
@@ -118,7 +118,7 @@ export const list = query({
   },
 });
 
-/** An ICP's criteria from its spec, or from its query line (lib/icpQuery.ts) when given instead. */
+/** An ICP's criteria from its spec, or from its query line (modules/kernel/icpQuery.ts) when given instead. */
 async function specOf(ctx: QueryCtx, orgId: Id<"organizations">, args: { spec?: IcpSpec; query?: string }): Promise<IcpSpec | undefined> {
   if (args.spec !== undefined && args.query !== undefined) throw new ConvexError("Give the ICP's spec or its query, not both.");
   return args.query !== undefined ? queryToSpec((await checkQuery(ctx, orgId, args.query, "icp")).query) : args.spec;

@@ -112,14 +112,14 @@ export function deploy(options: Options, inherited: Env = process.env, cwd = pro
     const selectionFile = join(temporary, ".env.target");
     const saved = existsSync(appFile) ? readEnv(appFile) : {};
     const authEnv = { ...cliEnv, ...saved };
-    for (const key of ["CANON_SERVICE_JWT_PRIVATE_KEY", "CANON_SERVICE_JWT_ISSUER", "CANON_SERVICE_JWT_KID"]) {
+    for (const key of ["CANON_SERVICE_JWT_PRIVATE_KEY", "CANON_SERVICE_JWT_ISSUER", "CANON_SERVICE_JWT_KID", "CANON_SETUP_CODE"]) {
       if (!saved[key] && env[key]) authEnv[key] = env[key];
     }
     run(join(cwd, "scripts/setup-local-auth.mjs"), ["--site-url", site, "--app-env", appFile, "--convex-env", backendFile], authEnv, "Local auth setup");
     const auth = readEnv(appFile);
     writeEnv(appFile, {
       CANON_AUTH: "local", CANON_SERVICE_JWT_PRIVATE_KEY: auth.CANON_SERVICE_JWT_PRIVATE_KEY,
-      CANON_SERVICE_JWT_ISSUER: auth.CANON_SERVICE_JWT_ISSUER, CANON_SERVICE_JWT_KID: auth.CANON_SERVICE_JWT_KID,
+      CANON_SERVICE_JWT_ISSUER: auth.CANON_SERVICE_JWT_ISSUER, CANON_SERVICE_JWT_KID: auth.CANON_SERVICE_JWT_KID, CANON_SETUP_CODE: auth.CANON_SETUP_CODE,
       NEXT_PUBLIC_CONVEX_URL: target.url, NEXT_PUBLIC_SITE_URL: site, SITE_URL: site, APP_ENVIRONMENT: "selfhost", FSGTM_ENABLE_DEMO_DATA: "false",
     });
     writeEnv(backendFile, { ...readEnv(backendFile), SITE_URL: site });
@@ -132,7 +132,7 @@ export function deploy(options: Options, inherited: Env = process.env, cwd = pro
   console.log("Vercel: import this repository and add every frontend env variable to Production before building.");
   console.log("Railway: connect this repository, add every frontend env variable before building, and use npm run build / npm start.");
   console.log("Do not give the frontend CONVEX_DEPLOY_KEY or CONVEX_SELF_HOSTED_ADMIN_KEY. Rebuild after changing public URLs or auth mode.");
-  console.log(`Before exposing the app publicly, create the first owner at ${site}/sign-in`);
+  console.log(`Create the first owner at ${site}/sign-in with the setup code in ${options.appEnv} (CANON_SETUP_CODE).`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

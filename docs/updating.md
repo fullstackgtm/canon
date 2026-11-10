@@ -33,15 +33,22 @@ ignored.
 2. Take a backup and check it, as in [Back up and restore](#back-up-and-restore).
    Take one before every update.
 3. Check out the release: `git merge --ff-only refs/canon/releases/<date>`.
-4. Rebuild and start: `docker compose up -d --build`. On start, the container
-   pushes the new backend functions before it starts the web app.
+4. Start the new release. On start, the container pushes the new backend
+   functions before it starts the web app.
+   - If `.env` names a published image (`CANON_IMAGE`, which
+     `scripts/selfhost/install.sh` writes), set it to the release's image,
+     `ghcr.io/fullstackgtm/canon:<date>`, then run
+     `docker compose pull && docker compose up -d`. The image's
+     `org.opencontainers.image.revision` label must be the release's commit:
+     `docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/fullstackgtm/canon:<date>`.
+   - Otherwise rebuild from the checkout: `docker compose up -d --build`.
 5. Run the verifier again with the existing owner, as after installing, and
    report its output.
 6. Run any migrations the release listed, then record that the data is current:
    `node scripts/selfhost/releases.mjs --no-fetch --mark-data-current`.
 
-If a step fails, check out the previous commit, run `docker compose build`, and
-restore the backup with `npm run selfhost:restore -- <archive> --replace`.
+If a step fails, check out the previous commit, set `CANON_IMAGE` back or run
+`docker compose build`, and restore the backup with `npm run selfhost:restore -- <archive> --replace`.
 
 ## Update a fork with changes of your own
 

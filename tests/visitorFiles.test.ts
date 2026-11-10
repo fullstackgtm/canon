@@ -116,3 +116,22 @@ test("visitor storage deletes losing blobs, releases failures and rejects member
   assert.deepEqual(removed, ["blob"]);
   assert.deepEqual(released, ["ticket", "ticket", "ticket"]);
 });
+
+test("in the self-hosted container both proxies fetch the backend's own address, not the browser's", async () => {
+  const site = "http://localhost:4317";
+  const selfhost = { ...env, CONVEX_CLOUD_ORIGIN: `${site}/convex`, CONVEX_SITE_ORIGIN: `${site}/convex-site`,
+    CANON_INTERNAL_CONVEX_URL: "http://127.0.0.1:3210", CANON_INTERNAL_CONVEX_SITE_URL: "http://127.0.0.1:3211" };
+  const fetched: string[] = [];
+  const fetch = (async (url: string) => {
+    fetched.push(url);
+    return url.endsWith("/visitor-upload") ? Response.json({ id: "file-1", name: "visit.png", type: "image/png", bytes: 12 }) : new Response(new Uint8Array(png).buffer);
+  }) as typeof globalThis.fetch;
+  const upload = async () => ({ ok: true as const, value: { ticket: "t", secret: "s", url: `${site}/convex-site/modules/visitor-upload` } });
+  const file = async () => ({ ok: true as const, value: { name: "photo.png", type: "image/png", bytes: 12, url: `${site}/convex/api/storage/abc?token=x` } });
+  assert.equal((await handleVisitUpload(binary(), { env: selfhost, upload, fetch })).status, 200);
+  assert.equal((await handleVisitFile(fileRequest(), { env: selfhost, file, fetch })).status, 200);
+  assert.deepEqual(fetched, ["http://127.0.0.1:3211/modules/visitor-upload", "http://127.0.0.1:3210/api/storage/abc?token=x"]);
+  fetched.length = 0;
+  await handleVisitFile(fileRequest(), { env, file, fetch });
+  assert.deepEqual(fetched, [`${site}/convex/api/storage/abc?token=x`], "without the container's addresses a URL is fetched as given");
+});

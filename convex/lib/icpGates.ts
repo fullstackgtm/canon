@@ -7,7 +7,7 @@
  */
 import type { IcpGate, IcpTreeAccount, IcpTreeCounts, IcpTreeNode, IcpTreePerson } from "./recordContract.ts";
 import { industryWeight, sameIndustry } from "../../modules/kernel/industries.ts";
-import { DEPARTMENT, SENIORITY, classifyTitle } from "../../services/record-service/src/titles.ts";
+import { DEPARTMENT, SENIORITY, classifyTitle } from "../../modules/kernel/titles.ts";
 import { passes } from "../../services/record-service/src/territoryTree.ts";
 
 /** `titles` are the job titles of the account's live contacts; without them the buyer isn't checked (score history). */

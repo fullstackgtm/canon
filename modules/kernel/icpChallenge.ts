@@ -1,9 +1,17 @@
-import { INDUSTRIES as INDUSTRY_ROWS } from "../../kernel/industries.ts";
-import type { LeadsforgeFilters } from "../../../convex/lib/leadsforge.ts";
-import type { FreePopulationQuery } from "../../kernel/freePopulation.ts";
-import type { Icp } from "../../../engine/src/icp.ts";
+/**
+ * Challenging an ICP: the prompts and schemas that ask a model for adjacent markets, the parse that keeps proposals
+ * outside the current market, and the evidence gate that keeps a quote only when it is verbatim in a page that was
+ * read. The ICPs module (modules/examples/icps/challenge.ts) and Canon's ICP challenge (convex/lib/tam/challengeIcp.ts)
+ * both run them.
+ */
+import { INDUSTRIES as INDUSTRY_ROWS } from "./industries.ts";
+import type { FreePopulationQuery } from "./freePopulation.ts";
+import type { DerivedIcp } from "./icpResearchSpec.ts";
 const INDUSTRIES = INDUSTRY_ROWS.map((i) => i.key);
 export type FetchedPage = { url: string; text: string };
+
+/** The current market a proposal must sit outside: its industries and size, as a Leadsforge search names them. */
+export type CurrentMarket = { companyIndustries?: { include?: string[] }; companyEmployeeNumberRange?: { min?: number; max?: number } };
 
 export const MAX_PROPOSALS = 5;
 export const MAX_READ_URLS = 6;
@@ -175,7 +183,7 @@ export const marketKey = (industries: string[]) => [...industries].sort().join("
  */
 export function parseProposals(
   raw: unknown,
-  opts: { icp: LeadsforgeFilters; decided: ChallengeContext["decided"] },
+  opts: { icp: CurrentMarket; decided: ChallengeContext["decided"] },
 ): Proposal[] {
   const list = (raw as { proposals?: unknown })?.proposals;
   if (!Array.isArray(list)) return [];
@@ -260,7 +268,7 @@ export function addCited(
 }
 
 
-export function proposalSearch(p: Pick<Proposal, "industries" | "employeeMin" | "employeeMax" | "countries">, icp: Icp | undefined): string {
+export function proposalSearch(p: Pick<Proposal, "industries" | "employeeMin" | "employeeMax" | "countries">, icp: DerivedIcp | undefined): string {
   const query: FreePopulationQuery = {
     industries: p.industries, countries: p.countries.length ? p.countries : icp?.firmographics.geos ?? [],
     ...(p.employeeMin !== undefined ? { employeeMin: p.employeeMin } : {}), ...(p.employeeMax !== undefined ? { employeeMax: p.employeeMax } : {}),

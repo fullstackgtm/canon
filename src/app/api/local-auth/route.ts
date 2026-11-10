@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import { api } from "../../../../convex/_generated/api";
 import { LOCAL_SESSION_COOKIE } from "@/lib/authMode";
 import { hashLocalSecret, hashPassword, localAuthBroker, localSession, mintLocalToken, newLocalSecret, SESSION_SECONDS, verifyPassword } from "@/lib/localAuth";
+import { setupCodeMatches } from "@/lib/setupCode";
 import { rateLimit } from "../cli/_lib";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 const email = z.string().trim().toLowerCase().email().max(254);
 const password = z.string().min(12).max(256);
 const bodySchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("register"), email, password, name: z.string().trim().min(1).max(100), workspaceName: z.string().trim().max(100).optional(), invite: z.string().regex(/^[\w-]{43}$/).optional() }),
+  z.object({ kind: z.literal("register"), email, password, name: z.string().trim().min(1).max(100), workspaceName: z.string().trim().max(100).optional(), setupCode: z.string().max(64).optional(), invite: z.string().regex(/^[\w-]{43}$/).optional() }),
   z.object({ kind: z.literal("sign-in"), email, password: z.string().min(1).max(256) }),
   z.object({ kind: z.literal("sign-out") }),
 ]);
@@ -46,6 +47,10 @@ export async function POST(request: Request) {
     const token = newLocalSecret();
     const session = { tokenHash: hashLocalSecret(token), expiresAt: Date.now() + SESSION_SECONDS * 1000 };
     if (body.kind === "register") {
+      // The first owner needs the code from the install's logs or settings; members need an invitation.
+      if (!body.invite && !setupCodeMatches(body.setupCode, process.env.CANON_SETUP_CODE)) {
+        return Response.json({ error: process.env.CANON_SETUP_CODE ? "The setup code is incorrect. Find it in this install's logs." : "This install has no setup code. Set CANON_SETUP_CODE and restart." }, { status: 403 });
+      }
       await broker.mutation(api.localAuth.register, {
         email: body.email, name: body.name, passwordHash: await hashPassword(body.password), subject: `local_${randomUUID()}`,
         ...(body.workspaceName ? { workspaceName: body.workspaceName } : {}), ...(body.invite ? { inviteHash: hashLocalSecret(body.invite) } : {}), ...session,

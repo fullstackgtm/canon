@@ -1,11 +1,12 @@
 /**
  * A module's territory tree read (docs/modules.md, "Territories"): the tree built from an earlier read's docs, each a
- * query line (the grammar ICPs use, convex/lib/icpQuery.ts), in the call's one query (`treeSpecOf`), then counted by the
+ * query line (the grammar ICPs use, modules/kernel/icpQuery.ts), in the call's one query (`treeSpecOf`), then counted by the
  * record service as the caller sees companies, in the call's action (`treeValue`): each node's companies, ICP companies,
  * owners, and the pipeline and bookings of the deals at its companies. Pure but for the record client it's handed.
  */
 import { marketFilterOfLines, type QueryMarketFilter, type MarketReader } from "../marketSize.ts";
-import { accountCriteria, parseQuery } from "../icpQuery.ts";
+import { parseQuery } from "../../../modules/kernel/icpQuery.ts";
+import { accountCriteria } from "../icpCriteria.ts";
 import type { RecordClient } from "../recordClient";
 import type { ReadValue } from "../../../modules/kernel/calls.ts";
 import type { TreeRead } from "../../../modules/kernel/manifest.ts";

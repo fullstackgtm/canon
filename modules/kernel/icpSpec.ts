@@ -1,4 +1,4 @@
-/** A saved ICP's spec (lib/icps.ts), as a validator the schema and functions share. */
+/** A saved ICP's spec (convex/lib/icps.ts), as a validator the schema, Canon's functions and modules share. */
 import { v, type Infer } from "convex/values";
 
 const strings = v.array(v.string());
@@ -28,13 +28,3 @@ export const icpSpecValidator = v.object({
 export type IcpExclude = Infer<typeof icpExcludeValidator>;
 export type IcpSpec = Infer<typeof icpSpecValidator>;
 export type IcpCustomCriterion = Infer<typeof icpCustomCriterionValidator>;
-
-/** The last outside-TAM check on an ICP (icpFills.ts). */
-export const icpGapCheckValidator = v.object({
-  key: v.string(),
-  at: v.number(),
-  market: v.number(),
-  tam: v.number(),
-  outcome: v.union(v.literal("filling"), v.literal("covered"), v.literal("small"), v.literal("too_large"), v.literal("unavailable"), v.literal("busy")),
-  jobId: v.optional(v.id("backgroundJobs")),
-});

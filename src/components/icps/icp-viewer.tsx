@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { parseQuery, serializeQuery, type Clause, type NodeKind } from "../../../convex/lib/icpQuery";
-import { COUNTRIES, LEVELS } from "../../../convex/lib/icpVocabulary";
+import { parseQuery, serializeQuery, type Clause, type NodeKind } from "../../../modules/kernel/icpQuery";
+import { COUNTRIES, LEVELS } from "../../../modules/kernel/icpVocabulary";
 import { INDUSTRIES } from "../../../modules/kernel/industries";
 
 export type IcpViewerProps = {

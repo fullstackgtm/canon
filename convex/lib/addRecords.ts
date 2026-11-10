@@ -9,15 +9,15 @@ import { icpToLeadsforge, type LeadsforgeFilters } from "./leadsforge.ts";
 import { excludeFromQuery, icpToQuickEnrich, type QuickEnrichQuery } from "./quickenrich.ts";
 import { icpGeosToCountries } from "./researchPipeline.ts";
 import { normDomain } from "./peopleSources.ts";
-import type { IcpExclude } from "./icpSpec.ts";
+import type { IcpExclude } from "../../modules/kernel/icpSpec.ts";
 
 /** Companies one run may name. */
 export const MAX_TARGET_ACCOUNTS = 1000;
 /** Domains per root search (a saturated Leadsforge search halves its list). */
 export const DOMAINS_PER_SEARCH = 100;
 
-export { EMPLOYEE_BANDS, LEVELS, DEPARTMENTS, canonDepartments, COUNTRIES } from "./icpVocabulary.ts";
-import { EMPLOYEE_BANDS } from "./icpVocabulary.ts";
+export { EMPLOYEE_BANDS, LEVELS, DEPARTMENTS, canonDepartments, COUNTRIES } from "../../modules/kernel/icpVocabulary.ts";
+import { EMPLOYEE_BANDS } from "../../modules/kernel/icpVocabulary.ts";
 
 /** Who to find. Empty levels mean the buyers (C-suite, VP, Head, Director). `countries` is where they are located. */
 export type Persona = { levels: string[]; departments: string[]; titles: string[]; countries?: string[] };

@@ -4,6 +4,7 @@ import { chown, mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/
 import { join } from "node:path";
 import { INTEGRATIONS_AVAILABLE, integrationEnabled, integrationNeeds } from "../../convex/lib/integrationsAvailable.ts";
 import { functionsDigest, mustPush } from "./functions.mjs";
+import { newSetupCode, platformSiteUrl, SETUP_CODE_FILE } from "./platform.mjs";
 
 // How the processes in this container reach each other. SITE_URL and its port are the browser's
 // address: the published port can differ from the container's, and a public domain may not
@@ -116,7 +117,7 @@ async function main() {
   if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535 || [3210, 3211, 8787].includes(Number(port))) {
     throw new Error("PORT must be an available TCP port other than 3210, 3211, or 8787");
   }
-  const site = origin(process.env.SITE_URL || "http://localhost:3000", "SITE_URL");
+  const site = origin(process.env.SITE_URL || platformSiteUrl(process.env) || "http://localhost:3000", "SITE_URL");
   const publicBackend = process.env.CONVEX_PUBLIC_URL ? origin(process.env.CONVEX_PUBLIC_URL, "CONVEX_PUBLIC_URL") : `${site}/convex`;
   const publicActions = process.env.CONVEX_PUBLIC_SITE_URL ? origin(process.env.CONVEX_PUBLIC_SITE_URL, "CONVEX_PUBLIC_SITE_URL") : `${site}/convex-site`;
   const credentials = "/data/credentials";
@@ -145,6 +146,9 @@ async function main() {
   env.CANON_SERVICE_JWT_KID = "canon-selfhost-1";
   const jwk = createPublicKey(env.CANON_SERVICE_JWT_PRIVATE_KEY).export({ format: "jwk" });
   env.CANON_SERVICE_JWKS = `data:application/json;base64,${Buffer.from(JSON.stringify({ keys: [{ ...jwk, kid: env.CANON_SERVICE_JWT_KID, alg: "RS256", use: "sig" }] })).toString("base64")}`;
+  // Only Next reads the setup code, so it is not in the env the backend and record service get.
+  const setupCode = process.env.CANON_SETUP_CODE?.trim() || await persisted(SETUP_CODE_FILE, newSetupCode);
+  delete env.CANON_SETUP_CODE;
   env.CLERK_JWT_ISSUER_DOMAIN ||= "https://unconfigured.invalid";
   env.RECORD_SERVICE_URL = RECORDS;
   // The backend's scratch directory (run_backend.sh puts it in the volume) holds one unpacked
@@ -194,10 +198,18 @@ async function main() {
     await cli(["run", "devSeed:ensureWorkspace"]);
     await cli(["run", "devSeed:provisionRecords"]);
   }
-  daemon("Next", process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", port], env);
+  // Next fetches the URLs Convex hands back (storage, upload routes), which carry the browser's address; these map them back inside.
+  daemon("Next", process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", port],
+    { ...env, CANON_SETUP_CODE: setupCode, CANON_INTERNAL_CONVEX_URL: BACKEND, CANON_INTERNAL_CONVEX_SITE_URL: BACKEND_SITE });
   await waitFor(`http://127.0.0.1:${port}/api/public/version`);
   await writeFile("/tmp/canoncrm-ready", "ready\n");
-  console.log("CanonCRM ready. Recipe runtime is off unless RECIPE_RUNTIME_URL and RECIPE_RUNTIME_SECRET are configured.");
+  console.log(`CanonCRM ready at ${site}. Recipe runtime is off unless RECIPE_RUNTIME_URL and RECIPE_RUNTIME_SECRET are configured.`);
+  const pending = await start("Convex CLI", process.execPath, ["node_modules/convex/bin/main.js", "run", "localAuth:setupPending", "--env-file", cliEnvFile], env, "/app", true)
+    .done.then((out) => out.trim() === "true", () => false);
+  if (pending && env.CANON_AUTH === "local") {
+    const code = process.env.CANON_SETUP_CODE?.trim() ? "the CANON_SETUP_CODE value in this install's settings" : setupCode;
+    console.log(`\nNo owner yet. Open ${site}/sign-in and enter setup code: ${code}\nThe first person to enter it owns this install. Back up after setup: see docs/updating.md.\n`);
+  }
 }
 
 main().catch((error) => { console.error(error.message); void stop(1); });
