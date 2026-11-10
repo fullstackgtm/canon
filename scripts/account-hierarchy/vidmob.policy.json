@@ -1,0 +1,30 @@
+{
+  "rules": {
+    "neverChangeAccountOwners": true,
+    "neverChangeDealOwners": true,
+    "flagActiveContracts": true,
+    "holdMergeOfTwoActiveContracts": true
+  },
+  "fillableFields": ["domain", "Sales_Region__c", "BillingCountry", "industry"],
+  "activeContract": { "endDateField": "Contract_End_Date_reporting__c" },
+  "customerStatus": { "field": "Customer_Status__c", "rank": ["Existing", "Sponsored Customer", "Churned"] },
+  "ultimateParentField": "Ultimate_Parent_Company_Name__c",
+  "region": {
+    "countryField": "BillingCountry",
+    "regionField": "Sales_Region__c",
+    "byCountry": {
+      "United States": "NA", "USA": "NA", "US": "NA", "Canada": "NA",
+      "France": "EMEA", "Germany": "EMEA", "Italy": "EMEA", "United Kingdom": "EMEA", "UK": "EMEA", "Spain": "EMEA",
+      "Netherlands": "EMEA", "Switzerland": "EMEA", "Belgium": "EMEA", "Sweden": "EMEA", "Denmark": "EMEA",
+      "Norway": "EMEA", "Finland": "EMEA", "Ireland": "EMEA", "Austria": "EMEA", "Portugal": "EMEA", "Poland": "EMEA",
+      "United Arab Emirates": "EMEA", "Saudi Arabia": "EMEA", "Israel": "EMEA", "South Africa": "EMEA", "Turkey": "EMEA",
+      "Singapore": "APAC", "Australia": "APAC", "Japan": "APAC", "China": "APAC", "Hong Kong": "APAC", "India": "APAC",
+      "South Korea": "APAC", "Korea": "APAC", "Philippines": "APAC", "Indonesia": "APAC", "Malaysia": "APAC",
+      "Thailand": "APAC", "New Zealand": "APAC", "Vietnam": "APAC", "Taiwan": "APAC",
+      "Brazil": "LATAM", "Mexico": "LATAM", "Argentina": "LATAM", "Colombia": "LATAM", "Chile": "LATAM", "Peru": "LATAM"
+    }
+  },
+  "shellBatches": [{ "createdDate": "2026-07-14", "createdByName": "Earl Major" }],
+  "ignoredDomains": ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com", "aol.com", "vidmob.com"],
+  "poolOwnerNames": ["VidMob Pool"]
+}

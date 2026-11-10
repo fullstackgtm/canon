@@ -1,0 +1,6 @@
+{
+  "name": "canon-org-worker",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FlueResearchAgent"] }]
+}

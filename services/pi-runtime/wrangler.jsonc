@@ -1,0 +1,17 @@
+{
+  "name": "canoncrm-pi-runtime",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": { "bindings": [{ "name": "RUNS", "class_name": "PiRun" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiRun"] }],
+  "observability": { "enabled": false },
+  "vars": { "CANON_CONVEX_SITE": "" },
+  "env": {
+    "dev": {
+      "name": "canoncrm-pi-runtime-dev",
+      "vars": { "CANON_CONVEX_SITE": "" },
+      "durable_objects": { "bindings": [{ "name": "RUNS", "class_name": "PiRun" }] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PiRun"] }]
+    }
+  }
+}

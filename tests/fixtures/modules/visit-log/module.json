@@ -1,0 +1,673 @@
+{
+  "kind": "module",
+  "id": "@canon-fixtures/visit-log",
+  "version": "1.5.0",
+  "title": "Visit log",
+  "description": "A test module: reps log customer visits and notes on them, and move each visit from planned to done to archived. Reps see their own visits, managers their team's. Server calls summarize a rep's visits and digest the visits done between two dates. A job keeps a monthly tally of each rep's won deals current from Canon's deal feed, and a month closes only once its tallies are.",
+  "author": { "org": "canon-fixtures" },
+  "engines": { "moduleApi": "1" },
+  "nav": { "label": "Visits", "icon": "map", "section": "Work", "landing": "visits" },
+  "collections": {
+    "visits": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "title": { "fieldType": { "type": "string" }, "optional": false },
+          "rep": { "fieldType": { "type": "ref", "to": "users" }, "optional": false },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                { "type": "literal", "value": "planned" },
+                { "type": "literal", "value": "done" },
+                { "type": "literal", "value": "archived" }
+              ],
+              "labels": { "planned": "Planned", "done": "Done", "archived": "Archived" }
+            },
+            "optional": false
+          },
+          "amount": { "fieldType": { "type": "number" }, "optional": true },
+          "visitOn": { "fieldType": { "type": "string" }, "optional": true },
+          "completedBy": { "fieldType": { "type": "ref", "to": "users" }, "optional": true },
+          "archiveReason": { "fieldType": { "type": "string" }, "optional": true },
+          "loggedOn": { "fieldType": { "type": "string" }, "optional": true },
+          "followUpBy": { "fieldType": { "type": "string" }, "optional": true },
+          "reopenCount": { "fieldType": { "type": "number" }, "optional": true },
+          "repVisits": { "fieldType": { "type": "number" }, "optional": true },
+          "copiedFrom": { "fieldType": { "type": "string" }, "optional": true },
+          "expiresOn": { "fieldType": { "type": "string" }, "optional": true }
+        }
+      },
+      "key": "auto",
+      "owner": "rep",
+      "indexes": { "byRep": ["rep", "status"], "byStatus": ["status", "visitOn"], "byExpiry": ["status", "expiresOn"] },
+      "access": { "manager": "team", "rep": "own" }
+    },
+    "notes": {
+      "schema": { "type": "object", "value": { "body": { "fieldType": { "type": "string" }, "optional": false } } },
+      "key": "auto",
+      "indexes": {},
+      "access": {},
+      "setOf": { "parent": "visits" }
+    },
+    "summaries": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "rep": { "fieldType": { "type": "ref", "to": "users" }, "optional": false },
+          "visits": { "fieldType": { "type": "number" }, "optional": false },
+          "done": { "fieldType": { "type": "number" }, "optional": false },
+          "amount": { "fieldType": { "type": "number" }, "optional": false },
+          "asOf": { "fieldType": { "type": "string" }, "optional": false }
+        }
+      },
+      "key": { "from": ["rep"] },
+      "owner": "rep",
+      "indexes": {},
+      "access": { "manager": "team", "rep": "own" }
+    },
+    "summaryLines": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                { "type": "literal", "value": "planned" },
+                { "type": "literal", "value": "done" },
+                { "type": "literal", "value": "archived" }
+              ],
+              "labels": { "planned": "Planned", "done": "Done", "archived": "Archived" }
+            },
+            "optional": false
+          },
+          "count": { "fieldType": { "type": "number" }, "optional": false }
+        }
+      },
+      "key": "auto",
+      "indexes": {},
+      "access": {},
+      "setOf": { "parent": "summaries" }
+    },
+    "months": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "month": { "fieldType": { "type": "string" }, "optional": false },
+          "start": { "fieldType": { "type": "string" }, "optional": false },
+          "end": { "fieldType": { "type": "string" }, "optional": false },
+          "prev": { "fieldType": { "type": "string" }, "optional": true },
+          "hold": { "fieldType": { "type": "boolean" }, "optional": true },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                { "type": "literal", "value": "open" },
+                { "type": "literal", "value": "closing" },
+                { "type": "literal", "value": "closed" }
+              ],
+              "labels": { "open": "Open", "closing": "Closing", "closed": "Closed" }
+            },
+            "optional": false
+          }
+        }
+      },
+      "key": { "from": ["month"] },
+      "indexes": {},
+      "access": { "manager": "all", "rep": "all" }
+    },
+    "tallies": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "month": { "fieldType": { "type": "string" }, "optional": false },
+          "rep": { "fieldType": { "type": "string" }, "optional": false },
+          "won": { "fieldType": { "type": "number" }, "optional": false },
+          "amount": { "fieldType": { "type": "number" }, "optional": false },
+          "ytd": { "fieldType": { "type": "number" }, "optional": false },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [{ "type": "literal", "value": "open" }, { "type": "literal", "value": "locked" }],
+              "labels": { "open": "Open", "locked": "Locked" }
+            },
+            "optional": false
+          }
+        }
+      },
+      "key": { "from": ["month", "rep"] },
+      "indexes": { "byMonth": ["month", "status", "rep"] },
+      "access": { "manager": "all", "rep": "all" }
+    }
+  },
+  "views": {
+    "visits.all": { "kind": "list", "collection": "visits", "order": "desc", "limit": 100 },
+    "visits.mine": { "kind": "list", "collection": "visits", "index": "byRep", "eq": [{ "caller": "userId" }] },
+    "visits.one": { "kind": "one", "collection": "visits", "args": { "key": "string" }, "key": { "arg": "key" } },
+    "visits.byStatus": {
+      "kind": "list",
+      "collection": "visits",
+      "args": { "status": "string" },
+      "index": "byStatus",
+      "eq": [{ "arg": "status" }]
+    },
+    "notes.forVisit": { "kind": "list", "collection": "notes", "args": { "visit": "string" }, "parent": { "arg": "visit" } },
+    "summaries.one": { "kind": "one", "collection": "summaries", "args": { "rep": "string" }, "key": { "arg": "rep" } },
+    "summaryLines.forSummary": { "kind": "list", "collection": "summaryLines", "args": { "rep": "string" }, "parent": { "arg": "rep" } },
+    "visits.doneBetween": {
+      "kind": "list",
+      "collection": "visits",
+      "args": { "from": "string", "to": "string" },
+      "index": "byStatus",
+      "eq": ["done"],
+      "range": { "gte": { "arg": "from" }, "lte": { "arg": "to" } },
+      "limit": 200
+    },
+    "visits.forReps": {
+      "kind": "list",
+      "collection": "visits",
+      "args": { "reps": "string[]" },
+      "index": "byRep",
+      "eq": [{ "arg": "reps" }],
+      "limit": 200
+    },
+    "notes.forVisits": {
+      "kind": "list",
+      "collection": "notes",
+      "args": { "visits": "string[]" },
+      "parent": { "arg": "visits" },
+      "limit": 200
+    },
+    "months.all": { "kind": "list", "collection": "months", "order": "desc", "limit": 50 },
+    "months.one": { "kind": "one", "collection": "months", "args": { "key": "string" }, "key": { "arg": "key" } },
+    "tallies.forMonth": {
+      "kind": "list",
+      "collection": "tallies",
+      "args": { "month": "string" },
+      "index": "byMonth",
+      "eq": [{ "arg": "month" }],
+      "limit": 200
+    },
+    "tallies.openInMonth": {
+      "kind": "list",
+      "collection": "tallies",
+      "args": { "month": "string" },
+      "index": "byMonth",
+      "eq": [{ "arg": "month" }, "open"],
+      "limit": 200
+    }
+  },
+  "ops": {
+    "visits.create": {
+      "label": "New visit",
+      "kind": "create",
+      "collection": "visits",
+      "fields": ["title", "rep", "amount", "visitOn", "expiresOn"],
+      "set": { "loggedOn": { "now": "date" } },
+      "roles": ["admin", "manager", "rep"],
+      "agent": "allowed"
+    },
+    "visits.update": {
+      "label": "Save visit",
+      "kind": "update",
+      "collection": "visits",
+      "fields": ["title", "rep", "amount", "visitOn", "expiresOn"],
+      "roles": ["admin", "manager", "rep"],
+      "agent": "allowed",
+      "guards": [{ "when": { "field": "status", "in": ["planned", "done"] }, "message": "An archived visit is read only." }]
+    },
+    "visits.delete": {
+      "label": "Delete visit",
+      "kind": "delete",
+      "collection": "visits",
+      "roles": ["admin"],
+      "agent": "human",
+      "reason": "deleting a visit deletes its notes too"
+    },
+    "notes.create": {
+      "label": "Add note",
+      "kind": "create",
+      "collection": "notes",
+      "fields": ["body"],
+      "roles": ["admin", "manager", "rep"],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": { "ref": { "collection": "visits", "key": { "doc": "parentKey" } }, "where": { "field": "status", "ne": "archived" } },
+          "message": "An archived visit takes no more notes."
+        }
+      ]
+    },
+    "months.create": {
+      "label": "New month",
+      "kind": "create",
+      "collection": "months",
+      "fields": ["month", "start", "end", "prev"],
+      "roles": ["admin"],
+      "agent": "allowed",
+      "dirties": [{ "job": "tally", "key": [{ "doc": "month" }, "*"] }]
+    },
+    "months.update": {
+      "label": "Save month",
+      "kind": "update",
+      "collection": "months",
+      "fields": ["hold"],
+      "roles": ["admin"],
+      "agent": "allowed"
+    }
+  },
+  "reads": { "users": ["name", "managerId", "title", "isActive"], "deals": ["amount", "closeDate", "isWon", "ownerId"] },
+  "server": "dist/module.js",
+  "calls": {
+    "summarize": {
+      "label": "Summarize my visits",
+      "roles": ["admin", "manager", "rep"],
+      "agent": "allowed",
+      "reads": {
+        "mine": { "view": "visits.mine", "limit": 1000 },
+        "current": { "view": "summaries.one", "args": { "rep": { "caller": "userId" } } }
+      },
+      "writes": ["summaries", "summaryLines"],
+      "returns": "value"
+    },
+    "digest": {
+      "label": "Digest visits done between two dates",
+      "args": {
+        "type": "object",
+        "value": {
+          "from": { "fieldType": { "type": "string" }, "optional": false },
+          "to": { "fieldType": { "type": "string" }, "optional": false }
+        }
+      },
+      "roles": ["admin", "manager"],
+      "agent": "allowed",
+      "reads": {
+        "done": { "view": "visits.doneBetween", "args": { "from": { "arg": "from" }, "to": { "arg": "to" } }, "limit": 500 },
+        "repVisits": { "view": "visits.forReps", "args": { "reps": { "read": "done", "field": "rep" } }, "limit": 2000 },
+        "notes": { "view": "notes.forVisits", "args": { "visits": { "read": "done" } }, "limit": 2000 },
+        "people": { "canon": "users.withInactive" }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "notesFor": {
+      "label": "Count the notes on visits",
+      "args": {
+        "type": "object",
+        "value": { "visits": { "fieldType": { "type": "array", "value": { "type": "string" } }, "optional": false } }
+      },
+      "roles": ["admin", "manager", "rep"],
+      "agent": "allowed",
+      "reads": { "notes": { "view": "notes.forVisits", "args": { "visits": { "arg": "visits" } }, "limit": 2000 } },
+      "writes": [],
+      "returns": "value"
+    },
+    "recount": {
+      "label": "Count a month's won deals per rep",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "month": { "view": "months.one", "args": { "key": { "arg": "month" } } },
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": { "from": { "read": "month", "field": "start" }, "to": { "read": "month", "field": "end" } },
+          "limit": 5000
+        },
+        "current": { "view": "tallies.forMonth", "args": { "month": { "arg": "month" } }, "limit": 5000 },
+        "prior": { "view": "tallies.forMonth", "args": { "month": { "read": "month", "field": "prev" } }, "limit": 5000 }
+      },
+      "writes": ["tallies"],
+      "returns": "none"
+    },
+    "onDeals": {
+      "label": "Mark the tallies a deal change touches",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {},
+      "writes": [],
+      "returns": "none"
+    },
+    "ensureMonths": {
+      "label": "Open this month and the next",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": { "months": { "view": "months.all", "limit": 1000 } },
+      "writes": ["months"],
+      "returns": "none"
+    },
+    "dirtyMany": {
+      "label": "Mark many tallies (load test)",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "month": { "fieldType": { "type": "string" }, "optional": false },
+          "count": { "fieldType": { "type": "number" }, "optional": false }
+        }
+      },
+      "reads": {},
+      "writes": [],
+      "returns": "value"
+    }
+  },
+  "pages": [
+    {
+      "path": "visits",
+      "title": "Visits",
+      "tab": { "label": "All visits", "order": 0 },
+      "bind": { "visits": { "view": "visits.all" } },
+      "body": [
+        {
+          "c": "header",
+          "title": "Visits",
+          "subtitle": "Every visit you can see, newest first.",
+          "actions": [{ "op": "visits.create", "label": "New visit", "then": "visits/:key" }]
+        },
+        {
+          "c": "table",
+          "from": "visits",
+          "rowLink": "visits/:key",
+          "empty": "No visits yet.",
+          "columns": [
+            { "label": "Visit", "value": "{$row.title}" },
+            { "label": "Rep", "value": "{$row.rep|user}" },
+            { "label": "Status", "value": "{$row.status}" },
+            { "label": "Date", "value": "{$row.visitOn|date}" },
+            { "label": "Amount", "value": "{$row.amount|money}", "align": "end" }
+          ],
+          "rowActions": [{ "transition": "complete", "machine": "visit" }, { "op": "visits.delete", "label": "Delete" }]
+        }
+      ]
+    },
+    {
+      "path": "mine",
+      "title": "My visits",
+      "tab": { "label": "Mine", "order": 1 },
+      "bind": { "mine": { "view": "visits.mine" }, "lines": { "view": "summaryLines.forSummary", "args": { "rep": { "caller": "userId" } } } },
+      "body": [
+        { "c": "header", "title": "My visits", "actions": [{ "call": "summarize", "label": "Summarize" }] },
+        {
+          "c": "table",
+          "from": "mine",
+          "rowLink": "visits/:key",
+          "empty": "You have no visits.",
+          "columns": [{ "label": "Visit", "value": "{$row.title}" }, { "label": "Status", "value": "{$row.status}" }]
+        },
+        {
+          "c": "table",
+          "from": "lines",
+          "empty": "Summarize to count your visits by status.",
+          "columns": [{ "label": "Status", "value": "{$row.status}" }, { "label": "Visits", "value": "{$row.count}", "align": "end" }]
+        },
+        {
+          "c": "empty",
+          "text": "Log each customer visit here so your manager sees it.",
+          "action": { "op": "visits.create", "label": "Log a visit" },
+          "roles": ["rep"]
+        }
+      ]
+    },
+    {
+      "path": "visits/:key",
+      "title": "{$visit.title}",
+      "bind": {
+        "visit": { "view": "visits.one", "args": { "key": { "route": "key" } } },
+        "notes": { "view": "notes.forVisit", "args": { "visit": { "route": "key" } } }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$visit.title}",
+          "subtitle": "{$visit.rep|user} · {$visit.status}",
+          "actions": [{ "navigate": "visits", "label": "All visits" }]
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "This visit is archived: {$visit.archiveReason}",
+          "when": { "bind": "visit", "field": "status", "in": ["archived"] }
+        },
+        { "c": "statusSteps", "from": "visit", "machine": "visit" },
+        { "c": "actions", "machine": "visit", "target": "visit" },
+        {
+          "c": "tabs",
+          "tabs": [
+            {
+              "label": "Details",
+              "body": [
+                {
+                  "c": "form",
+                  "op": "visits.update",
+                  "from": "visit",
+                  "when": { "bind": "visit", "field": "status", "in": ["planned", "done"] },
+                  "fields": [
+                    { "field": "title", "label": "Visit" },
+                    { "field": "visitOn", "label": "Date", "widget": "date" },
+                    { "field": "amount", "label": "Amount", "widget": "money" },
+                    { "field": "rep", "label": "Rep" }
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Notes",
+              "body": [
+                { "c": "actions", "items": [{ "op": "notes.create", "label": "Add note", "parent": { "route": "key" } }] },
+                { "c": "table", "from": "notes", "empty": "No notes yet.", "columns": [{ "label": "Note", "value": "{$row.body}" }] }
+              ]
+            },
+            { "label": "History", "body": [{ "c": "timeline", "of": "visit" }] }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tallies",
+      "title": "Tallies",
+      "tab": { "label": "Tallies", "order": 3 },
+      "bind": { "months": { "view": "months.all" } },
+      "body": [
+        {
+          "c": "header",
+          "title": "Monthly tallies",
+          "subtitle": "Each rep's won deals per month, kept current from your deals.",
+          "actions": [{ "op": "months.create", "label": "New month", "then": "tallies/:key" }]
+        },
+        {
+          "c": "table",
+          "from": "months",
+          "rowLink": "tallies/:key",
+          "empty": "No months yet.",
+          "columns": [
+            { "label": "Month", "value": "{$row.month}" },
+            { "label": "From", "value": "{$row.start|date}" },
+            { "label": "To", "value": "{$row.end|date}" },
+            { "label": "Status", "value": "{$row.status}" }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tallies/:key",
+      "title": "{$month.month}",
+      "bind": {
+        "month": { "view": "months.one", "args": { "key": { "route": "key" } } },
+        "tallies": { "view": "tallies.forMonth", "args": { "month": { "route": "key" } } }
+      },
+      "body": [
+        { "c": "header", "title": "Tallies for {$month.month}", "subtitle": "{$month.start|date} to {$month.end|date}" },
+        { "c": "statusSteps", "from": "month", "machine": "month" },
+        { "c": "actions", "machine": "month", "target": "month" },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "Locking this month's tallies.",
+          "when": { "bind": "month", "field": "status", "in": ["closing"] }
+        },
+        {
+          "c": "table",
+          "from": "tallies",
+          "empty": "No tallies yet.",
+          "columns": [
+            { "label": "Rep", "value": "{$row.rep|user}" },
+            { "label": "Won", "value": "{$row.won|number}", "align": "end" },
+            { "label": "Amount", "value": "{$row.amount|money}", "align": "end" },
+            { "label": "Year to date", "value": "{$row.ytd|money}", "align": "end" },
+            { "label": "Status", "value": "{$row.status}" }
+          ]
+        },
+        { "c": "timeline", "of": "month" }
+      ]
+    }
+  ],
+  "machines": {
+    "visit": {
+      "collection": "visits",
+      "field": "status",
+      "states": ["planned", "done", "archived"],
+      "initial": "planned",
+      "transitions": {
+        "complete": {
+          "label": "Mark done",
+          "from": ["planned"],
+          "to": "done",
+          "roles": ["admin", "manager", "rep"],
+          "agent": "allowed",
+          "guards": [{ "when": { "not": { "field": "visitOn", "in": [null] } }, "message": "Set the visit's date before marking it done." }],
+          "set": {
+            "completedBy": { "caller": "userId" },
+            "followUpBy": { "nowPlusDays": 7, "as": "date" },
+            "repVisits": { "lookup": { "view": "summaries.one", "args": { "rep": { "doc": "rep" } } }, "field": "visits" }
+          },
+          "effects": [
+            {
+              "when": { "field": "amount", "gte": 50000 },
+              "create": "notes",
+              "parent": { "doc": "key" },
+              "data": { "body": { "copy": "title" } }
+            }
+          ]
+        },
+        "reopen": {
+          "label": "Reopen",
+          "from": ["done"],
+          "to": "planned",
+          "roles": ["admin", "manager"],
+          "agent": "human",
+          "reason": "reopening a visit changes what its rep reported",
+          "set": { "reopenCount": { "increment": "reopenCount" } }
+        },
+        "unarchive": {
+          "label": "Unarchive",
+          "from": ["archived"],
+          "to": { "cases": [{ "when": { "truthy": { "doc": "completedBy" } }, "to": "done" }], "else": "planned" },
+          "roles": ["admin", "manager"],
+          "agent": "allowed"
+        },
+        "duplicate": {
+          "label": "Duplicate",
+          "from": ["planned", "done", "archived"],
+          "roles": ["admin", "manager", "rep"],
+          "agent": "allowed",
+          "effects": [
+            {
+              "copy": "visits",
+              "key": { "doc": "key" },
+              "set": { "copiedFrom": { "doc": "key" }, "loggedOn": { "now": "date" } },
+              "children": ["notes"],
+              "as": "copy"
+            },
+            { "create": "notes", "parent": { "created": "copy" }, "data": { "body": "Duplicated from an earlier visit." } }
+          ]
+        },
+        "expire": {
+          "label": "Expire",
+          "from": ["planned"],
+          "to": "archived",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "set": { "archiveReason": "Expired: never visited" },
+          "at": "expiresOn"
+        },
+        "archive": {
+          "label": "Archive",
+          "from": ["done"],
+          "to": "archived",
+          "roles": ["admin", "manager"],
+          "agent": "propose",
+          "confirm": "Archived visits are read only.",
+          "args": { "type": "object", "value": { "reason": { "fieldType": { "type": "string" }, "optional": false } } },
+          "guards": [
+            {
+              "when": { "count": { "view": "notes.forVisit", "args": { "visit": { "doc": "key" } } }, "atLeast": 1 },
+              "message": "Add a note before archiving a visit."
+            }
+          ],
+          "set": { "archiveReason": { "arg": "reason" } },
+          "effects": [{ "create": "notes", "parent": { "doc": "key" }, "data": { "body": { "arg": "reason" } } }]
+        }
+      }
+    },
+    "month": {
+      "collection": "months",
+      "field": "status",
+      "states": ["open", "closing", "closed"],
+      "initial": "open",
+      "transitions": {
+        "close": {
+          "label": "Close month",
+          "from": ["open"],
+          "to": "closing",
+          "roles": ["admin"],
+          "agent": "human",
+          "reason": "closing a month locks its tallies",
+          "confirm": "Closing a month locks every tally in it.",
+          "guards": [
+            {
+              "when": { "fresh": { "job": "tally", "keyPrefix": [{ "doc": "month" }] } },
+              "message": "This month's tallies are still being counted. Try again in a moment."
+            }
+          ],
+          "effects": [
+            {
+              "machine": "tally",
+              "transition": "lock",
+              "view": "tallies.openInMonth",
+              "args": { "month": { "doc": "month" } },
+              "onlyFrom": ["open"],
+              "bulk": { "then": "finishClose" }
+            }
+          ]
+        },
+        "finishClose": { "label": "Finish closing", "from": ["closing"], "to": "closed", "roles": [], "system": true, "agent": "allowed" }
+      }
+    },
+    "tally": {
+      "collection": "tallies",
+      "field": "status",
+      "states": ["open", "locked"],
+      "initial": "open",
+      "transitions": { "lock": { "label": "Lock", "from": ["open"], "to": "locked", "roles": [], "agent": "allowed" } }
+    }
+  },
+  "jobs": {
+    "tally": {
+      "label": "Monthly won-deal tally",
+      "call": "recount",
+      "key": ["month", "rep"],
+      "batchBy": 1,
+      "order": "month",
+      "batch": 100,
+      "attempts": 4
+    }
+  },
+  "watches": [{ "object": "deals", "call": "onDeals", "fields": ["amount", "closeDate", "isWon", "ownerId"] }],
+  "schedules": { "months": { "label": "Open months", "call": "ensureMonths", "everyMinutes": 60 } }
+}

@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+.git
+.gitignore
+*.md
+docker-compose.yml
+*.tsbuildinfo
+.env*
+# local dev stack state (sandbox env, moved-aside .env.local, keys)
+.devstack
+.convex

@@ -1,0 +1,803 @@
+import { normalizeDomain } from "./merge.ts";
+import { accountsShareKnownFamily } from "./accountFamily.ts";
+import type {
+  AuditFinding,
+  CanonicalActivity,
+  CanonicalContact,
+  CanonicalDeal,
+  CanonicalGtmSnapshot,
+  GtmAuditRule,
+  GtmPolicy,
+  GtmSnapshotIndex,
+  PatchPlanAssumption,
+  RiskLevel,
+} from "./types.ts";
+
+/**
+ * Placeholder used as `afterValue` when the right value is a human decision
+ * (e.g. which owner to assign). Apply orchestration refuses to write these
+ * unless an explicit override value is supplied at approval time.
+ */
+export const REQUIRES_HUMAN_PREFIX = "requires_human_";
+
+export function requiresHumanInput(value: unknown): boolean {
+  return typeof value === "string" && value.startsWith(REQUIRES_HUMAN_PREFIX);
+}
+
+/**
+ * Attribution for duplicate groups: when the provider exposes record-source
+ * provenance (RecordProvenance), name the writer(s) that created the group —
+ * the fix for recurring dupes is upstream in the writer, not in the records.
+ */
+export function provenanceSummary(records: Array<{ provenance?: { source?: string; sourceLabel?: string; sourceId?: string } }>): string {
+  const counts = new Map<string, number>();
+  for (const record of records) {
+    const p = record.provenance;
+    if (!p) continue;
+    const label = p.sourceLabel ?? p.source ?? "unknown source";
+    const key = p.sourceId ? `${label} (${p.sourceId})` : label;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  if (counts.size === 0) return "";
+  const parts = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, count]) => (count > 1 ? `${key} ×${count}` : key));
+  return ` Created by: ${parts.join(", ")}.`;
+}
+
+export function auditFindingId(ruleId: string, objectId: string) {
+  return `finding_${stableHash(`${ruleId}:${objectId}`)}`;
+}
+
+export function patchOperationId(ruleId: string, objectId: string) {
+  return `op_${stableHash(`${ruleId}:${objectId}`)}`;
+}
+
+
+const OPEN_DEAL_FLAGS_ASSUMPTION: PatchPlanAssumption = {
+  id: "open-deal-derived-from-closed-won-flags",
+  text: "Derived open-deal status from canonical isClosed/isWon flags; a deal is open when neither flag is true.",
+  source: "CanonicalDeal.isClosed/isWon",
+  confidence: "derived",
+};
+
+const MISSING_CLOSED_WON_FLAGS_ASSUMPTION: PatchPlanAssumption = {
+  id: "missing-closed-won-flags-treated-open",
+  text: "Treated deals with missing isClosed/isWon flags as open so hygiene rules do not silently ignore active pipeline.",
+  source: "CanonicalDeal.isClosed/isWon",
+  confidence: "heuristic",
+};
+
+const ORPHAN_ACCOUNT_RELATIONSHIP_ASSUMPTION: PatchPlanAssumption = {
+  id: "account-without-contacts-or-deals-treated-orphan",
+  text: "Treated an account as orphaned when the snapshot has no contacts and no deals linked to that account.",
+  source: "snapshot account/contact/deal associations",
+  confidence: "derived",
+};
+
+const DEAL_OWNER_POLICY_ASSUMPTION: PatchPlanAssumption = {
+  id: "deal-owner-required-by-policy",
+  text: "Treated a missing or unknown deal owner as invalid when requireDealOwner policy is enabled.",
+  source: "GtmPolicy.requireDealOwner",
+  confidence: "heuristic",
+};
+
+const DEAL_ACCOUNT_POLICY_ASSUMPTION: PatchPlanAssumption = {
+  id: "deal-account-required-by-policy",
+  text: "Treated a missing or unknown deal account link as invalid when requireAccountForDeal policy is enabled.",
+  source: "GtmPolicy.requireAccountForDeal",
+  confidence: "heuristic",
+};
+
+const DEAL_AMOUNT_POLICY_ASSUMPTION: PatchPlanAssumption = {
+  id: "open-deal-amount-required-by-policy",
+  text: "Treated open deals with missing or zero amount as forecast-risk findings unless requireDealAmount is disabled.",
+  source: "GtmPolicy.requireDealAmount",
+  confidence: "heuristic",
+};
+
+const DUPLICATE_ACCOUNT_DOMAIN_ASSUMPTION: PatchPlanAssumption = {
+  id: "same-normalized-domain-duplicate-account",
+  text: "Treated accounts with the same normalized domain as duplicate-account candidates.",
+  source: "CanonicalAccount.domain",
+  confidence: "heuristic",
+};
+
+const DUPLICATE_CONTACT_EMAIL_ASSUMPTION: PatchPlanAssumption = {
+  id: "same-email-duplicate-contact",
+  text: "Treated contacts with the same lowercased email address as duplicate-contact candidates.",
+  source: "CanonicalContact.email",
+  confidence: "heuristic",
+};
+
+const DUPLICATE_OPEN_DEAL_ASSUMPTION: PatchPlanAssumption = {
+  id: "same-account-and-name-duplicate-open-deal",
+  text: "Treated open deals with the same normalized name on the same account scope as duplicate-opportunity candidates.",
+  source: "CanonicalDeal.accountId/name",
+  confidence: "heuristic",
+};
+
+const ACCOUNT_WITH_OPEN_DEAL_NEEDS_CONTACT_ASSUMPTION: PatchPlanAssumption = {
+  id: "open-pipeline-account-needs-contact",
+  text: "Treated accounts with open pipeline but no linked contacts as coverage gaps requiring a buying-committee contact.",
+  source: "snapshot account/contact/deal associations",
+  confidence: "heuristic",
+};
+
+const SINGLE_SOURCE_ACCOUNT_ASSUMPTION: PatchPlanAssumption = {
+  id: "single-source-account-is-cross-system-gap",
+  text: "Treated an account present in only one connected system as a cross-system reconciliation gap.",
+  source: "ProviderIdentity.provider",
+  confidence: "heuristic",
+};
+
+function staleDealPolicyAssumption(days: number): PatchPlanAssumption {
+  return {
+    id: "stale-deal-days-policy",
+    text: `Treated open deals with no recorded activity for more than ${days} days as stale.`,
+    source: "GtmPolicy.staleDealDays",
+    confidence: "heuristic",
+  };
+}
+
+function closingSoonPolicyAssumption(windowDays: number, idleDays: number): PatchPlanAssumption {
+  return {
+    id: "closing-soon-idle-policy",
+    text: `Treated open deals closing within ${windowDays} days and idle for more than ${idleDays} days as silent slip risk.`,
+    source: "GtmPolicy.closingSoonDays/closingSoonIdleDays",
+    confidence: "heuristic",
+  };
+}
+
+function assumptionsIfFindings(
+  findings: AuditFinding[],
+  assumptions: PatchPlanAssumption[],
+): PatchPlanAssumption[] | undefined {
+  return findings.length > 0 ? assumptions : undefined;
+}
+
+export function stableHash(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+export function buildSnapshotIndex(snapshot: CanonicalGtmSnapshot): GtmSnapshotIndex {
+  const contactsByAccountId = new Map<string, CanonicalContact[]>();
+  const dealsByAccountId = new Map<string, CanonicalDeal[]>();
+  const activitiesByDealId = new Map<string, CanonicalActivity[]>();
+
+  for (const contact of snapshot.contacts) {
+    if (!contact.accountId) continue;
+    const existing = contactsByAccountId.get(contact.accountId) ?? [];
+    existing.push(contact);
+    contactsByAccountId.set(contact.accountId, existing);
+  }
+  for (const deal of snapshot.deals) {
+    if (!deal.accountId) continue;
+    const existing = dealsByAccountId.get(deal.accountId) ?? [];
+    existing.push(deal);
+    dealsByAccountId.set(deal.accountId, existing);
+  }
+  for (const activity of snapshot.activities) {
+    if (!activity.dealId) continue;
+    const existing = activitiesByDealId.get(activity.dealId) ?? [];
+    existing.push(activity);
+    activitiesByDealId.set(activity.dealId, existing);
+  }
+
+  return {
+    usersById: new Map(snapshot.users.map((user) => [user.id, user])),
+    accountsById: new Map(snapshot.accounts.map((account) => [account.id, account])),
+    contactsByAccountId,
+    dealsByAccountId,
+    activitiesByDealId,
+  };
+}
+
+function isOpen(deal: CanonicalDeal) {
+  return deal.isClosed !== true && deal.isWon !== true;
+}
+
+function dealFinding(deal: CanonicalDeal, ruleId: string, title: string): AuditFinding {
+  return {
+    id: auditFindingId(ruleId, deal.id),
+    objectType: "deal",
+    objectId: deal.id,
+    ruleId,
+    title,
+    severity: "warning",
+    summary: `${deal.name} violates ${ruleId.replace(/-/g, " ")} policy.`,
+    recommendation: "Review the proposed patch operation and approve an explicit CRM update.",
+  };
+}
+
+function staleDays(deal: CanonicalDeal, today: string) {
+  const reference = deal.lastActivityAt ?? deal.lastSyncAt ?? deal.closeDate;
+  if (!reference) return 0;
+  return Math.max(0, daysBetween(reference, today));
+}
+
+function daysBetween(start: string, end: string) {
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 0;
+  return Math.floor((endMs - startMs) / 86_400_000);
+}
+
+function compareDate(left: string, right: string) {
+  return Date.parse(left) - Date.parse(right);
+}
+
+function riskForStaleness(days: number, policy: GtmPolicy): RiskLevel {
+  if (days >= (policy.staleHighDays ?? 90)) return "high";
+  if (days >= (policy.staleMediumDays ?? 45)) return "medium";
+  return "low";
+}
+
+export const orphanAccountRule: GtmAuditRule = {
+  id: "orphan-account",
+  title: "Account has no contacts or deals",
+  description:
+    "Flags accounts not connected to any contact or opportunity so someone owns the next action.",
+  category: "hygiene",
+  evaluate: ({ snapshot, index }) => {
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const account of snapshot.accounts) {
+      const contacts = index.contactsByAccountId.get(account.id) ?? [];
+      const deals = index.dealsByAccountId.get(account.id) ?? [];
+      if (contacts.length > 0 || deals.length > 0) continue;
+      findings.push({
+        id: auditFindingId("orphan-account", account.id),
+        objectType: "account",
+        objectId: account.id,
+        ruleId: "orphan-account",
+        title: "Account has no contacts or deals",
+        severity: "warning",
+        summary: `${account.name} is not connected to any contact or open opportunity.`,
+        recommendation:
+          "Review whether the account should be enriched, assigned for research, or archived.",
+      });
+      operations.push({
+        id: patchOperationId("orphan-account", account.id),
+        objectType: "account" as const,
+        objectId: account.id,
+        operation: "create_task" as const,
+        field: "follow_up_task",
+        beforeValue: null,
+        afterValue: "Research account fit and decide whether to archive or enrich",
+        reason: "Orphan accounts add CRM noise unless someone owns the next action.",
+        riskLevel: "low" as const,
+        approvalRequired: true,
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [ORPHAN_ACCOUNT_RELATIONSHIP_ASSUMPTION]),
+    };
+  },
+};
+
+export const missingDealOwnerRule: GtmAuditRule = {
+  id: "missing-deal-owner",
+  title: "Deal has no valid owner",
+  description: "Flags deals whose owner is missing or not a known user.",
+  category: "hygiene",
+  evaluate: ({ snapshot, policy, index }) => {
+    if (!policy.requireDealOwner) return { findings: [], operations: [] };
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const deal of snapshot.deals) {
+      if (deal.ownerId && index.usersById.has(deal.ownerId)) continue;
+      findings.push(dealFinding(deal, "missing-deal-owner", "Deal has no valid owner"));
+      operations.push({
+        id: patchOperationId("missing-deal-owner", deal.id),
+        objectType: "deal" as const,
+        objectId: deal.id,
+        operation: "set_field" as const,
+        field: "ownerId",
+        beforeValue: deal.ownerId ?? null,
+        afterValue: "requires_human_owner_selection",
+        reason:
+          "Every open opportunity needs a human owner before the agent can suggest routing.",
+        riskLevel: "medium" as const,
+        approvalRequired: true,
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [DEAL_OWNER_POLICY_ASSUMPTION]),
+    };
+  },
+};
+
+export const missingDealAccountRule: GtmAuditRule = {
+  id: "missing-deal-account",
+  title: "Deal is not linked to an account",
+  description: "Flags deals that are not associated with a known account.",
+  category: "hygiene",
+  evaluate: ({ snapshot, policy, index }) => {
+    if (!policy.requireAccountForDeal) return { findings: [], operations: [] };
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const deal of snapshot.deals) {
+      if (deal.accountId && index.accountsById.has(deal.accountId)) continue;
+      findings.push(dealFinding(deal, "missing-deal-account", "Deal is not linked to an account"));
+      operations.push({
+        id: patchOperationId("missing-deal-account", deal.id),
+        objectType: "deal" as const,
+        objectId: deal.id,
+        operation: "link_record" as const,
+        field: "accountId",
+        beforeValue: deal.accountId ?? null,
+        afterValue: "requires_human_account_selection",
+        reason: "Opportunity reporting, ABM, attribution, and forecasting need account context.",
+        riskLevel: "medium" as const,
+        approvalRequired: true,
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [DEAL_ACCOUNT_POLICY_ASSUMPTION]),
+    };
+  },
+};
+
+export const pastCloseDateRule: GtmAuditRule = {
+  id: "past-close-date",
+  title: "Open deal has a past close date",
+  description: "Flags open deals whose close date is already behind today.",
+  category: "hygiene",
+  evaluate: ({ snapshot, policy }) => {
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const deal of snapshot.deals) {
+      if (!isOpen(deal) || !deal.closeDate) continue;
+      if (compareDate(deal.closeDate, policy.today) >= 0) continue;
+      findings.push(dealFinding(deal, "past-close-date", "Open deal has a past close date"));
+      operations.push({
+        id: patchOperationId("past-close-date", deal.id),
+        objectType: "deal" as const,
+        objectId: deal.id,
+        operation: "set_field" as const,
+        field: "closeDate",
+        beforeValue: deal.closeDate,
+        afterValue: "requires_human_close_date_selection",
+        reason: "Past close dates make forecast and pipeline aging unreliable.",
+        riskLevel: "medium" as const,
+        approvalRequired: true,
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [
+        OPEN_DEAL_FLAGS_ASSUMPTION,
+        MISSING_CLOSED_WON_FLAGS_ASSUMPTION,
+      ]),
+    };
+  },
+};
+
+export const staleDealRule: GtmAuditRule = {
+  id: "stale-deal",
+  title: "Deal has stale activity",
+  description:
+    "Flags open deals with no recorded activity for longer than the policy's stale window.",
+  category: "hygiene",
+  evaluate: ({ snapshot, policy }) => {
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const deal of snapshot.deals) {
+      if (!isOpen(deal)) continue;
+      const days = staleDays(deal, policy.today);
+      if (days <= policy.staleDealDays) continue;
+      findings.push({
+        id: auditFindingId("stale-deal", deal.id),
+        objectType: "deal",
+        objectId: deal.id,
+        ruleId: "stale-deal",
+        title: "Deal has stale activity",
+        severity: "warning",
+        summary: `${deal.name} has had no recorded activity for ${days} days.`,
+        recommendation:
+          "Ask the owner to confirm next step, close lost, or update the forecast category.",
+      });
+      operations.push({
+        id: patchOperationId("stale-deal", deal.id),
+        objectType: "deal" as const,
+        objectId: deal.id,
+        operation: "create_task" as const,
+        field: "next_step_task",
+        beforeValue: null,
+        afterValue: "Confirm next step or close out stale opportunity",
+        reason: "Stale open pipeline inflates forecast coverage and hides execution risk.",
+        riskLevel: riskForStaleness(days, policy),
+        approvalRequired: true,
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [
+        OPEN_DEAL_FLAGS_ASSUMPTION,
+        MISSING_CLOSED_WON_FLAGS_ASSUMPTION,
+        staleDealPolicyAssumption(policy.staleDealDays),
+      ]),
+    };
+  },
+};
+
+export const missingDealAmountRule: GtmAuditRule = {
+  id: "missing-deal-amount",
+  title: "Open deal has no amount",
+  description: "Flags open deals without an amount; they make forecast coverage meaningless.",
+  category: "forecast",
+  evaluate: ({ snapshot, policy }) => {
+    if (policy.requireDealAmount === false) return { findings: [], operations: [] };
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const deal of snapshot.deals) {
+      if (!isOpen(deal)) continue;
+      if (deal.amount !== undefined && deal.amount !== 0) continue;
+      findings.push(dealFinding(deal, "missing-deal-amount", "Open deal has no amount"));
+      operations.push({
+        id: patchOperationId("missing-deal-amount", deal.id),
+        objectType: "deal" as const,
+        objectId: deal.id,
+        operation: "set_field" as const,
+        field: "amount",
+        beforeValue: deal.amount ?? null,
+        afterValue: "requires_human_amount_selection",
+        reason: "Amountless open pipeline understates coverage and breaks weighted forecasts.",
+        riskLevel: "medium" as const,
+        approvalRequired: true,
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [
+        OPEN_DEAL_FLAGS_ASSUMPTION,
+        MISSING_CLOSED_WON_FLAGS_ASSUMPTION,
+        DEAL_AMOUNT_POLICY_ASSUMPTION,
+      ]),
+    };
+  },
+};
+
+function duplicateGroups<T>(items: T[], keyOf: (item: T) => string | undefined): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyOf(item)?.trim().toLowerCase();
+    if (!key) continue;
+    const existing = groups.get(key) ?? [];
+    existing.push(item);
+    groups.set(key, existing);
+  }
+  for (const [key, members] of Array.from(groups.entries())) {
+    if (members.length < 2) groups.delete(key);
+  }
+  return groups;
+}
+
+export const duplicateAccountDomainRule: GtmAuditRule = {
+  id: "duplicate-account-domain",
+  title: "Accounts share the same domain",
+  description:
+    "Flags accounts with identical domains — usually duplicates splitting activity, deals, and attribution.",
+  category: "data-quality",
+  evaluate: ({ snapshot }) => {
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const [domain, accounts] of duplicateGroups(snapshot.accounts, (account) => normalizeDomain(account.domain))) {
+      const anchor = accounts[0];
+      const related = accountsShareKnownFamily(accounts);
+      findings.push({
+        id: auditFindingId("duplicate-account-domain", anchor.id),
+        objectType: "account",
+        objectId: anchor.id,
+        ruleId: "duplicate-account-domain",
+        title: related ? "Related accounts share the same domain" : "Accounts share the same domain",
+        severity: related ? "info" : "warning",
+        summary: `${accounts.length} ${related ? "related " : ""}accounts share ${domain}: ${accounts.map((account) => account.name).join(", ")}.${provenanceSummary(accounts)}`,
+        recommendation: related
+          ? "Preserve these corporate-family records as distinct accounts; review their hierarchy instead of merging them."
+          : "Review whether the group represents duplicate records or intentional business units before approving a merge.",
+      });
+      if (related) continue;
+      operations.push({
+        id: patchOperationId("duplicate-account-domain", anchor.id),
+        objectType: "account" as const,
+        objectId: anchor.id,
+        operation: "merge_records" as const,
+        field: "merge",
+        beforeValue: accounts.map((account) => account.id),
+        afterValue: "requires_human_survivor_selection",
+        reason: `Duplicate accounts split pipeline, attribution, and ownership. Merge the ${accounts.length} accounts sharing ${domain} into one survivor.`,
+        riskLevel: "high" as const,
+        approvalRequired: true,
+        rollback:
+          "IRREVERSIBLE: provider merges cannot be unmerged. The pre-apply snapshot retains every record's field values; recreate a record manually from it if a merge was wrong.",
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [DUPLICATE_ACCOUNT_DOMAIN_ASSUMPTION]),
+    };
+  },
+};
+
+export const duplicateContactEmailRule: GtmAuditRule = {
+  id: "duplicate-contact-email",
+  title: "Contacts share the same email",
+  description:
+    "Flags contacts with identical emails — duplicates that fragment engagement history and routing.",
+  category: "data-quality",
+  evaluate: ({ snapshot }) => {
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const [email, contacts] of duplicateGroups(snapshot.contacts, (contact) => contact.email)) {
+      const anchor = contacts[0];
+      findings.push({
+        id: auditFindingId("duplicate-contact-email", anchor.id),
+        objectType: "contact",
+        objectId: anchor.id,
+        ruleId: "duplicate-contact-email",
+        title: "Contacts share the same email",
+        severity: "warning",
+        summary: `${contacts.length} contacts share ${email}.${provenanceSummary(contacts)}`,
+        recommendation: "Merge the duplicates so engagement history and routing stay coherent.",
+      });
+      operations.push({
+        id: patchOperationId("duplicate-contact-email", anchor.id),
+        objectType: "contact" as const,
+        objectId: anchor.id,
+        operation: "merge_records" as const,
+        field: "merge",
+        beforeValue: contacts.map((contact) => contact.id),
+        afterValue: "requires_human_survivor_selection",
+        reason: `Duplicate contacts fragment engagement history and double-route outreach. Merge the ${contacts.length} contacts sharing ${email} into one survivor.`,
+        riskLevel: "high" as const,
+        approvalRequired: true,
+        rollback:
+          "IRREVERSIBLE: provider merges cannot be unmerged. The pre-apply snapshot retains every record's field values; recreate a record manually from it if a merge was wrong.",
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [DUPLICATE_CONTACT_EMAIL_ASSUMPTION]),
+    };
+  },
+};
+
+export const duplicateOpenDealRule: GtmAuditRule = {
+  id: "duplicate-open-deal",
+  title: "Open deals duplicate the same opportunity",
+  description:
+    "Flags multiple open deals carrying the same name (scoped to the account when linked) — " +
+    "usually an integration re-creating deals instead of upserting, which counts the same " +
+    "revenue several times in pipeline and forecast.",
+  category: "data-quality",
+  evaluate: ({ snapshot }) => {
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    const keyOf = (deal: CanonicalDeal) => {
+      if (!isOpen(deal)) return undefined;
+      const name = deal.name?.trim().toLowerCase().replace(/\s+/g, " ");
+      if (!name) return undefined;
+      return `${deal.accountId ?? "unlinked"}:${name}`;
+    };
+    for (const [, deals] of duplicateGroups(snapshot.deals, keyOf)) {
+      const anchor = deals[0];
+      findings.push({
+        id: auditFindingId("duplicate-open-deal", anchor.id),
+        objectType: "deal",
+        objectId: anchor.id,
+        ruleId: "duplicate-open-deal",
+        title: "Open deals duplicate the same opportunity",
+        severity: "warning",
+        summary: `${deals.length} open deals named "${anchor.name}"${
+          anchor.accountId ? " on the same account" : ""
+        }: ${deals.map((deal) => deal.id).join(", ")}.${provenanceSummary(deals)}`,
+        recommendation:
+          "Keep one deal, archive the copies, and fix the integration that is re-creating them.",
+      });
+      operations.push({
+        id: patchOperationId("duplicate-open-deal", anchor.id),
+        objectType: "deal" as const,
+        objectId: anchor.id,
+        operation: "merge_records" as const,
+        field: "merge",
+        beforeValue: deals.map((deal) => deal.id),
+        afterValue: "requires_human_survivor_selection",
+        reason: `Duplicate open deals inflate pipeline and forecast the same revenue more than once. Merge the ${deals.length} deals named "${anchor.name}" into one survivor.`,
+        riskLevel: "high" as const,
+        approvalRequired: true,
+        rollback:
+          "IRREVERSIBLE: provider merges cannot be unmerged. The pre-apply snapshot retains every record's field values; recreate a record manually from it if a merge was wrong.",
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [
+        OPEN_DEAL_FLAGS_ASSUMPTION,
+        MISSING_CLOSED_WON_FLAGS_ASSUMPTION,
+        DUPLICATE_OPEN_DEAL_ASSUMPTION,
+      ]),
+    };
+  },
+};
+
+export const activeDealAccountWithoutContactsRule: GtmAuditRule = {
+  id: "active-deal-account-without-contacts",
+  title: "Account with open pipeline has no contacts",
+  description:
+    "Flags accounts carrying open deals without a single contact — pipeline with nobody to talk to.",
+  category: "coverage",
+  evaluate: ({ index }) => {
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const [accountId, deals] of index.dealsByAccountId) {
+      if (!deals.some(isOpen)) continue;
+      if ((index.contactsByAccountId.get(accountId) ?? []).length > 0) continue;
+      const account = index.accountsById.get(accountId);
+      if (!account) continue;
+      findings.push({
+        id: auditFindingId("active-deal-account-without-contacts", account.id),
+        objectType: "account",
+        objectId: account.id,
+        ruleId: "active-deal-account-without-contacts",
+        title: "Account with open pipeline has no contacts",
+        severity: "warning",
+        summary: `${account.name} has open deals but no contacts on record.`,
+        recommendation: "Add the champion and buying-committee contacts before the deal advances.",
+      });
+      operations.push({
+        id: patchOperationId("active-deal-account-without-contacts", account.id),
+        objectType: "account" as const,
+        objectId: account.id,
+        operation: "create_task" as const,
+        field: "add_contacts_task",
+        beforeValue: null,
+        afterValue: "Add champion and buying-committee contacts for the open opportunities",
+        reason: "Open pipeline without contacts cannot be advanced, routed, or marketed to.",
+        riskLevel: "low" as const,
+        approvalRequired: true,
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [
+        OPEN_DEAL_FLAGS_ASSUMPTION,
+        MISSING_CLOSED_WON_FLAGS_ASSUMPTION,
+        ACCOUNT_WITH_OPEN_DEAL_NEEDS_CONTACT_ASSUMPTION,
+      ]),
+    };
+  },
+};
+
+export const closingSoonInactiveRule: GtmAuditRule = {
+  id: "closing-soon-inactive",
+  title: "Deal closing soon with no recent activity",
+  description:
+    "Flags open deals inside the closing-soon window whose last activity is older than the idle threshold.",
+  category: "forecast",
+  evaluate: ({ snapshot, policy }) => {
+    const windowDays = policy.closingSoonDays ?? 14;
+    const idleDays = policy.closingSoonIdleDays ?? 7;
+    const findings: AuditFinding[] = [];
+    const operations = [];
+    for (const deal of snapshot.deals) {
+      if (!isOpen(deal) || !deal.closeDate) continue;
+      const daysToClose = daysBetween(policy.today, deal.closeDate);
+      if (daysToClose < 0 || daysToClose > windowDays) continue;
+      const idle = staleDays(deal, policy.today);
+      if (idle <= idleDays) continue;
+      findings.push({
+        id: auditFindingId("closing-soon-inactive", deal.id),
+        objectType: "deal",
+        objectId: deal.id,
+        ruleId: "closing-soon-inactive",
+        title: "Deal closing soon with no recent activity",
+        severity: "critical",
+        summary: `${deal.name} closes in ${daysToClose} days but has had no activity for ${idle} days.`,
+        recommendation:
+          "Confirm the close plan with the owner today, or move the close date and forecast category.",
+      });
+      operations.push({
+        id: patchOperationId("closing-soon-inactive", deal.id),
+        objectType: "deal" as const,
+        objectId: deal.id,
+        operation: "create_task" as const,
+        field: "close_plan_task",
+        beforeValue: null,
+        afterValue: "Confirm close plan or update close date and forecast category",
+        reason: "Deals forecast to close imminently without engagement are silent slip risk.",
+        riskLevel: "high" as const,
+        approvalRequired: true,
+      });
+    }
+    return {
+      findings,
+      operations,
+      assumptions: assumptionsIfFindings(findings, [
+        OPEN_DEAL_FLAGS_ASSUMPTION,
+        MISSING_CLOSED_WON_FLAGS_ASSUMPTION,
+        closingSoonPolicyAssumption(windowDays, idleDays),
+      ]),
+    };
+  },
+};
+
+export const accountSingleSourceRule: GtmAuditRule = {
+  id: "account-single-source",
+  title: "Account exists in only one connected system",
+  emitsOperations: false,
+  description:
+    "On merged multi-system snapshots, flags accounts known to just one source — the seams where GTM systems disagree.",
+  category: "cross-system",
+  evaluate: ({ snapshot }) => {
+    const providersSeen = new Set(
+      snapshot.accounts.flatMap((account) =>
+        (account.identities ?? []).map((identity) => String(identity.provider)),
+      ),
+    );
+    // Only meaningful when the snapshot actually spans systems.
+    if (providersSeen.size < 2) return { findings: [], operations: [] };
+
+    const findings: AuditFinding[] = [];
+    for (const account of snapshot.accounts) {
+      const sources = new Set(
+        (account.identities ?? []).map((identity) => String(identity.provider)),
+      );
+      if (sources.size !== 1) continue;
+      const source = Array.from(sources)[0];
+      findings.push({
+        id: auditFindingId("account-single-source", account.id),
+        objectType: "account",
+        objectId: account.id,
+        ruleId: "account-single-source",
+        title: "Account exists in only one connected system",
+        severity: "info",
+        summary: `${account.name} exists only in ${source} (${providersSeen.size} systems connected).`,
+        recommendation:
+          "Check whether the account is missing from the other systems or matched under a different domain/name.",
+      });
+    }
+    return {
+      findings,
+      operations: [],
+      assumptions: assumptionsIfFindings(findings, [SINGLE_SOURCE_ACCOUNT_ASSUMPTION]),
+    };
+  },
+};
+
+export function isFindingsOnlyRule(rule: GtmAuditRule): boolean {
+  return rule.emitsOperations === false;
+}
+
+export const builtinAuditRules: GtmAuditRule[] = [
+  orphanAccountRule,
+  missingDealOwnerRule,
+  missingDealAccountRule,
+  pastCloseDateRule,
+  staleDealRule,
+  missingDealAmountRule,
+  duplicateAccountDomainRule,
+  duplicateContactEmailRule,
+  duplicateOpenDealRule,
+  activeDealAccountWithoutContactsRule,
+  closingSoonInactiveRule,
+  accountSingleSourceRule,
+];

@@ -1,0 +1,5077 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/deal-rooms",
+  "version": "0.3.0",
+  "title": "Deal rooms",
+  "description": "Mutual action plans on your deals. Open a room on a deal from a template: milestones and steps with dates counted back from the close date, an owner on each side, shared content and a conversation, with internal notes kept to your team.",
+  "author": {
+    "org": "canon"
+  },
+  "engines": {
+    "moduleApi": "1"
+  },
+  "nav": {
+    "label": "Deal rooms",
+    "icon": "briefcase",
+    "section": "Work",
+    "landing": "rooms"
+  },
+  "reads": {
+    "deals": [
+      "name",
+      "amount",
+      "closeDate",
+      "stage",
+      "isClosed",
+      "isWon",
+      "ownerId",
+      "companyName",
+      "companyId"
+    ],
+    "users": [
+      "name",
+      "title",
+      "email"
+    ]
+  },
+  "server": "dist/module.js",
+  "collections": {
+    "templates": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "name": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": false,
+            "label": "Name"
+          },
+          "kind": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "close"
+                },
+                {
+                  "type": "literal",
+                  "value": "onboarding"
+                }
+              ],
+              "labels": {
+                "close": "Close plan",
+                "onboarding": "Onboarding plan"
+              }
+            },
+            "optional": false,
+            "label": "Kind"
+          },
+          "description": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "optional": true,
+            "label": "Description",
+            "widget": "textarea"
+          },
+          "active": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "Offered for new rooms"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {
+        "byKind": [
+          "kind",
+          "active"
+        ]
+      },
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      },
+      "label": "Template",
+      "title": "name"
+    },
+    "templateSteps": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "title": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": false,
+            "label": "Step"
+          },
+          "detail": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "optional": true,
+            "label": "Detail",
+            "widget": "textarea"
+          },
+          "milestoneTitle": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": false,
+            "label": "Milestone",
+            "suggest": true
+          },
+          "side": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "seller"
+                },
+                {
+                  "type": "literal",
+                  "value": "buyer"
+                },
+                {
+                  "type": "literal",
+                  "value": "both"
+                }
+              ],
+              "labels": {
+                "seller": "Us",
+                "buyer": "Buyer",
+                "both": "Both"
+              },
+              "descriptions": {
+                "seller": "Our team does it",
+                "buyer": "The buyer does it",
+                "both": "Done together"
+              }
+            },
+            "optional": false,
+            "label": "Side"
+          },
+          "daysBeforeClose": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Days before close",
+            "help": "When it is due, counted back from the deal's close date. Negative is after the close."
+          },
+          "ownerRole": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "optional": true,
+            "label": "Owner role",
+            "help": "A seller team role (Account executive) or a stakeholder's role in the deal (champion, executive, procurement).",
+            "suggest": true
+          },
+          "order": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Order"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {},
+      "access": {},
+      "setOf": {
+        "parent": "templates"
+      },
+      "label": "Template step",
+      "title": "title"
+    },
+    "rooms": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "deal": {
+            "fieldType": {
+              "type": "ref",
+              "to": "deals"
+            },
+            "optional": false,
+            "label": "Deal"
+          },
+          "kind": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "close"
+                },
+                {
+                  "type": "literal",
+                  "value": "onboarding"
+                }
+              ],
+              "labels": {
+                "close": "Close plan",
+                "onboarding": "Onboarding plan"
+              }
+            },
+            "optional": false,
+            "label": "Kind"
+          },
+          "rep": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Rep"
+          },
+          "title": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": false,
+            "label": "Title"
+          },
+          "welcome": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "optional": true,
+            "label": "Welcome note",
+            "widget": "textarea"
+          },
+          "template": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": true,
+            "label": "Template"
+          },
+          "sellerTeam": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "member": {
+                    "fieldType": {
+                      "type": "ref",
+                      "to": "users"
+                    },
+                    "optional": false,
+                    "label": "Member"
+                  },
+                  "role": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "optional": false,
+                    "label": "Role",
+                    "placeholder": "Account executive"
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Our team"
+          },
+          "stakeholders": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "name": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "optional": false,
+                    "label": "Name"
+                  },
+                  "email": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 320
+                    },
+                    "optional": true,
+                    "label": "Email"
+                  },
+                  "title": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "optional": true,
+                    "label": "Title"
+                  },
+                  "slot": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "champion"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "executive"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "procurement"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "legal"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "technical"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "finance"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "user"
+                        }
+                      ],
+                      "labels": {
+                        "champion": "Champion",
+                        "executive": "Executive sponsor",
+                        "procurement": "Procurement",
+                        "legal": "Legal",
+                        "technical": "Technical evaluator",
+                        "finance": "Finance",
+                        "user": "User"
+                      }
+                    },
+                    "optional": true,
+                    "label": "Role in the deal"
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Stakeholders",
+            "help": "The buyer's people on this deal. A step whose owner role matches one's role in the deal is theirs."
+          },
+          "targetDate": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Close date",
+            "widget": "date"
+          },
+          "internalNotes": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 4000
+            },
+            "optional": true,
+            "label": "Internal notes",
+            "widget": "textarea",
+            "help": "Never shared with the buyer."
+          },
+          "health": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "on_track"
+                },
+                {
+                  "type": "literal",
+                  "value": "needs_attention"
+                },
+                {
+                  "type": "literal",
+                  "value": "at_risk"
+                }
+              ],
+              "labels": {
+                "on_track": "On track",
+                "needs_attention": "Needs attention",
+                "at_risk": "At risk"
+              }
+            },
+            "optional": true,
+            "label": "Health"
+          },
+          "progress": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Progress"
+          },
+          "slipDays": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Days past the close"
+          },
+          "overdue": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Overdue steps"
+          },
+          "lastBuyerAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Last buyer visit",
+            "widget": "time"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "draft"
+                },
+                {
+                  "type": "literal",
+                  "value": "live"
+                },
+                {
+                  "type": "literal",
+                  "value": "won"
+                },
+                {
+                  "type": "literal",
+                  "value": "lost"
+                },
+                {
+                  "type": "literal",
+                  "value": "archived"
+                }
+              ],
+              "labels": {
+                "draft": "Draft",
+                "live": "Live",
+                "won": "Won",
+                "lost": "Lost",
+                "archived": "Archived"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          },
+          "buyerOverdueMax": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Longest buyer overdue"
+          },
+          "quietDays": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Days since buyer activity"
+          },
+          "planEnd": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Plan ends"
+          },
+          "nextDue": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Next due"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "deal",
+          "kind"
+        ]
+      },
+      "owner": "rep",
+      "indexes": {
+        "byRep": [
+          "rep",
+          "status"
+        ],
+        "byStatus": [
+          "status",
+          "health"
+        ],
+        "byHealth": [
+          "health"
+        ],
+        "byDeal": [
+          "deal",
+          "kind"
+        ]
+      },
+      "access": {
+        "manager": "team",
+        "rep": "team"
+      },
+      "label": "Room",
+      "title": "title"
+    },
+    "milestones": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "title": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": false,
+            "label": "Milestone"
+          },
+          "order": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Order"
+          },
+          "dueOn": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Due",
+            "widget": "date"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {},
+      "access": {},
+      "setOf": {
+        "parent": "rooms"
+      },
+      "label": "Milestone",
+      "title": "title"
+    },
+    "steps": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "title": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": false,
+            "label": "Step"
+          },
+          "detail": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "optional": true,
+            "label": "Detail",
+            "widget": "textarea"
+          },
+          "milestone": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "milestones"
+            },
+            "optional": true,
+            "label": "Milestone"
+          },
+          "side": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "seller"
+                },
+                {
+                  "type": "literal",
+                  "value": "buyer"
+                },
+                {
+                  "type": "literal",
+                  "value": "both"
+                }
+              ],
+              "labels": {
+                "seller": "Us",
+                "buyer": "Buyer",
+                "both": "Both"
+              },
+              "descriptions": {
+                "seller": "Our team does it",
+                "buyer": "The buyer does it",
+                "both": "Done together"
+              }
+            },
+            "optional": false,
+            "label": "Side"
+          },
+          "sellerOwner": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "Our owner"
+          },
+          "buyerOwnerName": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": true,
+            "label": "Buyer owner"
+          },
+          "buyerOwnerEmail": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 320
+            },
+            "optional": true,
+            "label": "Buyer owner's email"
+          },
+          "ownerRole": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "optional": true,
+            "label": "Owner role"
+          },
+          "ownerToConfirm": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "Owner to confirm"
+          },
+          "dueOn": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Due",
+            "widget": "date"
+          },
+          "afterClose": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "After the close"
+          },
+          "order": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Order"
+          },
+          "doneAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Done",
+            "widget": "time"
+          },
+          "doneByMember": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "Done by"
+          },
+          "doneBy": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "optional": true,
+            "label": "Done by (buyer)"
+          },
+          "doneByVisitor": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "optional": true,
+            "label": "Buyer visitor"
+          },
+          "doneNote": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 1000
+            },
+            "optional": true,
+            "label": "Note",
+            "widget": "textarea"
+          },
+          "file": {
+            "fieldType": {
+              "type": "file",
+              "accept": [
+                ".pdf",
+                ".docx",
+                ".xlsx",
+                ".png",
+                ".jpg"
+              ],
+              "maxBytes": 10485760
+            },
+            "optional": true,
+            "label": "File"
+          },
+          "status": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "open"
+                },
+                {
+                  "type": "literal",
+                  "value": "done"
+                },
+                {
+                  "type": "literal",
+                  "value": "skipped"
+                }
+              ],
+              "labels": {
+                "open": "Open",
+                "done": "Done",
+                "skipped": "Skipped"
+              }
+            },
+            "optional": false,
+            "label": "Status"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {
+        "byDue": [
+          "status",
+          "dueOn"
+        ]
+      },
+      "access": {},
+      "setOf": {
+        "parent": "rooms"
+      },
+      "label": "Step",
+      "title": "title"
+    },
+    "assets": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "title": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": false,
+            "label": "Title"
+          },
+          "kind": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "link"
+                },
+                {
+                  "type": "literal",
+                  "value": "file"
+                },
+                {
+                  "type": "literal",
+                  "value": "note"
+                }
+              ],
+              "labels": {
+                "link": "Link",
+                "file": "File",
+                "note": "Note"
+              }
+            },
+            "optional": false,
+            "label": "Kind"
+          },
+          "url": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "optional": true,
+            "label": "Link",
+            "placeholder": "https://"
+          },
+          "file": {
+            "fieldType": {
+              "type": "file",
+              "accept": [
+                ".pdf",
+                ".docx",
+                ".xlsx",
+                ".pptx",
+                ".png",
+                ".jpg"
+              ],
+              "maxBytes": 10485760
+            },
+            "optional": true,
+            "label": "File"
+          },
+          "body": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 4000
+            },
+            "optional": true,
+            "label": "Note",
+            "widget": "textarea"
+          },
+          "shared": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": true,
+            "label": "Shared with the buyer"
+          },
+          "order": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Order"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {},
+      "access": {},
+      "setOf": {
+        "parent": "rooms"
+      },
+      "label": "Content",
+      "title": "title"
+    },
+    "comments": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "body": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 2000
+            },
+            "optional": false,
+            "label": "Comment",
+            "widget": "textarea"
+          },
+          "step": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "steps"
+            },
+            "optional": true,
+            "label": "Step"
+          },
+          "side": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "seller"
+                },
+                {
+                  "type": "literal",
+                  "value": "buyer"
+                }
+              ],
+              "labels": {
+                "seller": "Us",
+                "buyer": "Buyer"
+              }
+            },
+            "optional": false,
+            "label": "Side"
+          },
+          "authorName": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": true,
+            "label": "Author"
+          },
+          "authorMember": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "Author"
+          },
+          "internal": {
+            "fieldType": {
+              "type": "boolean"
+            },
+            "optional": false,
+            "label": "Internal"
+          }
+        }
+      },
+      "key": "auto",
+      "indexes": {
+        "byStep": [
+          "step"
+        ]
+      },
+      "access": {},
+      "setOf": {
+        "parent": "rooms"
+      },
+      "label": "Comment"
+    }
+  },
+  "views": {
+    "templates.all": {
+      "kind": "list",
+      "collection": "templates",
+      "limit": 200
+    },
+    "templates.one": {
+      "kind": "one",
+      "collection": "templates",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "templateSteps.forTemplate": {
+      "kind": "list",
+      "collection": "templateSteps",
+      "args": {
+        "template": "string"
+      },
+      "parent": {
+        "arg": "template"
+      },
+      "limit": 200
+    },
+    "templateSteps.forTemplates": {
+      "kind": "list",
+      "collection": "templateSteps",
+      "args": {
+        "templates": "string[]"
+      },
+      "parent": {
+        "arg": "templates"
+      },
+      "limit": 1000
+    },
+    "rooms.all": {
+      "kind": "list",
+      "collection": "rooms",
+      "limit": 1000
+    },
+    "rooms.one": {
+      "kind": "one",
+      "collection": "rooms",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "rooms.forDeal": {
+      "kind": "list",
+      "collection": "rooms",
+      "args": {
+        "deal": "string"
+      },
+      "index": "byDeal",
+      "eq": [
+        {
+          "arg": "deal"
+        }
+      ],
+      "limit": 10
+    },
+    "rooms.mine": {
+      "kind": "list",
+      "collection": "rooms",
+      "index": "byRep",
+      "eq": [
+        {
+          "caller": "userId"
+        }
+      ],
+      "limit": 1000
+    },
+    "milestones.forRoom": {
+      "kind": "list",
+      "collection": "milestones",
+      "args": {
+        "room": "string"
+      },
+      "parent": {
+        "arg": "room"
+      },
+      "limit": 100
+    },
+    "steps.forRoom": {
+      "kind": "list",
+      "collection": "steps",
+      "args": {
+        "room": "string"
+      },
+      "parent": {
+        "arg": "room"
+      },
+      "limit": 500
+    },
+    "steps.forRooms": {
+      "kind": "list",
+      "collection": "steps",
+      "args": {
+        "rooms": "string[]"
+      },
+      "parent": {
+        "arg": "rooms"
+      },
+      "limit": 1000
+    },
+    "assets.forRoom": {
+      "kind": "list",
+      "collection": "assets",
+      "args": {
+        "room": "string"
+      },
+      "parent": {
+        "arg": "room"
+      },
+      "limit": 200
+    },
+    "comments.shared": {
+      "kind": "list",
+      "collection": "comments",
+      "args": {
+        "room": "string"
+      },
+      "parent": {
+        "arg": "room"
+      },
+      "where": {
+        "field": "internal",
+        "in": [
+          false
+        ]
+      },
+      "limit": 500
+    },
+    "comments.internal": {
+      "kind": "list",
+      "collection": "comments",
+      "args": {
+        "room": "string"
+      },
+      "parent": {
+        "arg": "room"
+      },
+      "where": {
+        "field": "internal",
+        "in": [
+          true
+        ]
+      },
+      "limit": 500
+    },
+    "rooms.forDeals": {
+      "kind": "list",
+      "collection": "rooms",
+      "args": {
+        "deals": "string[]"
+      },
+      "index": "byDeal",
+      "eq": [
+        {
+          "arg": "deals"
+        }
+      ],
+      "limit": 1000
+    },
+    "rooms.open": {
+      "kind": "list",
+      "collection": "rooms",
+      "where": {
+        "field": "status",
+        "in": [
+          "draft",
+          "live"
+        ]
+      },
+      "limit": 1000
+    }
+  },
+  "ops": {
+    "templates.create": {
+      "label": "New template",
+      "kind": "create",
+      "collection": "templates",
+      "fields": [
+        "name",
+        "kind",
+        "description"
+      ],
+      "set": {
+        "active": true
+      },
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "templates.update": {
+      "label": "Save template",
+      "kind": "update",
+      "collection": "templates",
+      "fields": [
+        "name",
+        "description",
+        "active"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "templates.delete": {
+      "label": "Delete template",
+      "kind": "delete",
+      "collection": "templates",
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "deleting a template deletes its steps; rooms made from it keep theirs"
+    },
+    "templateSteps.create": {
+      "label": "Add step",
+      "kind": "create",
+      "collection": "templateSteps",
+      "fields": [
+        "title",
+        "detail",
+        "milestoneTitle",
+        "side",
+        "daysBeforeClose",
+        "ownerRole"
+      ],
+      "set": {
+        "order": {
+          "subtract": [
+            {
+              "count": {
+                "view": "templateSteps.forTemplate",
+                "args": {
+                  "template": {
+                    "doc": "parentKey"
+                  }
+                }
+              }
+            },
+            -1
+          ]
+        }
+      },
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "templateSteps.update": {
+      "label": "Edit step",
+      "kind": "update",
+      "collection": "templateSteps",
+      "fields": [
+        "title",
+        "detail",
+        "milestoneTitle",
+        "side",
+        "daysBeforeClose",
+        "ownerRole"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "templateSteps.delete": {
+      "label": "Delete step",
+      "kind": "delete",
+      "collection": "templateSteps",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed"
+    },
+    "rooms.update": {
+      "label": "Edit room",
+      "kind": "update",
+      "collection": "rooms",
+      "fields": [
+        "title",
+        "welcome",
+        "internalNotes"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed"
+    },
+    "rooms.people": {
+      "label": "Save people",
+      "kind": "update",
+      "collection": "rooms",
+      "fields": [
+        "sellerTeam",
+        "stakeholders"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "unique": {
+              "list": "sellerTeam",
+              "field": "member"
+            }
+          },
+          "message": "Each member is on the team once."
+        }
+      ]
+    },
+    "rooms.delete": {
+      "label": "Delete room",
+      "kind": "delete",
+      "collection": "rooms",
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "deleting a room deletes its plan, content and comments"
+    },
+    "steps.create": {
+      "label": "Add step",
+      "kind": "create",
+      "collection": "steps",
+      "fields": [
+        "title",
+        "detail",
+        "milestone",
+        "side",
+        "dueOn",
+        "afterClose"
+      ],
+      "set": {
+        "order": {
+          "subtract": [
+            {
+              "count": {
+                "view": "steps.forRoom",
+                "args": {
+                  "room": {
+                    "doc": "parentKey"
+                  }
+                }
+              }
+            },
+            -1
+          ]
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "propose",
+      "guards": [
+        {
+          "when": {
+            "ref": {
+              "collection": "rooms",
+              "key": {
+                "doc": "parentKey"
+              }
+            },
+            "where": {
+              "field": "status",
+              "in": [
+                "draft",
+                "live"
+              ]
+            }
+          },
+          "message": "This room is closed."
+        }
+      ],
+      "dirties": [
+        {
+          "job": "health",
+          "key": [
+            {
+              "lookup": {
+                "view": "rooms.one",
+                "args": {
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                }
+              },
+              "field": "deal"
+            },
+            {
+              "lookup": {
+                "view": "rooms.one",
+                "args": {
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                }
+              },
+              "field": "kind"
+            }
+          ]
+        }
+      ]
+    },
+    "steps.update": {
+      "label": "Edit step",
+      "kind": "update",
+      "collection": "steps",
+      "fields": [
+        "title",
+        "detail",
+        "milestone",
+        "side",
+        "dueOn",
+        "afterClose"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "propose",
+      "guards": [
+        {
+          "when": {
+            "ref": {
+              "collection": "rooms",
+              "key": {
+                "doc": "parentKey"
+              }
+            },
+            "where": {
+              "field": "status",
+              "in": [
+                "draft",
+                "live"
+              ]
+            }
+          },
+          "message": "This room is closed."
+        }
+      ],
+      "dirties": [
+        {
+          "job": "health",
+          "key": [
+            {
+              "lookup": {
+                "view": "rooms.one",
+                "args": {
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                }
+              },
+              "field": "deal"
+            },
+            {
+              "lookup": {
+                "view": "rooms.one",
+                "args": {
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                }
+              },
+              "field": "kind"
+            }
+          ]
+        }
+      ]
+    },
+    "steps.assign": {
+      "label": "Set owner",
+      "kind": "update",
+      "collection": "steps",
+      "fields": [
+        "sellerOwner",
+        "buyerOwnerName",
+        "buyerOwnerEmail"
+      ],
+      "set": {
+        "ownerToConfirm": {
+          "unset": true
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "ref": {
+              "collection": "rooms",
+              "key": {
+                "doc": "parentKey"
+              }
+            },
+            "where": {
+              "field": "status",
+              "in": [
+                "draft",
+                "live"
+              ]
+            }
+          },
+          "message": "This room is closed."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "truthy": {
+                  "doc": "sellerOwner"
+                }
+              },
+              {
+                "truthy": {
+                  "doc": "buyerOwnerName"
+                }
+              }
+            ]
+          },
+          "message": "Name an owner on our side or the buyer's."
+        }
+      ]
+    },
+    "steps.attach": {
+      "label": "Attach file",
+      "kind": "update",
+      "collection": "steps",
+      "fields": [
+        "file"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "human",
+      "reason": "a file is uploaded by a person",
+      "guards": [
+        {
+          "when": {
+            "ref": {
+              "collection": "rooms",
+              "key": {
+                "doc": "parentKey"
+              }
+            },
+            "where": {
+              "field": "status",
+              "in": [
+                "draft",
+                "live"
+              ]
+            }
+          },
+          "message": "This room is closed."
+        }
+      ]
+    },
+    "steps.delete": {
+      "label": "Delete step",
+      "kind": "delete",
+      "collection": "steps",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "human",
+      "reason": "deleting a step removes it from the plan",
+      "guards": [
+        {
+          "when": {
+            "ref": {
+              "collection": "rooms",
+              "key": {
+                "doc": "parentKey"
+              }
+            },
+            "where": {
+              "field": "status",
+              "in": [
+                "draft",
+                "live"
+              ]
+            }
+          },
+          "message": "This room is closed."
+        }
+      ],
+      "dirties": [
+        {
+          "job": "health",
+          "key": [
+            {
+              "lookup": {
+                "view": "rooms.one",
+                "args": {
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                }
+              },
+              "field": "deal"
+            },
+            {
+              "lookup": {
+                "view": "rooms.one",
+                "args": {
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                }
+              },
+              "field": "kind"
+            }
+          ]
+        }
+      ]
+    },
+    "assets.create": {
+      "label": "Add content",
+      "kind": "create",
+      "collection": "assets",
+      "fields": [
+        "title",
+        "kind",
+        "url",
+        "file",
+        "body",
+        "shared"
+      ],
+      "set": {
+        "order": {
+          "subtract": [
+            {
+              "count": {
+                "view": "assets.forRoom",
+                "args": {
+                  "room": {
+                    "doc": "parentKey"
+                  }
+                }
+              }
+            },
+            -1
+          ]
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "ref": {
+              "collection": "rooms",
+              "key": {
+                "doc": "parentKey"
+              }
+            },
+            "where": {
+              "field": "status",
+              "in": [
+                "draft",
+                "live"
+              ]
+            }
+          },
+          "message": "This room is closed."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "not": {
+                  "field": "kind",
+                  "in": [
+                    "link"
+                  ]
+                }
+              },
+              {
+                "truthy": {
+                  "doc": "url"
+                }
+              }
+            ]
+          },
+          "message": "A link needs its address."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "not": {
+                  "field": "kind",
+                  "in": [
+                    "file"
+                  ]
+                }
+              },
+              {
+                "truthy": {
+                  "doc": "file"
+                }
+              }
+            ]
+          },
+          "message": "Attach the file."
+        },
+        {
+          "when": {
+            "any": [
+              {
+                "not": {
+                  "field": "kind",
+                  "in": [
+                    "note"
+                  ]
+                }
+              },
+              {
+                "truthy": {
+                  "doc": "body"
+                }
+              }
+            ]
+          },
+          "message": "Write the note."
+        }
+      ]
+    },
+    "assets.update": {
+      "label": "Edit",
+      "kind": "update",
+      "collection": "assets",
+      "fields": [
+        "title",
+        "url",
+        "file",
+        "body"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed"
+    },
+    "assets.share": {
+      "label": "Share with buyer",
+      "kind": "update",
+      "collection": "assets",
+      "fields": [
+        "shared"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "human",
+      "reason": "sharing shows workspace content to the buyer"
+    },
+    "assets.delete": {
+      "label": "Remove",
+      "kind": "delete",
+      "collection": "assets",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed"
+    },
+    "comments.post": {
+      "label": "Post",
+      "kind": "create",
+      "collection": "comments",
+      "fields": [
+        "body",
+        "step"
+      ],
+      "set": {
+        "internal": false,
+        "side": "seller",
+        "authorMember": {
+          "caller": "userId"
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "human",
+      "reason": "a comment the buyer reads is a person's"
+    },
+    "comments.note": {
+      "label": "Add note",
+      "kind": "create",
+      "collection": "comments",
+      "fields": [
+        "body",
+        "step"
+      ],
+      "set": {
+        "internal": true,
+        "side": "seller",
+        "authorMember": {
+          "caller": "userId"
+        }
+      },
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed"
+    },
+    "comments.delete": {
+      "label": "Delete",
+      "kind": "delete",
+      "collection": "comments",
+      "roles": [
+        "admin"
+      ],
+      "agent": "human",
+      "reason": "a conversation's history is kept"
+    },
+    "comments.buyerPost": {
+      "label": "Post comment",
+      "kind": "create",
+      "collection": "comments",
+      "fields": [
+        "body",
+        "step"
+      ],
+      "roles": [
+        "visitor"
+      ],
+      "share": "room",
+      "agent": "allowed",
+      "guards": [
+        {
+          "when": {
+            "length": "body",
+            "atLeast": 1,
+            "atMost": 2000
+          },
+          "message": "Write a comment of up to 2,000 characters."
+        },
+        {
+          "when": {
+            "shared": {
+              "from": "root"
+            },
+            "where": {
+              "field": "status",
+              "in": [
+                "live"
+              ]
+            }
+          },
+          "message": "Only live rooms can be changed."
+        }
+      ],
+      "set": {
+        "internal": false,
+        "side": "buyer",
+        "authorName": {
+          "visitor": "label"
+        }
+      },
+      "effects": [
+        {
+          "notify": [
+            {
+              "shared": {
+                "from": "root",
+                "field": "rep"
+              }
+            }
+          ],
+          "message": "Buyer activity on {$doc.key}"
+        }
+      ]
+    },
+    "steps.buyerAttach": {
+      "label": "Attach file",
+      "kind": "update",
+      "collection": "steps",
+      "fields": [
+        "file"
+      ],
+      "roles": [
+        "visitor"
+      ],
+      "share": "room",
+      "agent": "human",
+      "reason": "A buyer uploads a file in their own browser.",
+      "guards": [
+        {
+          "when": {
+            "field": "side",
+            "in": [
+              "buyer",
+              "both"
+            ]
+          },
+          "message": "Only buyer or joint steps can be changed here."
+        },
+        {
+          "when": {
+            "truthy": {
+              "doc": "file"
+            }
+          },
+          "message": "Choose a file to attach."
+        },
+        {
+          "when": {
+            "shared": {
+              "from": "root"
+            },
+            "where": {
+              "field": "status",
+              "in": [
+                "live"
+              ]
+            }
+          },
+          "message": "Only live rooms can be changed."
+        }
+      ],
+      "effects": [
+        {
+          "notify": [
+            {
+              "shared": {
+                "from": "root",
+                "field": "rep"
+              }
+            }
+          ],
+          "message": "Buyer activity on {$doc.key}"
+        }
+      ]
+    }
+  },
+  "machines": {
+    "room": {
+      "collection": "rooms",
+      "field": "status",
+      "states": [
+        "draft",
+        "live",
+        "won",
+        "lost",
+        "archived"
+      ],
+      "initial": "draft",
+      "transitions": {
+        "publish": {
+          "label": "Go live",
+          "from": [
+            "draft"
+          ],
+          "to": "live",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "dirties": [
+            {
+              "job": "health",
+              "key": [
+                {
+                  "doc": "deal"
+                },
+                {
+                  "doc": "kind"
+                }
+              ]
+            }
+          ]
+        },
+        "closeWon": {
+          "label": "Won",
+          "from": [
+            "draft",
+            "live"
+          ],
+          "to": "won",
+          "roles": [],
+          "system": true,
+          "agent": "allowed"
+        },
+        "closeLost": {
+          "label": "Lost",
+          "from": [
+            "draft",
+            "live"
+          ],
+          "to": "lost",
+          "roles": [],
+          "system": true,
+          "agent": "allowed"
+        },
+        "archive": {
+          "label": "Archive",
+          "from": [
+            "won",
+            "lost",
+            "draft"
+          ],
+          "to": "archived",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "confirm": "Archive this room? Its plan stays readable and stops changing."
+        }
+      }
+    },
+    "step": {
+      "collection": "steps",
+      "field": "status",
+      "states": [
+        "open",
+        "done",
+        "skipped"
+      ],
+      "initial": "open",
+      "transitions": {
+        "complete": {
+          "label": "Mark done",
+          "from": [
+            "open"
+          ],
+          "to": "done",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "guards": [
+            {
+              "when": {
+                "ref": {
+                  "collection": "rooms",
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                },
+                "where": {
+                  "field": "status",
+                  "in": [
+                    "draft",
+                    "live"
+                  ]
+                }
+              },
+              "message": "This room is closed."
+            }
+          ],
+          "args": {
+            "type": "object",
+            "value": {
+              "note": {
+                "fieldType": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "optional": true,
+                "label": "Note",
+                "widget": "textarea"
+              }
+            }
+          },
+          "set": {
+            "doneAt": {
+              "now": "ms"
+            },
+            "doneByMember": {
+              "caller": "userId"
+            },
+            "doneNote": {
+              "arg": "note"
+            },
+            "doneBy": {
+              "unset": true
+            },
+            "doneByVisitor": {
+              "unset": true
+            }
+          },
+          "dirties": [
+            {
+              "job": "health",
+              "key": [
+                {
+                  "lookup": {
+                    "view": "rooms.one",
+                    "args": {
+                      "key": {
+                        "doc": "parentKey"
+                      }
+                    }
+                  },
+                  "field": "deal"
+                },
+                {
+                  "lookup": {
+                    "view": "rooms.one",
+                    "args": {
+                      "key": {
+                        "doc": "parentKey"
+                      }
+                    }
+                  },
+                  "field": "kind"
+                }
+              ]
+            }
+          ]
+        },
+        "skip": {
+          "label": "Skip",
+          "from": [
+            "open"
+          ],
+          "to": "skipped",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "guards": [
+            {
+              "when": {
+                "ref": {
+                  "collection": "rooms",
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                },
+                "where": {
+                  "field": "status",
+                  "in": [
+                    "draft",
+                    "live"
+                  ]
+                }
+              },
+              "message": "This room is closed."
+            }
+          ],
+          "dirties": [
+            {
+              "job": "health",
+              "key": [
+                {
+                  "lookup": {
+                    "view": "rooms.one",
+                    "args": {
+                      "key": {
+                        "doc": "parentKey"
+                      }
+                    }
+                  },
+                  "field": "deal"
+                },
+                {
+                  "lookup": {
+                    "view": "rooms.one",
+                    "args": {
+                      "key": {
+                        "doc": "parentKey"
+                      }
+                    }
+                  },
+                  "field": "kind"
+                }
+              ]
+            }
+          ]
+        },
+        "reopen": {
+          "label": "Reopen",
+          "from": [
+            "done",
+            "skipped"
+          ],
+          "to": "open",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "guards": [
+            {
+              "when": {
+                "ref": {
+                  "collection": "rooms",
+                  "key": {
+                    "doc": "parentKey"
+                  }
+                },
+                "where": {
+                  "field": "status",
+                  "in": [
+                    "draft",
+                    "live"
+                  ]
+                }
+              },
+              "message": "This room is closed."
+            }
+          ],
+          "set": {
+            "doneAt": {
+              "unset": true
+            },
+            "doneByMember": {
+              "unset": true
+            },
+            "doneNote": {
+              "unset": true
+            },
+            "doneBy": {
+              "unset": true
+            },
+            "doneByVisitor": {
+              "unset": true
+            }
+          },
+          "dirties": [
+            {
+              "job": "health",
+              "key": [
+                {
+                  "lookup": {
+                    "view": "rooms.one",
+                    "args": {
+                      "key": {
+                        "doc": "parentKey"
+                      }
+                    }
+                  },
+                  "field": "deal"
+                },
+                {
+                  "lookup": {
+                    "view": "rooms.one",
+                    "args": {
+                      "key": {
+                        "doc": "parentKey"
+                      }
+                    }
+                  },
+                  "field": "kind"
+                }
+              ]
+            }
+          ]
+        },
+        "buyerDone": {
+          "label": "Mark done",
+          "from": [
+            "open"
+          ],
+          "to": "done",
+          "roles": [
+            "visitor"
+          ],
+          "share": "room",
+          "agent": "human",
+          "reason": "A buyer completes their step in their own browser.",
+          "guards": [
+            {
+              "when": {
+                "field": "side",
+                "in": [
+                  "buyer",
+                  "both"
+                ]
+              },
+              "message": "Only buyer or joint steps can be changed here."
+            },
+            {
+              "when": {
+                "shared": {
+                  "from": "root"
+                },
+                "where": {
+                  "field": "status",
+                  "in": [
+                    "live"
+                  ]
+                }
+              },
+              "message": "Only live rooms can be changed."
+            }
+          ],
+          "args": {
+            "type": "object",
+            "value": {
+              "note": {
+                "fieldType": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "optional": true,
+                "label": "Note",
+                "widget": "textarea"
+              }
+            }
+          },
+          "evidence": [
+            "ip",
+            "userAgent"
+          ],
+          "set": {
+            "doneAt": {
+              "now": "ms"
+            },
+            "doneBy": {
+              "visitor": "label"
+            },
+            "doneByVisitor": {
+              "visitor": "id"
+            },
+            "doneByMember": {
+              "unset": true
+            },
+            "doneNote": {
+              "arg": "note"
+            }
+          },
+          "effects": [
+            {
+              "notify": [
+                {
+                  "shared": {
+                    "from": "root",
+                    "field": "rep"
+                  }
+                }
+              ],
+              "message": "Buyer activity on {$doc.key}"
+            }
+          ]
+        },
+        "buyerReopen": {
+          "label": "Reopen my completed step",
+          "from": [
+            "done"
+          ],
+          "to": "open",
+          "roles": [
+            "visitor"
+          ],
+          "share": "room",
+          "agent": "human",
+          "reason": "Only the browser that completed a buyer step can reopen it.",
+          "guards": [
+            {
+              "when": {
+                "field": "side",
+                "in": [
+                  "buyer",
+                  "both"
+                ]
+              },
+              "message": "Only buyer or joint steps can be changed here."
+            },
+            {
+              "when": {
+                "field": "doneByVisitor",
+                "eq": {
+                  "visitor": "id"
+                }
+              },
+              "message": "Use the browser that completed this step."
+            },
+            {
+              "when": {
+                "shared": {
+                  "from": "root"
+                },
+                "where": {
+                  "field": "status",
+                  "in": [
+                    "live"
+                  ]
+                }
+              },
+              "message": "Only live rooms can be changed."
+            }
+          ],
+          "evidence": [
+            "ip",
+            "userAgent"
+          ],
+          "set": {
+            "doneAt": {
+              "unset": true
+            },
+            "doneByMember": {
+              "unset": true
+            },
+            "doneNote": {
+              "unset": true
+            },
+            "doneBy": {
+              "unset": true
+            },
+            "doneByVisitor": {
+              "unset": true
+            }
+          },
+          "effects": [
+            {
+              "notify": [
+                {
+                  "shared": {
+                    "from": "root",
+                    "field": "rep"
+                  }
+                }
+              ],
+              "message": "Buyer activity on {$doc.key}"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "calls": {
+    "seedTemplates": {
+      "label": "Add Canon's templates",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "human",
+      "reason": "templates are the team's to choose",
+      "confirm": "Add Canon's Enterprise close plan and Onboarding plan? You can edit, reorder or turn off any step.",
+      "reads": {
+        "templates": {
+          "view": "templates.all",
+          "limit": 200
+        }
+      },
+      "writes": [
+        "templates",
+        "templateSteps"
+      ],
+      "returns": "value"
+    },
+    "fromTemplate": {
+      "label": "New room",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "deal": {
+            "fieldType": {
+              "type": "ref",
+              "to": "deals"
+            },
+            "optional": false,
+            "label": "Deal"
+          },
+          "template": {
+            "fieldType": {
+              "type": "ref",
+              "to": "doc",
+              "collection": "templates"
+            },
+            "optional": false,
+            "label": "Template"
+          },
+          "title": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "optional": true,
+            "label": "Title",
+            "placeholder": "<deal>: mutual action plan"
+          },
+          "stakeholders": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "name": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "optional": false,
+                    "label": "Name"
+                  },
+                  "email": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 320
+                    },
+                    "optional": true,
+                    "label": "Email"
+                  },
+                  "title": {
+                    "fieldType": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "optional": true,
+                    "label": "Title"
+                  },
+                  "slot": {
+                    "fieldType": {
+                      "type": "union",
+                      "value": [
+                        {
+                          "type": "literal",
+                          "value": "champion"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "executive"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "procurement"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "legal"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "technical"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "finance"
+                        },
+                        {
+                          "type": "literal",
+                          "value": "user"
+                        }
+                      ],
+                      "labels": {
+                        "champion": "Champion",
+                        "executive": "Executive sponsor",
+                        "procurement": "Procurement",
+                        "legal": "Legal",
+                        "technical": "Technical evaluator",
+                        "finance": "Finance",
+                        "user": "User"
+                      }
+                    },
+                    "optional": true,
+                    "label": "Role in the deal"
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Stakeholders",
+            "help": "The buyer's people you know of. Steps go to whoever holds their role in the deal; the rest wait for an owner."
+          }
+        }
+      },
+      "reads": {
+        "template": {
+          "view": "templates.one",
+          "args": {
+            "key": {
+              "arg": "template"
+            }
+          }
+        },
+        "steps": {
+          "view": "templateSteps.forTemplate",
+          "args": {
+            "template": {
+              "arg": "template"
+            }
+          },
+          "limit": 200
+        },
+        "deal": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          }
+        },
+        "existing": {
+          "view": "rooms.forDeal",
+          "args": {
+            "deal": {
+              "arg": "deal"
+            }
+          }
+        }
+      },
+      "writes": [
+        "rooms",
+        "milestones",
+        "steps"
+      ],
+      "returns": "value"
+    },
+    "assignOwners": {
+      "label": "Fill owners from people",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "room": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Room"
+          }
+        }
+      },
+      "reads": {
+        "room": {
+          "view": "rooms.one",
+          "args": {
+            "key": {
+              "arg": "room"
+            }
+          }
+        },
+        "steps": {
+          "view": "steps.forRoom",
+          "args": {
+            "room": {
+              "arg": "room"
+            }
+          },
+          "limit": 500
+        }
+      },
+      "writes": [
+        "steps"
+      ],
+      "returns": "value"
+    },
+    "reorderSteps": {
+      "label": "Reorder steps",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "room": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Room"
+          },
+          "keys": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "steps": {
+          "view": "steps.forRoom",
+          "args": {
+            "room": {
+              "arg": "room"
+            }
+          },
+          "limit": 500
+        }
+      },
+      "writes": [
+        "steps"
+      ],
+      "returns": "none"
+    },
+    "reorderTemplateSteps": {
+      "label": "Reorder template steps",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "template": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Template"
+          },
+          "keys": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "steps": {
+          "view": "templateSteps.forTemplate",
+          "args": {
+            "template": {
+              "arg": "template"
+            }
+          },
+          "limit": 200
+        }
+      },
+      "writes": [
+        "templateSteps"
+      ],
+      "returns": "none"
+    },
+    "rooms": {
+      "label": "Rooms",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "rooms": {
+          "view": "rooms.all",
+          "limit": 500
+        },
+        "deals": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "read": "rooms",
+              "field": "deal"
+            }
+          },
+          "limit": 500
+        },
+        "steps": {
+          "view": "steps.forRooms",
+          "args": {
+            "rooms": {
+              "read": "rooms"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "roomFigures": {
+      "label": "Room figures",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "room": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Room"
+          }
+        }
+      },
+      "reads": {
+        "room": {
+          "view": "rooms.one",
+          "args": {
+            "key": {
+              "arg": "room"
+            }
+          }
+        },
+        "steps": {
+          "view": "steps.forRoom",
+          "args": {
+            "room": {
+              "arg": "room"
+            }
+          },
+          "limit": 500
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "onDeals": {
+      "label": "Refresh rooms for changed deals",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {},
+      "writes": [],
+      "returns": "none"
+    },
+    "health": {
+      "label": "Refresh room health",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "rooms": {
+          "view": "rooms.forDeals",
+          "args": {
+            "deals": {
+              "arg": "deal"
+            }
+          },
+          "limit": 200
+        },
+        "steps": {
+          "view": "steps.forRooms",
+          "args": {
+            "rooms": {
+              "read": "rooms"
+            }
+          },
+          "limit": 5000
+        },
+        "deals": {
+          "canon": "deals.byIds",
+          "args": {
+            "ids": {
+              "arg": "deal"
+            }
+          },
+          "limit": 200
+        }
+      },
+      "writes": [
+        "rooms"
+      ],
+      "returns": "none"
+    },
+    "hourly": {
+      "label": "Refresh open rooms hourly",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "rooms": {
+          "view": "rooms.open",
+          "limit": 500
+        }
+      },
+      "writes": [],
+      "returns": "none"
+    },
+    "daily": {
+      "label": "Refresh rooms and remind sellers",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "rooms": {
+          "view": "rooms.open",
+          "limit": 500
+        },
+        "steps": {
+          "view": "steps.forRooms",
+          "args": {
+            "rooms": {
+              "read": "rooms"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [],
+      "returns": "none"
+    },
+    "digest": {
+      "label": "Room digest",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "rooms": {
+          "view": "rooms.all",
+          "limit": 500
+        },
+        "steps": {
+          "view": "steps.forRooms",
+          "args": {
+            "rooms": {
+              "read": "rooms"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    }
+  },
+  "pages": [
+    {
+      "path": "rooms",
+      "title": "Deal rooms",
+      "tab": {
+        "label": "Rooms",
+        "order": 0
+      },
+      "bind": {
+        "list": {
+          "call": "rooms"
+        },
+        "templates": {
+          "view": "templates.all"
+        },
+        "digest": {
+          "call": "digest"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Deal rooms",
+          "subtitle": "Mutual action plans on your deals: the steps both sides take to the close, with dates counted back from it.",
+          "actions": [
+            {
+              "call": "fromTemplate",
+              "label": "New room",
+              "then": "rooms/:key",
+              "toast": "Room opened: {$result.steps} steps, {$result.toConfirm} waiting on an owner",
+              "fields": [
+                {
+                  "field": "deal",
+                  "label": "Deal"
+                },
+                {
+                  "field": "template",
+                  "label": "Template"
+                },
+                {
+                  "field": "title",
+                  "label": "Title"
+                },
+                {
+                  "field": "stakeholders",
+                  "label": "Stakeholders"
+                }
+              ],
+              "dialog": {
+                "title": "New deal room",
+                "description": "Dates count back from the deal's close date. Canon reads the deal's buying committee here once that read ships; until then, name the stakeholders you know.",
+                "submit": "Open room"
+              }
+            }
+          ]
+        },
+        {
+          "c": "empty",
+          "text": "No templates yet. Add Canon's Enterprise close plan and Onboarding plan to open your first room.",
+          "action": {
+            "call": "seedTemplates",
+            "label": "Add Canon's templates",
+            "toast": "Added {$result.added} templates"
+          },
+          "when": {
+            "bind": "templates",
+            "empty": true
+          },
+          "roles": [
+            "admin",
+            "manager"
+          ]
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "Live rooms",
+              "value": "{$digest.live|number}"
+            },
+            {
+              "label": "At risk",
+              "value": "{$digest.atRisk|number}"
+            },
+            {
+              "label": "Overdue steps",
+              "value": "{$digest.overdue|number}"
+            },
+            {
+              "label": "Buyer activity",
+              "value": "Not available yet",
+              "hint": "Buyer visits and actions arrive in a later version."
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "list",
+          "rows": "rows",
+          "id": "rm",
+          "rowLink": "rooms/:key",
+          "cards": true,
+          "empty": "No rooms yet. Open one on a deal with New room.",
+          "emptyFiltered": "No rooms match.",
+          "search": [
+            "title",
+            "dealName",
+            "companyName"
+          ],
+          "chips": [
+            {
+              "label": "Mine",
+              "when": {
+                "field": "rep",
+                "me": true
+              }
+            },
+            {
+              "label": "Overdue",
+              "when": {
+                "field": "overdue",
+                "gte": 1
+              }
+            }
+          ],
+          "filters": [
+            {
+              "field": "healthLabel",
+              "label": "Health"
+            },
+            {
+              "field": "statusLabel",
+              "label": "Status"
+            },
+            {
+              "field": "kindLabel",
+              "label": "Kind"
+            },
+            {
+              "field": "rep",
+              "label": "Rep"
+            }
+          ],
+          "groupBy": [
+            {
+              "by": "healthLabel",
+              "label": "Health"
+            },
+            {
+              "by": "statusLabel",
+              "label": "Status"
+            },
+            {
+              "by": "rep",
+              "label": "Rep"
+            }
+          ],
+          "sort": {
+            "by": "nextDue",
+            "dir": "asc"
+          },
+          "columns": [
+            {
+              "label": "Room",
+              "value": "{$row.title}",
+              "sort": "title"
+            },
+            {
+              "label": "Deal",
+              "value": "{$row.dealName}",
+              "sort": "dealName",
+              "empty": "Not yours to see",
+              "tooltip": "{$row.companyName}"
+            },
+            {
+              "label": "Rep",
+              "value": "{$row.rep|user}",
+              "avatars": "rep",
+              "sort": "rep"
+            },
+            {
+              "label": "Health",
+              "value": "{$row.healthLabel}",
+              "empty": "Not checked yet",
+              "tone": {
+                "by": "health",
+                "cases": [
+                  {
+                    "in": [
+                      "on_track"
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "in": [
+                      "needs_attention"
+                    ],
+                    "tone": "warn"
+                  },
+                  {
+                    "in": [
+                      "at_risk"
+                    ],
+                    "tone": "danger"
+                  }
+                ],
+                "badge": true
+              }
+            },
+            {
+              "label": "Progress",
+              "value": "{$row.progressText}",
+              "bar": {
+                "value": "progress",
+                "tone": {
+                  "by": "progress",
+                  "cases": [
+                    {
+                      "gte": 1,
+                      "tone": "success"
+                    },
+                    {
+                      "tone": "info"
+                    }
+                  ]
+                }
+              },
+              "sort": "progress"
+            },
+            {
+              "label": "Slip",
+              "value": "{$row.slipText}",
+              "empty": "\u2014",
+              "tone": {
+                "by": "slipDays",
+                "cases": [
+                  {
+                    "gte": 1,
+                    "tone": "danger"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Last buyer visit",
+              "value": "{$row.lastBuyerAt|date}",
+              "empty": "No buyer visits yet"
+            },
+            {
+              "label": "Next due",
+              "value": "{$row.nextDue|date}",
+              "empty": "Nothing due",
+              "sort": "nextDue",
+              "tone": {
+                "by": "overdue",
+                "cases": [
+                  {
+                    "gte": 1,
+                    "tone": "danger"
+                  }
+                ]
+              },
+              "tooltip": "{$row.overdueText}"
+            },
+            {
+              "label": "Close date",
+              "value": "{$row.closeDate|date}",
+              "sort": "closeDate"
+            },
+            {
+              "label": "Status",
+              "value": "{$row.statusLabel}",
+              "tone": {
+                "by": "status",
+                "cases": [
+                  {
+                    "in": [
+                      "live"
+                    ],
+                    "tone": "info"
+                  },
+                  {
+                    "in": [
+                      "won"
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "in": [
+                      "lost"
+                    ],
+                    "tone": "danger"
+                  },
+                  {
+                    "tone": "neutral"
+                  }
+                ],
+                "badge": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "rooms/:key",
+      "title": "{$room.title}",
+      "bind": {
+        "room": {
+          "view": "rooms.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          },
+          "join": [
+            "deal"
+          ]
+        },
+        "figures": {
+          "call": "roomFigures",
+          "args": {
+            "room": {
+              "route": "key"
+            }
+          }
+        },
+        "steps": {
+          "view": "steps.forRoom",
+          "args": {
+            "room": {
+              "route": "key"
+            }
+          },
+          "join": [
+            "milestone"
+          ]
+        },
+        "milestones": {
+          "view": "milestones.forRoom",
+          "args": {
+            "room": {
+              "route": "key"
+            }
+          }
+        },
+        "assets": {
+          "view": "assets.forRoom",
+          "args": {
+            "room": {
+              "route": "key"
+            }
+          }
+        },
+        "shared": {
+          "view": "comments.shared",
+          "args": {
+            "room": {
+              "route": "key"
+            }
+          }
+        },
+        "internal": {
+          "view": "comments.internal",
+          "args": {
+            "room": {
+              "route": "key"
+            }
+          }
+        }
+      },
+      "fallback": {
+        "missing": "This room doesn't exist, or it isn't yours to see.",
+        "back": {
+          "label": "All rooms",
+          "path": "rooms"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$room.title}",
+          "subtitle": "{$room.deal|ref} \u00b7 {$room.deal.companyName} \u00b7 {$room.rep|user} \u00b7 closes {$room.targetDate|date}",
+          "actions": [
+            {
+              "transition": "publish",
+              "machine": "room",
+              "target": "room",
+              "toast": "{$doc.title} is live"
+            },
+            {
+              "op": "rooms.update",
+              "target": "room",
+              "label": "Edit room",
+              "fields": [
+                {
+                  "field": "title",
+                  "label": "Title"
+                },
+                {
+                  "field": "welcome",
+                  "label": "Welcome note",
+                  "placeholder": "What this plan is for, in a line or two"
+                },
+                {
+                  "field": "internalNotes",
+                  "label": "Internal notes"
+                }
+              ]
+            },
+            {
+              "canon": "deal",
+              "label": "Open deal",
+              "bind": "room",
+              "ref": "deal"
+            },
+            {
+              "transition": "archive",
+              "machine": "room",
+              "target": "room",
+              "then": {
+                "path": "rooms"
+              },
+              "toast": "Archived {$doc.title}"
+            },
+            {
+              "navigate": "rooms",
+              "label": "All rooms"
+            }
+          ]
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "This room is a draft. Go live once the plan is ready, then manage buyer links on Share.",
+          "when": {
+            "bind": "room",
+            "field": "status",
+            "in": [
+              "draft"
+            ]
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "success",
+          "text": "The deal was won, so this room is closed.",
+          "when": {
+            "bind": "room",
+            "field": "status",
+            "in": [
+              "won"
+            ]
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "danger",
+          "text": "The deal was lost, so this room is closed.",
+          "when": {
+            "bind": "room",
+            "field": "status",
+            "in": [
+              "lost"
+            ]
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "warn",
+          "text": "{$figures.ownersWaiting}",
+          "when": {
+            "bind": "figures",
+            "field": "ownersWaiting",
+            "set": true
+          },
+          "actions": [
+            {
+              "call": "assignOwners",
+              "label": "Fill owners from people",
+              "args": {
+                "room": {
+                  "route": "key"
+                }
+              },
+              "toast": "Gave {$result.assigned} steps an owner"
+            }
+          ]
+        },
+        {
+          "c": "banner",
+          "tone": "danger",
+          "text": "{$figures.slipBanner}",
+          "when": {
+            "bind": "figures",
+            "field": "slipBanner",
+            "set": true
+          }
+        },
+        {
+          "c": "banner",
+          "tone": "warn",
+          "text": "{$figures.healthLabel}",
+          "when": {
+            "bind": "room",
+            "field": "health",
+            "in": [
+              "needs_attention",
+              "at_risk"
+            ]
+          }
+        },
+        {
+          "c": "statusSteps",
+          "from": "room",
+          "machine": "room",
+          "steps": [
+            "draft",
+            "live",
+            "won"
+          ]
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "Progress",
+              "value": "{$figures.progress|percent}",
+              "hint": "{$figures.progressText} steps done"
+            },
+            {
+              "label": "Open steps",
+              "value": "{$figures.open|number}"
+            },
+            {
+              "label": "Overdue",
+              "value": "{$figures.overdue|number}",
+              "tone": {
+                "by": "overdue",
+                "cases": [
+                  {
+                    "gte": 1,
+                    "tone": "danger"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "Next due",
+              "value": "{$figures.nextDue|date}"
+            },
+            {
+              "label": "Close date",
+              "value": "{$room.targetDate|date}"
+            }
+          ]
+        },
+        {
+          "c": "tabs",
+          "param": "view",
+          "tabs": [
+            {
+              "id": "plan",
+              "label": "Plan ({$steps.count})",
+              "body": [
+                {
+                  "c": "actions",
+                  "items": [
+                    {
+                      "op": "steps.create",
+                      "label": "Add step",
+                      "parent": {
+                        "route": "key"
+                      },
+                      "fields": [
+                        {
+                          "field": "title",
+                          "label": "Step"
+                        },
+                        {
+                          "field": "milestone",
+                          "label": "Milestone",
+                          "options": {
+                            "from": "milestones",
+                            "label": "{$item.title}"
+                          }
+                        },
+                        {
+                          "field": "side",
+                          "label": "Side"
+                        },
+                        {
+                          "field": "dueOn",
+                          "label": "Due"
+                        },
+                        {
+                          "field": "afterClose",
+                          "label": "After the close"
+                        },
+                        {
+                          "field": "detail",
+                          "label": "Detail"
+                        }
+                      ]
+                    },
+                    {
+                      "call": "assignOwners",
+                      "label": "Fill owners from people",
+                      "args": {
+                        "room": {
+                          "route": "key"
+                        }
+                      },
+                      "toast": "Gave {$result.assigned} steps an owner"
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "steps",
+                  "id": "st",
+                  "empty": "No steps yet. Add one.",
+                  "groupBy": [
+                    {
+                      "by": "milestone",
+                      "label": "Milestone"
+                    }
+                  ],
+                  "reorder": {
+                    "call": "reorderSteps",
+                    "by": "order",
+                    "args": {
+                      "room": {
+                        "route": "key"
+                      }
+                    }
+                  },
+                  "chips": [
+                    {
+                      "label": "Open",
+                      "when": {
+                        "field": "status",
+                        "in": [
+                          "open"
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Ours",
+                      "when": {
+                        "field": "side",
+                        "in": [
+                          "seller",
+                          "both"
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Buyer's",
+                      "when": {
+                        "field": "side",
+                        "in": [
+                          "buyer",
+                          "both"
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Owner to confirm",
+                      "when": {
+                        "field": "ownerToConfirm",
+                        "in": [
+                          true
+                        ]
+                      }
+                    }
+                  ],
+                  "columns": [
+                    {
+                      "label": "Step",
+                      "value": "{$row.title}",
+                      "expand": {
+                        "label": "{$row.title}",
+                        "body": [
+                          {
+                            "c": "detail",
+                            "columns": 2,
+                            "items": [
+                              {
+                                "label": "Detail",
+                                "value": "{$row.detail}",
+                                "span": 2
+                              },
+                              {
+                                "label": "Owner role",
+                                "value": "{$row.ownerRole}"
+                              },
+                              {
+                                "label": "File",
+                                "value": "{$row.file}"
+                              },
+                              {
+                                "label": "Done by",
+                                "value": "{$row.doneByMember|user}"
+                              },
+                              {
+                                "label": "Done",
+                                "value": "{$row.doneAt|time}"
+                              },
+                              {
+                                "label": "Note",
+                                "value": "{$row.doneNote}",
+                                "span": 2
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "label": "Side",
+                      "value": "{$row.side}",
+                      "tone": {
+                        "by": "side",
+                        "cases": [
+                          {
+                            "in": [
+                              "seller"
+                            ],
+                            "tone": "info"
+                          },
+                          {
+                            "in": [
+                              "buyer"
+                            ],
+                            "tone": "warn"
+                          },
+                          {
+                            "tone": "neutral"
+                          }
+                        ],
+                        "badge": true
+                      }
+                    },
+                    {
+                      "label": "Our owner",
+                      "value": "{$row.sellerOwner|user}",
+                      "avatars": "sellerOwner",
+                      "empty": "\u2014"
+                    },
+                    {
+                      "label": "Buyer owner",
+                      "value": "{$row.buyerOwnerName}",
+                      "empty": "\u2014",
+                      "tooltip": "{$row.buyerOwnerEmail}"
+                    },
+                    {
+                      "label": "",
+                      "value": "Owner to confirm",
+                      "when": {
+                        "field": "ownerToConfirm",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "ownerToConfirm",
+                        "cases": [
+                          {
+                            "tone": "warn"
+                          }
+                        ],
+                        "badge": true
+                      }
+                    },
+                    {
+                      "label": "Due",
+                      "value": "{$row.dueOn|date}",
+                      "empty": "No date"
+                    },
+                    {
+                      "label": "",
+                      "value": "After the close",
+                      "when": {
+                        "field": "afterClose",
+                        "in": [
+                          true
+                        ]
+                      },
+                      "tone": {
+                        "by": "afterClose",
+                        "cases": [
+                          {
+                            "tone": "neutral"
+                          }
+                        ],
+                        "badge": true
+                      }
+                    },
+                    {
+                      "label": "Status",
+                      "value": "{$row.status}",
+                      "tone": {
+                        "by": "status",
+                        "cases": [
+                          {
+                            "in": [
+                              "done"
+                            ],
+                            "tone": "success"
+                          },
+                          {
+                            "in": [
+                              "skipped"
+                            ],
+                            "tone": "neutral"
+                          },
+                          {
+                            "tone": "info"
+                          }
+                        ],
+                        "badge": true
+                      }
+                    }
+                  ],
+                  "rowActions": [
+                    {
+                      "transition": "complete",
+                      "machine": "step",
+                      "label": "Mark done",
+                      "aria": "Mark {$row.title} done",
+                      "fields": [
+                        {
+                          "field": "note",
+                          "label": "Note",
+                          "placeholder": "What was agreed, optional"
+                        }
+                      ],
+                      "toast": "{$doc.title} is done"
+                    },
+                    {
+                      "transition": "skip",
+                      "machine": "step",
+                      "label": "Skip"
+                    },
+                    {
+                      "transition": "reopen",
+                      "machine": "step",
+                      "label": "Reopen"
+                    },
+                    {
+                      "op": "steps.assign",
+                      "label": "Set owner",
+                      "fields": [
+                        {
+                          "field": "sellerOwner",
+                          "label": "Our owner"
+                        },
+                        {
+                          "field": "buyerOwnerName",
+                          "label": "Buyer owner",
+                          "options": {
+                            "from": "room",
+                            "list": "stakeholders",
+                            "value": "name",
+                            "label": "{$item.name}"
+                          }
+                        },
+                        {
+                          "field": "buyerOwnerEmail",
+                          "label": "Buyer owner's email"
+                        }
+                      ]
+                    },
+                    {
+                      "op": "steps.update",
+                      "label": "Edit",
+                      "fields": [
+                        {
+                          "field": "title",
+                          "label": "Step"
+                        },
+                        {
+                          "field": "milestone",
+                          "label": "Milestone",
+                          "options": {
+                            "from": "milestones",
+                            "label": "{$item.title}"
+                          }
+                        },
+                        {
+                          "field": "side",
+                          "label": "Side"
+                        },
+                        {
+                          "field": "dueOn",
+                          "label": "Due"
+                        },
+                        {
+                          "field": "afterClose",
+                          "label": "After the close"
+                        },
+                        {
+                          "field": "detail",
+                          "label": "Detail"
+                        }
+                      ]
+                    },
+                    {
+                      "op": "steps.attach",
+                      "label": "Attach file"
+                    },
+                    {
+                      "op": "steps.delete",
+                      "label": "Delete",
+                      "dialog": {
+                        "title": "Delete \"{$row.title}\"?",
+                        "submit": "Delete step"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "people",
+              "label": "People",
+              "body": [
+                {
+                  "c": "banner",
+                  "tone": "info",
+                  "text": "Canon will read the deal's buying committee into this list once that read ships. Until then, type the buyer's people here; Fill owners from people then gives each waiting step the person in its role."
+                },
+                {
+                  "c": "form",
+                  "op": "rooms.people",
+                  "from": "room",
+                  "submit": "Save people",
+                  "fields": [
+                    {
+                      "field": "sellerTeam",
+                      "label": "Our team"
+                    },
+                    {
+                      "field": "stakeholders",
+                      "label": "Stakeholders"
+                    }
+                  ]
+                },
+                {
+                  "c": "actions",
+                  "items": [
+                    {
+                      "call": "assignOwners",
+                      "label": "Fill owners from people",
+                      "args": {
+                        "room": {
+                          "route": "key"
+                        }
+                      },
+                      "toast": "Gave {$result.assigned} steps an owner"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "content",
+              "label": "Content ({$assets.count})",
+              "body": [
+                {
+                  "c": "actions",
+                  "items": [
+                    {
+                      "op": "assets.create",
+                      "label": "Add content",
+                      "parent": {
+                        "route": "key"
+                      },
+                      "fields": [
+                        {
+                          "field": "title",
+                          "label": "Title"
+                        },
+                        {
+                          "field": "kind",
+                          "label": "Kind"
+                        },
+                        {
+                          "field": "url",
+                          "label": "Link"
+                        },
+                        {
+                          "field": "file",
+                          "label": "File"
+                        },
+                        {
+                          "field": "body",
+                          "label": "Note"
+                        },
+                        {
+                          "field": "shared",
+                          "label": "Share with the buyer"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "c": "table",
+                  "from": "assets",
+                  "id": "as",
+                  "empty": "No content yet. Add a link, a file or a note.",
+                  "sort": {
+                    "by": "order",
+                    "dir": "asc"
+                  },
+                  "columns": [
+                    {
+                      "label": "Title",
+                      "value": "{$row.title}"
+                    },
+                    {
+                      "label": "Kind",
+                      "value": "{$row.kind}"
+                    },
+                    {
+                      "label": "Link",
+                      "value": "{$row.url}",
+                      "copy": "{$row.url}",
+                      "empty": "\u2014"
+                    },
+                    {
+                      "label": "File",
+                      "value": "{$row.file}",
+                      "empty": "\u2014"
+                    },
+                    {
+                      "label": "Shared",
+                      "value": "{$row.shared}",
+                      "tone": {
+                        "by": "shared",
+                        "cases": [
+                          {
+                            "in": [
+                              true
+                            ],
+                            "tone": "success"
+                          },
+                          {
+                            "tone": "neutral"
+                          }
+                        ],
+                        "badge": true
+                      }
+                    }
+                  ],
+                  "rowActions": [
+                    {
+                      "op": "assets.share",
+                      "label": "Share with buyer",
+                      "fixed": {
+                        "shared": true
+                      },
+                      "when": {
+                        "field": "shared",
+                        "in": [
+                          false,
+                          null
+                        ]
+                      }
+                    },
+                    {
+                      "op": "assets.share",
+                      "label": "Stop sharing",
+                      "fixed": {
+                        "shared": false
+                      },
+                      "when": {
+                        "field": "shared",
+                        "in": [
+                          true
+                        ]
+                      }
+                    },
+                    {
+                      "op": "assets.update",
+                      "label": "Edit"
+                    },
+                    {
+                      "op": "assets.delete",
+                      "label": "Remove",
+                      "dialog": {
+                        "title": "Remove \"{$row.title}\"?",
+                        "submit": "Remove"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "conversation",
+              "label": "Conversation ({$shared.count})",
+              "body": [
+                {
+                  "c": "banner",
+                  "tone": "info",
+                  "text": "Messages here are visible to everyone who can open this room's buyer link."
+                },
+                {
+                  "c": "table",
+                  "from": "shared",
+                  "columns": [
+                    {
+                      "label": "Seller",
+                      "value": "{$row.authorMember|user}"
+                    },
+                    {
+                      "label": "Buyer",
+                      "value": "{$row.authorName}"
+                    },
+                    {
+                      "label": "Message",
+                      "value": "{$row.body}"
+                    }
+                  ],
+                  "empty": "No shared messages yet."
+                },
+                {
+                  "c": "actions",
+                  "items": [
+                    {
+                      "op": "comments.post",
+                      "label": "Post message",
+                      "parent": {
+                        "route": "key"
+                      },
+                      "fields": [
+                        {
+                          "field": "body",
+                          "label": "Message"
+                        },
+                        {
+                          "field": "step",
+                          "label": "Step"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "c": "banner",
+                  "tone": "warn",
+                  "text": "Internal notes: never shared with the buyer."
+                },
+                {
+                  "c": "thread",
+                  "from": "internal",
+                  "body": "body",
+                  "author": "authorMember",
+                  "empty": "No internal notes yet.",
+                  "post": {
+                    "op": "comments.note",
+                    "parent": {
+                      "route": "key"
+                    },
+                    "field": "body",
+                    "label": "Internal note",
+                    "placeholder": "A note for your team\u2026",
+                    "button": "Add note"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "share",
+              "label": "Share",
+              "body": [
+                {
+                  "c": "shareLinks",
+                  "share": "room",
+                  "from": "room",
+                  "when": {
+                    "bind": "room",
+                    "field": "status",
+                    "in": [
+                      "live"
+                    ]
+                  }
+                },
+                {
+                  "c": "banner",
+                  "tone": "info",
+                  "text": "Buyer links are available while this room is live.",
+                  "when": {
+                    "bind": "room",
+                    "field": "status",
+                    "in": [
+                      "draft",
+                      "won",
+                      "lost",
+                      "archived"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "id": "history",
+              "label": "History",
+              "roles": [
+                "admin",
+                "manager"
+              ],
+              "body": [
+                {
+                  "c": "timeline",
+                  "of": "room",
+                  "limit": 100
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "templates",
+      "title": "Templates",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "tab": {
+        "label": "Templates",
+        "order": 1,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "bind": {
+        "templates": {
+          "view": "templates.all",
+          "count": {
+            "steps": {
+              "view": "templateSteps.forTemplates",
+              "by": "parentKey"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Templates",
+          "subtitle": "The plans a new room starts from. Each step is due a number of days before the deal's close date.",
+          "actions": [
+            {
+              "op": "templates.create",
+              "label": "New template",
+              "then": "templates/:key"
+            },
+            {
+              "call": "seedTemplates",
+              "label": "Add Canon's templates",
+              "toast": "Added {$result.added} templates"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "templates",
+          "id": "tp",
+          "rowLink": "templates/:key",
+          "empty": "No templates yet. Add Canon's, or make your own.",
+          "columns": [
+            {
+              "label": "Template",
+              "value": "{$row.name}",
+              "sort": "name"
+            },
+            {
+              "label": "Kind",
+              "value": "{$row.kind}"
+            },
+            {
+              "label": "Steps",
+              "value": "{$row.steps|number}",
+              "align": "end"
+            },
+            {
+              "label": "Offered",
+              "value": "{$row.active}",
+              "tone": {
+                "by": "active",
+                "cases": [
+                  {
+                    "in": [
+                      true
+                    ],
+                    "tone": "success"
+                  },
+                  {
+                    "tone": "neutral"
+                  }
+                ],
+                "badge": true
+              }
+            },
+            {
+              "label": "Description",
+              "value": "{$row.description}",
+              "empty": "\u2014"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "templates/:key",
+      "title": "{$template.name}",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "bind": {
+        "template": {
+          "view": "templates.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          }
+        },
+        "steps": {
+          "view": "templateSteps.forTemplate",
+          "args": {
+            "template": {
+              "route": "key"
+            }
+          }
+        }
+      },
+      "fallback": {
+        "missing": "This template doesn't exist.",
+        "back": {
+          "label": "Templates",
+          "path": "templates"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$template.name}",
+          "subtitle": "{$template.kind} \u00b7 {$steps.count} steps",
+          "actions": [
+            {
+              "navigate": "templates",
+              "label": "All templates"
+            },
+            {
+              "op": "templates.delete",
+              "target": "template",
+              "then": "templates",
+              "dialog": {
+                "title": "Delete \"{$template.name}\"?",
+                "submit": "Delete template"
+              }
+            }
+          ]
+        },
+        {
+          "c": "form",
+          "op": "templates.update",
+          "from": "template",
+          "submit": "Save",
+          "fields": [
+            {
+              "field": "name",
+              "label": "Name"
+            },
+            {
+              "field": "description",
+              "label": "Description"
+            },
+            {
+              "field": "active",
+              "label": "Offered for new rooms"
+            }
+          ]
+        },
+        {
+          "c": "actions",
+          "items": [
+            {
+              "op": "templateSteps.create",
+              "label": "Add step",
+              "parent": {
+                "route": "key"
+              },
+              "fields": [
+                {
+                  "field": "title",
+                  "label": "Step"
+                },
+                {
+                  "field": "milestoneTitle",
+                  "label": "Milestone"
+                },
+                {
+                  "field": "side",
+                  "label": "Side"
+                },
+                {
+                  "field": "daysBeforeClose",
+                  "label": "Days before close"
+                },
+                {
+                  "field": "ownerRole",
+                  "label": "Owner role"
+                },
+                {
+                  "field": "detail",
+                  "label": "Detail"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "steps",
+          "id": "ts",
+          "empty": "No steps yet.",
+          "reorder": {
+            "call": "reorderTemplateSteps",
+            "by": "order",
+            "args": {
+              "template": {
+                "route": "key"
+              }
+            }
+          },
+          "columns": [
+            {
+              "label": "#",
+              "value": "{$row.order|number}"
+            },
+            {
+              "label": "Step",
+              "value": "{$row.title}"
+            },
+            {
+              "label": "Milestone",
+              "value": "{$row.milestoneTitle}"
+            },
+            {
+              "label": "Side",
+              "value": "{$row.side}",
+              "tone": {
+                "by": "side",
+                "cases": [
+                  {
+                    "in": [
+                      "seller"
+                    ],
+                    "tone": "info"
+                  },
+                  {
+                    "in": [
+                      "buyer"
+                    ],
+                    "tone": "warn"
+                  },
+                  {
+                    "tone": "neutral"
+                  }
+                ],
+                "badge": true
+              }
+            },
+            {
+              "label": "Days before close",
+              "value": "{$row.daysBeforeClose|number}",
+              "align": "end"
+            },
+            {
+              "label": "Owner role",
+              "value": "{$row.ownerRole}",
+              "empty": "Owner to confirm"
+            }
+          ],
+          "rowActions": [
+            {
+              "op": "templateSteps.update",
+              "label": "Edit"
+            },
+            {
+              "op": "templateSteps.delete",
+              "label": "Delete",
+              "dialog": {
+                "title": "Delete \"{$row.title}\"?",
+                "submit": "Delete step"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "jobs": {
+    "health": {
+      "label": "Room health",
+      "call": "health",
+      "key": [
+        "deal",
+        "kind"
+      ],
+      "batch": 50
+    }
+  },
+  "watches": [
+    {
+      "object": "deals",
+      "call": "onDeals",
+      "fields": [
+        "closeDate",
+        "isClosed",
+        "isWon",
+        "ownerId"
+      ]
+    }
+  ],
+  "schedules": {
+    "hourly": {
+      "label": "Hourly room health",
+      "call": "hourly",
+      "everyMinutes": 60
+    },
+    "daily": {
+      "label": "Daily health and seller reminders",
+      "call": "daily",
+      "dailyAt": "13:00"
+    }
+  },
+  "shares": {
+    "room": {
+      "label": "Deal room link",
+      "collection": "rooms",
+      "when": {
+        "field": "status",
+        "in": [
+          "live"
+        ]
+      },
+      "identity": {
+        "default": "link",
+        "allow": [
+          "link"
+        ]
+      },
+      "expiresDays": {
+        "default": 45,
+        "max": 120
+      },
+      "read": {
+        "rooms": {
+          "fields": [
+            "title",
+            "welcome",
+            "targetDate",
+            "sellerTeam",
+            "rep",
+            "status"
+          ]
+        },
+        "milestones": {
+          "fields": [
+            "title",
+            "order",
+            "dueOn"
+          ]
+        },
+        "steps": {
+          "fields": [
+            "title",
+            "detail",
+            "side",
+            "buyerOwnerName",
+            "sellerOwner",
+            "dueOn",
+            "order",
+            "status",
+            "doneAt",
+            "doneBy",
+            "doneByMember",
+            "doneByVisitor",
+            "doneNote",
+            "file",
+            "milestone"
+          ]
+        },
+        "assets": {
+          "fields": [
+            "title",
+            "kind",
+            "url",
+            "file",
+            "body",
+            "order"
+          ],
+          "where": {
+            "field": "shared",
+            "in": [
+              true
+            ]
+          }
+        },
+        "comments": {
+          "fields": [
+            "body",
+            "authorName",
+            "authorMember",
+            "side",
+            "step"
+          ],
+          "where": {
+            "field": "internal",
+            "in": [
+              false
+            ]
+          }
+        }
+      },
+      "members": [
+        "name",
+        "title"
+      ],
+      "write": {
+        "ops": [
+          "comments.buyerPost",
+          "steps.buyerAttach"
+        ],
+        "transitions": [
+          "step.buyerDone",
+          "step.buyerReopen"
+        ]
+      },
+      "pages": [
+        {
+          "path": "plan",
+          "title": "{$room.title}",
+          "bind": {
+            "room": {
+              "root": true
+            },
+            "milestones": {
+              "set": "milestones"
+            },
+            "steps": {
+              "set": "steps"
+            },
+            "assets": {
+              "set": "assets"
+            },
+            "comments": {
+              "set": "comments"
+            },
+            "team": {
+              "rootList": "sellerTeam"
+            }
+          },
+          "body": [
+            {
+              "c": "header",
+              "title": "{$room.title}",
+              "subtitle": "Your plan with {$room.rep|user}"
+            },
+            {
+              "c": "detail",
+              "items": [
+                {
+                  "label": "Welcome",
+                  "value": "{$room.welcome}"
+                },
+                {
+                  "label": "Target date",
+                  "value": "{$room.targetDate|date}"
+                }
+              ]
+            },
+            {
+              "c": "table",
+              "from": "team",
+              "columns": [
+                {
+                  "label": "Seller team",
+                  "value": "{$row.member|user}"
+                },
+                {
+                  "label": "Role",
+                  "value": "{$row.role}"
+                }
+              ],
+              "empty": "Your seller team will be confirmed."
+            },
+            {
+              "c": "header",
+              "title": "Milestones"
+            },
+            {
+              "c": "table",
+              "from": "milestones",
+              "columns": [
+                {
+                  "label": "Milestone",
+                  "value": "{$row.title}"
+                },
+                {
+                  "label": "Due",
+                  "value": "{$row.dueOn|date}"
+                }
+              ],
+              "empty": "No milestones yet.",
+              "sort": {
+                "by": "order",
+                "dir": "asc"
+              }
+            },
+            {
+              "c": "header",
+              "title": "Action plan"
+            },
+            {
+              "c": "banner",
+              "tone": "info",
+              "text": "Complete buyer or joint steps here. Only the same browser can reopen a step it completed. Names are unverified attribution."
+            },
+            {
+              "c": "table",
+              "from": "steps",
+              "columns": [
+                {
+                  "label": "Step",
+                  "value": "{$row.title}",
+                  "link": "steps/:key"
+                },
+                {
+                  "label": "Detail",
+                  "value": "{$row.detail}"
+                },
+                {
+                  "label": "Side",
+                  "value": "{$row.side}"
+                },
+                {
+                  "label": "Buyer owner",
+                  "value": "{$row.buyerOwnerName}"
+                },
+                {
+                  "label": "Seller owner",
+                  "value": "{$row.sellerOwner|user}"
+                },
+                {
+                  "label": "Due",
+                  "value": "{$row.dueOn|date}"
+                },
+                {
+                  "label": "Status",
+                  "value": "{$row.status}"
+                },
+                {
+                  "label": "Completed",
+                  "value": "{$row.doneAt|time}"
+                },
+                {
+                  "label": "Buyer completion",
+                  "value": "{$row.doneBy}"
+                },
+                {
+                  "label": "Seller completion",
+                  "value": "{$row.doneByMember|user}"
+                },
+                {
+                  "label": "Note",
+                  "value": "{$row.doneNote}"
+                },
+                {
+                  "label": "File",
+                  "value": "{$row.file}"
+                }
+              ],
+              "rowActions": [
+                {
+                  "menu": "Buyer actions",
+                  "when": {
+                    "field": "side",
+                    "in": [
+                      "buyer",
+                      "both"
+                    ]
+                  },
+                  "items": [
+                    {
+                      "machine": "step",
+                      "transition": "buyerDone",
+                      "label": "Mark done",
+                      "when": {
+                        "field": "status",
+                        "in": [
+                          "open"
+                        ]
+                      }
+                    },
+                    {
+                      "machine": "step",
+                      "transition": "buyerReopen",
+                      "label": "Reopen my completed step",
+                      "when": {
+                        "field": "status",
+                        "in": [
+                          "done"
+                        ]
+                      }
+                    },
+                    {
+                      "op": "steps.buyerAttach",
+                      "label": "Attach file",
+                      "dialog": {
+                        "description": "PNG, JPEG or PDF, up to 10 MB. Files are not scanned."
+                      }
+                    }
+                  ]
+                }
+              ],
+              "empty": "No steps yet.",
+              "sort": {
+                "by": "order",
+                "dir": "asc"
+              },
+              "groupBy": [
+                {
+                  "by": "milestone",
+                  "label": "{$row.milestone}"
+                }
+              ]
+            },
+            {
+              "c": "header",
+              "title": "Shared content"
+            },
+            {
+              "c": "table",
+              "from": "assets",
+              "columns": [
+                {
+                  "label": "Title",
+                  "value": "{$row.title}"
+                },
+                {
+                  "label": "Kind",
+                  "value": "{$row.kind}"
+                },
+                {
+                  "label": "HTTPS link",
+                  "value": "{$row.url}",
+                  "link": {
+                    "url": "url"
+                  }
+                },
+                {
+                  "label": "File",
+                  "value": "{$row.file}"
+                },
+                {
+                  "label": "Note",
+                  "value": "{$row.body}"
+                }
+              ],
+              "empty": "No shared content yet.",
+              "sort": {
+                "by": "order",
+                "dir": "asc"
+              }
+            },
+            {
+              "c": "header",
+              "title": "Conversation"
+            },
+            {
+              "c": "table",
+              "from": "comments",
+              "columns": [
+                {
+                  "label": "Step",
+                  "value": "{$row.step}",
+                  "empty": "Room conversation"
+                },
+                {
+                  "label": "Seller",
+                  "value": "{$row.authorMember|user}"
+                },
+                {
+                  "label": "Buyer",
+                  "value": "{$row.authorName}"
+                },
+                {
+                  "label": "Side",
+                  "value": "{$row.side}"
+                },
+                {
+                  "label": "Message",
+                  "value": "{$row.body}"
+                }
+              ],
+              "empty": "No messages yet."
+            },
+            {
+              "c": "actions",
+              "items": [
+                {
+                  "op": "comments.buyerPost",
+                  "label": "Post comment",
+                  "fields": [
+                    {
+                      "field": "body",
+                      "label": "Comment"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "path": "steps/:key",
+          "title": "{$step.title}",
+          "bind": {
+            "room": {
+              "root": true
+            },
+            "step": {
+              "set": "steps",
+              "key": {
+                "route": "key"
+              }
+            },
+            "comments": {
+              "set": "comments",
+              "where": {
+                "field": "step",
+                "eq": {
+                  "route": "key"
+                }
+              }
+            }
+          },
+          "body": [
+            {
+              "c": "header",
+              "title": "{$step.title}",
+              "actions": [
+                {
+                  "navigate": "plan",
+                  "label": "Back to plan"
+                }
+              ]
+            },
+            {
+              "c": "detail",
+              "items": [
+                {
+                  "label": "Detail",
+                  "value": "{$step.detail}"
+                },
+                {
+                  "label": "Milestone",
+                  "value": "{$step.milestone}"
+                },
+                {
+                  "label": "Side",
+                  "value": "{$step.side}"
+                },
+                {
+                  "label": "Buyer owner",
+                  "value": "{$step.buyerOwnerName}"
+                },
+                {
+                  "label": "Due",
+                  "value": "{$step.dueOn|date}"
+                },
+                {
+                  "label": "Status",
+                  "value": "{$step.status}"
+                },
+                {
+                  "label": "Completion note",
+                  "value": "{$step.doneNote}"
+                },
+                {
+                  "label": "File",
+                  "value": "{$step.file}"
+                }
+              ]
+            },
+            {
+              "c": "actions",
+              "items": [
+                {
+                  "menu": "Buyer actions",
+                  "when": {
+                    "page": {
+                      "bind": "step",
+                      "field": "side"
+                    },
+                    "in": [
+                      "buyer",
+                      "both"
+                    ]
+                  },
+                  "items": [
+                    {
+                      "machine": "step",
+                      "transition": "buyerDone",
+                      "label": "Mark done",
+                      "when": {
+                        "field": "status",
+                        "in": [
+                          "open"
+                        ]
+                      },
+                      "target": "step"
+                    },
+                    {
+                      "machine": "step",
+                      "transition": "buyerReopen",
+                      "label": "Reopen my completed step",
+                      "when": {
+                        "field": "status",
+                        "in": [
+                          "done"
+                        ]
+                      },
+                      "target": "step"
+                    },
+                    {
+                      "op": "steps.buyerAttach",
+                      "label": "Attach file",
+                      "dialog": {
+                        "description": "PNG, JPEG or PDF, up to 10 MB. Files are not scanned."
+                      },
+                      "target": "step"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "c": "banner",
+              "tone": "info",
+              "text": "Buyer names are unverified. Only the browser that completed this step can reopen it."
+            },
+            {
+              "c": "thread",
+              "from": "comments",
+              "body": "body",
+              "author": "authorName",
+              "empty": "No messages on this step yet.",
+              "post": {
+                "op": "comments.buyerPost",
+                "parent": {
+                  "root": true
+                },
+                "field": "body",
+                "fixed": {
+                  "step": {
+                    "bind": "step",
+                    "field": "key"
+                  }
+                },
+                "button": "Post comment"
+              }
+            }
+          ]
+        }
+      ],
+      "issue": {
+        "roles": [
+          "admin",
+          "manager",
+          "rep"
+        ],
+        "agent": "human"
+      },
+      "limits": {
+        "writesPerHour": 60,
+        "uploadsPerDay": 20,
+        "uploadBytes": 104857600
+      }
+    }
+  }
+}

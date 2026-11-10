@@ -1,0 +1,20 @@
+{
+  "name": "@fullstackgtm/market-eval",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Market-map eval: compares raw model agents vs agents assisted by the fullstackgtm market CLI on evidence-grounded category mapping tasks.",
+  "scripts": {
+    "smoke": "node --experimental-strip-types src/smoke.ts",
+    "eval": "node --experimental-strip-types src/run.ts",
+    "resume": "node --experimental-strip-types src/resumeFailed.ts",
+    "report": "node --experimental-strip-types src/report.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

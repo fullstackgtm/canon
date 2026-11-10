@@ -1,0 +1,473 @@
+{
+  "workspace": "Northwind",
+  "fiscalYearStartMonth": 1,
+  "reps": {
+    "avery": {
+      "name": "Avery Chen",
+      "team": "east",
+      "managerId": "morgan"
+    },
+    "blake": {
+      "name": "Blake Ortiz",
+      "team": "east",
+      "managerId": "morgan"
+    },
+    "casey": {
+      "name": "Casey Diaz",
+      "team": "west",
+      "managerId": "riley"
+    }
+  },
+  "teams": {
+    "east": {
+      "name": "East",
+      "managerId": "morgan",
+      "memberIds": [
+        "avery",
+        "blake"
+      ]
+    },
+    "west": {
+      "name": "West",
+      "managerId": "riley",
+      "memberIds": [
+        "casey"
+      ]
+    }
+  },
+  "competitors": [
+    {
+      "key": "acme",
+      "name": "Acme CRM",
+      "aliases": [
+        "Acme"
+      ]
+    },
+    {
+      "key": "zenith",
+      "name": "Zenith",
+      "aliases": []
+    }
+  ],
+  "deals": [
+    {
+      "id": "d01",
+      "name": "Atlas Freight",
+      "ownerId": "avery",
+      "isClosed": true,
+      "isWon": true,
+      "closeDate": "2026-07-10",
+      "amount": 4000000,
+      "dealType": "new_business",
+      "segment": "Mid-market"
+    },
+    {
+      "id": "d02",
+      "name": "Birch Health",
+      "ownerId": "avery",
+      "isClosed": true,
+      "isWon": false,
+      "closeDate": "2026-07-20",
+      "amount": 12000000,
+      "dealType": "new_business",
+      "segment": "Enterprise"
+    },
+    {
+      "id": "d03",
+      "name": "Cobalt Labs",
+      "ownerId": "blake",
+      "isClosed": true,
+      "isWon": true,
+      "closeDate": "2026-07-28",
+      "amount": 2500000,
+      "dealType": "new_business",
+      "segment": "Mid-market"
+    },
+    {
+      "id": "d04",
+      "name": "Delta Mfg",
+      "ownerId": "blake",
+      "isClosed": true,
+      "isWon": false,
+      "closeDate": "2026-08-05",
+      "amount": 6000000,
+      "dealType": "new_business",
+      "segment": "Mid-market"
+    },
+    {
+      "id": "d05",
+      "name": "Echo Retail",
+      "ownerId": "casey",
+      "isClosed": true,
+      "isWon": false,
+      "closeDate": "2026-08-12",
+      "amount": 3000000,
+      "dealType": "new_business",
+      "segment": "Mid-market"
+    },
+    {
+      "id": "d06",
+      "name": "Fjord Bank",
+      "ownerId": "casey",
+      "isClosed": true,
+      "isWon": true,
+      "closeDate": "2026-08-14",
+      "amount": 20000000,
+      "dealType": "new_business",
+      "segment": "Enterprise"
+    },
+    {
+      "id": "d07",
+      "name": "Garnet Co",
+      "ownerId": "casey",
+      "isClosed": true,
+      "isWon": false,
+      "closeDate": "2026-08-25",
+      "amount": 9000000,
+      "dealType": "new_business",
+      "segment": "Enterprise"
+    },
+    {
+      "id": "d08",
+      "name": "Harbor Insurance",
+      "ownerId": "avery",
+      "isClosed": true,
+      "isWon": true,
+      "closeDate": "2026-09-02",
+      "amount": 15000000,
+      "dealType": "new_business",
+      "segment": "Enterprise"
+    },
+    {
+      "id": "d09",
+      "name": "Iris Media",
+      "ownerId": "blake",
+      "isClosed": true,
+      "isWon": false,
+      "closeDate": "2026-09-09",
+      "amount": 4500000,
+      "dealType": "new_business",
+      "segment": "Mid-market"
+    },
+    {
+      "id": "d10",
+      "name": "Juno Logistics",
+      "ownerId": "casey",
+      "isClosed": true,
+      "isWon": true,
+      "closeDate": "2026-09-16",
+      "amount": 3500000,
+      "dealType": "new_business",
+      "segment": "Mid-market"
+    },
+    {
+      "id": "d11",
+      "name": "Kite Energy",
+      "ownerId": "blake",
+      "isClosed": true,
+      "isWon": false,
+      "closeDate": "2026-09-22",
+      "amount": 8000000,
+      "dealType": "new_business",
+      "segment": "Enterprise"
+    },
+    {
+      "id": "d12",
+      "name": "Lumen SaaS",
+      "ownerId": "blake",
+      "isClosed": true,
+      "isWon": true,
+      "closeDate": "2026-09-29",
+      "amount": 5000000,
+      "dealType": "new_business",
+      "segment": "Mid-market"
+    }
+  ],
+  "reviews": [
+    {
+      "key": "d01",
+      "deal": "d01",
+      "rep": "avery",
+      "outcome": "won",
+      "closedOn": "2026-07-10",
+      "amount": 4000000,
+      "segment": "Mid-market",
+      "competitor": "acme",
+      "lostAtStage": null,
+      "primaryReason": "fit",
+      "status": "approved"
+    },
+    {
+      "key": "d02",
+      "deal": "d02",
+      "rep": "avery",
+      "outcome": "lost",
+      "closedOn": "2026-07-20",
+      "amount": 12000000,
+      "segment": "Enterprise",
+      "competitor": "acme",
+      "lostAtStage": "Negotiation",
+      "primaryReason": "price",
+      "status": "approved"
+    },
+    {
+      "key": "d03",
+      "deal": "d03",
+      "rep": "blake",
+      "outcome": "won",
+      "closedOn": "2026-07-28",
+      "amount": 2500000,
+      "segment": "Mid-market",
+      "competitor": null,
+      "lostAtStage": null,
+      "primaryReason": "sales_experience",
+      "status": "approved"
+    },
+    {
+      "key": "d04",
+      "deal": "d04",
+      "rep": "blake",
+      "outcome": "lost",
+      "closedOn": "2026-08-05",
+      "amount": 6000000,
+      "segment": "Mid-market",
+      "competitor": "zenith",
+      "lostAtStage": "Evaluation",
+      "primaryReason": "integrations",
+      "status": "approved"
+    },
+    {
+      "key": "d05",
+      "deal": "d05",
+      "rep": "casey",
+      "outcome": "lost",
+      "closedOn": "2026-08-12",
+      "amount": 3000000,
+      "segment": "Mid-market",
+      "competitor": null,
+      "lostAtStage": "Discovery",
+      "primaryReason": "no_decision",
+      "status": "approved"
+    },
+    {
+      "key": "d06",
+      "deal": "d06",
+      "rep": "casey",
+      "outcome": "won",
+      "closedOn": "2026-08-14",
+      "amount": 20000000,
+      "segment": "Enterprise",
+      "competitor": "zenith",
+      "lostAtStage": null,
+      "primaryReason": "security",
+      "status": "approved"
+    },
+    {
+      "key": "d07",
+      "deal": "d07",
+      "rep": "casey",
+      "outcome": "lost",
+      "closedOn": "2026-08-25",
+      "amount": 9000000,
+      "segment": "Enterprise",
+      "competitor": "acme",
+      "lostAtStage": "Negotiation",
+      "primaryReason": "price",
+      "status": "approved"
+    },
+    {
+      "key": "d08",
+      "deal": "d08",
+      "rep": "avery",
+      "outcome": "won",
+      "closedOn": "2026-09-02",
+      "amount": 15000000,
+      "segment": "Enterprise",
+      "competitor": "zenith",
+      "lostAtStage": null,
+      "primaryReason": "fit",
+      "status": "approved"
+    },
+    {
+      "key": "d09",
+      "deal": "d09",
+      "rep": "blake",
+      "outcome": "lost",
+      "closedOn": "2026-09-09",
+      "amount": 4500000,
+      "segment": "Mid-market",
+      "competitor": "acme",
+      "lostAtStage": "Proposal",
+      "primaryReason": "price",
+      "status": "approved"
+    },
+    {
+      "key": "d10",
+      "deal": "d10",
+      "rep": "casey",
+      "outcome": "won",
+      "closedOn": "2026-09-16",
+      "amount": 3500000,
+      "segment": "Mid-market",
+      "competitor": null,
+      "lostAtStage": null,
+      "primaryReason": "sales_experience",
+      "status": "draft"
+    },
+    {
+      "key": "d11",
+      "deal": "d11",
+      "rep": "blake",
+      "outcome": "lost",
+      "closedOn": "2026-09-22",
+      "amount": 8000000,
+      "segment": "Enterprise",
+      "competitor": null,
+      "lostAtStage": "Evaluation",
+      "primaryReason": "no_decision",
+      "status": "draft"
+    },
+    {
+      "key": "d12",
+      "deal": "d12",
+      "rep": "blake",
+      "outcome": "won",
+      "closedOn": "2026-09-29",
+      "amount": 5000000,
+      "segment": "Mid-market",
+      "competitor": "acme",
+      "lostAtStage": null,
+      "primaryReason": "fit",
+      "status": "approved"
+    }
+  ],
+  "activities": [
+    {
+      "id": "call-birch",
+      "deal": "d02",
+      "kind": "call",
+      "at": "2026-08-14",
+      "title": "Birch pricing review",
+      "text": "Customer: Honestly the per-seat price was about forty percent over what Acme quoted us."
+    },
+    {
+      "id": "call-garnet",
+      "deal": "d07",
+      "kind": "call",
+      "at": "2026-08-25",
+      "title": "Garnet wrap-up",
+      "text": "Customer: Honestly the per-seat price was about forty percent over what Acme quoted us."
+    }
+  ],
+  "expected": {
+    "winRate": {
+      "count": "6/12",
+      "pct": 0.5,
+      "dollar": "500000/925000",
+      "dollarPct": 0.5405,
+      "coverage": "10/12"
+    },
+    "byCompetitor": {
+      "acme": [
+        2,
+        5
+      ],
+      "zenith": [
+        2,
+        3,
+        "small"
+      ],
+      "none": [
+        2,
+        4
+      ]
+    },
+    "byRep": {
+      "avery": [
+        2,
+        3,
+        "small"
+      ],
+      "blake": [
+        2,
+        5
+      ],
+      "casey": [
+        2,
+        4
+      ]
+    },
+    "byTeam": {
+      "east": [
+        4,
+        8
+      ],
+      "west": [
+        2,
+        4
+      ]
+    },
+    "bySegment": {
+      "Mid-market": [
+        4,
+        7
+      ],
+      "Enterprise": [
+        2,
+        5
+      ]
+    },
+    "lossReasons": {
+      "price": [
+        3,
+        0.6,
+        255000
+      ],
+      "integrations": [
+        1,
+        0.2,
+        60000
+      ],
+      "no_decision": [
+        1,
+        0.2,
+        30000
+      ]
+    },
+    "lossReasonsWithKite": {
+      "price": 0.5,
+      "no_decision": 0.3333,
+      "integrations": 0.1667
+    },
+    "winReasons": {
+      "fit": [
+        3,
+        0.6
+      ],
+      "sales_experience": 1,
+      "security": 1
+    },
+    "lostAtStage": {
+      "Negotiation": 2,
+      "Evaluation": 2,
+      "Proposal": 1,
+      "Discovery": 1
+    },
+    "cardDigest": {
+      "acme": {
+        "updates": 1,
+        "section": "pricing",
+        "quotes": [
+          "d02",
+          "d07",
+          "d09"
+        ],
+        "line": "3 of 3 losses to Acme since 2026-07 cite Price"
+      },
+      "zenith": {
+        "updates": 0
+      },
+      "rerun": 0
+    }
+  }
+}

@@ -1,0 +1,5 @@
+# Canon release signing keys, in git's allowed-signers format:
+#   <principal> namespaces="git" <ssh public key>
+# scripts/selfhost/releases.mjs pins this file on its first run and verifies
+# release/<date> tags against the pinned copy.
+releases@fullstackgtm.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJK1iFwJn/4WmyoBuDcMT5vLRto1oxA+F1Aq9nRqf57Y canon-release

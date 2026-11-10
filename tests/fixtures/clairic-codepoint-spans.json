@@ -1,0 +1,46 @@
+{
+  "state": "Subject: ExampleCo (example.test)\nMetadata 🚀☕\n[https://example.test/about]\nExampleCo has 1,240 employees in Austin. It uses HubSpot for sales.\n",
+  "result": {
+    "model": "clairic",
+    "answers": {
+      "employees": {
+        "type": "number",
+        "p_null": 0.00038811363629065454,
+        "guess": 1240,
+        "confidence": 0.9994880763410068,
+        "value": 1240
+      },
+      "tool": {
+        "type": "text",
+        "p_null": 7.895675662439317e-05,
+        "span": [
+          124,
+          131
+        ],
+        "guess": "HubSpot",
+        "confidence": 0.9999992847442627,
+        "value": "HubSpot"
+      },
+      "quote": {
+        "type": "text",
+        "p_null": 0.0009773662313818932,
+        "span": [
+          75,
+          114
+        ],
+        "guess": "ExampleCo has 1,240 employees in Austin",
+        "confidence": 0.5455685257911682,
+        "value": "ExampleCo has 1,240 employees in Austin"
+      }
+    },
+    "truncated": false,
+    "usage": {
+      "state_tokens": 45,
+      "image_tokens": 0,
+      "schema_tokens": 434,
+      "input_tokens": 569,
+      "output_tokens": 0,
+      "passes": 3
+    }
+  }
+}

@@ -1,0 +1,983 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/dialer",
+  "version": "0.4.0",
+  "title": "Dialer",
+  "description": "Work an audience or your due Sequences call tasks as a call queue: Canon rings your phone or this browser once, and each person you call is connected onto that line. Calls go through Canon's Telnyx numbers, with calling hours, do-not-call and recording consent checked on every dial, and each call is logged on the person's timeline.",
+  "author": {
+    "org": "canon"
+  },
+  "engines": {
+    "moduleApi": "1"
+  },
+  "default": true,
+  "nav": {
+    "label": "Dialer",
+    "icon": "phone",
+    "section": "Activity",
+    "landing": "dialer",
+    "slot": "dialer"
+  },
+  "reads": {
+    "people": [
+      "name",
+      "phone"
+    ],
+    "audiences": [
+      "name",
+      "size"
+    ],
+    "activities": [
+      "kind",
+      "ownerId",
+      "personId"
+    ]
+  },
+  "collections": {
+    "queues": {
+      "label": "Queue",
+      "schema": {
+        "type": "object",
+        "value": {
+          "rep": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Rep"
+          },
+          "audience": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Audience id"
+          },
+          "audienceName": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Audience"
+          },
+          "snapshot": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Snapshot"
+          },
+          "count": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "People"
+          },
+          "loadedAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Loaded"
+          },
+          "queued": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Queued"
+          },
+          "withoutPhone": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Without a phone"
+          },
+          "source": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Queue source"
+          },
+          "audienceSnapshot": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Audience snapshot"
+          },
+          "unavailable": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Tasks with unavailable people"
+          },
+          "duplicateTasks": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Repeated tasks for queued people"
+          },
+          "cutoffDay": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "UTC cutoff day"
+          },
+          "summary": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Load result"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "rep"
+        ]
+      },
+      "owner": "rep",
+      "title": "audienceName",
+      "access": {
+        "manager": "team",
+        "rep": "own"
+      },
+      "indexes": {}
+    },
+    "items": {
+      "label": "Person to call",
+      "schema": {
+        "type": "object",
+        "value": {
+          "rep": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": false,
+            "label": "Rep"
+          },
+          "person": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Person id"
+          },
+          "name": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Name"
+          },
+          "phone": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Phone"
+          },
+          "queue": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Queue"
+          },
+          "position": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Position"
+          },
+          "state": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "queued"
+                },
+                {
+                  "type": "literal",
+                  "value": "called"
+                },
+                {
+                  "type": "literal",
+                  "value": "skipped"
+                }
+              ],
+              "labels": {
+                "queued": "To call",
+                "called": "Called",
+                "skipped": "Skipped"
+              }
+            },
+            "optional": false,
+            "label": "State"
+          },
+          "doneAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Done at"
+          },
+          "source": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Queue source"
+          },
+          "sourceTasks": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "key": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": false
+                  },
+                  "sequence": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": false
+                  },
+                  "dueDay": {
+                    "fieldType": {
+                      "type": "string"
+                    },
+                    "optional": false
+                  }
+                }
+              }
+            },
+            "optional": true,
+            "label": "Source call tasks"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "rep",
+          "person"
+        ]
+      },
+      "owner": "rep",
+      "title": "name",
+      "indexes": {
+        "byQueue": [
+          "queue",
+          "state",
+          "position"
+        ],
+        "byRep": [
+          "rep",
+          "person"
+        ]
+      },
+      "access": {
+        "manager": "team",
+        "rep": "own"
+      }
+    }
+  },
+  "views": {
+    "queues.mine": {
+      "kind": "one",
+      "collection": "queues",
+      "key": {
+        "caller": "userId"
+      }
+    },
+    "queues.one": {
+      "kind": "one",
+      "collection": "queues",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "items.inState": {
+      "kind": "list",
+      "collection": "items",
+      "args": {
+        "queue": "string",
+        "state": "string"
+      },
+      "index": "byQueue",
+      "eq": [
+        {
+          "arg": "queue"
+        },
+        {
+          "arg": "state"
+        }
+      ],
+      "limit": 500
+    },
+    "items.forRep": {
+      "kind": "list",
+      "collection": "items",
+      "args": {
+        "rep": "string"
+      },
+      "index": "byRep",
+      "eq": [
+        {
+          "arg": "rep"
+        }
+      ],
+      "limit": 1000
+    },
+    "items.at": {
+      "kind": "list",
+      "collection": "items",
+      "args": {
+        "rep": "string",
+        "person": "string"
+      },
+      "index": "byRep",
+      "eq": [
+        {
+          "arg": "rep"
+        },
+        {
+          "arg": "person"
+        }
+      ],
+      "limit": 1
+    }
+  },
+  "ops": {
+    "queues.create": {
+      "label": "Load a queue",
+      "kind": "create",
+      "collection": "queues",
+      "fields": [
+        "audience",
+        "audienceName",
+        "snapshot",
+        "count",
+        "source",
+        "audienceSnapshot"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "set": {
+        "loadedAt": {
+          "now": "ms"
+        }
+      },
+      "dirties": [
+        {
+          "job": "fill",
+          "key": [
+            {
+              "doc": "rep"
+            }
+          ]
+        }
+      ]
+    },
+    "queues.reload": {
+      "label": "Load a queue",
+      "kind": "update",
+      "collection": "queues",
+      "fields": [
+        "audience",
+        "audienceName",
+        "snapshot",
+        "count",
+        "source",
+        "audienceSnapshot"
+      ],
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "set": {
+        "loadedAt": {
+          "now": "ms"
+        },
+        "queued": {
+          "unset": true
+        },
+        "withoutPhone": {
+          "unset": true
+        },
+        "unavailable": {
+          "unset": true
+        },
+        "duplicateTasks": {
+          "unset": true
+        },
+        "cutoffDay": {
+          "unset": true
+        },
+        "summary": {
+          "unset": true
+        }
+      },
+      "dirties": [
+        {
+          "job": "fill",
+          "key": [
+            {
+              "doc": "rep"
+            }
+          ]
+        }
+      ]
+    },
+    "queues.delete": {
+      "label": "Clear the queue",
+      "kind": "delete",
+      "collection": "queues",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed"
+    }
+  },
+  "machines": {
+    "item": {
+      "collection": "items",
+      "field": "state",
+      "states": [
+        "queued",
+        "called",
+        "skipped"
+      ],
+      "initial": "queued",
+      "transitions": {
+        "skip": {
+          "label": "Skip",
+          "from": [
+            "queued"
+          ],
+          "to": "skipped",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "set": {
+            "doneAt": {
+              "now": "ms"
+            }
+          }
+        },
+        "called": {
+          "label": "Called",
+          "from": [
+            "queued"
+          ],
+          "to": "called",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "set": {
+            "doneAt": {
+              "now": "ms"
+            }
+          }
+        },
+        "requeue": {
+          "label": "Queue again",
+          "from": [
+            "called",
+            "skipped"
+          ],
+          "to": "queued",
+          "roles": [],
+          "system": true,
+          "agent": "allowed",
+          "set": {
+            "doneAt": {
+              "unset": true
+            }
+          }
+        },
+        "reload": {
+          "label": "Queue again",
+          "from": [
+            "called",
+            "skipped"
+          ],
+          "to": "queued",
+          "roles": [
+            "admin",
+            "manager",
+            "rep"
+          ],
+          "agent": "allowed",
+          "set": {
+            "doneAt": {
+              "unset": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "jobs": {
+    "fill": {
+      "label": "Read the audience into the queue",
+      "call": "fillQueue",
+      "key": [
+        "rep"
+      ],
+      "batchBy": 1,
+      "batch": 1
+    },
+    "mark": {
+      "label": "Mark people called",
+      "call": "markCalled",
+      "key": [
+        "rep",
+        "person"
+      ],
+      "batchBy": 2,
+      "batch": 1
+    }
+  },
+  "watches": [
+    {
+      "object": "activities",
+      "call": "onCalls",
+      "fields": [
+        "kind",
+        "ownerId",
+        "personId"
+      ]
+    }
+  ],
+  "server": "dist/module.js",
+  "contributes": {
+    "personPage": {
+      "panels": [{
+        "id": "calls",
+        "title": "Calls",
+        "roles": ["admin", "manager", "rep"],
+        "replaces": "callPanel",
+        "bind": { "person": { "call": "person", "args": { "person": { "query": "record" } } } },
+        "body": [{ "c": "phone", "record": { "query": "record" }, "from": "person", "phone": "phone" }]
+      }]
+    }
+  },
+  "calls": {
+    "person": {
+      "label": "Read the person to call",
+      "roles": ["admin", "manager", "rep"],
+      "agent": "allowed",
+      "args": { "type": "object", "value": { "person": { "fieldType": { "type": "string" }, "optional": false } } },
+      "reads": { "person": { "canon": "people.byIds", "args": { "ids": { "arg": "person" } }, "limit": 1 } },
+      "writes": [],
+      "returns": "value"
+    },
+    "audienceList": {
+      "label": "Audiences",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "audiences": {
+          "canon": "audiences.all"
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "load": {
+      "label": "Load a queue",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "audience": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      },
+      "reads": {
+        "queue": {
+          "view": "queues.mine"
+        },
+        "audiences": {
+          "canon": "audiences.all"
+        },
+        "snapshot": {
+          "canon": "audiences.snapshot",
+          "args": {
+            "audience": {
+              "arg": "audience"
+            }
+          }
+        }
+      },
+      "writes": [
+        "queues"
+      ],
+      "returns": "value"
+    },
+    "fillQueue": {
+      "label": "Read the audience into the queue",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "queue": {
+          "view": "queues.one",
+          "args": {
+            "key": {
+              "arg": "rep"
+            }
+          }
+        },
+        "people": {
+          "canon": "audiences.members",
+          "args": {
+            "snapshot": {
+              "read": "queue",
+              "field": "audienceSnapshot"
+            },
+            "page": 0
+          },
+          "limit": 500
+        },
+        "items": {
+          "view": "items.forRep",
+          "args": {
+            "rep": {
+              "arg": "rep"
+            }
+          },
+          "limit": 1000
+        }
+      },
+      "writes": [
+        "items",
+        "queues"
+      ],
+      "returns": "none"
+    },
+    "onCalls": {
+      "label": "Hear about logged calls",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {},
+      "writes": [],
+      "returns": "none"
+    },
+    "markCalled": {
+      "label": "Mark people called",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "item": {
+          "view": "items.at",
+          "args": {
+            "rep": {
+              "arg": "rep"
+            },
+            "person": {
+              "arg": "person"
+            }
+          }
+        }
+      },
+      "writes": [
+        "items"
+      ],
+      "returns": "none"
+    },
+    "loadCallTasks": {
+      "label": "Load due call tasks",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "tasks": {
+          "module": "@canon/sequences",
+          "provide": "callTasks.v1",
+          "limit": 500
+        },
+        "people": {
+          "canon": "people.byIds",
+          "args": {
+            "ids": {
+              "read": "tasks",
+              "field": "contact"
+            }
+          },
+          "limit": 500
+        },
+        "queue": {
+          "view": "queues.mine"
+        },
+        "items": {
+          "view": "items.forRep",
+          "args": {
+            "rep": {
+              "caller": "userId"
+            }
+          },
+          "limit": 1000
+        }
+      },
+      "writes": [
+        "queues",
+        "items"
+      ],
+      "returns": "value"
+    }
+  },
+  "pages": [
+    {
+      "path": "dialer",
+      "title": "Dialer",
+      "bind": {
+        "queue": {
+          "view": "queues.mine"
+        },
+        "audiences": {
+          "call": "audienceList"
+        },
+        "queued": {
+          "view": "items.inState",
+          "args": {
+            "queue": {
+              "bind": "queue",
+              "field": "snapshot"
+            },
+            "state": "queued"
+          }
+        },
+        "called": {
+          "view": "items.inState",
+          "args": {
+            "queue": {
+              "bind": "queue",
+              "field": "snapshot"
+            },
+            "state": "called"
+          }
+        },
+        "skipped": {
+          "view": "items.inState",
+          "args": {
+            "queue": {
+              "bind": "queue",
+              "field": "snapshot"
+            },
+            "state": "skipped"
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Dialer",
+          "subtitle": "Queue up to 500 people from an audience, or your first 500 open Sequences call tasks due through today UTC. Each visible person with a dialable phone is queued once. Sequences decides whether a call completes a task.",
+          "actions": [
+            {
+              "call": "load",
+              "label": "Load a queue",
+              "fields": [
+                {
+                  "field": "audience",
+                  "label": "Audience",
+                  "options": {
+                    "from": "audiences",
+                    "list": "audiences",
+                    "value": "id",
+                    "label": "{$item.name} ({$item.size|number} people)"
+                  }
+                }
+              ],
+              "dialog": {
+                "title": "Load a queue from an audience",
+                "description": "Canon reads the audience as it is now. People without a phone number are left out. Loading replaces the queue you have."
+              },
+              "toast": "Loading {$result.count|number} people"
+            },
+            {
+              "call": "loadCallTasks",
+              "label": "Load due call tasks",
+              "toast": "{$result.message}"
+            },
+            {
+              "op": "queues.delete",
+              "target": "queue",
+              "label": "Clear the queue",
+              "when": {
+                "field": "snapshot",
+                "set": true
+              }
+            }
+          ]
+        },
+        {
+          "c": "empty",
+          "text": "No queue loaded. Load an audience or due call tasks, or call anyone from their page.",
+          "when": {
+            "bind": "queue",
+            "empty": true
+          }
+        },
+        {
+          "c": "header",
+          "title": "{$queue.audienceName}",
+          "subtitle": "{$queue.count|number} people in the audience when it was loaded.",
+          "when": {
+            "bind": "queue",
+            "field": "audience",
+            "set": true
+          }
+        },
+        {
+          "c": "header",
+          "title": "{$queue.audienceName}",
+          "subtitle": "{$queue.summary}",
+          "when": {
+            "bind": "queue",
+            "field": "source",
+            "in": [
+              "sequences"
+            ]
+          }
+        },
+        {
+          "c": "kpis",
+          "when": {
+            "bind": "queue",
+            "empty": false
+          },
+          "items": [
+            {
+              "label": "Called",
+              "count": "called"
+            },
+            {
+              "label": "Skipped",
+              "count": "skipped"
+            },
+            {
+              "label": "To go",
+              "count": "queued"
+            },
+            {
+              "label": "Without a dialable phone",
+              "value": "{$queue.withoutPhone|number}"
+            }
+          ]
+        },
+        {
+          "c": "phone",
+          "from": "queued",
+          "person": "person",
+          "name": "name",
+          "phone": "phone",
+          "detail": "{$row.phone}",
+          "skip": {
+            "transition": "skip",
+            "machine": "item",
+            "aria": "Skip {$row.name}"
+          },
+          "since": {
+            "bind": "queue",
+            "field": "loadedAt"
+          },
+          "campaign": {
+            "id": {
+              "bind": "queue",
+              "field": "audience"
+            },
+            "name": "{$queue.audienceName}"
+          },
+          "empty": "That's the end of the queue. Load another audience or due call tasks, or call anyone from their page."
+        },
+        {
+          "c": "table",
+          "from": "queued",
+          "empty": "Nobody left to call.",
+          "search": [
+            "name"
+          ],
+          "columns": [
+            {
+              "label": "#",
+              "value": "{$row.position|number}",
+              "align": "end"
+            },
+            {
+              "label": "Person",
+              "value": "{$row.name}"
+            },
+            {
+              "label": "Phone",
+              "value": "{$row.phone}"
+            }
+          ],
+          "rowActions": [
+            {
+              "transition": "skip",
+              "machine": "item",
+              "aria": "Skip {$row.name}"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "uses": {
+    "@canon/sequences": [
+      "callTasks.v1"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+country,founded,id,industry,linkedin_url,locality,name,region,size,website
+united states,2015,id1,computer software,linkedin.com/company/acme,austin,Acme Analytics Inc,texas,51-200,https://www.acmeanalytics.com/about
+united states,2018,id2,computer software,,austin,Acme Analytics,texas,11-50,acmeanalytics.com
+united states,2010,id3,financial services,linkedin.com/company/calanar,chicago,calanar,illinois,51-200,shawatiinteriors.com
+united states,2001,id4,financial services,linkedin.com/company/ibm-fs,new york,International Business Machines,new york,10001+,ibm.com
+germany,1999,id5,computer software,,berlin,Berlin Code GmbH,berlin,201-500,http://berlincode.de
+united states,2020,id6,computer software,,austin,No Website Co,texas,1-10,
+united states,2020,id7,computer software,,austin,Bad Domain,texas,1-10,not a domain

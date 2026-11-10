@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  # Only sync branches pushed to this repository by the publisher land without a person.
+  # Forks inherit this file, so the repository is named. The sync commit is kept, not
+  # squashed, because later syncs read its Canon-Source trailer.
+  land-sync:
+    needs: verify
+    if: >-
+      github.repository == 'fullstackgtm/canon' &&
+      startsWith(github.head_ref, 'canon-sync/') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'ryanfsgtm'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge "$NUMBER" --repo "$GITHUB_REPOSITORY" --merge --match-head-commit "$HEAD"

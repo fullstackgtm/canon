@@ -1,0 +1,245 @@
+{
+  "at": "2026-10-22T13:59:47.362Z",
+  "nodeLauncher": "v22.17.1",
+  "host": "workerd",
+  "phase": "complete",
+  "fixture": {
+    "runId": "w17yqcp5h24cbevnn0fmerne4d8grd49",
+    "slug": "pi_proof_a20215ef"
+  },
+  "firstSubmission": {
+    "submissionId": "sub_ik_a61e1b06bc7e3017acba046882b33fa1",
+    "acceptedAt": "2026-10-22T13:59:06.413Z",
+    "uid": "inst_01M5HYH2EA5M8XGZ95AB6F88FY"
+  },
+  "readmission": {
+    "submissionId": "sub_ik_a61e1b06bc7e3017acba046882b33fa1",
+    "acceptedAt": "2026-10-22T13:59:06.413Z",
+    "uid": "inst_01M5HYH2EA5M8XGZ95AB6F88FY",
+    "deduplicated": true
+  },
+  "killedAt": 1792677547938,
+  "resumeMs": 34213,
+  "before": {
+    "effects": [
+      {
+        "completed": true,
+        "key": "model:1",
+        "operation": "model",
+        "stepId": "r17t02vhh8dq9jdxss1nnq7w0s8grw5g"
+      },
+      {
+        "completed": true,
+        "key": "read:0",
+        "operation": "read",
+        "stepId": "r17t02vhh8dq9jdxss1nnq7w0s8grw5g"
+      }
+    ],
+    "facts": [
+      {
+        "entityId": "ps70tcygwwgy81maa4zyztr5kd8gsxtn",
+        "evidence": "\"Atlas Cloud sells a forecasting service for manufacturers.\"\n\nSource: https://atlascloud.example/",
+        "id": "xd7affd7fbp7kzzk8qx23533nd8grx1j",
+        "status": "proposed",
+        "value": "Forecasting service"
+      }
+    ],
+    "plans": [
+      {
+        "agentId": "m1792srvh8sfm8ydtbmmva8xd98grf0p",
+        "id": "qd7ggp4zdfbsarbyp3yawczfv98grwjg",
+        "status": "pending_approval"
+      }
+    ],
+    "run": {
+      "answered": 1,
+      "done": 1,
+      "errors": 0,
+      "id": "w17yqcp5h24cbevnn0fmerne4d8grd49",
+      "llmCalls": 1,
+      "pagesRead": 1,
+      "runtime": "pi",
+      "status": "running"
+    },
+    "steps": [
+      {
+        "id": "r17t02vhh8dq9jdxss1nnq7w0s8grw5g",
+        "index": 0,
+        "landed": {
+          "completed": 1,
+          "finished": false
+        }
+      }
+    ],
+    "traces": [
+      {
+        "id": "w97vtm0g4wtkf2c2a6z6crj4sd8grbva",
+        "reason": null,
+        "recordId": "acc_83513d20208ab55dcd73",
+        "status": "answered"
+      }
+    ]
+  },
+  "after": {
+    "effects": [
+      {
+        "completed": true,
+        "key": "model:1",
+        "operation": "model",
+        "stepId": "r17t02vhh8dq9jdxss1nnq7w0s8grw5g"
+      },
+      {
+        "completed": true,
+        "key": "read:0",
+        "operation": "read",
+        "stepId": "r17t02vhh8dq9jdxss1nnq7w0s8grw5g"
+      },
+      {
+        "completed": true,
+        "key": "model:1",
+        "operation": "model",
+        "stepId": "r17ne4ss9tr0snarjv2vgyxrdh8gsy1a"
+      },
+      {
+        "completed": true,
+        "key": "read:0",
+        "operation": "read",
+        "stepId": "r17ne4ss9tr0snarjv2vgyxrdh8gsy1a"
+      },
+      {
+        "completed": true,
+        "key": "model:1",
+        "operation": "model",
+        "stepId": "r17h52m4tnbpkmyyrtdp5zgxws8gs5h4"
+      },
+      {
+        "completed": true,
+        "key": "read:0",
+        "operation": "read",
+        "stepId": "r17h52m4tnbpkmyyrtdp5zgxws8gs5h4"
+      }
+    ],
+    "facts": [
+      {
+        "entityId": "ps70tcygwwgy81maa4zyztr5kd8gsxtn",
+        "evidence": "\"Atlas Cloud sells a forecasting service for manufacturers.\"\n\nSource: https://atlascloud.example/",
+        "id": "xd7affd7fbp7kzzk8qx23533nd8grx1j",
+        "status": "proposed",
+        "value": "Forecasting service"
+      },
+      {
+        "entityId": "ps73gnctnf4v2jsf8dk02bckps8grhrh",
+        "evidence": "\"Northstar Data sells a forecasting service for manufacturers.\"\n\nSource: https://northstardata.example/",
+        "id": "xd765z33pbjere0p4evyhxzmwd8gsdts",
+        "status": "proposed",
+        "value": "Forecasting service"
+      },
+      {
+        "entityId": "ps7b5dp8djr2def38thjwdd27s8gs6zs",
+        "evidence": "\"Brightline Robotics sells a forecasting service for manufacturers.\"\n\nSource: https://brightlinerobotics.example/",
+        "id": "xd7barxwdffxfvmmsswsmktx5d8gsha2",
+        "status": "proposed",
+        "value": "Forecasting service"
+      }
+    ],
+    "plans": [
+      {
+        "agentId": "m1792srvh8sfm8ydtbmmva8xd98grf0p",
+        "id": "qd7ggp4zdfbsarbyp3yawczfv98grwjg",
+        "status": "pending_approval"
+      },
+      {
+        "agentId": "m1792srvh8sfm8ydtbmmva8xd98grf0p",
+        "id": "qd7ttz84pys5qm5721kj2fn2bs8gs9q8",
+        "status": "pending_approval"
+      },
+      {
+        "agentId": "m1792srvh8sfm8ydtbmmva8xd98grf0p",
+        "id": "qd7tx4xbyv315qneye7ssa79kx8gsysj",
+        "status": "pending_approval"
+      }
+    ],
+    "run": {
+      "answered": 3,
+      "done": 3,
+      "errors": 0,
+      "id": "w17yqcp5h24cbevnn0fmerne4d8grd49",
+      "llmCalls": 3,
+      "pagesRead": 3,
+      "runtime": "pi",
+      "status": "done"
+    },
+    "steps": [
+      {
+        "id": "r17t02vhh8dq9jdxss1nnq7w0s8grw5g",
+        "index": 0,
+        "landed": {
+          "completed": 1,
+          "finished": false
+        }
+      },
+      {
+        "id": "r17ne4ss9tr0snarjv2vgyxrdh8gsy1a",
+        "index": 1,
+        "landed": {
+          "completed": 2,
+          "finished": false
+        }
+      },
+      {
+        "id": "r17h52m4tnbpkmyyrtdp5zgxws8gs5h4",
+        "index": 2,
+        "landed": {
+          "completed": 3,
+          "finished": true
+        }
+      }
+    ],
+    "traces": [
+      {
+        "id": "w97vtm0g4wtkf2c2a6z6crj4sd8grbva",
+        "reason": null,
+        "recordId": "acc_83513d20208ab55dcd73",
+        "status": "answered"
+      },
+      {
+        "id": "w97ygzmtnr4ms2ga8km3rp9p5s8grjk2",
+        "reason": null,
+        "recordId": "acc_c1feea048afed85c2dcd",
+        "status": "answered"
+      },
+      {
+        "id": "w97s5fyntq12ryny0xdp8zznes8grqy5",
+        "reason": null,
+        "recordId": "acc_680e4b0dc22928a4f878",
+        "status": "answered"
+      }
+    ]
+  },
+  "fauxModelCalls": {
+    "beforeKill": [
+      {
+        "bootId": "f5895c24-543e-49f0-aa30-8564810eadde",
+        "index": 0
+      }
+    ],
+    "afterRestart": [
+      {
+        "bootId": "8b42e173-45a9-45ec-b8b6-9b84de9c38a1",
+        "index": 1
+      },
+      {
+        "bootId": "8b42e173-45a9-45ec-b8b6-9b84de9c38a1",
+        "index": 2
+      },
+      {
+        "bootId": "8b42e173-45a9-45ec-b8b6-9b84de9c38a1",
+        "index": 3
+      }
+    ]
+  },
+  "orgBAdmissionOfOrgARun": 202,
+  "dollarsSpent": 0,
+  "recoveryMode": "flue-wake-no-attachment",
+  "transport": "workerd Flue DO SQLite -> local admin Convex HTTP API -> existing Canon gates; dispatcher via service bindings (dispatch namespaces unsupported locally)"
+}

@@ -1,0 +1,143 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@examples/stale-facts",
+  "version": "0.2.0",
+  "title": "Stale facts",
+  "description": "For deals closing soon and the companies you watch, shows the contested facts and the ones confirmed longest ago, and lets a member propose a correction with evidence for review.",
+  "author": { "org": "canon" },
+  "engines": { "moduleApi": "1" },
+  "nav": { "label": "Stale facts", "icon": "clipboard", "section": "CRM", "landing": "facts" },
+  "collections": {
+    "watched": {
+      "label": "Watched company",
+      "schema": { "type": "object", "value": {
+        "company": { "fieldType": { "type": "ref", "to": "companies" }, "optional": false, "label": "Company" },
+        "by": { "fieldType": { "type": "ref", "to": "users" }, "optional": false, "label": "Added by" }
+      } },
+      "key": { "from": ["company"] },
+      "owner": "by",
+      "indexes": {},
+      "access": { "manager": "all", "rep": "all" }
+    },
+    "corrections": {
+      "label": "Correction",
+      "schema": { "type": "object", "value": {
+        "object": { "fieldType": { "type": "union", "value": [{ "type": "literal", "value": "companies" }, { "type": "literal", "value": "deals" }], "labels": { "companies": "Company", "deals": "Deal" } }, "optional": false, "label": "Record type" },
+        "record": { "fieldType": { "type": "string", "maxLength": 200 }, "optional": false, "label": "Record id" },
+        "recordName": { "fieldType": { "type": "string", "maxLength": 300 }, "optional": true, "label": "Record" },
+        "attribute": { "fieldType": { "type": "string", "maxLength": 80 }, "optional": false, "label": "Field" },
+        "was": { "fieldType": { "type": "string", "maxLength": 500 }, "optional": true, "label": "Value then" },
+        "value": { "fieldType": { "type": "string", "maxLength": 500 }, "optional": false, "label": "Proposed value" },
+        "evidence": { "fieldType": { "type": "string", "maxLength": 4000 }, "optional": false, "label": "Evidence" },
+        "proposal": { "fieldType": { "type": "string" }, "optional": true, "label": "Proposal" },
+        "by": { "fieldType": { "type": "ref", "to": "users" }, "optional": false, "label": "Proposed by" }
+      } },
+      "key": "auto",
+      "owner": "by",
+      "indexes": {},
+      "access": { "manager": "all", "rep": "own" }
+    }
+  },
+  "views": {
+    "watched.all": { "kind": "list", "collection": "watched", "limit": 100 },
+    "corrections.all": { "kind": "list", "collection": "corrections", "order": "desc", "limit": 200 }
+  },
+  "ops": {
+    "watched.create": { "label": "Watch a company", "kind": "create", "collection": "watched", "fields": ["company"], "set": { "by": { "caller": "userId" } }, "roles": ["admin", "manager", "rep"], "agent": "allowed" },
+    "watched.delete": { "label": "Stop watching", "kind": "delete", "collection": "watched", "roles": ["admin", "manager", "rep"], "agent": "allowed" }
+  },
+  "reads": {
+    "deals": ["name", "companyId", "companyName"],
+    "companies": ["name"],
+    "proposals": ["status", "total", "pending", "applied", "skipped", "unchanged", "rejected", "decidedAt"]
+  },
+  "facts": {
+    "companies": {
+      "read": ["industry", "employees", "annualRevenue", "country", "domain"],
+      "propose": ["industry", "employees", "annualRevenue", "country"]
+    },
+    "deals": {
+      "read": ["stage", "amount", "closeDate", "nextStep"],
+      "propose": ["closeDate", "nextStep"]
+    }
+  },
+  "server": "dist/module.js",
+  "calls": {
+    "stale": {
+      "label": "Find stale facts", "roles": ["admin", "manager", "rep"], "agent": "allowed",
+      "reads": {
+        "deals": { "canon": "deals.closedBetween", "args": { "from": { "nowPlusDays": -30, "as": "date" }, "to": { "nowPlusDays": 90, "as": "date" } }, "limit": 100 },
+        "watched": { "view": "watched.all", "limit": 100 },
+        "companies": { "canon": "companies.byIds", "args": { "ids": { "read": "watched", "field": "company" } } },
+        "dealFacts": { "canon": "facts.forRecords", "args": { "object": "deals", "ids": { "read": "deals" } } },
+        "dealCompanyFacts": { "canon": "facts.forRecords", "args": { "object": "companies", "ids": { "read": "deals", "field": "companyId" } } },
+        "watchedFacts": { "canon": "facts.forRecords", "args": { "object": "companies", "ids": { "read": "watched", "field": "company" } } }
+      },
+      "writes": [], "returns": "value",
+      "result": { "kind": "table", "rows": "rows", "empty": "{$result.message}", "columns": [
+        { "label": "Record", "value": "{$row.name}" },
+        { "label": "Type", "value": "{$row.type}" },
+        { "label": "Field", "value": "{$row.attribute}" },
+        { "label": "Value", "value": "{$row.valueText}" },
+        { "label": "State", "value": "{$row.stateText}" },
+        { "label": "Last confirmed", "value": "{$row.confirmedAt|date}", "empty": "Never" },
+        { "label": "Days since", "value": "{$row.ageDays|number}", "align": "end" }
+      ], "rowActions": [{ "call": "propose", "label": "Propose a correction",
+        "args": { "object": { "row": "object" }, "record": { "row": "id" }, "recordName": { "row": "name" }, "attribute": { "row": "attribute" }, "was": { "row": "valueText" } },
+        "when": { "field": "proposable", "in": [true] } }] }
+    },
+    "propose": {
+      "label": "Propose a correction", "roles": ["admin", "manager", "rep"], "agent": "human",
+      "reason": "A correction is a person's claim, made with their own evidence.",
+      "args": { "type": "object", "value": {
+        "object": { "fieldType": { "type": "union", "value": [{ "type": "literal", "value": "companies" }, { "type": "literal", "value": "deals" }] }, "optional": false },
+        "record": { "fieldType": { "type": "string", "maxLength": 200 }, "optional": false },
+        "recordName": { "fieldType": { "type": "string", "maxLength": 300 }, "optional": true },
+        "attribute": { "fieldType": { "type": "string", "maxLength": 80 }, "optional": false },
+        "was": { "fieldType": { "type": "string", "maxLength": 500 }, "optional": true },
+        "value": { "fieldType": { "type": "string", "maxLength": 500 }, "optional": false, "label": "Correct value", "help": "Money in whole units, dates as YYYY-MM-DD." },
+        "evidence": { "fieldType": { "type": "string", "maxLength": 4000 }, "optional": false, "label": "Evidence", "widget": "textarea", "help": "Where the correct value comes from: a quote, a link, a call note." }
+      } },
+      "reads": {},
+      "writes": ["corrections"], "returns": "value",
+      "result": { "kind": "message" }
+    },
+    "outcomes": {
+      "label": "Corrections and their outcomes", "roles": ["admin", "manager", "rep"], "agent": "allowed",
+      "reads": {
+        "corrections": { "view": "corrections.all", "limit": 200 },
+        "proposals": { "canon": "proposals.byIds", "args": { "ids": { "read": "corrections", "field": "proposal" } } }
+      },
+      "writes": [], "returns": "value",
+      "result": { "kind": "table", "rows": "rows", "empty": "No corrections proposed yet.", "columns": [
+        { "label": "Record", "value": "{$row.recordName}" },
+        { "label": "Field", "value": "{$row.attribute}" },
+        { "label": "Was", "value": "{$row.was}" },
+        { "label": "Proposed", "value": "{$row.value}" },
+        { "label": "By", "value": "{$row.by|user}" },
+        { "label": "Outcome", "value": "{$row.outcome}" }
+      ] }
+    }
+  },
+  "pages": [
+    {
+      "path": "facts", "title": "Stale facts",
+      "bind": {
+        "watched": { "view": "watched.all" },
+        "corrections": { "view": "corrections.all" },
+        "stale": { "call": "stale", "refreshOn": ["watched"] },
+        "outcomes": { "call": "outcomes", "refreshOn": ["corrections"] }
+      },
+      "body": [
+        { "c": "header", "title": "Stale facts", "subtitle": "Deals closing from 30 days ago to 90 days out, and the companies you watch: contested facts first, then the ones confirmed longest ago.",
+          "actions": [{ "op": "watched.create", "label": "Watch a company" }] },
+        { "c": "callResult", "from": "stale", "label": "Facts to check" },
+        { "c": "callResult", "from": "outcomes", "label": "Corrections you can see" },
+        { "c": "table", "from": "watched", "empty": "No companies watched yet.", "columns": [
+          { "label": "Watched company", "value": "{$row.company|ref}" }, { "label": "Added by", "value": "{$row.by|user}" }
+        ], "rowActions": [{ "op": "watched.delete", "label": "Stop watching" }] }
+      ]
+    }
+  ]
+}

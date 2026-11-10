@@ -1,0 +1,155 @@
+{
+  "provenance": "Literal plan section 12 expectations. Independent grounding review 2026-10-20 agreed current match outcomes; complete G2 remains pending later scenarios and A3 source ambiguity.",
+  "hosts": [
+    {
+      "id": "ana",
+      "zone": "America/New_York",
+      "hours": "Mon-Fri 09:00-17:00",
+      "weight": 1
+    },
+    {
+      "id": "ben",
+      "zone": "Europe/London",
+      "hours": "Mon-Fri 09:00-17:00",
+      "weight": 1
+    },
+    {
+      "id": "chen",
+      "zone": "America/Los_Angeles",
+      "hours": "Mon-Fri 10:00-16:00",
+      "weight": 2
+    }
+  ],
+  "companies": [
+    {
+      "id": "acme",
+      "name": "Acme",
+      "domain": "acme.com",
+      "ownerId": "ana"
+    },
+    {
+      "id": "globex",
+      "name": "Globex",
+      "domain": "globex.co.uk",
+      "ownerId": "ben"
+    },
+    {
+      "id": "initech",
+      "name": "Initech",
+      "domain": "initech.com",
+      "ownerId": "ana"
+    },
+    {
+      "id": "initech-eu",
+      "name": "Initech EU",
+      "domain": "initech.io",
+      "ownerId": "chen"
+    }
+  ],
+  "people": [
+    {
+      "id": "jo",
+      "email": "jo@acme.com",
+      "accountId": "acme",
+      "ownerId": "chen"
+    }
+  ],
+  "leads": [],
+  "matches": [
+    {
+      "email": "jo@acme.com",
+      "by": "email",
+      "companyId": "acme",
+      "personId": "jo",
+      "accountOwner": "ana"
+    },
+    {
+      "email": "sam@acme.com",
+      "by": "domain",
+      "companyId": "acme",
+      "accountOwner": "ana"
+    },
+    {
+      "email": "lee@eu.acme.com",
+      "by": "domain_family",
+      "companyId": "acme",
+      "accountOwner": "ana"
+    },
+    {
+      "email": "kim@initech.com",
+      "by": "domain",
+      "companyId": "initech",
+      "accountOwner": "ana"
+    },
+    {
+      "email": "max@initech.de",
+      "by": "ambiguous",
+      "candidateIds": [
+        "initech",
+        "initech-eu"
+      ]
+    },
+    {
+      "email": "pat@gmail.com",
+      "companyName": "Globex",
+      "by": "none",
+      "candidateIds": [
+        "globex"
+      ]
+    }
+  ],
+  "availability": {
+    "A1": {
+      "ana": 13,
+      "ben": 10,
+      "chen": 12,
+      "union": 22
+    },
+    "A2": {
+      "union": 30,
+      "tokyoLast": "2026-11-03T08:30"
+    },
+    "A3": {
+      "ben": 0,
+      "union": 20
+    },
+    "A4": {
+      "ben": 0,
+      "union": 17
+    }
+  },
+  "fairness": {
+    "R1": [
+      "chen",
+      "ana",
+      "ben",
+      "chen",
+      "chen",
+      "ana",
+      "ben",
+      "chen"
+    ],
+    "R1credits": [
+      2,
+      2,
+      4
+    ],
+    "R2": "chen",
+    "R3": "chen",
+    "R4credits": 2,
+    "R5slots": 13
+  },
+  "sla": {
+    "due": "2026-10-27T09:05:00Z",
+    "overrideDue": "2026-10-28T09:05:00Z",
+    "touch": "2026-10-28T09:03:00Z",
+    "businessMinutes": 13,
+    "wallMinutes": 2413,
+    "bucket": "under30"
+  },
+  "normalization": {
+    "accountId": "The record service calls the person-to-company key accountId. It is the same company relationship described by companyId in module reads.",
+    "personOwner": "Jo belongs to Chen; Acme belongs to Ana. Account-owner routing must use Ana.",
+    "A3": "Canonical plan says Same now after A2, but 2026-10-27 precedes A2 now=2026-11-01. Intended reading is same now as A1, 2026-10-26T08:00Z. Full calendar oracle remains pending explicit inputs; no calendar proof is claimed."
+  }
+}

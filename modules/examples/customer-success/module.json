@@ -1,0 +1,2227 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/customer-success",
+  "version": "0.3.0",
+  "title": "Customer success",
+  "description": "Every customer's ARR from its closed-won recurring deals, with its next renewal and its CSM, and net and gross revenue retention over any period: the customers paying when it starts, what they pay at its end, and what churned, contracted and expanded, by segment and by CSM. New customers count apart. Deals without a company, an ARR or a contract length are listed, never guessed silently. Product usage highlights churn risk and expansion with evidence, configurable thresholds and dismissals.",
+  "author": {
+    "org": "canon"
+  },
+  "engines": {
+    "moduleApi": "1"
+  },
+  "nav": {
+    "label": "Customers",
+    "icon": "target",
+    "section": "CRM",
+    "landing": {
+      "default": "portfolio",
+      "rep": "portfolio"
+    }
+  },
+  "server": "dist/module.js",
+  "reads": {
+    "deals": [
+      "name",
+      "amount",
+      "arr",
+      "closeDate",
+      "dealType",
+      "revenueType",
+      "contractLengthMonths",
+      "isClosed",
+      "isWon",
+      "ownerId",
+      "companyId"
+    ],
+    "users": [
+      "name"
+    ],
+    "companies": [
+      "name",
+      "domain"
+    ]
+  },
+  "collections": {
+    "accounts": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "company": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Canon company id"
+          },
+          "companyName": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "optional": true,
+            "label": "Company"
+          },
+          "csm": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "CSM"
+          },
+          "segment": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "enterprise"
+                },
+                {
+                  "type": "literal",
+                  "value": "mid"
+                },
+                {
+                  "type": "literal",
+                  "value": "smb"
+                }
+              ],
+              "labels": {
+                "enterprise": "Enterprise",
+                "mid": "Mid-market",
+                "smb": "SMB"
+              }
+            },
+            "optional": true,
+            "label": "Segment"
+          },
+          "arr": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "ARR",
+            "widget": "money"
+          },
+          "renewalOn": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Renews",
+            "widget": "date"
+          },
+          "since": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": true,
+            "label": "Customer since",
+            "widget": "date"
+          },
+          "lastDeal": {
+            "fieldType": {
+              "type": "ref",
+              "to": "deals"
+            },
+            "optional": true,
+            "label": "Latest deal"
+          },
+          "contracts": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Contracts"
+          },
+          "dismissed": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "string"
+              }
+            },
+            "optional": true,
+            "label": "Dismissed signal rules"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "company"
+        ]
+      },
+      "owner": "csm",
+      "indexes": {
+        "byCompany": [
+          "company"
+        ],
+        "byCsm": [
+          "csm",
+          "renewalOn"
+        ],
+        "byRenewal": [
+          "renewalOn"
+        ]
+      },
+      "access": {
+        "manager": "team",
+        "rep": "own"
+      },
+      "label": "Account",
+      "title": "{$doc.companyName}"
+    },
+    "contracts": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "deal": {
+            "fieldType": {
+              "type": "ref",
+              "to": "deals"
+            },
+            "optional": false,
+            "label": "Deal"
+          },
+          "dealName": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 300
+            },
+            "optional": false,
+            "label": "Deal name"
+          },
+          "account": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Account"
+          },
+          "kind": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "new"
+                },
+                {
+                  "type": "literal",
+                  "value": "renewal"
+                },
+                {
+                  "type": "literal",
+                  "value": "expansion"
+                },
+                {
+                  "type": "literal",
+                  "value": "contraction"
+                }
+              ],
+              "labels": {
+                "new": "New",
+                "renewal": "Renewal",
+                "expansion": "Expansion",
+                "contraction": "Contraction"
+              }
+            },
+            "optional": false,
+            "label": "Kind"
+          },
+          "start": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Starts",
+            "widget": "date"
+          },
+          "end": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Ends",
+            "widget": "date"
+          },
+          "until": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Counts until",
+            "widget": "date"
+          },
+          "arr": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "ARR",
+            "widget": "money"
+          },
+          "renewedArr": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": true,
+            "label": "Replaces",
+            "widget": "money"
+          },
+          "note": {
+            "fieldType": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "optional": true,
+            "label": "Assumed"
+          },
+          "csm": {
+            "fieldType": {
+              "type": "ref",
+              "to": "users"
+            },
+            "optional": true,
+            "label": "CSM"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "deal"
+        ]
+      },
+      "indexes": {
+        "byAccount": [
+          "account",
+          "start"
+        ],
+        "byEnd": [
+          "end"
+        ]
+      },
+      "access": {},
+      "label": "Contract",
+      "title": "{$doc.dealName}",
+      "setOf": {
+        "parent": "accounts"
+      }
+    },
+    "usage": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "account": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "day": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Day"
+          },
+          "metrics": {
+            "fieldType": {
+              "type": "record",
+              "keys": {
+                "type": "string"
+              },
+              "values": {
+                "fieldType": {
+                  "type": "number"
+                },
+                "optional": false
+              }
+            },
+            "optional": false
+          },
+          "source": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "sourceAt": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "account",
+          "day"
+        ]
+      },
+      "indexes": {
+        "byDay": [
+          "day"
+        ]
+      },
+      "access": {},
+      "setOf": {
+        "parent": "accounts"
+      },
+      "label": "Daily usage"
+    },
+    "usageReview": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "source": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "domain": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Domain"
+          },
+          "day": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Day"
+          },
+          "reason": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "Needs review"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "source"
+        ]
+      },
+      "indexes": {},
+      "access": {
+        "manager": "all"
+      },
+      "label": "Usage to review"
+    },
+    "growSettings": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "scope": {
+            "fieldType": {
+              "type": "literal",
+              "value": "workspace"
+            },
+            "optional": false
+          },
+          "declinePercent": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Active user decline (%)"
+          },
+          "inactiveDays": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Days without reported usage"
+          },
+          "renewalDays": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Renewal window (days)"
+          },
+          "seatPercent": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Seats used (%)"
+          },
+          "growthPercent": {
+            "fieldType": {
+              "type": "number"
+            },
+            "optional": false,
+            "label": "Sustained growth (%)"
+          }
+        }
+      },
+      "key": {
+        "from": [
+          "scope"
+        ]
+      },
+      "indexes": {},
+      "access": {
+        "manager": "all",
+        "rep": "all"
+      },
+      "label": "Grow settings"
+    }
+  },
+  "views": {
+    "accounts.all": {
+      "kind": "list",
+      "collection": "accounts",
+      "index": "byRenewal",
+      "limit": 1000
+    },
+    "accounts.paying": {
+      "kind": "list",
+      "collection": "accounts",
+      "index": "byRenewal",
+      "where": {
+        "field": "arr",
+        "neq": 0
+      },
+      "limit": 1000
+    },
+    "accounts.one": {
+      "kind": "one",
+      "collection": "accounts",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    },
+    "accounts.forCompanies": {
+      "kind": "list",
+      "collection": "accounts",
+      "args": {
+        "companies": "string[]"
+      },
+      "index": "byCompany",
+      "eq": [
+        {
+          "arg": "companies"
+        }
+      ],
+      "limit": 1000
+    },
+    "contracts.forAccount": {
+      "kind": "list",
+      "collection": "contracts",
+      "args": {
+        "account": "string"
+      },
+      "index": "byAccount",
+      "order": "desc",
+      "limit": 500,
+      "parent": {
+        "arg": "account"
+      }
+    },
+    "contracts.forAccounts": {
+      "kind": "list",
+      "collection": "contracts",
+      "args": {
+        "accounts": "string[]"
+      },
+      "index": "byAccount",
+      "limit": 1000,
+      "parent": {
+        "arg": "accounts"
+      }
+    },
+    "accounts.grow": {
+      "kind": "list",
+      "collection": "accounts",
+      "limit": 500
+    },
+    "usage.recent": {
+      "kind": "list",
+      "collection": "usage",
+      "args": {
+        "accounts": "string[]"
+      },
+      "parent": {
+        "arg": "accounts"
+      },
+      "index": "byDay",
+      "range": {
+        "gte": {
+          "nowPlusDays": -90,
+          "as": "date"
+        }
+      },
+      "limit": 1000
+    },
+    "usage.forAccount": {
+      "kind": "list",
+      "collection": "usage",
+      "args": {
+        "account": "string"
+      },
+      "parent": {
+        "arg": "account"
+      },
+      "index": "byDay",
+      "range": {
+        "gte": {
+          "nowPlusDays": -90,
+          "as": "date"
+        }
+      },
+      "limit": 100
+    },
+    "usageReview.all": {
+      "kind": "list",
+      "collection": "usageReview",
+      "limit": 1000
+    },
+    "growSettings.one": {
+      "kind": "one",
+      "collection": "growSettings",
+      "args": {
+        "key": "string"
+      },
+      "key": {
+        "arg": "key"
+      }
+    }
+  },
+  "ops": {
+    "accounts.update": {
+      "label": "Edit account",
+      "kind": "update",
+      "collection": "accounts",
+      "fields": [
+        "csm",
+        "segment"
+      ],
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "agent": "allowed",
+      "dirties": [
+        {
+          "job": "contracts",
+          "key": [
+            {
+              "doc": "company"
+            }
+          ]
+        }
+      ]
+    },
+    "growSettings.create": {
+      "label": "Save Grow thresholds",
+      "kind": "create",
+      "collection": "growSettings",
+      "fields": [
+        "declinePercent",
+        "inactiveDays",
+        "renewalDays",
+        "seatPercent",
+        "growthPercent"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "agent": "allowed",
+      "set": {
+        "scope": "workspace"
+      },
+      "guards": [
+        {
+          "message": "Active user decline (%) must be between 1 and 100.",
+          "when": {
+            "all": [
+              {
+                "field": "declinePercent",
+                "gte": 1
+              },
+              {
+                "field": "declinePercent",
+                "lte": 100
+              }
+            ]
+          }
+        },
+        {
+          "message": "Days without reported usage must be between 1 and 90.",
+          "when": {
+            "all": [
+              {
+                "field": "inactiveDays",
+                "gte": 1
+              },
+              {
+                "field": "inactiveDays",
+                "lte": 90
+              }
+            ]
+          }
+        },
+        {
+          "message": "Renewal window (days) must be between 1 and 365.",
+          "when": {
+            "all": [
+              {
+                "field": "renewalDays",
+                "gte": 1
+              },
+              {
+                "field": "renewalDays",
+                "lte": 365
+              }
+            ]
+          }
+        },
+        {
+          "message": "Seats used (%) must be between 1 and 100.",
+          "when": {
+            "all": [
+              {
+                "field": "seatPercent",
+                "gte": 1
+              },
+              {
+                "field": "seatPercent",
+                "lte": 100
+              }
+            ]
+          }
+        },
+        {
+          "message": "Sustained growth (%) must be between 1 and 1000.",
+          "when": {
+            "all": [
+              {
+                "field": "growthPercent",
+                "gte": 1
+              },
+              {
+                "field": "growthPercent",
+                "lte": 1000
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "growSettings.update": {
+      "label": "Save Grow thresholds",
+      "kind": "update",
+      "collection": "growSettings",
+      "fields": [
+        "declinePercent",
+        "inactiveDays",
+        "renewalDays",
+        "seatPercent",
+        "growthPercent"
+      ],
+      "roles": [
+        "admin"
+      ],
+      "agent": "allowed",
+      "guards": [
+        {
+          "message": "Active user decline (%) must be between 1 and 100.",
+          "when": {
+            "all": [
+              {
+                "field": "declinePercent",
+                "gte": 1
+              },
+              {
+                "field": "declinePercent",
+                "lte": 100
+              }
+            ]
+          }
+        },
+        {
+          "message": "Days without reported usage must be between 1 and 90.",
+          "when": {
+            "all": [
+              {
+                "field": "inactiveDays",
+                "gte": 1
+              },
+              {
+                "field": "inactiveDays",
+                "lte": 90
+              }
+            ]
+          }
+        },
+        {
+          "message": "Renewal window (days) must be between 1 and 365.",
+          "when": {
+            "all": [
+              {
+                "field": "renewalDays",
+                "gte": 1
+              },
+              {
+                "field": "renewalDays",
+                "lte": 365
+              }
+            ]
+          }
+        },
+        {
+          "message": "Seats used (%) must be between 1 and 100.",
+          "when": {
+            "all": [
+              {
+                "field": "seatPercent",
+                "gte": 1
+              },
+              {
+                "field": "seatPercent",
+                "lte": 100
+              }
+            ]
+          }
+        },
+        {
+          "message": "Sustained growth (%) must be between 1 and 1000.",
+          "when": {
+            "all": [
+              {
+                "field": "growthPercent",
+                "gte": 1
+              },
+              {
+                "field": "growthPercent",
+                "lte": 1000
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "jobs": {
+    "contracts": {
+      "label": "Contracts and ARR",
+      "call": "rebuild",
+      "key": [
+        "company"
+      ],
+      "batch": 25
+    }
+  },
+  "watches": [
+    {
+      "object": "deals",
+      "call": "onDeals",
+      "fields": [
+        "amount",
+        "closeDate",
+        "dealType",
+        "isClosed",
+        "isWon",
+        "ownerId",
+        "companyId"
+      ]
+    }
+  ],
+  "schedules": {
+    "sweep": {
+      "label": "Rebuild every customer's contracts",
+      "call": "sweep",
+      "everyMinutes": 1440
+    }
+  },
+  "calls": {
+    "onDeals": {
+      "label": "Rebuild the contracts a deal change touches",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {},
+      "writes": [],
+      "returns": "none"
+    },
+    "sweep": {
+      "label": "Rebuild every customer's contracts",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": "1970-01-01",
+            "to": "2999-12-31"
+          },
+          "limit": 5000
+        },
+        "accounts": {
+          "view": "accounts.all",
+          "limit": 1000
+        }
+      },
+      "writes": [],
+      "returns": "none"
+    },
+    "rebuild": {
+      "label": "Rebuild contracts and ARR",
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "reads": {
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": "1970-01-01",
+            "to": "2999-12-31"
+          },
+          "limit": 5000
+        },
+        "accounts": {
+          "view": "accounts.forCompanies",
+          "args": {
+            "companies": {
+              "arg": "company"
+            }
+          },
+          "limit": 1000
+        },
+        "contracts": {
+          "view": "contracts.forAccounts",
+          "args": {
+            "accounts": {
+              "arg": "company"
+            }
+          },
+          "limit": 1000
+        },
+        "companies": {
+          "canon": "companies.byIds",
+          "args": {
+            "ids": {
+              "arg": "company"
+            }
+          },
+          "limit": 1000
+        }
+      },
+      "writes": [
+        "accounts",
+        "contracts"
+      ],
+      "returns": "none"
+    },
+    "retention": {
+      "label": "Retention",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "args": {
+        "type": "object",
+        "value": {
+          "from": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "From",
+            "widget": "date"
+          },
+          "to": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false,
+            "label": "To",
+            "widget": "date"
+          }
+        }
+      },
+      "reads": {
+        "accounts": {
+          "view": "accounts.all",
+          "limit": 5000
+        },
+        "contracts": {
+          "view": "contracts.forAccounts",
+          "args": {
+            "accounts": {
+              "read": "accounts",
+              "field": "key"
+            }
+          },
+          "limit": 5000
+        },
+        "users": {
+          "canon": "users.withInactive",
+          "limit": 2000
+        },
+        "deals": {
+          "canon": "deals.closedBetween",
+          "args": {
+            "from": "1970-01-01",
+            "to": {
+              "arg": "to"
+            }
+          },
+          "limit": 5000
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "onUsage": {
+      "label": "Import daily product usage",
+      "roles": [],
+      "agent": "allowed",
+      "reads": {
+        "accounts": {
+          "view": "accounts.grow",
+          "limit": 500
+        },
+        "usage": {
+          "view": "usage.recent",
+          "args": {
+            "accounts": {
+              "read": "accounts",
+              "field": "key"
+            }
+          },
+          "limit": 5000
+        },
+        "companies": {
+          "canon": "companies.byIds",
+          "args": {
+            "ids": {
+              "read": "accounts",
+              "field": "key"
+            }
+          },
+          "limit": 500
+        }
+      },
+      "writes": [
+        "usage",
+        "usageReview"
+      ],
+      "returns": "none",
+      "system": true
+    },
+    "signals": {
+      "label": "Churn risk and expansion",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "accounts": {
+          "view": "accounts.grow",
+          "limit": 500
+        },
+        "usage": {
+          "view": "usage.recent",
+          "args": {
+            "accounts": {
+              "read": "accounts",
+              "field": "key"
+            }
+          },
+          "limit": 5000
+        },
+        "settings": {
+          "view": "growSettings.one",
+          "args": {
+            "key": "workspace"
+          }
+        }
+      },
+      "writes": [],
+      "returns": "value"
+    },
+    "accountUsage": {
+      "label": "Account product usage",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "account": {
+          "view": "accounts.one",
+          "args": {
+            "key": {
+              "arg": "account"
+            }
+          }
+        },
+        "usage": {
+          "view": "usage.forAccount",
+          "args": {
+            "account": {
+              "arg": "account"
+            }
+          },
+          "limit": 100
+        },
+        "settings": {
+          "view": "growSettings.one",
+          "args": {
+            "key": "workspace"
+          }
+        }
+      },
+      "writes": [],
+      "returns": "value",
+      "args": {
+        "type": "object",
+        "value": {
+          "account": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      }
+    },
+    "dismissSignal": {
+      "label": "Dismiss signal rule",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "account": {
+          "view": "accounts.one",
+          "args": {
+            "key": {
+              "arg": "account"
+            }
+          }
+        }
+      },
+      "writes": [
+        "accounts"
+      ],
+      "returns": "none",
+      "args": {
+        "type": "object",
+        "value": {
+          "account": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          },
+          "kind": {
+            "fieldType": {
+              "type": "union",
+              "value": [
+                {
+                  "type": "literal",
+                  "value": "declining"
+                },
+                {
+                  "type": "literal",
+                  "value": "inactive"
+                },
+                {
+                  "type": "literal",
+                  "value": "renewal"
+                },
+                {
+                  "type": "literal",
+                  "value": "seats"
+                },
+                {
+                  "type": "literal",
+                  "value": "growth"
+                }
+              ]
+            },
+            "optional": false
+          }
+        }
+      }
+    },
+    "restoreSignals": {
+      "label": "Restore dismissed signals",
+      "roles": [
+        "admin",
+        "manager",
+        "rep"
+      ],
+      "agent": "allowed",
+      "reads": {
+        "account": {
+          "view": "accounts.one",
+          "args": {
+            "key": {
+              "arg": "account"
+            }
+          }
+        }
+      },
+      "writes": [
+        "accounts"
+      ],
+      "returns": "none",
+      "args": {
+        "type": "object",
+        "value": {
+          "account": {
+            "fieldType": {
+              "type": "string"
+            },
+            "optional": false
+          }
+        }
+      }
+    }
+  },
+  "exports": {
+    "retention.csv": {
+      "label": "Export retention",
+      "filename": "retention",
+      "call": "retention",
+      "rows": "rows",
+      "columns": [
+        {
+          "label": "Company",
+          "value": "{$row.name}"
+        },
+        {
+          "label": "Segment",
+          "value": "{$row.segment}"
+        },
+        {
+          "label": "CSM",
+          "value": "{$row.csm|user}"
+        },
+        {
+          "label": "Starting ARR",
+          "value": "{$row.startArr|money}"
+        },
+        {
+          "label": "Ending ARR",
+          "value": "{$row.endArr|money}"
+        },
+        {
+          "label": "Change",
+          "value": "{$row.change|money}"
+        },
+        {
+          "label": "Outcome",
+          "value": "{$row.outcome}"
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "path": "portfolio",
+      "title": "Portfolio",
+      "tab": {
+        "label": "Portfolio",
+        "order": 0
+      },
+      "bind": {
+        "accounts": {
+          "view": "accounts.all",
+          "limit": 1000
+        },
+        "paying": {
+          "view": "accounts.paying",
+          "limit": 1000
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Portfolio",
+          "subtitle": "Every customer with ARR from its closed-won recurring deals: what it pays now, when it renews and who looks after it."
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "ARR",
+              "total": {
+                "from": "paying",
+                "sum": "arr",
+                "format": "money"
+              }
+            },
+            {
+              "label": "Paying accounts",
+              "count": "paying"
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "accounts",
+          "id": "pf",
+          "rowLink": "accounts/:key",
+          "sort": {
+            "by": "arr",
+            "dir": "desc"
+          },
+          "empty": "No customers yet. An account appears here when a recurring deal linked to a company is won.",
+          "emptyFiltered": "No accounts match.",
+          "search": [
+            "companyName"
+          ],
+          "filters": [
+            {
+              "field": "segment",
+              "label": "Segment"
+            },
+            {
+              "field": "csm",
+              "label": "CSM"
+            }
+          ],
+          "chips": [
+            {
+              "label": "Paying",
+              "when": {
+                "field": "arr",
+                "gte": 1
+              }
+            }
+          ],
+          "columns": [
+            {
+              "label": "Company",
+              "value": "{$row.companyName}",
+              "sort": "companyName"
+            },
+            {
+              "label": "ARR",
+              "value": "{$row.arr|money}",
+              "align": "end",
+              "sort": "arr",
+              "total": {
+                "sum": "arr",
+                "format": "money"
+              }
+            },
+            {
+              "label": "Renews",
+              "value": "{$row.renewalOn|date}",
+              "sort": "renewalOn",
+              "empty": "Not renewing"
+            },
+            {
+              "label": "CSM",
+              "value": "{$row.csm|user}",
+              "sort": "csm",
+              "empty": "No CSM"
+            },
+            {
+              "label": "Segment",
+              "value": "{$row.segment}",
+              "empty": "\u2014"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "retention",
+      "title": "Retention",
+      "tab": {
+        "label": "Retention",
+        "order": 1
+      },
+      "persist": [
+        "from",
+        "to"
+      ],
+      "bind": {
+        "ret": {
+          "call": "retention",
+          "args": {
+            "from": {
+              "query": "from"
+            },
+            "to": {
+              "query": "to"
+            }
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Retention",
+          "subtitle": "The customers paying on the day before {$ret.from|date}, and what their contracts booked for {$ret.to|date} pay. New customers in the period count in neither ratio.",
+          "actions": [
+            {
+              "export": "retention.csv",
+              "label": "Export",
+              "args": {
+                "from": {
+                  "query": "from"
+                },
+                "to": {
+                  "query": "to"
+                }
+              },
+              "formats": [
+                "csv",
+                "xlsx"
+              ]
+            }
+          ]
+        },
+        {
+          "c": "dateRange",
+          "from": "from",
+          "to": "to",
+          "label": "Period",
+          "default": "year to date"
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "NRR",
+              "value": "{$ret.nrr|percent}",
+              "hint": "Ending ARR \u00f7 starting ARR"
+            },
+            {
+              "label": "GRR",
+              "value": "{$ret.grr|percent}",
+              "hint": "Without expansion: {$ret.grrNumerator|money}"
+            },
+            {
+              "label": "Starting ARR",
+              "value": "{$ret.start|money}",
+              "hint": "{$ret.accounts|number} accounts"
+            },
+            {
+              "label": "Ending ARR",
+              "value": "{$ret.end|money}"
+            },
+            {
+              "label": "Churn",
+              "value": "{$ret.churn|money}"
+            },
+            {
+              "label": "Contraction",
+              "value": "{$ret.contraction|money}"
+            },
+            {
+              "label": "Expansion",
+              "value": "{$ret.expansion|money}"
+            },
+            {
+              "label": "New logos",
+              "value": "{$ret.newLogoArr|money}",
+              "hint": "Not in NRR or GRR"
+            }
+          ]
+        },
+        {
+          "c": "chart",
+          "kind": "waterfall",
+          "title": "From starting to ending ARR",
+          "from": "ret",
+          "rows": "bridge",
+          "x": "step",
+          "y": "amount",
+          "start": "start",
+          "end": "end",
+          "startLabel": "Starting ARR",
+          "endLabel": "Ending ARR",
+          "format": "money"
+        },
+        {
+          "c": "chart",
+          "kind": "line",
+          "title": "NRR and GRR, month by month",
+          "from": "ret",
+          "rows": "monthly",
+          "x": "month",
+          "y": "value",
+          "series": "metric",
+          "format": "percent"
+        },
+        {
+          "c": "tabs",
+          "param": "view",
+          "tabs": [
+            {
+              "id": "groups",
+              "label": "By segment and CSM",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "ret",
+                  "rows": "groups",
+                  "id": "gr",
+                  "empty": "No customers were paying when the period started.",
+                  "group": {
+                    "by": "by"
+                  },
+                  "columns": [
+                    {
+                      "label": "Group",
+                      "value": "{$row.label}"
+                    },
+                    {
+                      "label": "Accounts",
+                      "value": "{$row.accounts|number}",
+                      "align": "end"
+                    },
+                    {
+                      "label": "Starting ARR",
+                      "value": "{$row.start|money}",
+                      "align": "end"
+                    },
+                    {
+                      "label": "Ending ARR",
+                      "value": "{$row.end|money}",
+                      "align": "end"
+                    },
+                    {
+                      "label": "NRR",
+                      "value": "{$row.nrr|percent}",
+                      "align": "end",
+                      "empty": "\u2014"
+                    },
+                    {
+                      "label": "GRR",
+                      "value": "{$row.grr|percent}",
+                      "align": "end",
+                      "empty": "\u2014"
+                    },
+                    {
+                      "label": "Churn",
+                      "value": "{$row.churn|money}",
+                      "align": "end"
+                    },
+                    {
+                      "label": "Contraction",
+                      "value": "{$row.contraction|money}",
+                      "align": "end"
+                    },
+                    {
+                      "label": "Expansion",
+                      "value": "{$row.expansion|money}",
+                      "align": "end"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "customers",
+              "label": "Customers",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "ret",
+                  "rows": "rows",
+                  "id": "co",
+                  "rowLink": "accounts/:company",
+                  "empty": "No customers in the period.",
+                  "chips": [
+                    {
+                      "label": "In the cohort",
+                      "when": {
+                        "field": "inCohort",
+                        "in": [
+                          true
+                        ]
+                      }
+                    }
+                  ],
+                  "filters": [
+                    {
+                      "field": "outcome",
+                      "label": "Outcome"
+                    },
+                    {
+                      "field": "segment",
+                      "label": "Segment"
+                    }
+                  ],
+                  "columns": [
+                    {
+                      "label": "Company",
+                      "value": "{$row.name}",
+                      "sort": "name"
+                    },
+                    {
+                      "label": "Segment",
+                      "value": "{$row.segment}"
+                    },
+                    {
+                      "label": "CSM",
+                      "value": "{$row.csm|user}",
+                      "empty": "No CSM"
+                    },
+                    {
+                      "label": "Starting ARR",
+                      "value": "{$row.startArr|money}",
+                      "align": "end",
+                      "sort": "startArr",
+                      "total": {
+                        "sum": "startArr",
+                        "format": "money"
+                      }
+                    },
+                    {
+                      "label": "Ending ARR",
+                      "value": "{$row.endArr|money}",
+                      "align": "end",
+                      "sort": "endArr",
+                      "total": {
+                        "sum": "endArr",
+                        "format": "money"
+                      }
+                    },
+                    {
+                      "label": "Change",
+                      "value": "{$row.change|money}",
+                      "align": "end",
+                      "sort": "change"
+                    },
+                    {
+                      "label": "Outcome",
+                      "value": "{$row.outcome}"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "new",
+              "label": "New logos",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "ret",
+                  "rows": "newLogos",
+                  "id": "nl",
+                  "rowLink": "accounts/:company",
+                  "empty": "No new customers in the period.",
+                  "columns": [
+                    {
+                      "label": "Company",
+                      "value": "{$row.name}"
+                    },
+                    {
+                      "label": "CSM",
+                      "value": "{$row.csm|user}",
+                      "empty": "No CSM"
+                    },
+                    {
+                      "label": "ARR at the end",
+                      "value": "{$row.arr|money}",
+                      "align": "end",
+                      "total": {
+                        "sum": "arr",
+                        "format": "money"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "notes",
+              "label": "Left out or guessed ({$ret.noteCount})",
+              "body": [
+                {
+                  "c": "table",
+                  "from": "ret",
+                  "rows": "notes",
+                  "id": "nt",
+                  "empty": "Every deal behind these numbers has a company, an ARR and a contract length.",
+                  "columns": [
+                    {
+                      "label": "Deal",
+                      "value": "{$row.name}"
+                    },
+                    {
+                      "label": "Company",
+                      "value": "{$row.company}"
+                    },
+                    {
+                      "label": "What happened",
+                      "value": "{$row.kind}"
+                    },
+                    {
+                      "label": "Why",
+                      "value": "{$row.note}"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "signals",
+      "title": "Signals",
+      "tab": {
+        "label": "Signals",
+        "order": 2
+      },
+      "bind": {
+        "grow": {
+          "call": "signals"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Signals",
+          "subtitle": "Daily product usage with the numbers behind each rule. ARR is the account ARR, not a forecast of loss or expansion.",
+          "actions": [
+            {
+              "navigate": "grow-settings",
+              "label": "Thresholds"
+            },
+            {
+              "navigate": "usage-review",
+              "label": "Usage to review"
+            }
+          ]
+        },
+        {
+          "c": "kpis",
+          "items": [
+            {
+              "label": "ARR at risk",
+              "value": "{$grow.riskArr|money}",
+              "hint": "Each account counted once"
+            }
+          ]
+        },
+        {
+          "c": "header",
+          "title": "Churn risk"
+        },
+        {
+          "c": "table",
+          "from": "grow",
+          "rows": "risk",
+          "columns": [
+            {
+              "label": "Company",
+              "value": "{$row.companyName}"
+            },
+            {
+              "label": "Signal",
+              "value": "{$row.title}"
+            },
+            {
+              "label": "Evidence",
+              "value": "{$row.evidence}"
+            },
+            {
+              "label": "Account ARR",
+              "value": "{$row.arr|money}"
+            }
+          ],
+          "empty": "No signals with the available usage and thresholds.",
+          "rowLink": "accounts/:account",
+          "rowActions": [
+            {
+              "call": "dismissSignal",
+              "label": "Dismiss rule",
+              "args": {
+                "account": {
+                  "row": "account"
+                },
+                "kind": {
+                  "row": "kind"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "c": "header",
+          "title": "Expansion"
+        },
+        {
+          "c": "table",
+          "from": "grow",
+          "rows": "expansion",
+          "columns": [
+            {
+              "label": "Company",
+              "value": "{$row.companyName}"
+            },
+            {
+              "label": "Signal",
+              "value": "{$row.title}"
+            },
+            {
+              "label": "Evidence",
+              "value": "{$row.evidence}"
+            },
+            {
+              "label": "Account ARR",
+              "value": "{$row.arr|money}"
+            }
+          ],
+          "empty": "No signals with the available usage and thresholds.",
+          "rowLink": "accounts/:account",
+          "rowActions": [
+            {
+              "call": "dismissSignal",
+              "label": "Dismiss rule",
+              "args": {
+                "account": {
+                  "row": "account"
+                },
+                "kind": {
+                  "row": "kind"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "accounts/:key",
+      "title": "{$account.companyName}",
+      "bind": {
+        "account": {
+          "view": "accounts.one",
+          "args": {
+            "key": {
+              "route": "key"
+            }
+          },
+          "join": [
+            "lastDeal"
+          ]
+        },
+        "contracts": {
+          "view": "contracts.forAccount",
+          "args": {
+            "account": {
+              "route": "key"
+            }
+          },
+          "join": [
+            "deal"
+          ]
+        },
+        "usage": {
+          "call": "accountUsage",
+          "args": {
+            "account": {
+              "route": "key"
+            }
+          }
+        }
+      },
+      "fallback": {
+        "back": {
+          "label": "Back to Portfolio",
+          "path": "portfolio"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "{$account.companyName}",
+          "subtitle": "{$account.arr|money} ARR",
+          "actions": [
+            {
+              "op": "accounts.update",
+              "label": "Edit",
+              "target": "account"
+            },
+            {
+              "canon": "deal",
+              "label": "Open the latest deal in Canon",
+              "bind": "account",
+              "ref": "lastDeal"
+            },
+            {
+              "call": "restoreSignals",
+              "label": "Restore dismissed signals",
+              "args": {
+                "account": {
+                  "route": "key"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "c": "detail",
+          "columns": 3,
+          "items": [
+            {
+              "label": "ARR",
+              "value": "{$account.arr|money}"
+            },
+            {
+              "label": "Renews",
+              "value": "{$account.renewalOn|date}"
+            },
+            {
+              "label": "CSM",
+              "value": "{$account.csm|user}"
+            },
+            {
+              "label": "Segment",
+              "value": "{$account.segment}"
+            },
+            {
+              "label": "Customer since",
+              "value": "{$account.since|date}"
+            },
+            {
+              "label": "Contracts",
+              "value": "{$account.contracts|number}"
+            }
+          ]
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "{$usage.summary}"
+        },
+        {
+          "c": "chart",
+          "kind": "line",
+          "title": "Daily active users",
+          "from": "usage",
+          "rows": "rows",
+          "x": "day",
+          "y": "activeUsers",
+          "format": "number"
+        },
+        {
+          "c": "table",
+          "from": "usage",
+          "rows": "signals",
+          "columns": [
+            {
+              "label": "Signal",
+              "value": "{$row.title}"
+            },
+            {
+              "label": "Evidence",
+              "value": "{$row.evidence}"
+            }
+          ],
+          "empty": "No signals with the available usage and thresholds.",
+          "rowActions": [
+            {
+              "call": "dismissSignal",
+              "label": "Dismiss rule",
+              "args": {
+                "account": {
+                  "route": "key"
+                },
+                "kind": {
+                  "row": "kind"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "c": "table",
+          "from": "contracts",
+          "id": "ct",
+          "empty": "No contracts: none of this company's won deals is recurring.",
+          "columns": [
+            {
+              "label": "Deal",
+              "value": "{$row.dealName}",
+              "link": {
+                "canon": "deal",
+                "ref": "deal"
+              }
+            },
+            {
+              "label": "Kind",
+              "value": "{$row.kind}"
+            },
+            {
+              "label": "Starts",
+              "value": "{$row.start|date}"
+            },
+            {
+              "label": "Ends",
+              "value": "{$row.end|date}"
+            },
+            {
+              "label": "ARR",
+              "value": "{$row.arr|money}",
+              "align": "end"
+            },
+            {
+              "label": "Replaces",
+              "value": "{$row.renewedArr|money}",
+              "align": "end",
+              "empty": "\u2014"
+            },
+            {
+              "label": "Assumed",
+              "value": "{$row.note}",
+              "empty": "\u2014"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "usage-review",
+      "title": "Usage to review",
+      "roles": [
+        "admin",
+        "manager"
+      ],
+      "tab": {
+        "label": "Usage to review",
+        "order": 3,
+        "roles": [
+          "admin",
+          "manager"
+        ]
+      },
+      "bind": {
+        "review": {
+          "view": "usageReview.all"
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Usage to review",
+          "subtitle": "Correct the domain or daily metrics and resend the same event id with a higher version. Domains must identify exactly one existing customer account."
+        },
+        {
+          "c": "table",
+          "from": "review",
+          "columns": [
+            {
+              "label": "Domain",
+              "value": "{$row.domain}"
+            },
+            {
+              "label": "Day",
+              "value": "{$row.day}"
+            },
+            {
+              "label": "Needs review",
+              "value": "{$row.reason}"
+            }
+          ],
+          "empty": "No usage needs review."
+        }
+      ]
+    },
+    {
+      "path": "grow-settings",
+      "title": "Grow thresholds",
+      "roles": [
+        "admin"
+      ],
+      "bind": {
+        "settings": {
+          "view": "growSettings.one",
+          "args": {
+            "key": "workspace"
+          }
+        }
+      },
+      "body": [
+        {
+          "c": "header",
+          "title": "Grow thresholds"
+        },
+        {
+          "c": "banner",
+          "tone": "info",
+          "text": "Defaults apply until saved. Active user comparisons need at least 21 reported days in each 28-day window. Growth must exceed the prior window average in all four recent weeks."
+        },
+        {
+          "c": "form",
+          "op": "growSettings.create",
+          "initial": {
+            "declinePercent": 30,
+            "inactiveDays": 14,
+            "renewalDays": 90,
+            "seatPercent": 90,
+            "growthPercent": 25
+          },
+          "when": {
+            "bind": "settings",
+            "field": "scope",
+            "set": false
+          },
+          "fields": [
+            {
+              "field": "declinePercent",
+              "label": "Active user decline (%)"
+            },
+            {
+              "field": "inactiveDays",
+              "label": "Days without reported usage"
+            },
+            {
+              "field": "renewalDays",
+              "label": "Renewal window (days)"
+            },
+            {
+              "field": "seatPercent",
+              "label": "Seats used (%)"
+            },
+            {
+              "field": "growthPercent",
+              "label": "Sustained growth (%)"
+            }
+          ],
+          "submit": "Save thresholds"
+        },
+        {
+          "c": "form",
+          "op": "growSettings.update",
+          "from": "settings",
+          "when": {
+            "bind": "settings",
+            "field": "scope",
+            "set": true
+          },
+          "fields": [
+            {
+              "field": "declinePercent",
+              "label": "Active user decline (%)"
+            },
+            {
+              "field": "inactiveDays",
+              "label": "Days without reported usage"
+            },
+            {
+              "field": "renewalDays",
+              "label": "Renewal window (days)"
+            },
+            {
+              "field": "seatPercent",
+              "label": "Seats used (%)"
+            },
+            {
+              "field": "growthPercent",
+              "label": "Sustained growth (%)"
+            }
+          ],
+          "submit": "Save thresholds"
+        }
+      ]
+    }
+  ],
+  "feeds": {
+    "usage": {
+      "feed": "webhook.events",
+      "call": "onUsage",
+      "fields": [
+        "type",
+        "occurredAt",
+        "subject",
+        "data"
+      ],
+      "backfillDays": 90
+    }
+  },
+  "contributes": {
+    "companyPage": {
+      "panels": [
+        {
+          "id": "grow",
+          "title": "Customer usage and signals",
+          "bind": {
+            "usage": {
+              "call": "accountUsage",
+              "args": {
+                "account": {
+                  "query": "record"
+                }
+              }
+            }
+          },
+          "body": [
+            {
+              "c": "banner",
+              "tone": "info",
+              "text": "{$usage.summary}"
+            },
+            {
+              "c": "chart",
+              "kind": "line",
+              "title": "Daily active users",
+              "from": "usage",
+              "rows": "rows",
+              "x": "day",
+              "y": "activeUsers",
+              "format": "number"
+            },
+            {
+              "c": "table",
+              "from": "usage",
+              "rows": "signals",
+              "columns": [
+                {
+                  "label": "Signal",
+                  "value": "{$row.title}"
+                },
+                {
+                  "label": "Evidence",
+                  "value": "{$row.evidence}"
+                }
+              ],
+              "empty": "No signals with the available usage and thresholds."
+            }
+          ],
+          "link": {
+            "label": "Customer account",
+            "path": "accounts/{$query.record}"
+          }
+        }
+      ]
+    }
+  }
+}
