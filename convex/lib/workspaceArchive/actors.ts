@@ -354,6 +354,7 @@ export const QUIET: Readonly<Record<string, string>> = {
   "internal.operatorIntakeActions.reconcileAndRecover": "Canon's operator bug intake",
   "internal.operatorTools.purgeExpiredStates": "Canon's operator sign-in states",
   "internal.apiIdempotency.purgeExpired": "deletes record creates' idempotency keys past their day",
+  "internal.memberCredentials.purgeExpiredLocalSessions": "deletes self-hosted sign-in sessions past their expiry",
   "internal.staging.expire": "expires fills held for review, which never move",
   "/clerk-webhook": "sign-in",
   "/stripe/billing-webhook": "billing",

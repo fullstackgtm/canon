@@ -15,6 +15,7 @@ import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import schema from "./schema";
 import { agentClientOf, getCurrentUser, requireCap, withRole } from "./lib";
 import { can } from "./lib/capabilities";
+import { credentialMember } from "./lib/membership";
 import { REGISTER_SECTIONS, entryOf, exportOrder, exported, type ArchiveEntry, type ArchiveScope, type RegisterSection } from "./lib/workspaceArchive/tables";
 import { emptyStats, encodeRow, encodeValue, type RowStats, type ValidatorShape } from "./lib/workspaceArchive/rows";
 import { registerCounts, registerPage, registerService } from "./lib/workspaceArchive/register";
@@ -42,9 +43,7 @@ function newKey() {
 /** The member's role in `orgId` with their workspace role's capabilities, or null when they aren't an active member. */
 async function memberIn(ctx: QueryCtx, user: Doc<"users">, orgId: Id<"organizations">) {
   if (!user.isActive) return null;
-  if (user.orgId === orgId) return withRole(ctx, user);
-  const m = await ctx.db.query("orgMemberships").withIndex("by_userId_orgId", (q) => q.eq("userId", user._id).eq("orgId", orgId)).first();
-  return m?.isActive ? withRole(ctx, { ...user, orgId, role: m.role }) : null;
+  return withRole(ctx, await credentialMember(ctx, user, orgId));
 }
 
 /** The workspace a key exports and the admin who created it. Every archive read starts here. */

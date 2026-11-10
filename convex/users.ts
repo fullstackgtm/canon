@@ -8,6 +8,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { awaitsLogin, syncedRole } from "./lib/clerkRoles";
+import { revokeMemberCredentials } from "./lib/membership";
 
 /** A calendar day as YYYY-MM-DD that is a real date. */
 const isDay = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d);
@@ -213,12 +214,22 @@ export const update = mutation({
     if (args.isActive !== undefined) cleanUpdates.isActive = args.isActive;
     if (args.isHidden !== undefined) cleanUpdates.isHidden = args.isHidden || undefined;
 
+    const turnedOff = args.isActive === false && target.isActive;
     await ctx.db.patch(args.userId, cleanUpdates);
-    if (cleanUpdates.role !== undefined) {
-      // The membership row is what a session in this org reads its role from (lib.ts scopeUserToActiveOrg).
-      const membership = await ctx.db.query("orgMemberships").withIndex("by_userId_orgId", (q) => q.eq("userId", args.userId).eq("orgId", actor.orgId)).first();
-      if (membership) await ctx.db.patch(membership._id, { role: cleanUpdates.role, updatedAt: Date.now() });
+    // The membership row is what a session in this org reads its role from (lib.ts scopeUserToActiveOrg), and is on
+    // exactly when the member is (lib/membership.ts activeRoleIn).
+    const membership = cleanUpdates.role !== undefined || args.isActive !== undefined
+      ? await ctx.db.query("orgMemberships").withIndex("by_userId_orgId", (q) => q.eq("userId", args.userId).eq("orgId", actor.orgId)).first()
+      : null;
+    if (membership) {
+      await ctx.db.patch(membership._id, {
+        ...(cleanUpdates.role !== undefined ? { role: cleanUpdates.role } : {}),
+        ...(args.isActive !== undefined ? { isActive: args.isActive } : {}),
+        updatedAt: Date.now(),
+      });
     }
+    // Turned off, they lose what Canon issued them here; turned back on, they sign in and pair again.
+    if (turnedOff) await revokeMemberCredentials(ctx, target, actor.orgId);
   },
 });
 
@@ -493,6 +504,7 @@ export const deactivateFromClerk = internalMutation({
       .first();
     if (!user) return;
     await ctx.db.patch(user._id, { isActive: false });
+    await revokeMemberCredentials(ctx, user, null);
     const memberships = await ctx.db
       .query("orgMemberships")
       .withIndex("by_userId", (q) => q.eq("userId", user._id))
@@ -530,6 +542,7 @@ export const removeMembershipFromClerk = internalMutation({
     if (membership && membership.isActive) {
       await ctx.db.patch(membership._id, { isActive: false, updatedAt: Date.now() });
     }
+    await revokeMemberCredentials(ctx, user, org._id);
 
     if (user.orgId !== org._id) return;
 

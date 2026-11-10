@@ -2,7 +2,8 @@ import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
 import { internalMutation, internalQuery, mutation, query, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { getCurrentUser, requireUser } from "./lib";
+import { getCurrentUser, requireUser, withRole } from "./lib";
+import { credentialMember } from "./lib/membership";
 import { Id } from "./_generated/dataModel";
 
 const crmProviderValidator = v.union(v.literal("hubspot"), v.literal("salesforce"));
@@ -278,6 +279,10 @@ export const getTokenByHash = internalQuery({
       .unique();
     if (!token || token.revokedAt) return null;
     if (token.expiresAt !== undefined && Date.now() > token.expiresAt) return null;
+    // Bound to the workspace it was paired in: its member must be active there now, and still hold what pairing took
+    // (approve's tokens.manage, or the CRM OAuth's integrations.manage), read now and not when it was paired.
+    const member = await withRole(ctx, await credentialMember(ctx, await ctx.db.get(token.userId), token.orgId));
+    if (!member || !(can(member, "tokens.manage") || can(member, "integrations.manage"))) return null;
     return { _id: token._id, orgId: token.orgId, userId: token.userId, lastUsedAt: token.lastUsedAt ?? null };
   },
 });

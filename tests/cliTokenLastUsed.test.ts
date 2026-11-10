@@ -14,7 +14,7 @@ const TOKEN = "fsgtm_paired", AGENT = "fsgtm_agent_reader";
 
 const db = memoryDb({
   organizations: [{ _id: "org", name: "Acme", clerkOrgId: "org_acme" }],
-  users: [{ _id: "ada", orgId: "org", clerkUserId: "user_ada", isActive: true }],
+  users: [{ _id: "ada", orgId: "org", clerkUserId: "user_ada", role: "admin", isActive: true }],
   cliTokens: [{ _id: "token", orgId: "org", userId: "ada", tokenHash: sha(TOKEN), createdAt: 0 }],
   agentRegistrations: [{ _id: "agent", name: "Reader", scopes: ["read"], tokenHash: sha(AGENT), expiresAt: now + 86_400_000, createdAt: 0 }],
 });

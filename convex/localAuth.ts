@@ -3,6 +3,7 @@ import { internalQuery, mutation, query, type QueryCtx, type MutationCtx } from 
 import { requireUser } from "./lib";
 import { can, refusal } from "./lib/capabilities";
 import { awaitsLogin } from "./lib/clerkRoles";
+import { credentialMember } from "./lib/membership";
 import { seedEnablements } from "./lib/recipes";
 import { seedDefaultModules } from "./moduleDefaults";
 
@@ -46,8 +47,9 @@ export const session = query({
     await requireBroker(ctx);
     const session = await ctx.db.query("localSessions").withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash)).unique();
     if (!session || session.expiresAt <= Date.now()) return null;
-    const user = await ctx.db.get(session.userId);
-    if (!user?.isActive) return null;
+    const found = await ctx.db.get(session.userId);
+    const user = found && await credentialMember(ctx, found, found.orgId);
+    if (!user) return null;
     const org = await ctx.db.get(user.orgId);
     if (!org || org.clerkOrgId !== "local") return null;
     return { user, org };
@@ -100,8 +102,9 @@ export const signIn = mutation({
   handler: async (ctx, args) => {
     await requireBroker(ctx);
     const credential = await ctx.db.get(args.credentialId);
-    const user = credential && await ctx.db.get(credential.userId);
-    if (!credential || credential.passwordHash !== args.passwordHash || !user?.isActive) throw new ConvexError("Sign-in failed");
+    const found = credential && await ctx.db.get(credential.userId);
+    const user = found && await credentialMember(ctx, found, found.orgId);
+    if (!credential || credential.passwordHash !== args.passwordHash || !user) throw new ConvexError("Sign-in failed");
     await ctx.db.insert("localSessions", { tokenHash: args.tokenHash, userId: user._id, expiresAt: args.expiresAt });
     await ctx.db.patch(user._id, { lastLoginAt: Date.now() });
     return null;

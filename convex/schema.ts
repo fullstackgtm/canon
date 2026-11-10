@@ -765,7 +765,7 @@ export default defineSchema({
     tokenHash: v.string(),
     userId: v.id("users"),
     expiresAt: v.number(),
-  }).index("by_tokenHash", ["tokenHash"]),
+  }).index("by_tokenHash", ["tokenHash"]).index("by_userId", ["userId"]).index("by_expiresAt", ["expiresAt"]),
 
   localInvites: defineTable({
     tokenHash: v.string(),
@@ -1490,7 +1490,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_tokenHash", ["tokenHash"])
-    .index("by_orgId", ["orgId"]),
+    .index("by_orgId", ["orgId"])
+    .index("by_userId", ["userId"]),
 
   // A key an admin created in Settings to export the workspace (convex/workspaceTransfer.ts): the export CLI presents
   // it for an hour. Its SHA-256 only; creating another replaces it.

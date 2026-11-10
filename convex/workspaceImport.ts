@@ -22,6 +22,7 @@ import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import schema from "./schema";
 import { agentClientOf, getCurrentUser, requireCap, withRole } from "./lib";
 import { can } from "./lib/capabilities";
+import { credentialMember } from "./lib/membership";
 import { entryOf, exported, REGISTER_SECTIONS, type RegisterSection } from "./lib/workspaceArchive/tables";
 import { decodeRow, foreignLabel, idsIn, importOrder, IMPORT_TABLES, moduleOf, registerIdOf, SELF, SKIPPED, secondPassOf, shapeOf, type Decoded, type RemapEnv, type Shape, type Unmapped } from "./lib/workspaceArchive/importRows";
 import { contractAtLeast, REGISTER_IMPORT_VERSION, registerCounts, registerImport, registerService } from "./lib/workspaceArchive/register";
@@ -74,7 +75,7 @@ async function importCaller(ctx: QueryCtx, key: string) {
   const row = await ctx.db.query("workspaceImportKeys").withIndex("by_keyHash", (q) => q.eq("keyHash", keyHash)).unique();
   if (!row || row.expiresAt <= Date.now()) throw refused;
   const user = await ctx.db.get(row.userId);
-  const member = user?.isActive && user.orgId === row.orgId ? await withRole(ctx, user) : null;
+  const member = user && user.orgId === row.orgId ? await withRole(ctx, await credentialMember(ctx, user, row.orgId)) : null;
   if (!user || !member || !can(member, "workspace.transfer")) throw new ConvexError("The admin who created this import key can no longer import into the workspace.");
   return { orgId: row.orgId, user };
 }

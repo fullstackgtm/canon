@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 import { isBuiltInRole } from "./lib/roles";
 import { can, refusal } from "./lib/capabilities";
+import { credentialMember } from "./lib/membership";
 import type { Capability } from "../modules/kernel/capabilities.ts";
 import { ActionCtx, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
@@ -50,7 +51,8 @@ export function activeClerkOrgIdFromIdentity(
  * carries the EFFECTIVE `orgId` and `role` (from the orgMemberships row), so
  * every downstream `user.orgId` query is automatically scoped to the org the
  * OrganizationSwitcher selected. Fail-closed: an active org we can't map to a
- * mirrored org row + active membership yields null (deny), never another
+ * mirrored org row, or one the user is not an active member of (their home org
+ * included: lib/membership.ts credentialMember), yields null (deny), never another
  * org's data. Read budget: at most 2 point lookups.
  */
 export async function scopeUserToActiveOrg(
@@ -58,24 +60,14 @@ export async function scopeUserToActiveOrg(
   user: Doc<"users">,
   activeClerkOrgId: string | null,
 ): Promise<Doc<"users"> | null> {
-  if (!activeClerkOrgId) return user;
+  if (!activeClerkOrgId) return credentialMember(ctx, user, user.orgId);
 
   const org = await ctx.db
     .query("organizations")
     .withIndex("by_clerkOrgId", (q) => q.eq("clerkOrgId", activeClerkOrgId))
     .first();
   if (!org) return null;
-  if (org._id === user.orgId) return user;
-
-  const membership = await ctx.db
-    .query("orgMemberships")
-    .withIndex("by_userId_orgId", (q) =>
-      q.eq("userId", user._id).eq("orgId", org._id),
-    )
-    .first();
-  if (!membership || !membership.isActive) return null;
-
-  return { ...user, orgId: org._id, role: membership.role };
+  return credentialMember(ctx, user, org._id);
 }
 
 /**
