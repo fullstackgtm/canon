@@ -67,6 +67,8 @@ export type GranolaMeeting = {
   title: string;
   /** The calendar event's start when Granola has one, else the first transcript line, else when the note was made. */
   startAt: number;
+  /** The calendar event's scheduled start, when Granola has one: how the meeting a member's calendar logged is found. */
+  scheduledStartAt: number | null;
   endAt: number | null;
   durationSeconds: number | null;
   owner: GranolaPerson | null;
@@ -145,6 +147,7 @@ export function meetingOf(raw: unknown): GranolaMeeting | null {
     noteId,
     title: str(r.title) ?? str(calendar.event_title) ?? "Meeting",
     startAt,
+    scheduledStartAt: scheduledStart,
     endAt,
     durationSeconds: endAt !== null && endAt > startAt ? Math.round((endAt - startAt) / 1000) : null,
     owner,

@@ -10,6 +10,7 @@ import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser } from "./lib";
 import { scheduleNudge } from "./ledgerFeed";
 import {
@@ -160,6 +161,11 @@ export const relabel = mutation({
 });
 
 /** One object's fields, standard then custom, archived ones last, and whether the caller may change them. */
+/** A unique check's link: the data model, with the field it is about (`fields` finds a field's latest check by it). */
+const uniqueJobHref = (object: string, fieldId: string) => `/dashboard/customization/data-model#${object}.${fieldId}`;
+/** Recent jobs read for the latest unique check of each field. */
+const UNIQUE_JOBS_READ = 50;
+
 export const fields = query({
   args: { object: modeledObject },
   handler: async (ctx, args) => {
@@ -170,9 +176,17 @@ export const fields = query({
     const def = (MODELED_OBJECTS as readonly string[]).includes(args.object) || ext?.object ? resolveOrgObject(args.object, ext) : null;
     if (!def) return null;
     const customIds = new Set((ext?.customFields ?? []).map((f) => f.fieldId as string));
+    const jobs = can(user, "dataModel.edit")
+      ? (await ctx.db.query("backgroundJobs").withIndex("by_orgId_and_startedAt", (q) => q.eq("orgId", user.orgId)).order("desc").take(UNIQUE_JOBS_READ)).filter((j) => j.kind === "unique_field")
+      : [];
     const rows = def.fields.filter((f) => !f.system).map((f) => {
       const custom = customIds.has(f.fieldId);
-      return { ...toStored(f), kind: !custom ? "standard" as const : builderOwns(f, ai) ? "custom" as const : "ai" as const, isName: f.fieldId === def.titleFieldId };
+      const check = jobs.find((j) => j.href === uniqueJobHref(args.object, f.fieldId));
+      return {
+        ...toStored(f), kind: !custom ? "standard" as const : builderOwns(f, ai) ? "custom" as const : "ai" as const, isName: f.fieldId === def.titleFieldId,
+        /** The latest turn-on or turn-off of uniqueness: its progress, or why it was refused. */
+        ...(check ? { uniqueCheck: { status: check.status, detail: check.detail ?? null, error: check.error ?? null } } : {}),
+      };
     });
     return {
       object: args.object, label: def.label, pluralLabel: def.pluralLabel, custom: def.kind === "custom", icon: def.icon ?? null, archived: def.archivedAt !== undefined,
@@ -222,15 +236,29 @@ export const updateFieldDef = mutation({
     required: v.optional(v.boolean()),
     rules: v.optional(v.array(fieldRule)),
     compute: v.optional(computeSpec),
+    /** Turning it on checks every record for duplicates in the background (uniqueFields.ts); off releases the claims. */
+    unique: v.optional(v.boolean()),
   },
   returns: v.null(),
-  handler: async (ctx, { object, fieldId, ...patch }) => {
+  handler: async (ctx, { object, fieldId, unique, ...rest }) => {
     const user = await requireAdmin(ctx);
-    const related = await rollupSource(ctx, user.orgId, patch.compute);
-    await change(ctx, object, (ext, ai) => {
+    const related = await rollupSource(ctx, user.orgId, rest.compute);
+    const claimingSince = Date.now();
+    const patch = { ...rest, ...(unique === undefined ? {} : { unique: unique ? { claimingSince } : false as const }) } as FieldPatch;
+    const next = await change(ctx, object, (ext, ai) => {
       ownedBy(ext, fieldId, ai);
-      return updateField(object, ext, fieldId, patch as FieldPatch, related);
+      return updateField(object, ext, fieldId, patch, related);
     });
+    const field = next.customFields.find((f) => f.fieldId === fieldId);
+    // On: only when the field starts claiming now (already unique is a no-op). Off: the claims it held are released.
+    if (field && unique !== undefined && (!unique || field.uniqueClaiming === claimingSince)) {
+      const jobId = await ctx.db.insert("backgroundJobs", {
+        orgId: user.orgId, kind: "unique_field", userId: user._id, status: "processing", startedAt: claimingSince, updatedAt: claimingSince,
+        title: unique ? `Make ${field.label} unique` : `Stop holding ${field.label} unique`, href: uniqueJobHref(object, fieldId),
+        phases: [{ key: unique ? "check" : "release", label: unique ? "Check for duplicates" : "Release values", status: "processing" }],
+      });
+      await ctx.scheduler.runAfter(0, internal.uniqueFields.run, { orgId: user.orgId, object, fieldId, userId: user._id, jobId, ...(unique ? { claimingSince } : {}) });
+    }
     return null;
   },
 });

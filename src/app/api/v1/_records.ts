@@ -15,10 +15,11 @@ import type { Stored } from "../../../../convex/lib/objects/validators.ts";
 import { parseSplits } from "../../../../modules/kernel/splits.ts";
 import { setRecordLifecycle, type LifecycleOp } from "../../mcp/_recordLifecycle.ts";
 import { isGenericObject } from "../../../../convex/lib/objects/describe.ts";
+import { columnKind, type ColumnKind } from "../../../../convex/lib/objects/listSpec.ts";
 import { GROUP_QUERY, LIST_QUERY, readQuery, VERSION_QUERY, WRITE_MESSAGES, WriteBody, type ApiRecord } from "./_contract.ts";
 
 type FieldValue = Stored<RegistryValue>;
-type Field = { fieldId: string; apiName: string; type: string; system?: boolean };
+type Field = { fieldId: string; apiName: string; type: string; system?: boolean; returns?: string };
 type Described = { fields: Field[]; readOnlyFields?: string[]; register: boolean; canCreate: boolean; canDelete: boolean; writable: boolean };
 
 export type { ApiRecord };
@@ -40,23 +41,43 @@ function toApiRecord(def: Described, r: { id: string; object: string; version: n
 
 // ---- list ----
 
+/** A datetime filter value: epoch milliseconds, or an ISO date and time with a timezone. */
+function epochMs(s: string, field: string): number {
+  const ms = /^-?\d+$/.test(s) ? Number(s) : /(Z|[+-]\d{2}:?\d{2})$/i.test(s) ? Date.parse(s) : NaN;
+  if (!Number.isFinite(ms)) throw new V1Error("invalid_request", `${field} filters take epoch milliseconds or a date and time with a timezone`);
+  return ms;
+}
+
+/** What a filter value is, by the list column kind of its field (listSpec columnKind), the table the list itself checks values against. */
+const FILTER_VALUE: Readonly<Record<ColumnKind, (s: string, field: string, datetime: boolean) => string | number | boolean>> = {
+  id: (s) => s, text: (s) => s, multi: (s) => s, date: (s) => s,
+  number: (s, field, datetime) => {
+    if (datetime) return epochMs(s, field);
+    if (s.trim() === "" || !Number.isFinite(Number(s))) throw new V1Error("invalid_request", `${field} filters take a number`);
+    return Number(s);
+  },
+  checkbox: (s, field) => {
+    if (s !== "true" && s !== "false") throw new V1Error("invalid_request", `${field} filters take true or false`);
+    return s === "true";
+  },
+};
+
+/** A filter field's column kind, and whether its numbers are epoch milliseconds. An unknown field passes as text for the list to refuse. */
+function filterColumn(def: Described, field: string): { kind: ColumnKind; datetime: boolean } {
+  if (field === "id") return { kind: "id", datetime: false };
+  if (field === "createdAt" || field === "updatedAt") return { kind: "number", datetime: true };
+  const f = def.fields.find((x) => x.apiName === field);
+  const kind = f ? columnKind(f as never) : null;
+  return { kind: kind ?? "text", datetime: f?.type === "datetime" || (f?.type === "formula" && f.returns === "datetime") };
+}
+
 /** `field:op:value`, a list value comma-separated, typed by the field. `empty` and `notEmpty` take no value. */
 function parseFilter(def: Described, text: string) {
   const [field, op, ...rest] = text.split(":");
   if (!field || !op || !(FILTER_OPS as readonly string[]).includes(op)) throw new V1Error("invalid_request", LIST_QUERY[0]!.message);
   if (op === "empty" || op === "notEmpty") return { field, op: op as FilterOp };
-  const type = def.fields.find((f) => f.apiName === field)?.type;
-  const scalar = (s: string): string | number | boolean => {
-    if (type === "number" || type === "currency" || field === "createdAt" || field === "updatedAt") {
-      if (s.trim() === "" || !Number.isFinite(Number(s))) throw new V1Error("invalid_request", `${field} filters take a number`);
-      return Number(s);
-    }
-    if (type === "checkbox") {
-      if (s !== "true" && s !== "false") throw new V1Error("invalid_request", `${field} filters take true or false`);
-      return s === "true";
-    }
-    return s;
-  };
+  const { kind, datetime } = filterColumn(def, field);
+  const scalar = (s: string) => FILTER_VALUE[kind](s, field, datetime);
   const raw = rest.join(":");
   return { field, op: op as FilterOp, value: op === "in" || op === "hasAny" || op === "hasAll" ? raw.split(",").map(scalar) : scalar(raw) };
 }
@@ -167,7 +188,7 @@ async function saved(client: V1Client, def: Described, object: string, result: S
   if (result.status === "conflict") {
     throw new V1Error("version_conflict", `The record is at version ${result.version}, not ${result.expectedVersion}`, { currentVersion: result.version, expectedVersion: result.expectedVersion });
   }
-  if (result.status === "invalid") throw new V1Error("validation_failed", "Some values were rejected", { errors: result.errors });
+  if (result.status === "invalid") throw new V1Error("validation_failed", "Some values were rejected", { errors: result.errors.map((e) => ({ field: e.field, message: e.message })) });
   const record = result.status === "proposed" ? undefined : await fetchRecord(client, def, object, result.streamId).catch(() => undefined);
   return { status: result.status === "proposed" ? 202 : created ? 201 : 200, body: { status: result.status, id: result.streamId, version: result.version, ...(record ? { data: record } : {}) } };
 }

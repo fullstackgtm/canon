@@ -21,7 +21,7 @@ export const ALLOWLIST: Record<string, string[]> = {
   ],
   "The caller's own data: their dial session, list preview and calls, their connected accounts": [
     "conversations.deleteRead",
-    "dialer.nextOfList", "dialer.overview", "dialer.profile", "dialer.setOutcome",
+    "dialer.nextOfList", "dialer.overview", "dialer.profile",
     "emailAccounts.mine", "linkedin.mine",
   ],
   "The caller's own cadence (editableCadence: its sender or an admin); returns nothing about its people": [
@@ -53,7 +53,7 @@ export const ALLOWLIST: Record<string, string[]> = {
     "researchSessions.joinWaitlist",
   ],
   "Workspace import: importCaller admits only an import key a human admin created for their own workspace, on a deployment with import switched on; writes that one empty workspace from the uploaded archive and returns counts and refusals, never an existing record": [
-    "workspaceImport.begin", "workspaceImport.importPage", "workspaceImport.importPlan",
+    "workspaceImport.begin", "workspaceImport.importPlan",
   ],
   "Dev tools: refused unless the dev auth bypass is on (local stacks only)": [
     "devSeed.ensureWorkspace", "devSeed.seedConversations", "devSeed.seedLinkedinEnrollment", "devSeed.seedSignalHistory",

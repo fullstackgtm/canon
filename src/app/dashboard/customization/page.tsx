@@ -64,6 +64,7 @@ export default function CustomizationPage() {
   const [page, setPage] = useState<{ label: string; ids: string[] } | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installingModule, setInstallingModule] = useState<string | null>(null);
+  const [developing, setDeveloping] = useState(false);
   const [updating, setUpdating] = useState<{ id: string; title: string } | null>(null);
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
 
@@ -187,6 +188,15 @@ export default function CustomizationPage() {
               <GithubCard title="A module" source="module.json" action="Preview a module" canEdit={view.canEdit} onClick={() => setInstallingModule("")} />
               <GithubCard title="A customization" source="customization.md" action="Preview a customization" canEdit={view.canEdit} onClick={() => setInstalling(true)} />
             </div>
+            {modules?.developmentInstalls && (
+              <div className="mt-3 flex items-center justify-between gap-3 border border-dashed border-border bg-card px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">A module you're building</p>
+                  <p className="text-xs text-muted-foreground">Its module.json and bundle from this computer, as a development install. Self-hosted Canon only.</p>
+                </div>
+                {view.canEdit ? <button type="button" className={btn} onClick={() => setDeveloping(true)}>Choose files</button> : <span className="text-xs text-muted-foreground">Admins and managers</span>}
+              </div>
+            )}
             <div className="mt-3 border border-border bg-card px-4 pb-4"><GithubConnections /></div>
           </Section>
         </>
@@ -202,6 +212,7 @@ export default function CustomizationPage() {
       <InstallSheet open={installing} onOpenChange={setInstalling} canEdit={view.canEdit} />
       <UpgradeSheet recipe={updating} onOpenChange={(open) => { if (!open) setUpdating(null); }} canEdit={view.canEdit} />
       {installingModule !== null && <InstallModuleSheet initial={installingModule} onClose={() => setInstallingModule(null)} />}
+      {developing && <InstallModuleSheet initial="" development onClose={() => setDeveloping(false)} />}
     </ViewFrame>
   );
 }

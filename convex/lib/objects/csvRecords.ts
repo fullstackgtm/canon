@@ -9,7 +9,7 @@
  *   Type      note, task, call or meeting (a file may mix them); a blank cell takes the wizard's default
  *   Subject, Body, Status, Due date, Outcome, ... mapped onto the field each type keeps them in (ACTIVITY_FIELD)
  *   Date      its original date: `createdAt` of the record, and a call's time or a meeting's start
- *   Owner     a member's email, saved as `ownerId`
+ *   Owner     a member's email or name, saved as `ownerId`
  *   Company (domain or name), Person (email), Deal (name or id)  the records it is about: an
  *             `activity_target` edge to each, so it shows on each timeline with its original date
  * A row that matches no target fails unless the import allows untargeted rows.
@@ -34,7 +34,7 @@ export type RecordValues = Record<string, string | number | boolean | null | rea
 const NOT_IMPORTED = new Set(["convertedAt"]);
 
 const DATE: Column = { apiName: "date", label: "Date" };
-const OWNER: Column = { apiName: "owner", label: "Owner (member email)" };
+const OWNER: Column = { apiName: "owner", label: "Owner (member email or name)" };
 const TARGETS: readonly Column[] = [
   { apiName: "company", label: "Company (domain or name)" },
   { apiName: "person", label: "Person (email)" },
@@ -245,7 +245,7 @@ export function readRecordRows(
       } else values[field] = value;
     }
     return {
-      kind: "record", row, object: kind, values, createdAt, owner: cell.get("owner")?.toLowerCase() ?? null,
+      kind: "record", row, object: kind, values, createdAt, owner: cell.get("owner") ?? null,
       targets: { company: cell.get("company") ?? null, person: cell.get("person")?.toLowerCase() ?? null, deal: cell.get("deal") ?? null },
     };
   });
@@ -268,7 +268,7 @@ export function recordKeys(rows: readonly RecordRead[]) {
 /** A deal a Deal cell may name: its stream id (what an activity's edge points at) and its company. */
 export type DealRef = { streamId: string; companyId: string | null };
 
-/** What the file's cells found: owners by lowercased email, companies by cell, people by lowercased email, deals by cell, and the rows an earlier run wrote. */
+/** What the file's cells found: owners by their cell, companies by cell, people by lowercased email, deals by cell, and the rows an earlier run wrote. */
 export type RecordLookups = {
   members: ReadonlyMap<string, string>;
   companies: ReadonlyMap<string, CompanyMatch>;
@@ -308,7 +308,7 @@ export function classifyRecords(rows: readonly RecordRead[], defs: RecordDefs, l
     if (r.owner) {
       const ownerId = lookups.members.get(r.owner);
       if (ownerId) values.ownerId = ownerId;
-      else warnings.push(`No member has the email ${r.owner}; the row is left without an owner`);
+      else warnings.push(`No active member is ${r.owner}; the row is left without an owner`);
     }
     const ids: string[] = [];
     const misses: string[] = [];

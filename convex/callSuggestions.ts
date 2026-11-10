@@ -44,7 +44,7 @@ const CREATE_MAX = 25;
 const DISMISS_MAX = 250;
 
 /** The meeting, conversation or deal (its missing company and people) a suggestion is for: listed and created one at a time. */
-const sourceOf = (s: Doc<"callSuggestions">) => (s.dealId ? `deal:${s.dealId}` : s.callId ?? `conversation:${s.conversationId}`);
+const sourceOf = (s: Doc<"callSuggestions">) => (s.dealId ? `deal:${s.dealId}` : s.meetingStreamId ? `meeting:${s.meetingStreamId}` : s.callId ?? `conversation:${s.conversationId}`);
 
 const kind = v.union(v.literal("account"), v.literal("contact"), v.literal("deal"));
 const values = v.object({
@@ -70,13 +70,13 @@ const identity = v.object({
 export const record = internalMutation({
   args: {
     orgId: v.id("organizations"), userId: v.id("users"),
-    callId: v.optional(v.id("callRecordings")), conversationId: v.optional(v.id("conversations")),
+    callId: v.optional(v.id("callRecordings")), conversationId: v.optional(v.id("conversations")), meetingStreamId: v.optional(v.string()),
     suggestions: v.array(v.object({ kind, key: v.string(), values, evidence: v.optional(v.string()), research: v.optional(research) })),
     reason: v.union(v.literal("suggested"), v.literal("not_our_meeting"), v.literal("no_one_else"), v.literal("all_known")),
   },
   handler: async (ctx, args): Promise<number> => {
-    if (Boolean(args.callId) === Boolean(args.conversationId)) throw new ConvexError("Suggestions come from one meeting or one conversation");
-    const from = args.callId ? { callId: args.callId } : { conversationId: args.conversationId! };
+    if ([args.callId, args.conversationId, args.meetingStreamId].filter(Boolean).length !== 1) throw new ConvexError("Suggestions come from one meeting or one conversation");
+    const from = args.callId ? { callId: args.callId } : args.meetingStreamId ? { meetingStreamId: args.meetingStreamId } : { conversationId: args.conversationId! };
     if (args.callId) {
       const call = await ctx.db.get(args.callId);
       // The meeting was deleted (Granola disconnected) while it was being read: suggest nothing from it.
@@ -133,7 +133,7 @@ export const mine = query({
         // The meeting in its notetaker (Granola's web link): Canon has no meeting page of its own.
         meetingUrl: call?.recordingUrl && /^https:\/\//.test(call.recordingUrl) ? call.recordingUrl : null,
         source: callId ? "call" as const : conversation?.channel ?? null,
-        title: call?.title ?? conversation?.counterpart.name ?? conversation?.counterpart.email ?? (callId ? "Meeting" : "Conversation"),
+        title: call?.title ?? conversation?.counterpart.name ?? conversation?.counterpart.email ?? (callId || items[0]!.meetingStreamId ? "Meeting" : "Conversation"),
         at: call?.callDate ? Date.parse(call.callDate) : (call?.createdAt ?? conversation?.lastMessageAt ?? Math.min(...items.map((s) => s.createdAt))),
         suggestions: items.sort((a, b) => order[a.kind] - order[b.kind]).map((s) => ({ id: s._id, kind: s.kind, values: s.values, evidence: s.evidence ?? null, research: s.research ?? null, via: null, existing: false, link: null })),
       };

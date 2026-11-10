@@ -36,7 +36,7 @@ test("an activities file: type picks the object, Date and Owner set when and who
     },
     {
       kind: "create", row: 3, object: "note", createdAt: Date.UTC(2025, 2, 9, 12), targets: ["acc_globex"], misses: [],
-      warnings: ["No member has the email gone@x.com; the row is left without an owner"], values: { body: "Met at SaaStr", accountId: "acc_globex" },
+      warnings: ["No active member is gone@x.com; the row is left without an owner"], values: { body: "Met at SaaStr", accountId: "acc_globex" },
     },
     { kind: "error", row: 4, message: "No target matched: No person has the email ghost@nowhere.com; No deal matches Nope" },
     { kind: "error", row: 5, message: "Start time is required" },

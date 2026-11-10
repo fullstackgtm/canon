@@ -173,6 +173,7 @@ export const ObjectsBody = z.object({
       label: z.string(),
       type: z.string().describe("text, number, currency, date, datetime, checkbox, picklist, multipicklist, lookup, user, emails, phones, links, splits or formula"),
       required: z.boolean(),
+      unique: z.boolean().describe("No two records may hold one value (a list field's items each count)"),
       readOnly: z.boolean(),
       options: z.array(z.object({ value: z.string(), label: z.string(), active: z.boolean() })).optional(),
       lookupTo: z.string().optional(),

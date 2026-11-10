@@ -16,7 +16,7 @@
 import { checkFormula, checkRollup, COMPUTED_MAX, FormulaError, type ComputedType, type RollupDef } from "./formula.ts";
 import { isRegisterObject, registerListDef } from "./listSpec.ts";
 import { checkRuleDefs, type FieldRule } from "./rules.ts";
-import { baseFields, CUSTOM_FIELD_API_NAME, isMultiValueType, PICKLIST_COLORS, RegistryError, resolveOrgObject, type FieldDef, type FieldId, type OrgObjectExtension, type PicklistOption, type ResolvedObjectDef, type StandardObjectName } from "./registry.ts";
+import { baseFields, canBeUnique, CUSTOM_FIELD_API_NAME, isMultiValueType, PICKLIST_COLORS, RegistryError, resolveOrgObject, type FieldDef, type FieldId, type OrgObjectExtension, type PicklistOption, type ResolvedObjectDef, type StandardObjectName } from "./registry.ts";
 import { isCustomObjectName } from "../../../modules/kernel/reportLanguage.ts";
 
 /** The field types an admin can create. */
@@ -53,7 +53,11 @@ export type NewField = { label: string; type: BuilderType; options?: readonly Op
 export type RelatedDefs = (object: string) => ResolvedObjectDef | null;
 
 /** `rules` replaces the field's rules (an empty list clears them); `required` a record must set and an edit cannot clear. */
-export type FieldPatch = { label?: string; hidden?: boolean; options?: readonly OptionEdit[]; required?: boolean; rules?: readonly FieldRule[]; compute?: ComputeSpec };
+/**
+ * `unique`: false turns uniqueness off; `{ claimingSince }` turns it on, which starts with the existing values being
+ * claimed (convex/uniqueFields.ts) and ends with the field unique, or off again if two records share a value.
+ */
+export type FieldPatch = { label?: string; hidden?: boolean; options?: readonly OptionEdit[]; required?: boolean; rules?: readonly FieldRule[]; compute?: ComputeSpec; unique?: false | { claimingSince: number } };
 
 export const cleanLabel = (raw: string, what = "A field name"): string => {
   const label = raw.trim().replace(/\s+/g, " ");
@@ -218,6 +222,12 @@ export function updateField(object: string, ext: OrgObjectExtension | undefined,
     if (patch.options !== undefined) {
       if (out.type !== "picklist" && out.type !== "multipicklist") throw new RegistryError(`${f.label} has no options`);
       out = { ...out, options: editOptions(out.options, patch.options) };
+    }
+    if (patch.unique !== undefined) {
+      const { unique: _, uniqueClaiming: __, ...rest } = out;
+      if (patch.unique && !canBeUnique(out.type)) throw new RegistryError(`${f.label} is ${out.type === "formula" ? "computed" : `a ${out.type} field`}; only text, number, email, phone and link fields can be unique`);
+      if (patch.unique && out.unique) return out;
+      out = patch.unique ? { ...rest, uniqueClaiming: patch.unique.claimingSince } as CustomField : rest as CustomField;
     }
     return out;
   });

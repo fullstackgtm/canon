@@ -22,8 +22,8 @@ type Preview = FunctionReturnType<typeof api.csvImports.preview>;
 const MATCH_RULES: Record<string, string> = {
   account: "Companies match by domain.",
   contact: "People match by email. A Companies column (separated by ;) links a person to several companies, the first primary.",
-  deal: "Deals match by name and company. A Contacts column (email:role, separated by ;) puts people on the deal; an Owner column (a member's email) sets who owns it. Amounts read as written: 48000, $48,000 or 48k (k, m and b).",
-  activity: "Each row lands on the timelines of the company (domain or name), person (email) and deal (name or id) it names, with its own Date and Owner (member email).",
+  deal: "Deals match by name and company. A Contacts column (email:role, separated by ;) puts people on the deal; an Owner column (a member's email or name) sets who owns it. Amounts read as written: 48000, $48,000 or 48k (k, m and b).",
+  activity: "Each row lands on the timelines of the company (domain or name), person (email) and deal (name or id) it names, with its own Date and Owner (member email or name).",
 };
 const RECORD_RULE = "Each row adds a record. Importing the same file again changes nothing.";
 /** The columns an import of the object asks the file to map. A deal's stage sets its pipeline; its amount and close date make the pipeline's totals. */
@@ -171,7 +171,8 @@ export function CsvImport({ object, label, kind, className = btn }: { object: st
   const rows = result ? result.counts.create + result.counts.update + result.counts.skip + result.counts.error : 0;
   // With "add as team members", the preview's "no member has … you will own the deal" warnings no longer hold: those
   // owners become members before the rows are written, as the Owner line says.
-  const ownerWarning = (m: string) => /^No member has the email /.test(m);
+  // Only an owner named by email can be added as a member; one named by a name no member has stays a warning.
+  const ownerWarning = (m: string) => /^No active member is \S+@\S+;/.test(m);
   const problems = result ? result.problems.filter((p) => !(unknownOwners === "add" && p.kind === "warn" && ownerWarning(p.message)) && !(p.kind === "error" && p.message.startsWith("No stage named "))) : [];
   const done = job?.status === "completed";
   const pct = job?.total ? Math.min(100, Math.round(((job.done ?? 0) / job.total) * 100)) : null;
@@ -376,7 +377,7 @@ export function CsvImport({ object, label, kind, className = btn }: { object: st
                     onClick={() => void run(async () => {
                       // Each unknown owner becomes a member with no login, named from their email, so their deals import as theirs.
                       if (unknownOwners === "add") {
-                        const all = result.owners.unknown;
+                        const all = result.owners.unknown.filter((owner) => owner.includes("@"));
                         for (const email of all) {
                           const name = email.split("@")[0].split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
                           await createMember({ name: name || email, email });

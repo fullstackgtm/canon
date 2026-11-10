@@ -35,6 +35,8 @@ const moduleSource = v.union(
   v.object({ kind: v.literal("github-app"), installationId: v.number(), owner: v.string(), repo: v.string(), path: v.optional(v.string()), ref: v.string(), sha: v.string() }),
   // A first-party example Canon ships (modules/examples/): its slug, its version and the hash of its files.
   v.object({ kind: v.literal("canon"), id: v.string(), ref: v.string(), sha: v.string() }),
+  // A self-hosted admin's local build (convex/modules.ts developmentInstallsEnabled): its id, version and the hash of its files.
+  v.object({ kind: v.literal("development"), id: v.string(), ref: v.string(), sha: v.string() }),
 );
 /** Per collection, the moduleDocs slot (0 to 7) each named index fills (modules/kernel/upgrade.ts). */
 const moduleSlots = v.record(v.string(), v.record(v.string(), v.number()));
@@ -2489,6 +2491,25 @@ export default defineSchema({
     .index("by_orgId", ["orgId"])
     .index("by_orgId_enabled", ["orgId", "enabled"]),
 
+  // One event on a member's calendar that is a meeting in Canon (convex/calendarEvents.ts, docs/calendar-meetings.md):
+  // the event (its iCal UID and, for one instance of a recurring event, when it was first scheduled) and its
+  // meeting's stream. A Granola note of the same meeting updates that meeting (convex/granola.ts logMeeting).
+  calendarEventLinks: defineTable({
+    orgId: v.id("organizations"),
+    ownerUserId: v.id("users"),
+    icalUid: v.string(),
+    instanceStart: v.number(),
+    meetingStreamId: v.string(),
+    /** The start the calendar last gave: a later update that moves it moves the meeting. */
+    startAt: v.number(),
+    /** The Canon people on it, for matching a Granola note. */
+    contactIds: v.array(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_ownerUserId_and_icalUid_and_instanceStart", ["ownerUserId", "icalUid", "instanceStart"])
+    .index("by_ownerUserId_and_startAt", ["ownerUserId", "startAt"])
+    .index("by_meetingStreamId", ["meetingStreamId"]),
+
   // Companies, people and deals a meeting or a conversation suggests adding (convex/callSuggestions.ts):
   // nothing is created until the person whose meeting it was says so.
   callSuggestions: defineTable({
@@ -2497,6 +2518,8 @@ export default defineSchema({
     callId: v.optional(v.id("callRecordings")),
     /** The email or LinkedIn conversation that suggested it (docs/conversation-intake.md, convex/conversationExtract.ts). */
     conversationId: v.optional(v.id("conversations")),
+    /** The meeting a calendar event logged that suggested it (convex/calendarEvents.ts): its `meeting` stream. */
+    meetingStreamId: v.optional(v.string()),
     /** The person whose meeting it was: they review it. */
     userId: v.id("users"),
     kind: v.union(v.literal("account"), v.literal("contact"), v.literal("deal")),
@@ -5641,7 +5664,7 @@ export default defineSchema({
   // own tables.
   backgroundJobs: defineTable({
     orgId: v.id("organizations"),
-    kind: v.union(v.literal("contact_sweep"), v.literal("conversation_intake"), v.literal("meeting_import"), v.literal("deal_gaps"), v.literal("field_consolidation")),
+    kind: v.union(v.literal("contact_sweep"), v.literal("conversation_intake"), v.literal("meeting_import"), v.literal("deal_gaps"), v.literal("field_consolidation"), v.literal("unique_field")),
     // Shown only to this member (reading their own messages); unset is the whole workspace's.
     userId: v.optional(v.id("users")),
     title: v.string(),

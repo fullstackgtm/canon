@@ -10,7 +10,7 @@ import { action, internalMutation, internalQuery, mutation, query, type Mutation
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser } from "./lib";
-import { accessFor, recordVisible, requireWriteAccess, roleIn, sightJudge, workspaceMembers } from "./permissions";
+import { accessFor, entitySight, recordVisible, requireWriteAccess, roleIn, sightJudge, workspaceMembers } from "./permissions";
 import { admitThenRead } from "./lib/scopedRecordClient";
 import { hiddenFields, may, refuseLockedWrite, withoutHidden, type Access, type RecordOp } from "./lib/access";
 import { orgObjectDefs, scheduleNudge, shardHeads } from "./ledgerFeed";
@@ -85,7 +85,8 @@ const saveResult = v.union(
   v.object({ status: v.union(v.literal("applied"), v.literal("proposed")), streamId: v.string(), version: v.number(), shard: v.number(), seq: v.number() }),
   v.object({ status: v.literal("unchanged"), streamId: v.string(), version: v.number() }),
   v.object({ status: v.literal("conflict"), streamId: v.string(), version: v.number(), expectedVersion: v.number() }),
-  v.object({ status: v.literal("invalid"), errors: v.array(v.object({ field: v.string(), message: v.string(), rule: v.optional(v.string()) })) }),
+  // `retryable`: a unique value another record holds (lib/objects/write.ts), refused for now rather than for good.
+  v.object({ status: v.literal("invalid"), errors: v.array(v.object({ field: v.string(), message: v.string(), rule: v.optional(v.string()), retryable: v.optional(v.boolean()) })) }),
 );
 
 const recordView = v.object({
@@ -148,11 +149,19 @@ function readStore(ctx: QueryCtx, hotRowIds = new Map<string, Id<"recordRows">>(
   };
 }
 
-/** A record's name for a refusal that says who holds a value: its hot row's title, else its entity's label. */
+/**
+ * A record's name for a refusal that says who holds a value: its hot row's title, else its entity's label. Null unless
+ * the signed-in caller sees the record, so a refusal never names a record hidden from them; a write with no caller (a
+ * sync, a scheduled import) names no one.
+ */
 export async function recordLabel(ctx: QueryCtx, streamId: string): Promise<string | null> {
   const id = ctx.db.normalizeId("canonEntities", streamId);
   const entity = id && (await ctx.db.get(id));
   if (!entity) return null;
+  const caller = await getCurrentUser(ctx);
+  // A company or person whose owner only the record service knows reads as not seen here (permissions.ts entitySight).
+  const sight = caller && caller.orgId === entity.orgId ? await entitySight(ctx, [await accessFor(ctx, caller)], entity) : null;
+  if (!sight || !("seen" in sight) || !sight.seen) return null;
   const row = await ctx.db.query("recordRows").withIndex("by_orgId_streamId", (q) => q.eq("orgId", entity.orgId).eq("streamId", entity._id)).unique();
   return row?.title || entity.label || null;
 }

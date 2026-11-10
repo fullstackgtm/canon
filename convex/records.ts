@@ -562,7 +562,7 @@ export const edit = action({
 
 const bulkResult = v.object({
   streamId: v.string(),
-  result: v.object({ status: v.string(), errors: v.optional(v.array(v.object({ field: v.string(), message: v.string(), rule: v.optional(v.string()) }))) }),
+  result: v.object({ status: v.string(), errors: v.optional(v.array(v.object({ field: v.string(), message: v.string(), rule: v.optional(v.string()), retryable: v.optional(v.boolean()) }))) }),
 });
 
 /**

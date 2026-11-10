@@ -123,6 +123,21 @@ export function useLookupTitles(fields: readonly FieldDescription[], rows: Reado
   return titles;
 }
 
+/** A lookup in a form (a new record, a bulk edit): search the target object and pick one, as a record page does; the value is its id. */
+export function LookupInput({ field, value, onChange }: { field: FieldDescription; value: CellValue | undefined; onChange: (next: string | null) => void }) {
+  const [picked, setPicked] = useState<PickedRecord | null>(null);
+  if (!("lookupTo" in field)) return null;
+  const object = field.lookupTo as ListedObject;
+  const id = typeof value === "string" && value ? value : null;
+  if (!id) return <RecordPicker object={object} label={`Search ${field.label.toLowerCase()}`} onPick={(p) => { setPicked(p); onChange(p.id); }} />;
+  return (
+    <div className="flex items-center gap-3">
+      <LookupLink object={object} id={id} title={picked?.id === id ? picked.title : undefined} />
+      <button type="button" onClick={() => onChange(null)} className={linkBtn}>Change</button>
+    </div>
+  );
+}
+
 /** A lookup on a record page: its target as a link, changed by searching the target object, or cleared. */
 export function LookupField({ field, value, version, readOnly, onSave }: {
   field: FieldDescription;

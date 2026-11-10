@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useUrlState } from "@/lib/url-state";
 import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
-import { FieldInput, formatValue, isEditable, optionChips, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
+import { contactLinks, FieldInput, formatValue, isEditable, optionChips, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
 import { FilterBar, isComplete } from "./filter-bar";
 import { BoardView, type BoardSaves } from "./board-view";
 import { CalendarView } from "./calendar-view";
@@ -384,7 +384,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   const lookupTitles = useLookupTitles(lookupFields, rows);
   const chipsOf = (row: ListRow, name: string) => {
     const f = fieldByName(name);
-    return f ? optionChips(f, row.values[f.fieldId] as CellValue) : null;
+    return f ? optionChips(f, row.values[f.fieldId] as CellValue) ?? contactLinks(f, row.values[f.fieldId] as CellValue) : null;
   };
   const cell = (row: ListRow, name: string, titles: Record<string, string>): string => {
     if (name === "createdAt") return new Date(row.createdAt).toLocaleString();

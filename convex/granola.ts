@@ -12,6 +12,7 @@ import { getCurrentUser, requireUser } from "./lib";
 import { encryptForStorage } from "./lib/tokenHelpers";
 import type { Doc, Id } from "./_generated/dataModel";
 import { saveAsCaller } from "./objects";
+import { calendarMeetingFor } from "./lib/calendar/links";
 import { attachTargets } from "./activityTargets";
 import { dealsOfCompany } from "./deals";
 import { accessFor, dealVisible } from "./permissions";
@@ -609,7 +610,8 @@ export async function candidateDeals(ctx: QueryCtx, orgId: Id<"organizations">, 
  * Log one Granola meeting: a `meeting` activity, written as `userId`, about
  * the matched people, their companies and their open deal; the call recording
  * is linked to that deal. A note seen again (Granola regenerated its summary)
- * updates its meeting instead of adding a second.
+ * updates its meeting instead of adding a second, and so does a note of a
+ * meeting the writer's calendar logged (lib/calendar/links.ts calendarMeetingFor).
  */
 export const logMeeting = internalMutation({
   args: {
@@ -619,6 +621,8 @@ export const logMeeting = internalMutation({
     title: v.string(),
     startAt: v.number(),
     endAt: v.optional(v.number()),
+    /** When the calendar had it (Granola's calendar_event): how a meeting the calendar logged is found. */
+    scheduledStartAt: v.optional(v.number()),
     notes: v.string(),
     contactIds: v.array(v.string()),
     /** Register companies (acc_ ids) with their domains: a CRM-synced deal is found through its company's domain. */
@@ -645,7 +649,8 @@ export const logMeeting = internalMutation({
       ...(deal ? { dealId: deal.streamId } : {}),
     };
     const targets = [...args.contactIds, ...accountIds, ...(deal ? [deal.streamId] : [])];
-    const known = typeof metadata.meetingStreamId === "string" ? metadata.meetingStreamId : null;
+    const known = typeof metadata.meetingStreamId === "string" ? metadata.meetingStreamId
+      : await calendarMeetingFor(ctx, user._id, args.scheduledStartAt ?? args.startAt, args.contactIds);
 
     const result = known
       ? await saveAsCaller(ctx, user, "meeting", { op: "update", streamId: known, values })
@@ -657,7 +662,7 @@ export const logMeeting = internalMutation({
     await ctx.db.patch(call._id, {
       ownerId: user._id,
       ...(deal ? { dealId: deal.dealId as Id<"deals"> } : {}),
-      sourceMetadata: { ...metadata, meetingStreamId: result.streamId, contactIds: args.contactIds, accountIds },
+      sourceMetadata: { ...metadata, meetingStreamId: result.streamId, contactIds: args.contactIds, accountIds, ...(args.scheduledStartAt !== undefined ? { scheduledStartAt: args.scheduledStartAt } : {}) },
       updatedAt: Date.now(),
     });
     if (deal) await ctx.scheduler.runAfter(0, internal.dealState.onDeal, { dealId: deal.dealId as Id<"deals"> });

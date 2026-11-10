@@ -152,7 +152,7 @@ const IMPORT_COLUMNS: Readonly<Record<ImportObject, ReadonlyArray<{ apiName: str
   deal: [
     { apiName: "company", label: "Company" }, { apiName: "pipeline", label: "Pipeline" },
     { apiName: "contacts", label: "Contacts (email:role, separated by ;)" },
-    { apiName: "owner", label: "Owner (a member's email)" },
+    { apiName: "owner", label: "Owner (a member's email or name)" },
     { apiName: "revenueType", label: "Revenue type (one time or recurring)" },
     { apiName: "contractLength", label: "Contract length (months)" },
     { apiName: "products", label: "Products (separated by ;)" },
@@ -212,7 +212,6 @@ function scaled(text: string): string {
   return String(Math.round(Number(m[1]) * times * 1e6) / 1e6);
 }
 
-/** A cell as the registry parses it: a picklist label to its value, symbols and separators dropped, money in cents, a domain bare. */
 const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 /** A month by name or abbreviation (Oct, Sept, October), 1-12, else 0. */
 const monthOf = (word: string) => {
@@ -264,10 +263,22 @@ export function dayFirstColumn(cells: readonly string[]): boolean {
   return dayOver && !monthOver;
 }
 
-/** `dayFirst`: the cell's column holds day-first dates (dayFirstColumn). */
-export function cleanCell(object: string, field: FieldDef, cell: string, opts: { dayFirst?: boolean } = {}): string {
+/** A cell Canon's export guarded against spreadsheet formulas (src/lib/csv-export.ts) as the text it was: `'=x` is `=x`. */
+const unguarded = (cell: string) => (/^'(?:[=@+\-\t\r\n]|\s+[=@+\-])/.test(cell) ? cell.slice(1) : cell);
+
+/** Checkbox cells as Canon exports them (Yes, No) and as other tools write them. */
+const CHECKBOX_CELLS: Readonly<Record<string, "true" | "false">> = { yes: "true", no: "false", true: "true", false: "false", y: "true", n: "false" };
+
+/**
+ * A cell as the registry parses it, the one cell parser every CSV import uses: what Canon's export writes for a
+ * field (src/lib/list-csv.ts) reads back as the value it was. Users and lookups are resolved by the importer, not here.
+ * `dayFirst`: the cell's column holds day-first dates (dayFirstColumn).
+ */
+export function cleanCell(object: string, field: FieldDef, raw: string, opts: { dayFirst?: boolean } = {}): string {
+  const cell = unguarded(raw);
   // A date reads in any shape normalizeDay knows; one it can't read is left for the registry to refuse.
   if (field.type === "date") return normalizeDay(cell, opts.dayFirst) ?? cell;
+  if (field.type === "checkbox") return CHECKBOX_CELLS[cell.trim().toLowerCase()] ?? cell;
   if (field.type === "picklist" || field.type === "multipicklist") {
     // A multi-select cell lists its options separated by semicolons, by value or label.
     const option = (s: string) => field.options.find((o) => o.value.toLowerCase() === s.toLowerCase() || o.label.toLowerCase() === s.toLowerCase())?.value ?? s;
@@ -346,8 +357,7 @@ export function readRows(object: ImportObject, def: ResolvedObjectDef, mapping: 
     const companies = splitList(extra.companies);
     const people = parseDealPeople(extra.contacts);
     if (!people.ok) return { kind: "error", row, errors: [{ field: "contacts", message: people.message }] };
-    const owner = extra.owner === undefined ? undefined : normalizeEmail(extra.owner);
-    if (owner !== undefined && !EMAIL.test(owner)) return { kind: "error", row, errors: [{ field: "owner", message: `${JSON.stringify(extra.owner)} is not an email: the Owner column names a member by email` }] };
+    const owner = extra.owner;
     const columns = dealColumnsOf(extra);
     if (!columns.ok) return { kind: "error", row, errors: [columns.error] };
     return {
@@ -408,8 +418,25 @@ export const importKeys = (rows: readonly ReadRow[]) => [...new Set(rows.flatMap
 /** The Company cells to look up in the register. */
 export const companyCells = (rows: readonly ReadRow[]) => [...new Set(rows.flatMap((r) => (r.kind === "read" ? [...(r.company ? [r.company] : []), ...(r.companies ?? [])] : [])))];
 
-/** The emails the Owner cells name: members, looked up by email. */
-export const ownerEmails = (rows: readonly ReadRow[]) => [...new Set(rows.flatMap((r) => (r.kind === "read" && r.owner ? [r.owner] : [])))];
+/** The Owner cells: members, looked up by email or name (memberNamed). */
+export const ownerCells = (rows: readonly ReadRow[]) => [...new Set(rows.flatMap((r) => (r.kind === "read" && r.owner ? [r.owner] : [])))];
+
+/** A member an Owner or user cell may name. Only an active member is matched. */
+export type CsvMember = { id: string; name: string; email?: string; active: boolean };
+
+/**
+ * The active member a CSV cell names, by email in any case or by exact name, as Canon's export writes a user field
+ * (src/lib/list-csv.ts): one member, or why the cell names none.
+ */
+export function memberNamed(cell: string, members: readonly CsvMember[]): { ok: true; id: string } | { ok: false; message: string } {
+  // A member read twice (once by email, once in a scan of names) is one member.
+  const active = [...new Map(members.filter((m) => m.active).map((m) => [m.id, m])).values()];
+  const email = normalizeEmail(cell);
+  const byEmail = active.filter((m) => m.email !== undefined && normalizeEmail(m.email) === email);
+  const found = byEmail.length ? byEmail : active.filter((m) => m.name.trim() === cell.trim());
+  if (found.length === 1) return { ok: true, id: found[0].id };
+  return { ok: false, message: found.length ? `${found.length} members are named ${cell}; use an email` : `No active member is ${cell}` };
+}
 
 /** The emails of the people the Contacts cells name. */
 export const personEmails = (rows: readonly ReadRow[]) => [...new Set(rows.flatMap((r) => (r.kind === "read" ? (r.people ?? []).map((p) => p.email) : [])))];
@@ -548,8 +575,8 @@ export function classifyDeals(
     const unknown = (r.people ?? []).filter((p) => !people.has(p.email)).map((p) => `No person has the email ${p.email}; not added to the deal`);
     // The Owner cell's member owns the deal; an email no member has is listed, and the deal imports without that owner.
     const ownerId = r.owner ? owners.get(r.owner) : undefined;
-    if (r.owner && !ownerId && skipUnknownOwners) return { kind: "skip", row: r.row, reason: `No member has the email ${r.owner}` };
-    if (r.owner && !ownerId) unknown.push(`No member has the email ${r.owner}; ${named.length === 1 ? "the deal keeps its owner" : "you will own the deal"}`);
+    if (r.owner && !ownerId && skipUnknownOwners) return { kind: "skip", row: r.row, reason: `No active member is ${r.owner}` };
+    if (r.owner && !ownerId) unknown.push(`No active member is ${r.owner}; ${named.length === 1 ? "the deal keeps its owner" : "you will own the deal"}`);
     const extra = {
       ...(members.length ? { members } : {}), ...(unknown.length ? { warnings: unknown } : {}),
       ...(ownerId ? { ownerId } : {}), ...(r.owner && !ownerId ? { ownerMiss: r.owner } : {}), ...(r.columns ? { columns: r.columns } : {}),

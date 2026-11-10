@@ -15,7 +15,20 @@ working. An archived field leaves `describe`, lists and writes; its values stay
 in the record's history. Emails, phones and links fields take a list of text,
 the first item the primary (`["ann@acme.com", "ann@home.example"]`); a
 multi-select takes a list of option values. Companies and people take these
-lists and checkboxes too.
+lists and checkboxes too. A currency field's value is in the currency's minor
+unit (cents) in both directions: `2400050` is 24,000.50. A date and time is
+epoch milliseconds.
+
+An admin can make a custom text, number, emails, phones or links field unique
+(Data model, Make unique). Canon first checks every record, archived ones
+included, and refuses while two of them share a value, listing the values. A
+write that gives a second record a unique value answers `422`
+`validation_failed` naming the field; a list field's items each count, and
+case and surrounding spaces do not make a value different. `GET
+/api/v1/objects` says which fields are `unique`, and the workspace's document
+marks them `x-canon-unique`. Companies and people nobody has worked yet are
+checked when the field is made unique, but each is held to it only from its
+next edit.
 
 ## Auth
 
@@ -129,7 +142,7 @@ connection, and ten times that with ten in parallel. It is refused after 600.
 
 Records come back as `{id, object, version, status, title, values, createdAt, updatedAt, deletedAt}`.
 
-**List.** `filter` repeats, as `field:op:value` with the list view's ops (`eq neq in contains startsWith gt gte lt lte hasAny hasAll empty notEmpty`; list values comma-separated; `empty` and `notEmpty` take no value). `sort=field:asc|desc`, `limit` (1 to 200, 50 by default), `cursor` from `nextCursor`, `deleted=true` for archived records. Returns `{data, nextCursor, total}`.
+**List.** `filter` repeats, as `field:op:value` with the list view's ops (`eq neq in contains startsWith gt gte lt lte hasAny hasAll empty notEmpty`; list values comma-separated; `empty` and `notEmpty` take no value). A value is typed as its field is: a number for numbers and money (cents), epoch milliseconds or an ISO date and time with a timezone for dates and times (`createdAt`, `updatedAt` included), `YYYY-MM-DD` for dates, `true` or `false` for checkboxes, and text otherwise. A formula or rollup field filters as the type it gives. `sort=field:asc|desc`, `limit` (1 to 200, 50 by default), `cursor` from `nextCursor`, `deleted=true` for archived records. Returns `{data, nextCursor, total}`.
 
 ```sh
 curl -H "Authorization: Bearer $TOKEN" \
