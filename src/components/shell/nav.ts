@@ -1,5 +1,5 @@
 import {
-  Bot, Box, Briefcase, Building2, ChartColumn, CheckSquare, ClipboardList, Coins, Combine, Inbox, KeyRound, LayoutDashboard, Linkedin, MapPin, Network, Package, Phone, Plug, Radio, Receipt, Scale, Send, Settings, Sparkles, Target, TrendingUp, Users, type LucideIcon,
+  Bot, Box, Briefcase, Building2, ChartColumn, CheckSquare, ClipboardList, Coins, Combine, Inbox, KeyRound, LayoutDashboard, Linkedin, MapPin, Network, Package, Phone, Plug, Radio, Receipt, Scale, Send, Settings, Sparkles, Target, TrendingUp, Users, Zap, type LucideIcon,
 } from "lucide-react";
 import { objectIcon } from "../records/object-icons.ts";
 import { recordListOf } from "../records/record-target.ts";
@@ -7,7 +7,7 @@ import { NAV_PAGES, type NavPage } from "../../../recipes/models.ts";
 import { NAV_SECTIONS as SECTION_ORDER, type NavIcon } from "../../../modules/kernel/manifest.ts";
 
 export type NavItem = {
-  /** How workspace.nav names it to hide it or open on it; Settings, Customization and Canon fields have none, so they always show. */
+  /** How workspace.nav names it to hide it or open on it; Settings, Customization, Automations and Canon fields have none, so they always show. */
   id?: NavPage;
   label: string;
   href: string;
@@ -58,6 +58,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     items: [
       { label: "Settings", href: "/dashboard/settings", icon: Settings },
       { label: "Customization", href: "/dashboard/customization", icon: Package },
+      { label: "Automations", href: "/dashboard/automations", icon: Zap },
       { id: "integrations", label: "Integrations", href: "/dashboard/integrations", icon: Plug },
       { label: "Canon fields", href: "/dashboard/canon-fields", icon: Combine },
       { label: "Account hierarchy", href: "/dashboard/account-hierarchy", icon: Network },

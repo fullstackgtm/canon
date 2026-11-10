@@ -18,7 +18,6 @@ function render(loaded: boolean) {
       useMutation: () => empty,
     },
     "../../../../convex/_generated/api": { api: { agentTurns: { list: "list", create: "create" }, researchAgents: { list: "fields" }, automations: { workspace: "rules" } } },
-    "./automations": { AutomationsTab: empty },
     "@/components/dashboard": {
       ViewFrame: ({ title, children }: { title: string; children?: ReactNode }) => createElement("section", null, createElement("h1", null, title), children),
       EmptyState: () => createElement("div", null, "No agents yet"),

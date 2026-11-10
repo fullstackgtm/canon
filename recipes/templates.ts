@@ -8,7 +8,8 @@
 import type { Capability } from "../modules/kernel/capabilities.ts";
 import { v, type Infer } from "convex/values";
 import { mismatch } from "../modules/kernel/mismatch.ts";
-import { actionProblem, actionValidator, conditionValidator, conditionsProblem, isAutomationObject, scheduleProblem, triggerValidator } from "../convex/lib/automations.ts";
+import { actionProblem, conditionsProblem, scheduleProblem } from "../convex/lib/automations.ts";
+import { actionValidator, conditionValidator, isAutomationObject, triggerValidator } from "../modules/kernel/automation.ts";
 import { icpSpecValidator } from "../modules/kernel/icpSpec.ts";
 import { stepValidator as cadenceStepValidator, validateSteps } from "../convex/lib/linkedin/cadence.ts";
 import { isRegisterObject, registerListDef } from "../convex/lib/objects/listSpec.ts";

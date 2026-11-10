@@ -173,7 +173,7 @@ export function legacyTabHref(tab: string | null, search: URLSearchParams): stri
     case "dataModel":
       return "/dashboard/customization/data-model";
     case "automations":
-      return "/dashboard/agents#automations";
+      return "/dashboard/automations";
     default:
       return null;
   }
