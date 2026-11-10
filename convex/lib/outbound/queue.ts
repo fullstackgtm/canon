@@ -127,11 +127,11 @@ export async function noticeMode(ctx: QueryCtx | MutationCtx, orgId: Id<"organiz
  * address, from Canon's transactional sender, through the outbox and its gate. `cause` names it for idempotency: the
  * same cause and recipient queue once. Call it in the mutation that decides to send.
  */
-export async function queueWorkspaceEmail(ctx: MutationCtx, a: { orgId: Id<"organizations">; to: { member: Id<"users"> } | { address: string }; subject: string; body: string; cause: string }) {
+export async function queueWorkspaceEmail(ctx: MutationCtx, a: { orgId: Id<"organizations">; to: { member: Id<"users"> } | { address: string }; subject: string; body: string; cause: string; fromUserId?: Id<"users"> }) {
   const target = "member" in a.to ? `member:${a.to.member}` : `address:${a.to.address.trim().toLowerCase()}`;
   const to = "member" in a.to ? a.to : { address: a.to.address.trim().toLowerCase() };
   return enqueue(ctx, {
     orgId: a.orgId, module: null, cause: a.cause, index: 0, channel: "email", kind: "notice", from: "workspace", to, target,
-    rendered: { ok: true, rendered: { subject: a.subject.replace(/\s+/g, " ").trim().slice(0, 200), text: a.body } },
+    rendered: { ok: true, rendered: { subject: a.subject.replace(/\s+/g, " ").trim().slice(0, 200), text: a.body } }, fromUserId: a.fromUserId,
   });
 }
