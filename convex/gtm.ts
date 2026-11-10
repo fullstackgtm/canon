@@ -609,6 +609,7 @@ const actionOperations: Record<string, ActionHandler> = {
       planDocument,
       patchPlanId,
       valueOverrides,
+      approvedBy: user._id,
     });
   },
   "organization.bootstrap": async () => ({ ok: true, message: "Organization defaults are created during auth/dev seed. Configure settings with set organization.settings." }),

@@ -32,3 +32,21 @@ test("deal credit splits export their typed rows without losing member, percenta
   });
   assert.equal(csv, 'ID,Deal,Credit splits\nd1,Acme,"[{""userId"":""u1"",""percentage"":100,""kind"":""revenue""}]"\n');
 });
+
+test("money on an object with no currency field exports with the workspace's currency code", () => {
+  const product = resolveObjectDef(STANDARD_OBJECTS.product);
+  const csv = listCsv({
+    fields: product.fields, titleLabel: "Product name", columns: ["unitPrice"], currency: "EUR",
+    rows: [{ id: "p1", title: "Seat", createdAt: 0, updatedAt: 0, values: { unitPrice: 2400050 } }, { id: "p2", title: "Free", createdAt: 0, updatedAt: 0, values: {} }],
+    users: new Map(), titles: {},
+  });
+  assert.equal(csv, "ID,Product name,Unit price,Unit price currency\np1,Seat,24000.50,EUR\np2,Free,,\n");
+});
+
+test("a deal list that shows its Currency column exports no workspace currency beside its amounts", () => {
+  const csv = listCsv({
+    fields: resolveObjectDef(STANDARD_OBJECTS.deal).fields, titleLabel: "Deal", columns: ["amount", "currency"], currency: "USD",
+    rows: [{ id: "d1", title: "Acme", createdAt: 0, updatedAt: 0, values: { amount: 1000, currency: "EUR" } }], users: new Map(), titles: {},
+  });
+  assert.equal(csv, "ID,Deal,Amount,Currency\nd1,Acme,10.00,EUR\n");
+});

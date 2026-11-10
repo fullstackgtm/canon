@@ -10,6 +10,7 @@ import { DEAL_ATTRIBUTES, type DealAttribute, type EntityType } from "./attribut
 import { decidedByOf, type Decider } from "./decider.ts";
 import { ID } from "./identity.ts";
 import { mayWrite, type OwnershipOverride } from "./gate.ts";
+import { crmOf, heldField, isPersonFact } from "./personHold.ts";
 import { AUTO_ACCEPT, resolveAttribute, sameValue, writeDecision, type FactLike, type FactStatus, type FactValue, type Resolution, type SourceKind } from "./policy.ts";
 
 export { DEAL_ATTRIBUTES, type DealAttribute, type EntityType };
@@ -136,6 +137,8 @@ export type IngestResult = {
   factIds: Record<string, string>;
   /** Attributes the source does not own (field ownership); nothing was stored for them. */
   rejected: string[];
+  /** Attributes a person holds against this CRM (lib/canon/personHold.ts); nothing was stored for them. */
+  held: string[];
 };
 
 /**
@@ -162,15 +165,33 @@ export async function ingestObservations(
     acceptedBy?: Decider;
   },
 ): Promise<IngestResult> {
-  const out: IngestResult = { resolved: {}, written: 0, confirmed: 0, factIds: {}, rejected: [] };
+  const out: IngestResult = { resolved: {}, written: 0, confirmed: 0, factIds: {}, rejected: [], held: [] };
+  const crm = crmOf({ kind: a.sourceKind }, a.actor);
+  const object = (a.entityType ?? "opportunity") === "opportunity" ? "deal" : a.entityType!;
   for (const o of a.observations) {
     if (!mayWrite(a.sourceKind, o.attribute, a.ownership, a.entityType)) {
       out.rejected.push(o.attribute);
       continue;
     }
+    // The same rule as the object ledger's save (lib/objects/write.ts): a CRM leaves a person's value as it is.
+    if (crm && heldField(object, o.attribute)) {
+      const facts = await store.factsFor(a.entityId, o.attribute);
+      const winner = facts.find((f) => f._id === resolveAttribute(facts).factId);
+      if (winner && isPersonFact(winner)) {
+        out.held.push(o.attribute);
+        out.resolved[o.attribute] = resolveAttribute(facts);
+        continue;
+      }
+    }
     const sourceRef = `${a.sourceRefBase}:${o.attribute}`;
     const latest = await store.latestBySourceRef(a.orgId, sourceRef);
-    const decision = writeDecision(latest, { value: o.value, evidence: o.evidence });
+    let decision = writeDecision(latest, { value: o.value, evidence: o.evidence });
+    // A person putting back their earlier value of a held field after a CRM took it is written again, as save does.
+    if (decision.kind === "confirm" && isPersonFact({ sourceKind: a.sourceKind, sourceRef }) && heldField(object, o.attribute)) {
+      const facts = await store.factsFor(a.entityId, o.attribute);
+      const winner = facts.find((f) => f._id === resolveAttribute(facts).factId);
+      if (!(winner && isPersonFact(winner) && sameValue(winner.value, o.value))) decision = { kind: "write" };
+    }
     if (decision.kind === "confirm") {
       await store.confirmFact(decision.factId, a.observedAt);
       out.confirmed++;

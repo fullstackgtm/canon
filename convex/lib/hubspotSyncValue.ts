@@ -132,7 +132,10 @@ export function contactSyncValue(contact: Infer<typeof syncContactRow>, accountI
   };
 }
 
-/** What a sync writes to a deal's row, before the ledger projects it. */
+/**
+ * What a sync writes to a deal's row, before the ledger projects it. The owner is not among them: it goes through the
+ * ledger (canon.ts saveDeal's `owner`), which leaves an owner a person chose as it is (lib/canon/personHold.ts).
+ */
 export function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccounts"> | undefined, now: number) {
   return {
     name: deal.name,
@@ -141,7 +144,6 @@ export function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"cr
     closeDate: deal.closeDate,
     dealType: deal.dealType,
     revenueType: deal.revenueType,
-    primaryRepId: deal.primaryRepId,
     crmOwnerId: deal.crmOwnerId,
     accountId,
     stage: deal.stage,
@@ -168,6 +170,10 @@ export function contactUnchanged(existing: Record<string, unknown> | null, value
   return !!existing && existing.lastSyncAt !== NOT_WRITTEN && !extra && unchangedRow(existing, value);
 }
 
-export function dealUnchanged(existing: Record<string, unknown> | null, value: ReturnType<typeof dealSyncValue>, extra?: unknown): boolean {
-  return !!existing && !extra && existing.syncHash === syncFingerprint(value);
+/** The fingerprint of what a sync sent for a deal, its owner included: the same as when the owner was one of the row's values. */
+export const dealSyncHash = (deal: Pick<Infer<typeof syncDealRow>, "primaryRepId">, value: ReturnType<typeof dealSyncValue>) =>
+  syncFingerprint({ ...value, primaryRepId: deal.primaryRepId });
+
+export function dealUnchanged(existing: Record<string, unknown> | null, deal: Pick<Infer<typeof syncDealRow>, "primaryRepId">, value: ReturnType<typeof dealSyncValue>, extra?: unknown): boolean {
+  return !!existing && !extra && existing.syncHash === dealSyncHash(deal, value);
 }

@@ -149,6 +149,9 @@ test("a portal's own properties become typed custom fields, and their values fit
     "custom.nps": 9, "custom.news": true, "custom.int": ["api", "sso_2"], "custom.ren": "2027-01-01",
   });
   assert.deepEqual(customValues("contact", fields, { nps_score: "n/a", interests: "api;gone", renewal: "" }), { "custom.ren": null });
+  // A datetime property keeps its time.
+  assert.deepEqual(customSpecs("deal", [{ name: "demo_at", label: "Demo at", type: "datetime", fieldType: "date", options: [] }]).map((s) => s.type), ["datetime"]);
+  assert.deepEqual(customValues("deal", [{ object: "deal", property: "demo_at", apiName: "custom.demo", type: "datetime", options: [] }], { demo_at: "1798761600000" }), { "custom.demo": 1798761600000 });
 });
 
 test("property history becomes dated facts, each its own source record", () => {

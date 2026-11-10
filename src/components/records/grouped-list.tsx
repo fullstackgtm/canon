@@ -10,9 +10,9 @@ import { groupFilter, type ViewGroup } from "../../../convex/lib/objects/views";
 import { LoadingRows, ReadFailure } from "@/components/dashboard";
 import { bucketLabel } from "@/components/reports/present";
 import { useContactAnswers, type AiField } from "@/components/research/ai-cell";
-import { formatCurrency } from "@/lib/utils";
 import { formatValue, type CellValue, type FieldDescription, type TeamMember } from "./fields";
 import { useLookupTitles } from "./lookup-field";
+import { moneyText, useWorkspaceMoney } from "./money";
 import { useObjectList, type ListedObject } from "./use-object-list";
 import type { BoardSaves } from "./board-view";
 import { useGroups } from "./use-groups";
@@ -54,6 +54,7 @@ function GroupSection({
   const { rows, total, hasMore, loadMore, loadingMore, reload, error } = useObjectList(query, { watch, onStale });
   const lookupTitles = useLookupTitles(lookupFields, rows);
   const aiAnswers = useContactAnswers(rows?.map((r) => r.id), aiFields);
+  const money = useWorkspaceMoney();
   useEffect(() => {
     if (open && saves.n > 0) void reload(saves.saves);
   }, [saves, open, reload]);
@@ -65,7 +66,7 @@ function GroupSection({
           <button type="button" aria-expanded={open} onClick={onToggle} className="inline-flex items-center gap-1.5 text-xs font-medium hover:text-foreground">
             <Icon className="h-3 w-3" aria-hidden />
             <span>{label}</span>
-            <span className="tabular-nums text-muted-foreground">{count.toLocaleString()}{sum !== null ? ` · ${formatCurrency(sum)}` : ""}</span>
+            <span className="tabular-nums text-muted-foreground">{count.toLocaleString()}{sum !== null ? ` · ${moneyText(sum, money)}` : ""}</span>
           </button>
         </td>
       </tr>
@@ -117,12 +118,13 @@ export function GroupedRows({
   const [toggledFor, setToggled] = useState<{ key: string; open: Map<string, boolean> }>({ key: queryKey, open: new Map() });
   const toggled = toggledFor.key === queryKey ? toggledFor.open : new Map<string, boolean>();
   const kind = groupKeyKind(def, group.field);
+  const money = useWorkspaceMoney();
   const keyTitles = useLookupTitles(field?.type === "lookup" ? [field] : [], res?.groups.map((g) => ({ values: { [field?.fieldId ?? ""]: g.key } })));
   const labelOf = (key: Scalar | null): string => {
     if (key === null) return `No ${label.toLowerCase()}`;
     if (kind === "day" || kind === "instant") return bucketLabel(String(key), group.bucket ?? "month");
     if (field?.type === "lookup") return keyTitles[String(key)] ?? String(key);
-    return field ? formatValue(field, key as CellValue, team) || String(key) : String(key);
+    return field ? formatValue(field, key as CellValue, team, money) || String(key) : String(key);
   };
   const groupWatch = [...watch, ...(field ? [field.fieldId] : [])];
   if (error) return <ReadFailure message={error} retry={reload} retained={res !== null} />;
@@ -131,7 +133,7 @@ export function GroupedRows({
   return (
     <>
       <div className="mb-2 text-xs font-medium text-muted-foreground">
-        {res.rows.toLocaleString()} in {res.groups.length.toLocaleString()} groups{res.sum !== null ? ` · ${formatCurrency(res.sum)}` : ""}
+        {res.rows.toLocaleString()} in {res.groups.length.toLocaleString()} groups{res.sum !== null ? ` · ${moneyText(res.sum, money)}` : ""}
         {res.truncated && <> · showing the first {res.groups.length}; filter to see the rest</>}
       </div>
       <div className="overflow-x-auto border border-border">

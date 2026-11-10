@@ -10,11 +10,12 @@ import { ReadFailure } from "@/components/dashboard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { formatValue, type FieldDescription, type TeamMember } from "./fields";
 import { useLookupTitles } from "./lookup-field";
+import { moneyText, useWorkspaceMoney } from "./money";
 import { RecordQuickView } from "./record-context";
 import { recordHref } from "./record-target";
 import { useGroups } from "./use-groups";
 import { useObjectList, type ListedObject, type Save } from "./use-object-list";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 /** Cards a column shows before "Show more", which adds a page of the list's own size (50). */
 const COLUMN_CARDS = 20;
@@ -59,6 +60,7 @@ function BoardColumn({
   const [over, setOver] = useState(false);
   // A company on a card reads by name, as it does in the table.
   const lookupTitles = useLookupTitles(cardFields.filter((f) => f.type === "lookup"), rows);
+  const money = useWorkspaceMoney();
   const accepts = writable && column.accepts;
   const refused = dragging !== null && !accepts;
 
@@ -95,7 +97,7 @@ function BoardColumn({
           {writable && !column.accepts && <Lock aria-label="Takes no cards" className="h-3 w-3 shrink-0 text-muted-foreground" />}
           <span className="truncate">{column.label}</span>
         </span>
-        <span className="shrink-0 tabular-nums text-muted-foreground">{total === null ? "…" : `${total.count.toLocaleString()}${total.sum !== null ? ` · ${formatCurrency(total.sum)}` : ""}`}</span>
+        <span className="shrink-0 tabular-nums text-muted-foreground">{total === null ? "…" : `${total.count.toLocaleString()}${total.sum !== null ? ` · ${moneyText(total.sum, money)}` : ""}`}</span>
       </header>
       <div className="flex min-h-24 flex-col gap-2 p-2">
         {error && <p className="text-xs text-destructive">{error}</p>}
@@ -142,7 +144,7 @@ function BoardColumn({
                     </div>
                   );
                 }
-                const shown = formatValue(f, raw as never, team);
+                const shown = formatValue(f, raw as never, team, typeof row.values.currency === "string" && row.values.currency && object === "deal" ? { ...money, currency: row.values.currency } : money);
                 return shown ? <div key={f.fieldId} className="truncate text-xs text-muted-foreground">{f.label}: <span className="tabular-nums">{shown}</span></div> : null;
               })}
             </article>

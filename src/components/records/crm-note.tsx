@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { useAction } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";
+import { LookupLink } from "./lookup-field";
 
 export const CRM_NAME: Record<"salesforce" | "hubspot", string> = { salesforce: "Salesforce", hubspot: "HubSpot" };
 
@@ -82,4 +83,26 @@ export function CrmRoleNotes({ roles, roleLabel, personLink, onUsed }: {
       </CrmNote>
     );
   });
+}
+
+const FIELD_NOUN: Record<string, string> = { ownerId: "owner", companyId: "company" };
+
+/** What a CRM says a deal's owner or company is, where the one a person chose in Canon held (fieldClaims.forDeal). */
+export function CrmFieldNote({ claim, canTake }: {
+  claim: { id: string; field: string; provider: "salesforce" | "hubspot"; value: unknown; label: string | null };
+  canTake: boolean;
+}) {
+  const take = useMutation(api.fieldClaims.useCrmValue);
+  const crm = CRM_NAME[claim.provider];
+  const noun = FIELD_NOUN[claim.field] ?? claim.field;
+  const value = typeof claim.value !== "string" ? null
+    : claim.field === "companyId" ? <LookupLink object="account" id={claim.value} className="underline hover:text-foreground" />
+    : claim.label ?? "a former member";
+  const says = value ? <>{crm} says the {noun} is {value}.</> : <>{crm} has no {noun} for this deal.</>;
+  if (!canTake) return <p className="mt-1 whitespace-normal text-xs text-muted-foreground">{says}</p>;
+  return (
+    <CrmNote action={`Use ${crm}'s ${noun}`} take={() => take({ id: claim.id })} done={`The ${noun} now follows ${crm}`}>
+      {says}
+    </CrmNote>
+  );
 }

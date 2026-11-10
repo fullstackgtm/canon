@@ -11,6 +11,7 @@ import type { Stored } from "../../../convex/lib/objects/validators";
 import { MAX_SPLITS, parseSplits, type SplitAllocation } from "../../../modules/kernel/splits";
 import { contactHref } from "@/lib/contact-href";
 import { LookupInput } from "./lookup-field";
+import { moneyText, type Money } from "./money";
 
 export type ObjectDescription = NonNullable<FunctionReturnType<typeof api.objects.describe>>;
 export type FieldDescription = ObjectDescription["fields"][number];
@@ -20,7 +21,9 @@ export type TeamMember = { _id: string; name: string; isActive?: boolean };
 /** Text fields that hold prose. A value that already has line breaks is edited as prose too, so saving never flattens it. */
 const PROSE_FIELDS = new Set(["description", "body", "notes", "bodyText"]);
 const isMultiline = (field: FieldDescription, value: CellValue | undefined) =>
-  field.type === "text" && (PROSE_FIELDS.has(field.apiName) || (typeof value === "string" && value.includes("\n")));
+  field.type === "text" && (isLongText(field) || (typeof value === "string" && value.includes("\n")));
+/** A text field that holds prose: a standard one, or a custom one an admin made long text. */
+export const isLongText = (field: FieldDescription) => field.type === "text" && (PROSE_FIELDS.has(field.apiName) || ("multiline" in field && field.multiline === true));
 
 /** Fields a person can type into: not timestamps, not formulas. */
 export const isEditable = (field: FieldDescription) => !field.system && field.type !== "formula";
@@ -155,17 +158,18 @@ export function fieldPatch(object: string, field: FieldDescription, value: CellV
 /** Multi-value fields: emails, phones and links, the first one primary. */
 const isMultiValue = (field: FieldDescription) => field.type === "emails" || field.type === "phones" || field.type === "links";
 
-/** A stored value as a person reads it. */
-export function formatValue(field: FieldDescription, value: CellValue | undefined, team?: readonly TeamMember[]): string {
+/** A stored value as a person reads it. `money`: the currency and decimals money shows in (money.ts), else a bare amount. */
+export function formatValue(field: FieldDescription, value: CellValue | undefined, team?: readonly TeamMember[], money?: Money): string {
   if (value === null || value === undefined || value === "") return "";
   // A formula or rollup (CP7c) reads as the type it gives.
-  if (field.type === "formula" && "returns" in field) return formatValue({ ...field, type: field.returns } as FieldDescription, value, team);
+  if (field.type === "formula" && "returns" in field) return formatValue({ ...field, type: field.returns } as FieldDescription, value, team, money);
   switch (field.type) {
     case "splits":
       return splitsOf(value).map((s) => `${team?.find((u) => u._id === s.userId)?.name ?? s.userId} · ${s.percentage}% ${s.kind}`).join("; ");
     case "currency":
-      // Money is stored in cents across the app (convex/schema.ts). No symbol: a deal's currency is its own field.
-      return typeof value === "number" ? (value / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(value);
+      // Money is stored in cents across the app (convex/schema.ts).
+      if (typeof value !== "number") return String(value);
+      return money ? moneyText(value, money) : (value / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     case "number":
       return typeof value === "number" ? value.toLocaleString() : String(value);
     case "datetime":
@@ -408,6 +412,7 @@ export function InlineField({
   version,
   team,
   readOnly,
+  money,
   onSave,
 }: {
   field: FieldDescription;
@@ -416,6 +421,8 @@ export function InlineField({
   version: number;
   team?: readonly TeamMember[];
   readOnly?: boolean;
+  /** How money reads: the workspace's currency, or the record's own (a deal's). */
+  money?: Money;
   onSave: (next: CellValue, expectedVersion: number) => Promise<boolean>;
 }) {
   const [editDraft, setEditDraft] = useRecordDraft<{ value: CellValue | undefined; version: number }>(`field:${field.fieldId}`, { value: undefined, version });
@@ -431,7 +438,7 @@ export function InlineField({
   // Enter commits and the input's blur commits again before React re-renders.
   const inFlight = useRef(false);
   const editing = draft !== undefined;
-  const shown = formatValue(field, value, team);
+  const shown = formatValue(field, value, team, money);
 
   async function commit() {
     const draft = draftRef.current;

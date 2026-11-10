@@ -208,6 +208,8 @@ export const createField = mutation({
     options: v.optional(v.array(optionEdit)),
     lookupTo: v.optional(v.string()),
     compute: v.optional(computeSpec),
+    /** A text field that holds prose (long text). */
+    multiline: v.optional(v.boolean()),
   },
   returns: v.object({ fieldId: v.string(), apiName: v.string() }),
   handler: async (ctx, { object, ...spec }) => {
@@ -238,6 +240,7 @@ export const updateFieldDef = mutation({
     compute: v.optional(computeSpec),
     /** Turning it on checks every record for duplicates in the background (uniqueFields.ts); off releases the claims. */
     unique: v.optional(v.boolean()),
+    multiline: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, { object, fieldId, unique, ...rest }) => {

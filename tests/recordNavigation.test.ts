@@ -82,6 +82,7 @@ test("a board card's title navigates natively, beside a separate Quick view, and
     "next/link": { default: ({ children, ...props }: Props & { children?: React.ReactNode }) => { links.push(props); return React.createElement("a", { href: props.href }, children); } },
     "./fields": { formatValue: () => "" },
     "./lookup-field": { useLookupTitles: () => ({}) },
+    "./money": { useWorkspaceMoney: () => ({ currency: "USD", decimals: 2 }), moneyText: () => "" },
     "./record-context": { RecordQuickView: ({ id }: { id: string }) => React.createElement("button", { "data-quick-view": id }) },
     "./record-target": recordTarget,
     "./use-object-list": { useObjectList: () => ({ rows: [row], total: 1, reload: noop, error: null }) },

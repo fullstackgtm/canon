@@ -76,7 +76,7 @@ export function RecordPicker({ object, label, autoFocus, onPick, onCancel }: {
 }
 
 /** A lookup's target as a link, named by its title once read. An account opens on the Accounts page. */
-export function LookupLink({ object, id, title: known }: { object: ListedObject; id: string; title?: string }) {
+export function LookupLink({ object, id, title: known, className = "px-2 py-1 text-sm underline" }: { object: ListedObject; id: string; title?: string; className?: string }) {
   const list = useAction(api.objects.list);
   const [title, setTitle] = useState("");
   useEffect(() => {
@@ -95,7 +95,7 @@ export function LookupLink({ object, id, title: known }: { object: ListedObject;
     })();
     return () => { live = false; };
   }, [list, object, id, known]);
-  return <RecordLink object={object} id={id} className="px-2 py-1 text-sm underline">{known || title || id}</RecordLink>;
+  return <RecordLink object={object} id={id} className={className}>{known || title || id}</RecordLink>;
 }
 
 /** Titles of the records that `fields` (lookups) point at in `rows`, one list call per target object. */

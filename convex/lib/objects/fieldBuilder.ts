@@ -20,7 +20,7 @@ import { baseFields, canBeUnique, CUSTOM_FIELD_API_NAME, isMultiValueType, PICKL
 import { isCustomObjectName } from "../../../modules/kernel/reportLanguage.ts";
 
 /** The field types an admin can create. */
-export const BUILDER_TYPES = ["text", "number", "currency", "date", "checkbox", "picklist", "multipicklist", "lookup", "user", "emails", "phones", "links", "formula", "rollup"] as const;
+export const BUILDER_TYPES = ["text", "number", "currency", "date", "datetime", "checkbox", "picklist", "multipicklist", "lookup", "user", "emails", "phones", "links", "formula", "rollup"] as const;
 export type BuilderType = (typeof BUILDER_TYPES)[number];
 
 /** Objects a lookup field can point at: the ones with list and record pages. */
@@ -47,7 +47,8 @@ export type OptionEdit = { value?: string; label: string; color?: string; active
  */
 export type ComputeSpec = { formula: string; returns?: ComputedType; rollup?: RollupDef };
 
-export type NewField = { label: string; type: BuilderType; options?: readonly OptionEdit[]; lookupTo?: string; compute?: ComputeSpec };
+/** `multiline`: a text field that holds prose. */
+export type NewField = { label: string; type: BuilderType; options?: readonly OptionEdit[]; lookupTo?: string; compute?: ComputeSpec; multiline?: boolean };
 
 /** The definition of another object of the org, for checking a rollup that reads it. */
 export type RelatedDefs = (object: string) => ResolvedObjectDef | null;
@@ -57,7 +58,7 @@ export type RelatedDefs = (object: string) => ResolvedObjectDef | null;
  * `unique`: false turns uniqueness off; `{ claimingSince }` turns it on, which starts with the existing values being
  * claimed (convex/uniqueFields.ts) and ends with the field unique, or off again if two records share a value.
  */
-export type FieldPatch = { label?: string; hidden?: boolean; options?: readonly OptionEdit[]; required?: boolean; rules?: readonly FieldRule[]; compute?: ComputeSpec; unique?: false | { claimingSince: number } };
+export type FieldPatch = { label?: string; hidden?: boolean; options?: readonly OptionEdit[]; required?: boolean; rules?: readonly FieldRule[]; compute?: ComputeSpec; unique?: false | { claimingSince: number }; multiline?: boolean };
 
 export const cleanLabel = (raw: string, what = "A field name"): string => {
   const label = raw.trim().replace(/\s+/g, " ");
@@ -169,7 +170,7 @@ export function addField(
   else if (spec.type === "lookup") {
     if (!spec.lookupTo || !((LOOKUP_TARGETS as readonly string[]).includes(spec.lookupTo) || isCustomObjectName(spec.lookupTo))) throw new RegistryError("A lookup needs an object to point at");
     field = { ...common, type: "lookup", lookupTo: spec.lookupTo };
-  } else field = { ...common, type: spec.type };
+  } else field = { ...common, type: spec.type, ...(spec.multiline && spec.type === "text" ? { multiline: true } : {}) };
   return { ext: checked(object, next(ext, [...existing, field])), field };
 }
 
@@ -222,6 +223,11 @@ export function updateField(object: string, ext: OrgObjectExtension | undefined,
     if (patch.options !== undefined) {
       if (out.type !== "picklist" && out.type !== "multipicklist") throw new RegistryError(`${f.label} has no options`);
       out = { ...out, options: editOptions(out.options, patch.options) };
+    }
+    if (patch.multiline !== undefined) {
+      if (patch.multiline && out.type !== "text") throw new RegistryError(`${f.label} is not a text field; only text can be long text`);
+      const { multiline: _, ...rest } = out;
+      out = patch.multiline ? { ...rest, multiline: true } as CustomField : rest as CustomField;
     }
     if (patch.unique !== undefined) {
       const { unique: _, uniqueClaiming: __, ...rest } = out;

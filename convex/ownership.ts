@@ -226,24 +226,28 @@ export const proposeDealOwnerBackfill = action({
 /**
  * Mirror update after the CRM write succeeds. The owner goes through the deal's ledger stream (saveDealValues), as
  * every other deal write does, so what reads the ledger (automations, a module's deal feed) sees the change with the
- * owner before and after.
+ * owner before and after. The owner is the approving person's choice, written back to the CRM: it is their fact, so
+ * it holds (lib/canon/personHold.ts), and the CRM's echo of it on the next sync is agreement. The CRM's own owner id
+ * is the CRM's.
  */
 export const patchDealOwner = internalMutation({
   args: {
     dealId: v.id("deals"),
     userId: v.id("users"),
     crmOwnerId: v.string(),
+    /** The person who approved the plan. */
+    approvedBy: v.id("users"),
   },
   handler: async (ctx, args) => {
     const deal = await ctx.db.get(args.dealId);
     if (!deal) return;
-    await ctx.db.patch(args.dealId, { primaryRepId: args.userId, crmOwnerId: args.crmOwnerId, updatedAt: Date.now() });
+    await ctx.db.patch(args.dealId, { updatedAt: Date.now() });
     const updated = await ctx.db.get(args.dealId);
     if (!updated) return;
-    // The owner now lives in the CRM (written back first), so it is that provider's fact.
+    await saveDealValues(ctx, updated, { kind: "user", userId: args.approvedBy }, { ownerId: args.userId });
     const source = updated.crmId && (updated.crmProvider === "salesforce" || updated.crmProvider === "hubspot")
       ? { kind: updated.crmProvider, crmId: updated.crmId } as const
       : { kind: "import" } as const;
-    await saveDealValues(ctx, updated, source, { ownerId: args.userId, crmOwnerId: args.crmOwnerId });
+    await saveDealValues(ctx, (await ctx.db.get(args.dealId)) ?? updated, source, { crmOwnerId: args.crmOwnerId });
   },
 });

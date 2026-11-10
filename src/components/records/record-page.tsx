@@ -19,10 +19,12 @@ import { PageSections } from "./page-sections";
 import { ConvertLeadDialog } from "./convert-lead";
 import { saveOf, saveProblem } from "./list-view";
 import { LookupField } from "./lookup-field";
+import { useWorkspaceMoney } from "./money";
 import { DealRelations } from "./related-lists";
 import { DealGaps } from "@/components/crm/deal-gaps";
 import { FieldGroups, Frame, History, SOURCE_LABEL, btn, type InDialog } from "./record-parts";
 import { RecordBoundary } from "./record-boundary";
+import { CrmFieldNote } from "./crm-note";
 import { RecordLink } from "./record-context";
 import { recordListOf } from "./record-target";
 import { RegisterRecordPage } from "./register-page";
@@ -106,8 +108,11 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const record = useQuery(api.objects.get, { streamId });
   const computed = useComputedValues(object, id, desc, record?.version);
   const team = useQuery(api.users.list) as TeamMember[] | undefined;
+  const workspaceMoney = useWorkspaceMoney();
   const splitTeam = useQuery(api.objects.splitMembers, object === "deal" && record && desc?.fields.some((f) => f.type === "splits") ? { streamId } : "skip");
   const write = useMutation(api.objects.write);
+  // What a CRM says about the deal's owner or company where a person's value held (lib/canon/personHold.ts).
+  const crmClaims = useQuery(api.fieldClaims.forDeal, object === "deal" ? { streamId } : "skip");
   const remove = useMutation(api.objects.remove);
   const restore = useMutation(api.objects.restore);
   const [busy, setBusy] = useState(false);
@@ -134,6 +139,8 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const fields = (desc as ObjectDescription).fields;
   const splitField = object === "deal" ? fields.find((f) => f.apiName === "splitAllocations" && !f.hidden) : undefined;
   const shownFields = fields.filter((f) => !f.hidden && f !== splitField);
+  // A deal's money is in its own currency; any other record's in the workspace's.
+  const money = typeof record.values.currency === "string" && record.values.currency && object === "deal" ? { ...workspaceMoney, currency: record.values.currency } : workspaceMoney;
 
   async function saveField(field: FieldDescription, value: CellValue, expectedVersion: number): Promise<boolean> {
     try {
@@ -193,8 +200,9 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
           ) : f.type === "lookup" ? (
             <LookupField field={f} value={record.values[f.fieldId] as CellValue | undefined} version={record.version} readOnly={!writable || desc.readOnlyFields.includes(f.apiName)} onSave={(next, expected) => saveField(f, next, expected)} />
           ) : (
-            <InlineField field={f} value={(f.type === "formula" ? computed[f.fieldId] : record.values[f.fieldId]) as CellValue | undefined} version={record.version} team={f.type === "splits" ? splitTeam : team} readOnly={!writable || desc.readOnlyFields.includes(f.apiName)} onSave={(next, expected) => saveField(f, next, expected)} />
+            <InlineField field={f} value={(f.type === "formula" ? computed[f.fieldId] : record.values[f.fieldId]) as CellValue | undefined} version={record.version} team={f.type === "splits" ? splitTeam : team} money={money} readOnly={!writable || desc.readOnlyFields.includes(f.apiName)} onSave={(next, expected) => saveField(f, next, expected)} />
           )}
+          {crmClaims?.filter((c) => c.field === f.apiName).map((c) => <CrmFieldNote key={c.id} claim={c} canTake={writable && !desc.readOnlyFields.includes(f.apiName)} />)}
         </dd>
       </div>
     );

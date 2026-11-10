@@ -530,7 +530,10 @@ function contactSyncValue(contact: Infer<typeof syncContactRow>, accountId: Id<"
   };
 }
 
-/** What a sync writes to a deal's row, before the ledger projects it. */
+/**
+ * What a sync writes to a deal's row, before the ledger projects it. The owner is not among them: it goes through the
+ * ledger (saveDeal's `ownerId`), which leaves an owner a person chose as it is (lib/canon/personHold.ts).
+ */
 function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccounts"> | undefined, instanceUrl: string, now: number) {
   return {
     name: deal.name,
@@ -539,7 +542,6 @@ function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccoun
     closeDate: deal.closeDate,
     dealType: deal.dealType,
     revenueType: deal.revenueType,
-    primaryRepId: deal.primaryRepId,
     crmOwnerId: deal.crmOwnerId,
     accountId,
     stage: deal.stage,
@@ -555,6 +557,9 @@ function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccoun
     updatedAt: now,
   };
 }
+
+/** The fingerprint of what a sync last sent for a deal, the owner included: the same as before the owner left the row's patch. */
+const dealSyncHash = (deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>) => syncFingerprint({ ...value, primaryRepId: deal.primaryRepId });
 
 /** A sync's unchanged rows: their Salesforce ids, and the rows among them whose daily sync time is due. */
 type UnchangedRows<T extends "crmAccounts" | "crmContacts" | "deals"> = { unchanged: string[]; stamp: Array<Id<T>> };
@@ -625,7 +630,7 @@ export const unchangedDeals = internalQuery({
         ctx.db.query("deals").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", deal.crmId)).first(),
         deal.accountId ? Promise.resolve(deal.accountId) : accountOf(deal.accountCrmId),
       ]);
-      if (existing && existing.syncHash === syncFingerprint(dealSyncValue(deal, accountId, args.instanceUrl, now))) rows.add(deal.crmId, existing, now);
+      if (existing && existing.syncHash === dealSyncHash(deal, dealSyncValue(deal, accountId, args.instanceUrl, now))) rows.add(deal.crmId, existing, now);
     }));
     return rows.out;
   },
@@ -855,7 +860,7 @@ export const upsertDeals = internalMutation({
 
       // A deal the sync wrote with these values before writes nothing to its ledger stream; its sync time is stamped
       // at most daily.
-      const syncHash = syncFingerprint(value);
+      const syncHash = dealSyncHash(deal, value);
       if (existing && existing.syncHash === syncHash) {
         if (args.stampAll || now - (existing.lastSyncAt ?? 0) > SYNC_STAMP_MS) await ctx.db.patch(existing._id, { lastSyncAt: now });
         results.updated++;
@@ -876,7 +881,7 @@ export const upsertDeals = internalMutation({
       // Deal ledger: record what salesforce says; the row ends as the projection.
       const row = await ctx.db.get(dealId);
       // The `facts` mirror follows from its queue, off this transaction (convex/canon.ts queuePartyMirror).
-      if (row) await saveDeal(ctx, row, { kind: "salesforce", crmId: deal.crmId, rawData: deal.rawData }, SYNCED_DEAL_ATTRIBUTES, now, { deferMirror: true });
+      if (row) await saveDeal(ctx, row, { kind: "salesforce", crmId: deal.crmId, rawData: deal.rawData }, SYNCED_DEAL_ATTRIBUTES, now, { deferMirror: true, owner: deal.primaryRepId ?? null });
     }
 
     return results;

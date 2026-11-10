@@ -1111,8 +1111,8 @@ export default defineSchema({
     .index("by_researchId_and_itemKey", ["researchId", "itemKey"])
     .index("by_orgId_and_itemKey", ["orgId", "itemKey"]),
   /**
-   * What a CRM says about a link a person decided in Canon (docs/account-hierarchy-manager.md): a company's parent, a
-   * person's company or primary company, a person's role on a deal. The import or sync keeps Canon's and records what
+   * What a CRM says about a link or field a person decided in Canon (docs/account-hierarchy-manager.md): a company's
+   * parent, a person's company or primary company, a person's role on a deal, a deal's owner or company. The import or sync keeps Canon's and records what
    * the CRM says, one row per CRM record and claim. Cleared when the CRM agrees with Canon, or when a person uses the
    * CRM's value.
    */
@@ -1132,10 +1132,18 @@ export default defineSchema({
      * as their primary company). For a deal, `accountId` is the deal and `crmParentId` the person the CRM has on it,
      * in role `crmLabel`.
      */
-    association: v.optional(v.union(v.literal("contact_account"), v.literal("deal_contact"))),
+    association: v.optional(v.union(v.literal("contact_account"), v.literal("deal_contact"), v.literal("field"))),
     primary: v.optional(v.literal(true)),
     crmLabel: v.optional(v.string()),
-  }).index("by_orgId_and_accountId_and_crmRef", ["orgId", "accountId", "crmRef"]),
+    /**
+     * A field a person holds (lib/canon/personHold.ts), with `association: "field"`: `accountId` is the record's
+     * stream, `attribute` the field, `crmValue` the CRM's value, and `crmParentId` null.
+     */
+    attribute: v.optional(v.string()),
+    crmValue: v.optional(objectValidators.factValue),
+  })
+    .index("by_orgId_and_accountId_and_crmRef", ["orgId", "accountId", "crmRef"])
+    .index("by_orgId_and_association_and_attribute", ["orgId", "association", "attribute"]),
   integrations: defineTable({
     orgId: v.id("organizations"),
     provider: v.union(

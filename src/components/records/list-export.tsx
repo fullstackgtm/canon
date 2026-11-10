@@ -11,12 +11,14 @@ import { getErrorMessage } from "@/lib/utils";
 import { downloadCsv } from "./audience-actions";
 import type { ObjectDescription, TeamMember } from "./fields";
 import type { ListQuery } from "./use-object-list";
+import { useWorkspaceMoney } from "./money";
 
 const LOOKUP_BATCH = Math.min(IN_VALUES_MAX, LIST_LIMIT_MAX);
 
 /** Downloads every row the list's filters match (up to EXPORT_ROWS_MAX), in its order, with its columns. */
 export function ExportView({ desc, query, columns, team, className }: { desc: ObjectDescription; query: ListQuery; columns: readonly string[]; team?: readonly TeamMember[]; className: string }) {
   const list = useAction(api.objects.list);
+  const money = useWorkspaceMoney();
   const [busy, setBusy] = useState(false);
 
   async function run() {
@@ -46,7 +48,7 @@ export function ExportView({ desc, query, columns, team, className }: { desc: Ob
 
       const titleLabel = desc.fields.find((f) => f.fieldId === desc.titleFieldId)?.label ?? "Name";
       const users = new Map((team ?? []).map((u) => [u._id, u.name]));
-      downloadCsv(exportFileName(desc.pluralLabel, new Date()), listCsv({ fields, titleLabel, columns, rows, users, titles }));
+      downloadCsv(exportFileName(desc.pluralLabel, new Date()), listCsv({ fields, titleLabel, columns, rows, users, titles, currency: money.currency }));
       if (total > rows.length) void toast.info(`Exported the first ${rows.length.toLocaleString("en-US")} of ${total.toLocaleString("en-US")}. Narrow the filters to export the rest.`);
       else void toast.success(`Exported ${rows.length.toLocaleString("en-US")} ${desc.pluralLabel.toLowerCase()}`);
     } catch (cause) {

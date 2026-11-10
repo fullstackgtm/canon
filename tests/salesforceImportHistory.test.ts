@@ -8,16 +8,19 @@ test("custom fields map to builder types, formulas stay in Salesforce, and value
     { name: "Region__c", label: "Region", type: "picklist", custom: true, picklistValues: [{ value: "AMER" }, { value: "EMEA" }] },
     { name: "Value__c", label: "Value", type: "currency", custom: true },
     { name: "Signed_At__c", label: "Signed at", type: "datetime", custom: true },
+    { name: "Notes__c", label: "Notes", type: "textarea", custom: true },
     { name: "Score__c", label: "Score", type: "double", custom: true, calculated: true },
   ]);
   assert.deepEqual(specs, [
     { sfName: "Region__c", label: "Region", type: "picklist", options: ["AMER", "EMEA"] },
     { sfName: "Value__c", label: "Value", type: "currency" },
-    { sfName: "Signed_At__c", label: "Signed at", type: "text" },
+    { sfName: "Signed_At__c", label: "Signed at", type: "datetime" },
+    { sfName: "Notes__c", label: "Notes", type: "text", multiline: true },
   ]);
   assert.deepEqual(skipped, [{ sfName: "Score__c", reason: "formula field; Canon computes its own" }]);
   const region = { sfName: "Region__c", apiName: "custom.region", type: "picklist" as const, options: [{ label: "EMEA", value: "emea" }] };
   assert.deepEqual([customValue("EMEA", region), customValue("", region), customValue("12.345", { ...region, type: "currency" as const })], ["emea", null, 1235]);
+  assert.equal(customValue("2026-03-04T14:30:00.000+0000", { ...region, type: "datetime" as const }), Date.UTC(2026, 2, 4, 14, 30));
 });
 
 test("history becomes one dated point per moment, oldest first, with each stage placed in its process", () => {

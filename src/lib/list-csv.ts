@@ -15,11 +15,13 @@ const labelOf = (f: ExportField, v: unknown) => f.options?.find((o) => o.value =
 /**
  * The columns a list view exports: the id, the title, then each shown column as
  * the list reads it. A lookup adds its target's id, money is in whole units,
- * and money on an object with a currency field carries that currency.
+ * and money carries its currency code: the record's own currency field's when
+ * the object has one (a deal's), else the workspace's.
  */
-function columnsOf(fields: readonly ExportField[], titleLabel: string, shown: readonly string[], users: ReadonlyMap<string, string>, titles: Readonly<Record<string, string>>): Column[] {
+function columnsOf(fields: readonly ExportField[], titleLabel: string, shown: readonly string[], users: ReadonlyMap<string, string>, titles: Readonly<Record<string, string>>, workspaceCurrency?: string): Column[] {
   const byName = new Map(fields.map((f) => [f.apiName, f]));
-  const currency = shown.includes("currency") ? undefined : byName.get("currency");
+  const own = byName.get("currency");
+  const currency = shown.includes("currency") ? undefined : own;
   const out: Column[] = [{ header: "ID", read: (r) => r.id }, { header: titleLabel, read: (r) => r.title }];
   for (const name of shown) {
     if (name === "createdAt" || name === "updatedAt") {
@@ -50,7 +52,10 @@ function columnsOf(fields: readonly ExportField[], titleLabel: string, shown: re
     };
     out.push({ header: f.label, read });
     if (f.type === "lookup") out.push({ header: `${f.label} ID`, read: (r) => (raw(r) === null ? null : String(raw(r))) });
-    if (f.type === "currency" && currency) out.push({ header: `${f.label} currency`, read: (r) => (raw(r) === null ? null : (r.values[currency.fieldId] as string | undefined) ?? null) });
+    // An object with its own currency field (a deal) never takes the workspace's: its Currency column, or this one, says it.
+    if (f.type === "currency" && (currency || (!own && workspaceCurrency))) {
+      out.push({ header: `${f.label} currency`, read: (r) => (raw(r) === null ? null : currency ? (r.values[currency.fieldId] as string | undefined) ?? null : workspaceCurrency ?? null) });
+    }
   }
   return out;
 }
@@ -63,8 +68,10 @@ export function listCsv(input: {
   rows: readonly ExportRow[];
   users: ReadonlyMap<string, string>;
   titles: Readonly<Record<string, string>>;
+  /** The workspace's currency code, for money on an object with no currency field of its own. */
+  currency?: string;
 }): string {
-  const cols = columnsOf(input.fields, input.titleLabel, input.columns, input.users, input.titles);
+  const cols = columnsOf(input.fields, input.titleLabel, input.columns, input.users, input.titles, input.currency);
   return serializeCsvRows([cols.map((c) => c.header), ...input.rows.map((r) => cols.map((c) => c.read(r)))]) + "\n";
 }
 
