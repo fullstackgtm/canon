@@ -1,6 +1,6 @@
 /**
  * ICPs as trees (docs/icp-tree.md): each saved ICP (icps.ts) with the segments that narrow its accounts and the
- * personas to reach inside them, every node stored as one query line (lib/icpQuery.ts). Anyone in the workspace
+ * personas to reach inside them, every node stored as one query line (modules/kernel/icpQuery.ts). Anyone in the workspace
  * reads them; admins and managers edit them. Segments and personas are counted, not scored: an ICP's gate, fit and
  * icpIds stay its own, so adding one never rescores the workspace.
  */
@@ -14,9 +14,9 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireCap } from "./lib";
 import { cleanPointOfView } from "./icps";
 import { modelSettings } from "./lib/recipes";
-import { fieldSlugs, formatQuery, parseQuery, type IcpQuery } from "./lib/icpQuery";
+import { fieldSlugs, formatQuery, parseQuery, type IcpQuery } from "../modules/kernel/icpQuery";
 import { treeRequest, type TreeRows } from "./lib/icpTree";
-import { treeMoveError } from "./lib/icpTreeMove";
+import { treeMoveError } from "../modules/kernel/icpTreeMove";
 import { callerClient, requireCaller } from "./records";
 import { atLeastVersion } from "./lib/recordClient";
 import type { IcpTreeCounts } from "./lib/recordContract";

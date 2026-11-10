@@ -1,9 +1,9 @@
 import { accountFields, changeToken } from "./editor.ts";
 import type { TokenChange } from "../../kernel/editor.ts";
 import type { CallContext, CallFunctions, CallOutput, Expect, Intent, ReadDoc, ReadValue } from "../../kernel/calls.ts";
-import { fieldSlugs, formatQuery, parseQuery, queryToSpec, type Clause, type IcpQuery, type NodeKind } from "../../../convex/lib/icpQuery.ts";
-import { treeMoveError } from "../../../convex/lib/icpTreeMove.ts";
-import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS } from "../../../convex/lib/icpVocabulary.ts";
+import { fieldSlugs, formatQuery, parseQuery, queryToSpec, type Clause, type IcpQuery, type NodeKind } from "../../kernel/icpQuery.ts";
+import { treeMoveError } from "../../kernel/icpTreeMove.ts";
+import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS } from "../../kernel/icpVocabulary.ts";
 import { INDUSTRIES } from "../../kernel/industries.ts";
 import { REGIONS } from "../../kernel/dimensions.ts";
 

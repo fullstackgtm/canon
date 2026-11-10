@@ -1,11 +1,11 @@
 import { accountFields, editorOptions, editorValue } from "./editor.ts";
-import { treeMoveError } from "../../../convex/lib/icpTreeMove.ts";
+import { treeMoveError } from "../../kernel/icpTreeMove.ts";
 import { challengeCalls } from "./challenge.ts";
 import { researchCalls } from "./research.ts";
 import { criteriaOf, editingCalls, validateQuery, vocabulary } from "./editing.ts";
 import type { CallFunctions, IcpTreeReadValue, ReadDoc } from "../../kernel/calls.ts";
-import { parseQuery, type NodeKind } from "../../../convex/lib/icpQuery.ts";
-import { sentence, sentenceText } from "../../../src/lib/icp-sentence.ts";
+import { parseQuery, type NodeKind } from "../../kernel/icpQuery.ts";
+import { sentence, sentenceText } from "../../kernel/icpSentence.ts";
 
 const gapLabels: Record<string, string> = { covered: "Covered", small: "Too small to fill", too_large: "Too large: narrow it", filling: "Filling", unavailable: "Unavailable", busy: "Busy" };
 

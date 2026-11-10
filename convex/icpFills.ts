@@ -19,7 +19,7 @@ import { gapDecision, gapKey, icpMarketFilter, REFILL_AFTER_MS } from "./lib/icp
 import { readIcps, type IcpRow } from "./lib/icpsInterface";
 import { interfaceOwner } from "./lib/modules/interfaceOwnership";
 import { systemScope } from "./lib/modules/scope";
-import { icpGapCheckValidator } from "./lib/icpSpec";
+import { icpGapCheckValidator } from "./lib/icpGapCheck";
 import { isFillJob } from "./lib/runs";
 
 /** Fills one workspace may have running at once (as addRecords). */

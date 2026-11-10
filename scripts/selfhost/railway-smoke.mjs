@@ -83,7 +83,8 @@ try {
   assert.equal(anonymous.status, "success");
   assert.equal(anonymous.value, null, "Demo access must be off");
   const owner = { email: "owner@example.test", password: "u7Qp4Nw9Zc2Vm8Ks" };
-  request("/api/local-auth", { kind: "register", ...owner, name: "Test owner", workspaceName: "Test workspace" });
+  const setupCode = docker("exec", name, "node", "scripts/selfhost/setup-code.mjs");
+  request("/api/local-auth", { kind: "register", ...owner, name: "Test owner", workspaceName: "Test workspace", setupCode });
   request("/api/local-auth", { kind: "sign-out" });
   request("/api/local-auth", { kind: "sign-in", ...owner });
   session();

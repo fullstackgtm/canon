@@ -10,12 +10,12 @@ import { labels, valueLabel } from "@/components/icps/icp-viewer";
 import {
   cleanResearchSpec,
   specFromIcp,
-} from "../../../convex/lib/icpResearchSpec";
+} from "../../../modules/kernel/icpResearchSpec";
 import {
   parseQuery,
   specToQuery,
   type Clause,
-} from "../../../convex/lib/icpQuery";
+} from "../../../modules/kernel/icpQuery";
 import { ArrowUpRight, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import {

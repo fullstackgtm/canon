@@ -4,6 +4,8 @@ import { createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import { jwksFor, signServiceJwt } from "../src/lib/canonServiceJwt.ts";
 import { hashPassword, verifyPassword, signLocalSessionToken } from "../src/lib/localAuthCrypto.ts";
 import { localAuthGate } from "../src/lib/localAuthGate.ts";
+import { setupCodeMatches } from "../src/lib/setupCode.ts";
+import { newSetupCode } from "../scripts/selfhost/platform.mjs";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
 test("local passwords and session identities use scrypt and the existing RS256 provider", async () => {
@@ -79,4 +81,14 @@ test("credential lookup and registration admit only the local auth broker", asyn
   await assert.rejects(handlers.register.handler(ctx, registration), /Setup is complete/);
   assert.equal(db.rows("localCredentials").length, 1);
   assert.equal(db.rows("localSessions").length, 0);
+});
+
+test("the first owner registers only with the install's setup code", () => {
+  const code = newSetupCode();
+  assert.match(code, /^[2-9A-HJKMNP-TV-Z]{5}-[2-9A-HJKMNP-TV-Z]{5}-[2-9A-HJKMNP-TV-Z]{5}$/);
+  assert.notEqual(code, newSetupCode());
+  assert.equal(setupCodeMatches(code, code), true);
+  assert.equal(setupCodeMatches(` ${code.toLowerCase().replaceAll("-", " ")} `, code), true, "typed from a log, in any case and spacing");
+  for (const given of [undefined, "", code.slice(0, -1), `${code}2`, newSetupCode()]) assert.equal(setupCodeMatches(given, code), false);
+  for (const expected of [undefined, "", "short"]) assert.equal(setupCodeMatches(expected, expected), false, "no configured code admits nobody");
 });

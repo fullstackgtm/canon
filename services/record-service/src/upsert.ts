@@ -13,7 +13,7 @@ import { all, lit } from "./db.ts";
 import { domainMatchSql } from "./contactLinks.ts";
 import { HttpError } from "./errors.ts";
 import { industryKeySql } from "./core/kernel/industries.ts";
-import { DEPARTMENT, SENIORITY, classifyTitleSql } from "./titles.ts";
+import { DEPARTMENT, SENIORITY, classifyTitleSql } from "./core/kernel/titles.ts";
 import { LEDGER_OWNED } from "./register.ts";
 import type { Workspace } from "./workspace.ts";
 

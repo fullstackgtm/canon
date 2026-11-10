@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { challengeIcp, CRM_SOURCE, proposalFilters, proposalQuickEnrich, type ChallengeContext } from "../convex/lib/tam/challengeIcp.ts";
+import { challengeIcp, proposalFilters, proposalQuickEnrich } from "../convex/lib/tam/challengeIcp.ts";
+import { CRM_SOURCE, type ChallengeContext } from "../modules/kernel/icpChallenge.ts";
 import type { FetchedPage } from "../convex/lib/research/agentLoop.ts";
 
 const context: ChallengeContext = {

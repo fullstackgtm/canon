@@ -1,4 +1,4 @@
-import { DEPARTMENT, classifyTitle } from "../../services/record-service/src/titles.ts";
+import { DEPARTMENT, classifyTitle } from "./titles.ts";
 
 export const EMPLOYEE_BANDS = ["1-10", "11-50", "51-200", "201-500", "501-1000", "1001-5000", "5001-10000", "10001+"] as const;
 

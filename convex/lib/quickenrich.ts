@@ -11,7 +11,7 @@ import { tregCall, type TregMeta } from "./treg.ts";
 import { peopleToRecords, type Person } from "./peopleSources.ts";
 import type { AccountInput } from "./recordContract.ts";
 import { NONE, seniorityOf } from "./staging.ts";
-import type { IcpExclude } from "./icpSpec.ts";
+import type { IcpExclude } from "../../modules/kernel/icpSpec.ts";
 
 export const QUICKENRICH_SEARCH = "quickenrich.people.search";
 export const QE_PAGE = 100;

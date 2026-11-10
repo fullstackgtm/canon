@@ -11,7 +11,7 @@
  * of them: a contact is added when it and its company pass. Pure and
  * Node-free (the UI imports it).
  */
-import { DEPARTMENT, SENIORITY, classifyTitle } from "../../services/record-service/src/titles.ts";
+import { DEPARTMENT, SENIORITY, classifyTitle } from "../../modules/kernel/titles.ts";
 import { NONE, regionOf, sizeBandOf } from "../../modules/kernel/dimensions.ts";
 import { normDomain } from "./peopleSources.ts";
 

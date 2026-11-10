@@ -3868,7 +3868,7 @@ object's `label` or `pluralLabel` to follow workspace names. `objects` is reserv
 
 A module that carves the market counts a **territory tree** over the workspace's companies: its own
 docs as the nodes, each a query line in the grammar ICPs use (`size:1001-5000,5001-10000,10001+ country:us,ca`,
-`-country:us,ca`, `industry:`; `convex/lib/icpQuery.ts`).
+`-country:us,ca`, `industry:`; `modules/kernel/icpQuery.ts`).
 
 ```json
 "reads": { "companies": ["name", "ownerId", "country", "employees", "industry"], "deals": ["amount", "isClosed", "isWon", "closedAt", "companyId"] },

@@ -7,7 +7,7 @@ import { HttpError } from "./errors.ts";
 import { countTerritoryTree, territoryTreeProblem, type TerritoryAccountRow, type TerritoryTreeResult } from "./territoryTree.ts";
 import { all, lit, type Params } from "./db.ts";
 import { industryFilterKeys, industryKeySql } from "./core/kernel/industries.ts";
-import { DEPARTMENT, SENIORITY, classifyTitleSql } from "./titles.ts";
+import { DEPARTMENT, SENIORITY, classifyTitleSql } from "./core/kernel/titles.ts";
 import type { Workspace } from "./workspace.ts";
 
 type Account = NonNullable<IcpTreeNode["account"]>;

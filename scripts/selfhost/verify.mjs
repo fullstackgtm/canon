@@ -10,7 +10,8 @@ import { backup, restoreCompose } from "./backup.mjs";
 export async function verifyDeployment(site, backend = `${site}/convex`, bootstrapOwner = false, env = {
   SELFHOST_SMOKE_EMAIL: process.env.SELFHOST_SMOKE_EMAIL,
   SELFHOST_SMOKE_PASSWORD: process.env.SELFHOST_SMOKE_PASSWORD,
-}, { restart, backupRestore } = {}) {
+  SELFHOST_SETUP_CODE: process.env.SELFHOST_SETUP_CODE,
+}, { restart, backupRestore, setupCode } = {}) {
   const start = performance.now();
   const check = async (name, run) => {
     const at = performance.now();
@@ -66,10 +67,15 @@ export async function verifyDeployment(site, backend = `${site}/convex`, bootstr
   try {
     const owner = await check(bootstrapOwner ? "first owner registration and local sign-in" : "owner local sign-in", async () => {
       if (bootstrapOwner) {
-        const registration = await auth({ kind: "register", email, password, name: "Installation owner", workspaceName: "My workspace" });
+        const code = env.SELFHOST_SETUP_CODE || setupCode?.();
+        assert.ok(code, "Set SELFHOST_SETUP_CODE to the setup code in the install's logs, or pass --restart-container to read it from the container");
+        const details = { kind: "register", email, password, name: "Installation owner", workspaceName: "My workspace" };
+        assert.equal((await auth({ ...details, email: `not-${email}`, setupCode: "WRONG-SETUP-CODE0" })).status, 403, "A first owner registered without the setup code");
+        const registration = await auth({ ...details, setupCode: code });
         assert.equal(registration.status, 200, "First owner setup failed. On an existing install omit --bootstrap-owner");
         cookie = registration.headers.get("set-cookie")?.split(";")[0];
         assert.ok(cookie, "Registration must set a session cookie");
+        assert.equal((await auth({ ...details, email: `second-${email}`, setupCode: code })).status, 400, "A second owner registered after setup");
         assert.equal((await auth({ kind: "sign-out" }, cookie)).status, 200);
       }
       const login = await auth({ kind: "sign-in", email, password });
@@ -162,11 +168,18 @@ export async function verifyDeployment(site, backend = `${site}/convex`, bootstr
   console.log(`PASS verification complete (${((performance.now() - start) / 1000).toFixed(2)}s)`);
 }
 
-export function containerRestart(container, sshHost, site) {
+function dockerOn(container, sshHost) {
   assert.match(container, /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/, "Pass a container name or ID");
   if (sshHost) assert.match(sshHost, /^[a-zA-Z0-9_][a-zA-Z0-9_.@-]*$/, "Pass an SSH host or configured SSH alias");
-  const docker = (...args) => execFileSync(sshHost ? "ssh" : "docker", sshHost ? ["-o", "BatchMode=yes", "--", sshHost, "docker", ...args] : args,
+  return (...args) => execFileSync(sshHost ? "ssh" : "docker", sshHost ? ["-o", "BatchMode=yes", "--", sshHost, "docker", ...args] : args,
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 90_000 }).trim();
+}
+
+/** Reads the first owner's setup code from the container, without printing it. */
+export const containerSetupCode = (container, sshHost) => () => dockerOn(container, sshHost)("exec", container, "node", "scripts/selfhost/setup-code.mjs");
+
+export function containerRestart(container, sshHost, site) {
+  const docker = dockerOn(container, sshHost);
   return async () => {
     const inspect = () => JSON.parse(docker("inspect", container))[0];
     assert.ok(inspect().Config.Env.includes(`SITE_URL=${site}`), "Restart container SITE_URL must match the verified origin");
@@ -220,6 +233,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     assert.ok(!sshHost || container, "--ssh requires --restart-container");
     const site = positional[0] ?? process.env.SITE_URL;
     await verifyDeployment(site, positional[1] ?? (positional[0] ? `${site}/convex` : process.env.NEXT_PUBLIC_CONVEX_URL ?? `${site}/convex`), bootstrapOwner, process.env,
-      { restart: container ? containerRestart(container, sshHost, site) : undefined, backupRestore: backupRestore ? composeBackupRestore(site) : undefined });
+      { restart: container ? containerRestart(container, sshHost, site) : undefined, backupRestore: backupRestore ? composeBackupRestore(site) : undefined,
+        setupCode: container ? containerSetupCode(container, sshHost) : undefined });
   } catch (error) { console.error(`FAIL verification: ${error.message}`); process.exitCode = 1; }
 }

@@ -10,8 +10,8 @@
 import { canonDepartments, specToIcp } from "./addRecords.ts";
 import type { IcpGate } from "./recordContract.ts";
 import { icpGeosToCountries, icpIndustryTerms, icpToWeights } from "./researchPipeline.ts";
-import type { IcpExclude, IcpSpec } from "./icpSpec.ts";
-import { DEPARTMENT, SENIORITY, classifyTitle } from "../../services/record-service/src/titles.ts";
+import type { IcpExclude, IcpSpec } from "../../modules/kernel/icpSpec.ts";
+import { DEPARTMENT, SENIORITY, classifyTitle } from "../../modules/kernel/titles.ts";
 import type { FitModel } from "../../recipes/models.ts";
 
 export type { IcpExclude, IcpSpec };
@@ -25,7 +25,7 @@ export const emptySpec = (): IcpSpec => ({
   exclude: emptyExclude(),
 });
 
-export { specFromIcp } from "./icpResearchSpec.ts";
+export { specFromIcp } from "../../modules/kernel/icpResearchSpec.ts";
 
 const BAND = /^(\d+)(?:-(\d+)|\+)$/;
 

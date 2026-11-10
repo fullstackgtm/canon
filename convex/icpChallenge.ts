@@ -6,7 +6,8 @@ import { requireCap } from "./lib";
 // CP14: these pages read the CRM mirror and deal tables whole, so a role whose rules narrow its reads sees them empty.
 import { unrestrictedUser } from "./permissions";
 import { startPopulation } from "./populateActions";
-import { proposalQuickEnrich, type ChallengeContext } from "./lib/tam/challengeIcp";
+import { proposalQuickEnrich } from "./lib/tam/challengeIcp";
+import type { ChallengeContext } from "../modules/kernel/icpChallenge";
 import type { Icp } from "../engine/src/icp.ts";
 import type { Doc } from "./_generated/dataModel";
 

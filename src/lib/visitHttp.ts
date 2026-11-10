@@ -3,6 +3,7 @@ import { api } from "../../convex/_generated/api.js";
 import { evidenceSigner } from "./moduleEvidence.ts";
 import { signVisitEnvelope, visitHash, visitRequestIp, visitSecret } from "./visitEnvelope.ts";
 import { visitHeaders, visitFileHeaders } from "./visitHeaders.ts";
+import { internalUrl } from "./internalUrl.ts";
 import { PUBLIC_GRANT, VISIT_DEAD, VISIT_SECRET, type VisitOpenArgs, type VisitPageArgs, type VisitOpArgs, type VisitTransitionArgs, type VisitResult, type VisitFailure, type VisitUploadArgs, type VisitUploadTicket, type VisitFileArgs, type VisitorUploadTarget } from "../../modules/kernel/visit.ts";
 import { boundedFileBody, fileDigest, safeFileName, sniffVisitorFile } from "../../modules/kernel/visitorFiles.ts";
 import type { FileInfo } from "../../convex/lib/modules/scope.ts";
@@ -204,7 +205,7 @@ export async function handleVisitUpload(request: Request, deps: Pick<Dependencie
     if (!bytes || !file) return unavailable();
     const reserved = await deps.upload({ publicId: body.publicId, sessionHash: visitHash(secret), target: body.target, file: { ...file, digest: await fileDigest(bytes) } });
     if (!reserved.ok) return unavailable(reserved.status);
-    const stored = await deps.fetch(reserved.value.url, { method: "POST", redirect: "error", headers: { "Content-Type": "application/octet-stream", "x-canon-ticket": reserved.value.ticket, "x-canon-secret": reserved.value.secret }, body: new Uint8Array(bytes).buffer });
+    const stored = await deps.fetch(internalUrl(reserved.value.url, deps.env), { method: "POST", redirect: "error", headers: { "Content-Type": "application/octet-stream", "x-canon-ticket": reserved.value.ticket, "x-canon-secret": reserved.value.secret }, body: new Uint8Array(bytes).buffer });
     if (!stored.ok) return unavailable();
     const result: unknown = await stored.json();
     if (!record(result) || typeof result.id !== "string" || !result.id || result.id.length > 200 || result.name !== file.name || result.type !== file.type || result.bytes !== file.bytes) return unavailable();
@@ -220,7 +221,7 @@ export async function handleVisitFile(request: Request, deps: Pick<Dependencies,
     if (!secret) return unavailable();
     const result = await deps.file({ publicId: body.publicId, sessionHash: visitHash(secret), file: body.file });
     if (!result.ok) return unavailable(result.status);
-    const stored = await deps.fetch(result.value.url, { redirect: "error", cache: "no-store" });
+    const stored = await deps.fetch(internalUrl(result.value.url, deps.env), { redirect: "error", cache: "no-store" });
     if (!stored.ok || !stored.body) return unavailable();
     return new Response(stored.body, { headers: { ...visitFileHeaders(),
       "Content-Type": "application/octet-stream", "Content-Length": String(result.value.bytes),
