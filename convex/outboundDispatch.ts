@@ -18,6 +18,8 @@ import { claimMailboxEmail, settleMailboxEmail, type P4MailboxJob } from "./lib/
 import { sendMailboxEmail } from "./lib/outbound/mailboxAdapter";
 import { readP4EmailAttempt } from "./lib/outbound/mailboxReceipts";
 import { p4EmailAttemptRef } from "./lib/outbound/mailboxTypes";
+import { queuedByAutomation } from "./lib/automationOutbound";
+import { activeRoleIn } from "./lib/membership";
 
 /** Rows claimed per mutation, and claim rounds per dispatch before it hands on to a fresh one. */
 const CLAIM_BATCH = 10;
@@ -44,6 +46,10 @@ async function draftOf(ctx: MutationCtx, row: Doc<"outboundMessages">): Promise<
     if (!pkg || !(await isEnabled(ctx, row.orgId, pkg.moduleId))) return "The module is off or uninstalled.";
     const m = manifestOf(pkg);
     sender = { id: pkg.moduleId, title: m.title, outbound: m.outbound };
+  }
+  if (queuedByAutomation(row)) {
+    const as = row.fromUserId ? await ctx.db.get(row.fromUserId) : null;
+    if (!(as && (await activeRoleIn(ctx, as, row.orgId)))) return "The admin this rule acts as is no longer a member";
   }
   const name = "slack" in row.to ? row.to.slack : "event" in row.to ? row.to.event : undefined;
   return {

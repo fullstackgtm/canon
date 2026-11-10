@@ -22,6 +22,12 @@ type Ctx = { rule: Doc<"automationRules">; run: Doc<"automationRuns">; ref: stri
 /** The outbox key's cause for one step of one run: the same step queues once. */
 const causeOf = (c: Ctx) => `automation:${c.run._id}:${c.ref}`;
 
+/**
+ * Whether an automation rule queued this outbox row. Its `fromUserId` is the admin the rule acts as, and the dispatcher
+ * sends it only while they are still a member here, as recordWebhooks.claim does for a webhook call.
+ */
+export const queuedByAutomation = (row: Pick<Doc<"outboundMessages">, "module" | "cause">) => row.module === undefined && row.cause.startsWith("automation:");
+
 /** What became of an outbox row, as the run log says it; a refused row fails the step with the outbox's reason. */
 function outcome(out: { state: string; created: boolean }, where: string, reason?: string): string {
   if (out.state === "refused" || out.state === "suppressed") throw new ConvexError(reason ?? `Not sent to ${where}`);
@@ -42,7 +48,7 @@ export async function sendStep(ctx: MutationCtx, c: Ctx, a: Outbound, to: Id<"us
   }
   if (a.kind === "notify_email") {
     if (!to) throw new ConvexError("Nobody to email");
-    const out = await queueWorkspaceEmail(ctx, { orgId: c.rule.orgId, to: { member: to }, subject: renderMessage(a.subject, c.def, c.row), body: renderMessage(a.message, c.def, c.row), cause: causeOf(c) });
+    const out = await queueWorkspaceEmail(ctx, { orgId: c.rule.orgId, to: { member: to }, subject: renderMessage(a.subject, c.def, c.row), body: renderMessage(a.message, c.def, c.row), cause: causeOf(c), fromUserId: c.actsAs });
     return { detail: outcome(out, (await ctx.db.get(to))?.name ?? "a member", await reasonOf(ctx, out.id)) };
   }
   const endpoint = a.endpointId ? await ctx.db.get(a.endpointId) : null;

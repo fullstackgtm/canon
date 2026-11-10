@@ -20,7 +20,7 @@ let agentClient: string | null = null;
 /** The companies the record service holds, as list rows by id, and who each read of one ran as: an If reads a related company through its member's sight. */
 const companies = new Map<string, Record<string, unknown>>();
 const companyReads: Array<{ id: unknown; userIds: string[] }> = [];
-const M = loadConvex(["automations.ts", "objects.ts", "recordWebhooks.ts"], {
+const M = loadConvex(["automations.ts", "objects.ts", "recordWebhooks.ts", "outboundDispatch.ts"], {
   "lib.ts": (real) => ({
     ...real, getCurrentUser: async () => signedIn, requireUser: async () => { if (!signedIn) throw new Error("Not authenticated"); return signedIn; }, agentClientOf: async () => agentClient,
   }),
@@ -39,6 +39,7 @@ const M = loadConvex(["automations.ts", "objects.ts", "recordWebhooks.ts"], {
 const automations = M["automations.ts"]!;
 const recordWebhooks = M["recordWebhooks.ts"]!;
 const objects = M["objects.ts"]!;
+const dispatch = M["outboundDispatch.ts"]!;
 
 function workspace(riley: Record<string, unknown> = {}) {
   const user = (id: string, name: string, role: string) => ({ _id: id, orgId: ORG, role, isActive: true, name, email: `${name}@acme.test` });
@@ -534,6 +535,24 @@ test("notify steps post to a mapped Slack channel and email the record's owner t
   const sent = plain((w.db.rows("outboundMessages") as Array<Record<string, any>>).map((r) => [r.channel, r.to, r.state, r.rendered.subject ?? null, r.rendered.text]));
   assert.deepEqual(sent, [["slack", { slack: "sales" }, "queued", null, "Okafor at Orbit Labs, phone "], ["email", { member: AVERY }, "queued", "New lead: Okafor", "Call  at "]]);
   assert.equal(runs(w)[0].status, "done");
+});
+
+test("a queued Slack post and email never go once the admin the rule acts as leaves, and say why", async () => {
+  const w = workspace();
+  await w.db.insert("outboundTargets", { orgId: ORG, channel: "slack", name: "sales", url: "sealed", hint: "hooks.slack.com/…", createdBy: RILEY, createdAt: 0 });
+  await inPerson(w, RILEY);
+  await automations.propose.handler(w.ctx, {
+    name: "Tell sales", object: "lead", trigger: { kind: "created" }, conditions: [],
+    actions: [{ kind: "notify_slack", channel: "sales", message: "{record}" }, { kind: "notify_email", to: { kind: "record_owner" }, subject: "{record}", message: "{record}" }],
+  });
+  await write(w, { lastName: "Okafor", ownerId: AVERY });
+  await fanout(w);
+  await drain(w);
+  await w.db.patch(RILEY, { isActive: false });
+  assert.deepEqual(plain(await dispatch.claim.handler(w.ctx, {})), []);
+  const rows = plain((w.db.rows("outboundMessages") as Array<Record<string, any>>).map((r) => [r.channel, r.state, r.reason]));
+  const gone = "The admin this rule acts as is no longer a member";
+  assert.deepEqual(rows, [["slack", "refused", gone], ["email", "refused", gone]]);
 });
 
 test("a webhook step queues a signed record-webhook delivery of the record, and it never goes once the admin the rule acts as leaves", async () => {
