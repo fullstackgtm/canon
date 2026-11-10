@@ -1,9 +1,9 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import type { ModuleDoc } from "./modules/scope";
-import { specToQuery } from "./icpQuery";
+import { specToQuery } from "../../modules/kernel/icpQuery";
 import { MAX_ICPS } from "./icps";
-import type { IcpSpec } from "./icpSpec";
+import type { IcpSpec } from "../../modules/kernel/icpSpec";
 
 export const ICPS_MODULE = "@canon/icps";
 export { ICPS_V1_FIELDS, ICP_NODES_V1_FIELDS } from "../../modules/kernel/icpsInterface.ts";

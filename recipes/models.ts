@@ -7,7 +7,7 @@
  */
 import type { CallInsightType } from "../engine/src/calls.ts";
 import { builtinAuditRules } from "../engine/src/rules.ts";
-import { SENIORITY } from "../services/record-service/src/titles.ts";
+import { SENIORITY } from "../modules/kernel/titles.ts";
 import type { TableRows } from "./builtins.ts";
 import type { AnyDescriptor, RECIPE_OBJECTS, RecipeDefinition, Settings } from "./kernel.ts";
 import type { ExclusivePoint } from "./points.ts";
@@ -120,7 +120,7 @@ export type FitModel = {
   buyerLevels: readonly string[];
 };
 
-/** The job levels a title reads as (services/record-service/src/titles.ts), the vocabulary of a levels setting. */
+/** The job levels a title reads as (modules/kernel/titles.ts), the vocabulary of a levels setting. */
 export const LEVEL_IDS: readonly string[] = SENIORITY.map(([id]) => id);
 
 export const CALL_DEFINITIONS = ["nextStep", "closeDate", "otherCompany", "mentionedPeople", "opportunity"] as const;

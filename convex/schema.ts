@@ -15,7 +15,8 @@ import { filterValidator, runScopeValidator } from "./lib/scopeValidators";
 import { outcomeFields, traceValidator } from "./lib/research/validators";
 import * as observations from "./lib/signals/observations";
 import { icpGateValidator, icpVersionWeightsValidator } from "./lib/scoreHistory";
-import { icpGapCheckValidator, icpSpecValidator } from "./lib/icpSpec";
+import { icpGapCheckValidator } from "./lib/icpGapCheck";
+import { icpSpecValidator } from "../modules/kernel/icpSpec";
 import { targetPlanFields } from "./lib/reports/validators";
 import { FORECAST_CATEGORIES } from "./lib/pipelines";
 import * as automation from "./lib/automations";
@@ -2841,7 +2842,7 @@ export default defineSchema({
   }).index("by_orgId", ["orgId"]),
 
   // Segments and personas under a saved ICP (convex/icpTree.ts, docs/icp-tree.md). A segment narrows its parent's
-  // accounts, a persona is the people to reach at them. Each stores its query line (lib/icpQuery.ts); they are counted,
+  // accounts, a persona is the people to reach at them. Each stores its query line (modules/kernel/icpQuery.ts); they are counted,
   // not scored: fit and icpIds stay the ICP's own.
   icpNodes: defineTable({
     orgId: v.id("organizations"),

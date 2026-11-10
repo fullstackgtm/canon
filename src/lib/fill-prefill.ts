@@ -1,4 +1,4 @@
-import type { IcpSpec } from "../../convex/lib/icpSpec";
+import type { IcpSpec } from "../../modules/kernel/icpSpec";
 
 type FillIcp = { key: string; active: boolean; updatedAt: number; spec: IcpSpec };
 type FillContext = { canRun: boolean; configured: boolean; icps: readonly { key: string }[] };

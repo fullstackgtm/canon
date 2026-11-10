@@ -1,13 +1,18 @@
-import type { Icp } from "../../engine/src/icp.ts";
 import type { IcpSpec } from "./icpSpec.ts";
 import { COUNTRIES, canonDepartments } from "./icpVocabulary.ts";
 import { icpIndustriesToLeadsforge } from "./icpIndustries.ts";
-import { icpGeosToIso } from "../../modules/kernel/icpGeography.ts";
+import { icpGeosToIso } from "./icpGeography.ts";
+
+/** The parts of a derived ICP (engine/src/icp.ts `Icp`) the kit reads: its market and its buyer. */
+export type DerivedIcp = {
+  firmographics: { industries?: string[]; employeeBands?: string[]; geos?: string[] };
+  persona: { jobLevels?: string[]; departments?: string[]; titleKeywords?: string[] };
+};
 
 const KNOWN_COUNTRIES = new Set(COUNTRIES.map((c) => c.value));
 
 /** A derived ICP (website research) in the form's vocabularies. */
-export function specFromIcp(icp: Icp | null | undefined): IcpSpec {
+export function specFromIcp(icp: DerivedIcp | null | undefined): IcpSpec {
   return {
     market: {
       industries: icpIndustriesToLeadsforge(icp?.firmographics.industries),

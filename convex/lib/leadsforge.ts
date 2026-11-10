@@ -81,8 +81,8 @@ export type LeadsforgeFilters = {
 // ───────────────────────────── ICP -> filters ─────────────────────────────
 
 /** ICP industry labels (LLM free text or PDL names) -> Leadsforge's exact industries. */
-export { icpIndustriesToLeadsforge } from "./icpIndustries.ts";
-import { icpIndustriesToLeadsforge } from "./icpIndustries.ts";
+export { icpIndustriesToLeadsforge } from "../../modules/kernel/icpIndustries.ts";
+import { icpIndustriesToLeadsforge } from "../../modules/kernel/icpIndustries.ts";
 
 const LEVEL_TO_SENIORITY: Record<string, string> = {
   cxo: "c_suite", "c-suite": "c_suite", c_suite: "c_suite", executive: "c_suite", vp: "vp", director: "director",

@@ -1,7 +1,8 @@
 /** An ICP tree as the record service's counts request (contract 1.31.0). Pure and Node-free. */
-import type { IcpSpec } from "./icpSpec.ts";
+import type { IcpSpec } from "../../modules/kernel/icpSpec.ts";
 import { specGate } from "./icps.ts";
-import { accountCriteria, parseQuery, personCriteria } from "./icpQuery.ts";
+import { parseQuery } from "../../modules/kernel/icpQuery.ts";
+import { accountCriteria, personCriteria } from "./icpCriteria.ts";
 import type { IcpTreeNode } from "./recordContract.ts";
 import type { FitModel } from "../../recipes/models.ts";
 

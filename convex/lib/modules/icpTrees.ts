@@ -2,10 +2,11 @@ import type { IcpTreeRead, ModuleManifest } from "../../../modules/kernel/manife
 import type { IcpTreeReadValue, ReadDoc, ReadValue } from "../../../modules/kernel/calls.ts";
 import { ICP_TREE_FIELDS } from "../../../modules/kernel/icpTree.ts";
 import { valueProblems } from "../../../modules/kernel/schema.ts";
-import { accountCriteria, formatQuery, parseQuery, personCriteria, specToQuery } from "../icpQuery.ts";
-import type { Clause, IcpQuery } from "../icpQuery.ts";
+import { formatQuery, parseQuery, specToQuery } from "../../../modules/kernel/icpQuery.ts";
+import { accountCriteria, personCriteria } from "../icpCriteria.ts";
+import type { Clause, IcpQuery } from "../../../modules/kernel/icpQuery.ts";
 import { specGate } from "../icps.ts";
-import type { IcpSpec } from "../icpSpec.ts";
+import type { IcpSpec } from "../../../modules/kernel/icpSpec.ts";
 import type { IcpTreeCountsRequest, IcpTreeCounts } from "../recordContract.ts";
 import type { FitModel } from "../../../recipes/models.ts";
 import { icpMarketFilter } from "../icpGap.ts";

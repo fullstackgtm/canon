@@ -3,7 +3,7 @@
  * bigger than what the TAM holds of it, a free fill of the gap starts on its own,
  * held for review. Pure: what the market filter is, and whether to fill.
  */
-import type { IcpSpec } from "./icpSpec.ts";
+import type { IcpSpec } from "../../modules/kernel/icpSpec.ts";
 import type { MarketFilter } from "./recordContract.ts";
 import { icpGeosToCountries } from "./researchPipeline.ts";
 import { canonIndustry } from "../../modules/kernel/industries.ts";

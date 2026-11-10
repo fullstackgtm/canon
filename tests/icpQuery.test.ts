@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatQuery, parseQuery, queryToSpec, specToQuery } from "../convex/lib/icpQuery.ts";
+import { formatQuery, parseQuery, queryToSpec, specToQuery } from "../modules/kernel/icpQuery.ts";
 import { DEPARTMENTS } from "../convex/lib/addRecords.ts";
 import { INDUSTRIES } from "../modules/kernel/industries.ts";
 import { countIcpTree } from "../convex/lib/icpGates.ts";
 import { treeRequest } from "../convex/lib/icpTree.ts";
-import type { IcpSpec } from "../convex/lib/icpSpec.ts";
+import type { IcpSpec } from "../modules/kernel/icpSpec.ts";
 import { defaultModel } from "../recipes/index.ts";
 
 const SPEC: IcpSpec = {
@@ -83,7 +83,7 @@ test("a tree counts as the record service counts it: segments narrow, personas c
 });
 
 test("query documents round-trip verbatim while exposing company and nested person filters", async () => {
-  const { serializeQuery } = await import("../convex/lib/icpQuery.ts");
+  const { serializeQuery } = await import("../modules/kernel/icpQuery.ts");
   const examples = [
     'industry:advertising-services,retail,online-audio-and-video-media size:501-1000,1001-5000,5001-10000,10001+ country:us,ca,gb has(level:cxo,vp,director,head,manager dept:marketing,media title:"VP Marketing","Head of Media",CMO)',
     '  country:US  size:201-500\n has(dept:revops level:VP title:"Chief Revenue Officer")  ',

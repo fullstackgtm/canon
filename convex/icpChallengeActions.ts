@@ -13,7 +13,8 @@ import { icpToLeadsforge, type LeadsforgeFilters } from "./lib/leadsforge";
 import { quickEnrichPage, type QuickEnrichQuery } from "./lib/quickenrich";
 import { icpGeosToCountries } from "./lib/researchPipeline";
 import { TregRefusal } from "./lib/treg";
-import { challengeIcp, proposalQuickEnrich, type Proposal } from "./lib/tam/challengeIcp";
+import { challengeIcp, proposalQuickEnrich } from "./lib/tam/challengeIcp";
+import type { Proposal } from "../modules/kernel/icpChallenge";
 
 const BEST_ACCOUNTS = 15;
 

@@ -1,10 +1,10 @@
 import type { CallFunctions, Expect, Intent, ReadDoc } from "../../kernel/calls.ts";
 import { textHash } from "../../kernel/ai.ts";
 import { webPagesRequest } from "../../kernel/webPages.ts";
-import { cleanResearchSpec, specFromIcp } from "../../../convex/lib/icpResearchSpec.ts";
-import { parseQuery, specToQuery, queryToSpec } from "../../../convex/lib/icpQuery.ts";
-import { researchTree } from "../../../convex/lib/icpResearchTree.ts";
-import type { IcpSpec } from "../../../convex/lib/icpSpec.ts";
+import { cleanResearchSpec, specFromIcp } from "../../kernel/icpResearchSpec.ts";
+import { parseQuery, specToQuery, queryToSpec } from "../../kernel/icpQuery.ts";
+import { researchTree } from "../../kernel/icpResearchTree.ts";
+import type { IcpSpec } from "../../kernel/icpSpec.ts";
 import { normalizeWebsiteIcpModelResult } from "../../../engine/src/portable/icpDeriveContract.ts";
 import type { WebsiteSource } from "../../../engine/src/portable/icpDeriveContract.ts";
 

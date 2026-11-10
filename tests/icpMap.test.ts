@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { layoutMap, lens } from "../src/lib/icp-map.ts";
-import { sentence, sentenceText, withValues } from "../src/lib/icp-sentence.ts";
-import { parseQuery } from "../convex/lib/icpQuery.ts";
+import { sentence, sentenceText, withValues } from "../modules/kernel/icpSentence.ts";
+import { parseQuery } from "../modules/kernel/icpQuery.ts";
 import { focusedKey, focusQuery, layoutSetMap, setMapValue, setState, sharedCount } from "../modules/kernel/setMap.ts";
 
 test("the map draws shared accounts as overlap, keeps disjoint siblings apart, and holds children in their parent", () => {

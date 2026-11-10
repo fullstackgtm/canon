@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { INDUSTRIES, canonIndustry, industryLabel } from "../../../modules/kernel/industries";
 import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS, canonDepartments, type Market, type Persona } from "../../../convex/lib/addRecords";
-import type { IcpExclude } from "../../../convex/lib/icpSpec";
+import type { IcpExclude } from "../../../modules/kernel/icpSpec";
 
 export const label = "text-xs font-medium text-muted-foreground";
 export const input = "w-full border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-primary";

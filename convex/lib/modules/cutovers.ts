@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values";
 import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
-import { specToQuery } from "../icpQuery";
+import { specToQuery } from "../../../modules/kernel/icpQuery";
 import { icpTreeRequest } from "./icpTrees";
 import { modelSettings } from "../recipes";
 import type { ImportDoc } from "./imports";
