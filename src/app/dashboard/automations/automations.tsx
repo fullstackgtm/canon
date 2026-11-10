@@ -145,6 +145,56 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
 }
 
 type ProposalRow = NonNullable<FunctionReturnType<typeof api.automations.proposals>>["open"][number];
+type ReplayShown = { wouldRun: number; runs: Array<{ streamId: string; at: number; title: string }>; skipped: Array<{ reason: string; count: number }>; partial: boolean; through: number | null; since: number; notes: string[] };
+const day = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+/** A replay's summary: how often the rule would have run over the last two weeks and on what, what it would have skipped and why. */
+function ReplaySummary({ replay, object }: { replay: ReplayShown; object: string }) {
+  const skipped = replay.skipped.reduce((n, s) => n + s.count, 0);
+  return (
+    <div className="space-y-1 border border-border/60 p-2 text-xs" data-testid="automation-replay">
+      <p>
+        <span className="font-medium">Over the last two weeks ({day(replay.since)} on), it would have run {replay.wouldRun} time{replay.wouldRun === 1 ? "" : "s"}</span>
+        {skipped ? `, and skipped ${skipped} change${skipped === 1 ? "" : "s"}` : ""}.
+        {replay.partial ? ` Partial: it read the history up to ${replay.through ? when(replay.through) : "the start"} and stopped at its read limit.` : ""}
+      </p>
+      {replay.runs.length > 0 && (
+        <ul className="space-y-0.5">
+          {replay.runs.map((r) => <li key={`${r.streamId}-${r.at}`}><span className="text-muted-foreground tabular-nums">{day(r.at)}</span> <Link className="underline" href={recordHref(object, r.streamId)}>{r.title || "Untitled"}</Link></li>)}
+          {replay.wouldRun > replay.runs.length && <li className="text-muted-foreground">and {replay.wouldRun - replay.runs.length} more</li>}
+        </ul>
+      )}
+      {replay.skipped.length > 0 && <ul className="text-muted-foreground">{replay.skipped.map((s) => <li key={s.reason}>Skipped {s.count}: {s.reason}</li>)}</ul>}
+      {replay.notes.map((n) => <p key={n} className="text-muted-foreground">{n}</p>)}
+    </div>
+  );
+}
+
+/** Replay a proposal or a rule over the last two weeks, on request: a proposal keeps the result for its approver. */
+function Replay({ args, object, stored, label }: { args: { versionId: Id<"automationVersions"> } | { ruleId: Id<"automationRules"> }; object: string; stored?: ReplayShown | null; label: string }) {
+  const replay = useAction(api.automations.replay);
+  const [result, setResult] = useState<ReplayShown | null>(null);
+  const [busy, setBusy] = useState(false);
+  const shown = result ?? stored ?? null;
+  async function go() {
+    setBusy(true);
+    try {
+      const out = await replay(args);
+      if ("wouldRun" in out) setResult(out);
+      else void toast.message("A schedule acts on what matches at each run: use the dry run instead.");
+    } catch (cause) {
+      void toast.error(getErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-1">
+      {shown ? <ReplaySummary replay={shown} object={object} /> : null}
+      <button type="button" className={btn} disabled={busy} onClick={() => void go()}>{busy ? "Replaying…" : shown ? "Replay again" : label}</button>
+    </div>
+  );
+}
 
 const PART_LABELS: Record<string, string> = { name: "Name", object: "Object", trigger: "When", condition: "Only if", action: "Then" };
 
@@ -201,6 +251,9 @@ function Proposals({ ws }: { ws: Workspace }) {
             {row.note ? <>: “{row.note}”</> : null}
           </p>
           {row.current && <Changes row={row} ws={ws} />}
+          {row.spec.trigger.kind === "schedule"
+            ? <DryRun label="Dry run: which records it would act on at its next run" args={{ object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions }} />
+            : <Replay args={{ versionId: row.id }} object={row.spec.object} stored={row.replay} label="Replay the last two weeks" />}
           {row.stale && <p className="text-xs text-warning">The rule changed since this was written (version {row.current?.version} is in force). Ask for a fresh proposal.</p>}
           <p className="text-xs text-muted-foreground">Approving it makes you the member this rule acts as, with your access.{row.current ? " A running rule keeps running on the new version from now on, never on what happened before." : " It starts at once."}</p>
           <div className="flex flex-wrap gap-2">
@@ -257,7 +310,9 @@ function RuleDetail({ rule, ws, onClose }: { rule: Rule; ws: Workspace; onClose:
           {rule.recipe ? <><dt className="text-muted-foreground">From</dt><dd>Customization {rule.recipe.id} v{rule.recipe.version}</dd></> : null}
         </dl>
         <FlowCanvas scenario={{ id: `automation-${rule.id}`, title: rule.name, nodes: ruleNodes(rule, ws) }} height={220} />
-        <DryRun label="Dry run" args={{ object: rule.object, trigger: rule.trigger, conditions: rule.conditions }} />
+        {rule.trigger.kind === "schedule"
+          ? <DryRun label="Dry run" args={{ object: rule.object, trigger: rule.trigger, conditions: rule.conditions }} />
+          : <Replay args={{ ruleId: rule.id }} object={rule.object} label="Replay the last two weeks" />}
       </section>
       {editing && <Builder ws={ws} initial={rule} onDone={() => setEditing(false)} />}
       <section className="border border-border bg-card p-4">

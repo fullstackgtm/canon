@@ -4200,6 +4200,8 @@ export default defineSchema({
     decidedBy: v.optional(v.id("users")),
     decidedAt: v.optional(v.number()),
     reason: v.optional(v.string()),
+    // What the version would have done over the last two weeks (convex/automations.ts, "Replay"), for the approver.
+    replay: v.optional(automation.replaySummaryValidator),
     createdAt: v.number(),
   })
     .index("by_orgId_and_status", ["orgId", "status"])
