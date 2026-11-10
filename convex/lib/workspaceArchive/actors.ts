@@ -255,7 +255,7 @@ export const CENSUS: readonly Mechanism[] = [
   },
   {
     key: "automation", does: "run an automation rule's actions on record changes or on its schedule",
-    gate: "convex/automations.ts:831 (active rules), :454 (activeSince and startSeqs), :625 (still active at each step)",
+    gate: "convex/automations.ts:625 (active rules), :659 (activeSince and startSeqs), :833 (still active at each step), requirePerson (only a person approves a proposal or turns a rule on)",
     arrives: "paused, with activeSince and startSeqs at the end of the import; turning one on starts both again from that moment",
     imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" }],
     here: [],
@@ -263,7 +263,7 @@ export const CENSUS: readonly Mechanism[] = [
   },
   {
     key: "routing", does: "assign owners from a routing rule's members",
-    gate: "convex/automations.ts:549 (the routing rule is on)",
+    gate: "convex/automations.ts:757 (the routing rule is on)",
     arrives: "turned off",
     imported: [{ table: "routingRules", index: "by_orgId", open: (r) => r.isActive === true }],
     here: [],
@@ -372,6 +372,7 @@ export const INERT: Readonly<Record<string, string>> = {
   recipeRevisions: "a recipe's draft or published settings over Canon's own pages and scoring",
   suppressions: "who must never be contacted: it only holds sends back",
   operationAuditLog: "what happened, as history",
+  automationVersions: "a rule's proposed or past document: a proposal does nothing until an admin here approves it, and that admin becomes who the rule acts as; the rule row is the switch",
   battlecards: "a battlecard in use",
   facts: "a fact's review state; accepting one writes Canon's own field",
   patchOperations: "a plan's operations act only through their plan",

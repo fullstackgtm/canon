@@ -4173,12 +4173,37 @@ export default defineSchema({
     nextSlotAt: v.optional(v.number()),
     slotRun: v.optional(v.object({ slot: v.number(), cursor: v.union(v.string(), v.null()), count: v.number(), done: v.boolean(), leaseUntil: v.number(), note: v.optional(v.string()) })),
     recipe: v.optional(provenanceValidator),
+    // The approved version in force (automationVersions); absent on a rule from before versions, which counts as 0.
+    version: v.optional(v.number()),
+    // The member the rule acts as: whoever approved its version in force. Absent: its creator, as before versions.
+    actsAs: v.optional(v.id("users")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_orgId_and_status", ["orgId", "status"])
     .index("by_status", ["status"])
     .index("by_status_and_nextSlotAt", ["status", "nextSlotAt"]),
+
+  // A rule's versions (convex/automations.ts, "Versions"): a person or an agent proposes a document, an admin approves or rejects
+  // it. Approving one replaces the rule's document and makes the approver the member it acts as; a proposal for a new
+  // rule has no ruleId until then. `parent` is the version in force when it was proposed (null for a new rule), and an
+  // approval is refused once the rule has moved past it.
+  automationVersions: defineTable({
+    orgId: v.id("organizations"),
+    ruleId: v.optional(v.id("automationRules")),
+    version: v.number(),
+    parent: v.union(v.number(), v.null()),
+    spec: automation.ruleDocValidator,
+    note: v.string(),
+    author: automation.versionAuthorValidator,
+    status: v.union(...automation.VERSION_STATUSES.map((s) => v.literal(s))),
+    decidedBy: v.optional(v.id("users")),
+    decidedAt: v.optional(v.number()),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_orgId_and_status", ["orgId", "status"])
+    .index("by_ruleId_and_version", ["ruleId", "version"]),
 
   // Where an org's rules have read the ledger to: the last `seq` per shard ("0".."15"). The fan-out
   // creates runs and moves it in one transaction, so an entry starts each rule at most once.
@@ -4211,6 +4236,10 @@ export default defineSchema({
     actions: v.optional(v.array(automation.actionValidator)),
     /** A scheduled rule's run: the slot it belongs to (then `shard` is -1 and `seq` the slot). One run per (rule, slot, record). */
     slot: v.optional(v.number()),
+    /** The rule's version when it was triggered; absent for runs from before versions. */
+    version: v.optional(v.number()),
+    /** Who the run acts as: the admin who approved that version (its actions are theirs). Absent: the rule's member now, as before versions. */
+    actsAs: v.optional(v.id("users")),
     leaseUntil: v.number(),
     createdAt: v.number(),
     finishedAt: v.optional(v.number()),

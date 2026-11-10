@@ -283,6 +283,10 @@ async function buildActors(w: ReturnType<typeof world>, a: { dealRow: string; pa
   const { db, A, B, ada, rex } = w;
   const rule = await db.insert("automationRules", { orgId: A, name: "Tag new", object: "account", status: "active", trigger: { kind: "created" }, conditions: [], actions: [], createdBy: ada, activeSince: 1, startSeqs: {}, createdAt: 1, updatedAt: 1 } as never);
   await db.insert("operationAuditLog", { orgId: A, userId: ada, verb: "do", operation: "automation_rule.create", status: "applied", details: { ruleId: rule, name: "Tag new" }, createdAt: 1 });
+  // An agent's proposals: a new version of the rule and a new rule. Neither may act after an import.
+  const spec = { name: "Tag new", object: "account", trigger: { kind: "created" }, conditions: [], actions: [] };
+  await db.insert("automationVersions", { orgId: A, ruleId: rule, version: 2, parent: 0, spec, note: "Tag them", author: { userId: ada, agent: "claude" }, status: "proposed", createdAt: 1 });
+  await db.insert("automationVersions", { orgId: A, version: 1, parent: null, spec: { ...spec, name: "Another" }, note: "", author: { userId: ada, agent: "claude" }, status: "proposed", createdAt: 1 });
   await db.insert("routingRules", { orgId: A, name: "East pod", method: "round_robin", assignees: [{ userId: rex }], isActive: true, createdAt: 1, updatedAt: 1 });
   // The sequences module is installed on both sides, so its launches are imported.
   for (const org of [A, B]) await db.insert("modulePackages", { ...(synthesize(shape("modulePackages"), { organizations: org }) as Record<string, unknown>), moduleId: SEQUENCES, status: "installed" });
@@ -816,6 +820,8 @@ test("a hand-built archive whose rules are active, plans approved and launches r
   const report = await importWorkspace(importTransport(db, await importKey(db)), files);
   assert.deepEqual(plain(report.gates?.filter((g) => g.open)), []);
   assert.deepEqual(of(db, "automationRules", B).map((r) => [r.status, (r.activeSince as number) > 1, r.nextSlotAt]), [["paused", true, undefined]]);
+  // A proposal arrives a proposal, its rule paused and no new rule made: only an admin here can approve it.
+  assert.deepEqual(of(db, "automationVersions", B).map((r) => [r.status, r.ruleId === of(db, "automationRules", B)[0]._id]), [["proposed", true], ["proposed", false]]);
   assert.deepEqual(of(db, "routingRules", B).map((r) => r.isActive), [false]);
   assert.deepEqual(of(db, "patchPlans", B).map((p) => [p.status, p.approvedBy, p.applyClaim]), Array(4).fill(["cancelled", undefined, undefined]));
   assert.deepEqual(of(db, "approvalRequests", B).map((r) => r.status), ["cancelled", "cancelled"]);

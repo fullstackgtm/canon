@@ -33,7 +33,24 @@ const customizationTool = groupTool(
   },
 );
 
+const AUTOMATION_DOC = "name, object: deal | lead | task | custom_<name>, trigger: { kind: created | deleted } | { kind: updated, field?, from?: [value], to?: [value] } | { kind: schedule, cadence: daily | weekly, minute (0 to 1439 past local midnight), weekday? (0 Sunday to 6, weekly) }, conditions: [{ field, op: eq | neq | in | contains | startsWith | gt | gte | lt | lte | hasAny | hasAll | empty | notEmpty, value? (\"{today}\" on a date) }] (up to 10), actions: [{ kind: set_field, field, value } | { kind: create_task, subject (\"{record}\" is the record's name), dueInDays (0 to 365), owner } | { kind: assign_owner, owner }] (1 to 10, in order); owner: { kind: member, userId } | { kind: record_owner } (tasks only) | { kind: round_robin, userIds } | { kind: team, teamId } | { kind: routing_rule, routingRuleId }; money in cents";
+
+const automationsTool = groupTool(
+  "canon_automations",
+  "Automation rules (the Automations page): when a record changes in Canon, or on a schedule, a rule sets a field, creates a task or assigns an owner, the same way every time, with no AI. Admins only. You can read rules and their runs, check a rule document, and propose one; a proposal does nothing until a person approves it on the Automations page, and you can't approve, reject, turn on, pause, retry or delete a rule yourself. The admin who approves a rule is who it acts as, with their access. Call check first and show your user the sentence it returns: that is what the rule will do. Then propose it with a note saying why. To change a rule, propose its whole new document with its ruleId.",
+  {
+    list: q(api.automations.list, "{} -> [{ id, name, object, trigger, conditions, actions, status: active | paused, pausedReason, actsAs, version, lastRun, nextSlotAt }] | null (not an admin)"),
+    get: q(api.automations.get, "{ id } -> { ...the rule, sentence, versions: [{ id, version, parent, spec, note, status: proposed | approved | rejected | superseded, author, stale, decidedBy, decidedAt, reason, sentence }] } | null"),
+    check: q(api.automations.check, `{ ruleId? (to change that rule), ${AUTOMATION_DOC} } -> { ok: true, sentence } | { ok: false, problem } (stores nothing)`),
+    propose: m(api.automations.propose, `{ ruleId? (a new version of that rule; absent: a new rule), ${AUTOMATION_DOC}, note (why, for the approver) } -> { versionId, version, ruleId, status: proposed, sentence } (waits for an admin; nothing runs)`),
+    proposals: q(api.automations.proposals, "{} -> { open: [{ id, ruleId, version, parent, spec, note, author, stale, sentence, current }], decided: [...] } | null"),
+    runs: q(api.automations.runs, "{ ruleId } -> [{ id, streamId, object, title, event, change, matched, status, reason, steps, version, createdAt }] (latest 25; a record the rule's member can't see shows no title)"),
+    matches_now: a(api.automations.preview, "{ object, trigger, conditions } -> { total, rows: [{ streamId, title }], nextSlotAt, capped } (the records the conditions match now, as you see them; for a schedule, as of its next run; writes nothing)"),
+  },
+);
+
 const relationTools: CanonTool[] = [
+  automationsTool,
   groupTool(
     "canon_duplicates",
     "Find and merge duplicate companies and people (object: \"account\" | \"contact\"). Merging, undoing and dismissing need an admin or manager. Call preview_merge first: it shows each record's values with their source and the default pick per field.",

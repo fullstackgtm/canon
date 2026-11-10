@@ -188,6 +188,8 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   patchOperations: { kind: "rows", dependsOn: [...RECORDS, "facts"] },
   approvalRequests: { kind: "rows", arrive: ARRIVALS.approvalRequests, dependsOn: RECORDS },
   automationRules: { kind: "rows", arrive: ARRIVALS.automationRules, dependsOn: RECORDS },
+  // A version names its rule; a proposal arrives a proposal (actors.ts INERT), and only an admin here can approve it.
+  automationVersions: { kind: "rows", prose: ["note", "reason", "spec.name"], dependsOn: [...RECORDS, "automationRules"] },
   routingRules: { kind: "rows", arrive: ARRIVALS.routingRules, dependsOn: RECORDS },
   sequenceLaunches: { kind: "rows", arrive: ARRIVALS.sequenceLaunches, module: { field: "moduleId" }, dependsOn: RECORDS },
   sequenceEnrollments: { kind: "rows", arrive: ARRIVALS.sequenceEnrollments, module: { field: "moduleId" }, dependsOn: RECORDS },

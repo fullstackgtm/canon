@@ -319,6 +319,8 @@ const USAGE = `canon ${VERSION} — Canon from the command line (talks to <url>/
   canon review                         facts awaiting review, contested fields
   canon audit [--rule <id>]
   canon plans [<planId>] [--status <s>]
+  canon automations <list|get|check|propose|proposals|runs|matches_now> [--args <json>]
+                                       automation rules; propose waits for an admin to approve it
   canon workspace export [--out <path>]   export the whole workspace to an archive (an admin's export key)
   canon workspace verify <archive>     check an archive; with CANON_EXPORT_KEY, against live counts too
   canon workspace import [--dry-run] <archive>   import an archive into a new, empty workspace (an admin's import key)
@@ -401,6 +403,9 @@ export async function main(argv = process.argv.slice(2)) {
       return callTool(base, "canon_hygiene_audit", flags.has("--rule") ? { rule: flags.get("--rule") } : {});
     case "plans":
       return callTool(base, "canon_patch_plans", { ...(rest[0] ? { patchPlanId: rest[0] } : {}), ...(flags.has("--status") ? { status: flags.get("--status") } : {}) });
+    case "automations":
+      if (!rest[0]) throw new Error("Usage: canon automations <list|get|check|propose|proposals|runs|matches_now> [--args <json>]");
+      return callTool(base, "canon_automations", { action: rest[0], args: flags.has("--args") ? parseArgs(readArgs(flags.get("--args")!)) : {} });
     case "workspace":
       return workspaceCommand(base, rest[0], rest.slice(1), flags);
     case "tools": {

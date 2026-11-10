@@ -19,20 +19,24 @@
  * happens once per (rule, ledger seq, action). A step that throws is rolled
  * back and recorded `failed`; later steps wait, and Retry resumes there.
  *
- * Principal: a rule acts as its creator, with the creator's access as it is
- * now (permissions.principalAccess): a record they cannot see does not run
- * it, and every write goes through the checks the creator's own edit takes
+ * Principal: a rule acts as the admin who approved its version in force
+ * (`actsAs`; a rule from before versions, as its creator), with their access as
+ * it is now (permissions.principalAccess): a record they cannot see does not
+ * run it, and every write goes through the checks their own edit takes
  * (objects.requireWritable: role, visibility, field permissions; then the
- * save path's validation rules). A rule whose creator left pauses. Its writes
+ * save path's validation rules). A rule whose member left pauses. Its writes
  * are its own source record (`automation:<ruleId>:<depth>:user:<id>`), shown
  * in history as the rule's, and never start the same rule again.
+ *
+ * Versions: an agent proposes a rule's document; only a person approves,
+ * rejects, pauses, resumes, retries or deletes (requirePerson, "Versions").
  */
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getCurrentUser, requireUser } from "./lib";
+import { agentClientOf, getCurrentUser, requireUser } from "./lib";
 import { accessFor, entitySight, principalAccess, requireWriteAccess, roleIn, workspaceMembers } from "./permissions";
 import { refuseNarrowed, type Access } from "./lib/access";
 import { callerClient, principalClient, requireCaller } from "./records";
@@ -55,8 +59,8 @@ import {
   scheduleProblem, triggerFires, weightedCycle, type AutomationMark,
 } from "./lib/automations";
 import {
-  ACTIONS_MAX, AUTOMATION_OBJECTS, RULES_MAX, actionValidator, conditionValidator, isAutomationObject, triggerValidator,
-  type AutomationAction, type Condition, type OwnerChoice, type Step, type Trigger,
+  ACTIONS_MAX, AUTOMATION_OBJECTS, RULES_MAX, actionValidator, conditionValidator, describe, isAutomationObject, triggerValidator,
+  type AutomationAction, type Condition, type OwnerChoice, type RuleNames, type Step, type Trigger,
 } from "../modules/kernel/automation";
 
 /** Ledger entries one fan-out reads per shard, and stream entries it may fold in all before it hands the rest to a continuation. */
@@ -109,6 +113,28 @@ async function adminReader(ctx: QueryCtx): Promise<{ user: Doc<"users">; access:
     return null;
   }
   return access.preview ? null : { user, access };
+}
+
+/** Why an agent is refused a decision: it may propose a rule, never decide one. */
+export const AGENT_REFUSED = "An agent can propose an automation rule, but only a person approves, rejects, turns on, pauses, retries or deletes one, on the Automations page.";
+
+declare const inPersonBrand: unique symbol;
+/** An admin acting in person, never an agent: only `inPerson` makes one, so a decision that takes a Person cannot run for an agent. */
+export type Person = Doc<"users"> & { readonly [inPersonBrand]: true };
+
+/**
+ * The admin as a person, or null when an agent made the call. Canon can't tell the person typing from their agent on
+ * a call that carries its service token (/mcp, the canon CLI: agentClientOf), so every such call counts as an agent's.
+ */
+async function inPerson(ctx: MutationCtx, admin: Doc<"users">): Promise<Person | null> {
+  return (await agentClientOf(ctx)) ? null : (admin as Person);
+}
+
+/** The signed-in admin, in person. Every decision on a rule (approve, reject, pause, resume, retry, delete) starts here. */
+export async function requirePerson(ctx: MutationCtx): Promise<Person> {
+  const p = await inPerson(ctx, await requireAdmin(ctx));
+  if (!p) throw new ConvexError(AGENT_REFUSED);
+  return p;
 }
 
 async function ownRule(ctx: QueryCtx, orgId: Id<"organizations">, id: Id<"automationRules">) {
@@ -189,15 +215,28 @@ async function ensureCursor(ctx: MutationCtx, orgId: Id<"organizations">, except
 const audit = (ctx: MutationCtx, user: Doc<"users">, operation: string, details: Record<string, unknown>) =>
   ctx.db.insert("operationAuditLog", { orgId: user.orgId, userId: user._id, verb: "do", operation, status: "applied", details, createdAt: Date.now() });
 
-// ───────────────────────────── Admin surface ─────────────────────────────
+// ───────────────────────────── Versions ─────────────────────────────
+//
+// A rule is a document a person or an agent proposes and an admin approves (automationVersions). A proposal is
+// checked as a save would be and stored; nothing runs. Approving it replaces the rule's document and makes the
+// approver the member the rule acts as. A person's own change in the app is approved as it is saved: they are the
+// admin who decides. An agent's call is never a decision (requirePerson).
 
 const ruleArgs = { name: v.string(), object: v.string(), trigger: triggerValidator, conditions: v.array(conditionValidator), actions: v.array(actionValidator) };
+const NOTE_MAX = 1000;
+const REASON_MAX = 500;
+/** Proposals one workspace keeps waiting at once. */
+const OPEN_MAX = 20;
 
 /**
- * Check and store a rule as `user`. It runs from now, or with `paused` it waits for an admin to resume it, which
- * starts it from that moment (setStatus). A recipe's template installs paused, with its provenance.
+ * Check and store a rule. It runs from now, or with `paused` it waits for an admin to resume it, which starts it from
+ * that moment (setStatus). A recipe's template installs paused, with its provenance. `actsAs` is who it acts as,
+ * absent for its creator.
  */
-export async function insertRule(ctx: MutationCtx, user: Doc<"users">, input: RuleInput, opts: { paused?: string; recipe?: Provenance } = {}): Promise<Id<"automationRules">> {
+export async function insertRule(
+  ctx: MutationCtx, user: Doc<"users">, input: RuleInput,
+  opts: { paused?: string; recipe?: Provenance; version?: number; actsAs?: Id<"users">; createdBy?: Id<"users"> } = {},
+): Promise<Id<"automationRules">> {
   const rule = await checkRule(ctx, user.orgId, input);
   const existing = await ctx.db.query("automationRules").withIndex("by_orgId_and_status", (q) => q.eq("orgId", user.orgId)).take(RULES_MAX);
   if (existing.length >= RULES_MAX) throw new ConvexError(`A workspace can have ${RULES_MAX} rules`);
@@ -205,34 +244,112 @@ export async function insertRule(ctx: MutationCtx, user: Doc<"users">, input: Ru
   if (!opts.paused) await ensureCursor(ctx, user.orgId, null);
   const nextSlotAt = opts.paused ? undefined : await slotAfter(ctx, user.orgId, rule.trigger, now);
   const id = await ctx.db.insert("automationRules", {
-    orgId: user.orgId, ...rule, createdBy: user._id, activeSince: now, startSeqs: await shardHeads(ctx, user.orgId),
+    orgId: user.orgId, ...rule, createdBy: opts.createdBy ?? user._id, activeSince: now, startSeqs: await shardHeads(ctx, user.orgId),
     ...(opts.paused ? { status: "paused" as const, pausedReason: opts.paused } : { status: "active" as const }),
-    ...(nextSlotAt !== undefined ? { nextSlotAt } : {}), ...(opts.recipe ? { recipe: opts.recipe } : {}), createdAt: now, updatedAt: now,
+    ...(nextSlotAt !== undefined ? { nextSlotAt } : {}), ...(opts.recipe ? { recipe: opts.recipe } : {}),
+    ...(opts.version !== undefined ? { version: opts.version } : {}), ...(opts.actsAs ? { actsAs: opts.actsAs } : {}), createdAt: now, updatedAt: now,
   });
   await audit(ctx, user, "automation_rule.create", { ruleId: id, name: rule.name, ...(opts.recipe ? { recipe: opts.recipe } : {}) });
   return id;
 }
 
-export const create = mutation({
-  args: ruleArgs,
-  handler: async (ctx, args) => insertRule(ctx, await requireAdmin(ctx), args),
+/** Where an active rule starts reading again: the ledger's heads now, so nothing before this moment ever starts it. */
+async function restartAt(ctx: MutationCtx, rule: Doc<"automationRules">, trigger: Trigger, now: number) {
+  await ensureCursor(ctx, rule.orgId, rule._id);
+  return { activeSince: now, startSeqs: await shardHeads(ctx, rule.orgId), nextSlotAt: await slotAfter(ctx, rule.orgId, trigger, now) };
+}
+
+/** The number after every version the rule has had. */
+async function nextVersion(ctx: QueryCtx, rule: Doc<"automationRules">): Promise<number> {
+  const last = await ctx.db.query("automationVersions").withIndex("by_ruleId_and_version", (q) => q.eq("ruleId", rule._id)).order("desc").first();
+  return Math.max(last?.version ?? 0, rule.version ?? 0) + 1;
+}
+
+/** Store a proposed version, checked as a save is: a proposal naming a field, member or team that doesn't exist never waits. */
+async function proposeVersion(
+  ctx: MutationCtx, user: Doc<"users">, doc: RuleInput, opts: { ruleId?: Id<"automationRules">; note?: string; agent: string | null },
+): Promise<Doc<"automationVersions">> {
+  const spec = await checkRule(ctx, user.orgId, doc);
+  const rule = opts.ruleId ? await ownRule(ctx, user.orgId, opts.ruleId) : null;
+  const open = await ctx.db.query("automationVersions").withIndex("by_orgId_and_status", (q) => q.eq("orgId", user.orgId).eq("status", "proposed")).take(OPEN_MAX);
+  if (open.length >= OPEN_MAX) throw new ConvexError(`${OPEN_MAX} proposals are waiting for an admin; approve or reject some first`);
+  const id = await ctx.db.insert("automationVersions", {
+    orgId: user.orgId, ...(rule ? { ruleId: rule._id } : {}), version: rule ? await nextVersion(ctx, rule) : 1, parent: rule ? rule.version ?? 0 : null,
+    spec, note: (opts.note ?? "").trim().slice(0, NOTE_MAX), author: { userId: user._id, ...(opts.agent ? { agent: opts.agent.slice(0, 200) } : {}) },
+    status: "proposed", createdAt: Date.now(),
+  });
+  await audit(ctx, user, "automation_rule.propose", { versionId: id, ruleId: rule?._id ?? null, name: spec.name, ...(opts.agent ? { agent: opts.agent } : {}) });
+  return (await ctx.db.get(id))!;
+}
+
+/**
+ * Approve a proposed version as `p`, in person. The rule's document becomes the version's and `p` the member it acts
+ * as: a rule never acts with an agent's identity, nor with more access than the admin who approved it. A version for a
+ * rule that has moved on since it was proposed is refused. A running rule keeps running on the new version from now
+ * on: its start moves to the ledger's heads, as on resume, so the new version never acts on what happened before.
+ */
+async function approveVersion(ctx: MutationCtx, p: Person, row: Doc<"automationVersions">): Promise<Id<"automationRules">> {
+  if (row.orgId !== p.orgId) throw new ConvexError("Proposal not found");
+  if (row.status !== "proposed") throw new ConvexError(`This proposal was already ${row.status}`);
+  const spec = await checkRule(ctx, p.orgId, row.spec);
+  const now = Date.now();
+  let ruleId: Id<"automationRules">;
+  if (row.ruleId) {
+    const rule = await ctx.db.get(row.ruleId);
+    if (!rule || rule.orgId !== p.orgId) throw new ConvexError("The rule was deleted since this was proposed; propose it again as a new rule");
+    if ((rule.version ?? 0) !== row.parent) {
+      throw new ConvexError(`The rule changed since this was proposed: version ${rule.version ?? 0} is in force, and this proposal changes version ${row.parent}. Ask for a fresh proposal.`);
+    }
+    const actionsChanged = JSON.stringify(spec.actions) !== JSON.stringify(rule.actions);
+    const restart = rule.status === "active" ? await restartAt(ctx, rule, spec.trigger, now) : {};
+    await ctx.db.patch(rule._id, { ...spec, version: row.version, actsAs: p._id, ...(actionsChanged ? { rotation: {} } : {}), ...restart, updatedAt: now });
+    const before = await ctx.db.query("automationVersions").withIndex("by_ruleId_and_version", (q) => q.eq("ruleId", rule._id).eq("version", row.parent ?? 0)).first();
+    if (before?.status === "approved") await ctx.db.patch(before._id, { status: "superseded" });
+    ruleId = rule._id;
+  } else {
+    ruleId = await insertRule(ctx, p, spec, { version: row.version, actsAs: p._id, createdBy: row.author.userId });
+  }
+  await ctx.db.patch(row._id, { status: "approved", ruleId, decidedBy: p._id, decidedAt: now });
+  await audit(ctx, p, "automation_rule.approve", { versionId: row._id, ruleId, version: row.version, name: spec.name });
+  return ruleId;
+}
+
+/**
+ * Propose a rule, or a new version of one (`ruleId`), with a note saying why. An agent's proposal waits for an admin
+ * and does nothing until one approves it. A person's is their own decision and is approved as it is saved.
+ */
+export const propose = mutation({
+  args: { ruleId: v.optional(v.id("automationRules")), ...ruleArgs, note: v.optional(v.string()) },
+  handler: async (ctx, { ruleId, note, ...doc }) => {
+    const admin = await requireAdmin(ctx);
+    const p = await inPerson(ctx, admin);
+    const row = await proposeVersion(ctx, admin, doc, { ruleId, note, agent: p ? null : await agentClientOf(ctx) });
+    const sentence = describe(row.spec, await namesFor(ctx, admin.orgId, row.spec.object));
+    if (!p) return { versionId: row._id, version: row.version, ruleId: row.ruleId ?? null, status: "proposed" as const, sentence };
+    return { versionId: row._id, version: row.version, ruleId: await approveVersion(ctx, p, row), status: "approved" as const, sentence };
+  },
 });
 
-/** Change a rule. It keeps running from where it is; a changed action list restarts its rotations. */
-export const update = mutation({
-  args: { id: v.id("automationRules"), ...ruleArgs },
-  handler: async (ctx, { id, ...args }) => {
-    const user = await requireAdmin(ctx);
-    const existing = await ownRule(ctx, user.orgId, id);
-    const rule = await checkRule(ctx, user.orgId, args);
-    const actionsChanged = JSON.stringify(rule.actions) !== JSON.stringify(existing.actions);
-    // A changed schedule takes effect from its next slot; a slot under way finishes as it began.
-    const scheduleChanged = JSON.stringify(rule.trigger) !== JSON.stringify(existing.trigger);
-    const now = Date.now();
-    await ctx.db.patch(id, {
-      ...rule, ...(actionsChanged ? { rotation: {} } : {}), ...(scheduleChanged ? { nextSlotAt: await slotAfter(ctx, user.orgId, rule.trigger, now) } : {}), updatedAt: now,
-    });
-    await audit(ctx, user, "automation_rule.update", { ruleId: id, name: rule.name });
+export const approve = mutation({
+  args: { versionId: v.id("automationVersions") },
+  handler: async (ctx, args) => {
+    const p = await requirePerson(ctx);
+    const row = await ctx.db.get(args.versionId);
+    if (!row || row.orgId !== p.orgId) throw new ConvexError("Proposal not found");
+    return { ruleId: await approveVersion(ctx, p, row) };
+  },
+});
+
+export const reject = mutation({
+  args: { versionId: v.id("automationVersions"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const p = await requirePerson(ctx);
+    const row = await ctx.db.get(args.versionId);
+    if (!row || row.orgId !== p.orgId) throw new ConvexError("Proposal not found");
+    if (row.status !== "proposed") throw new ConvexError(`This proposal was already ${row.status}`);
+    const reason = args.reason?.trim().slice(0, REASON_MAX);
+    await ctx.db.patch(row._id, { status: "rejected", decidedBy: p._id, decidedAt: Date.now(), ...(reason ? { reason } : {}) });
+    await audit(ctx, p, "automation_rule.reject", { versionId: row._id, ruleId: row.ruleId ?? null, name: row.spec.name });
     return null;
   },
 });
@@ -241,18 +358,15 @@ export const update = mutation({
 export const setStatus = mutation({
   args: { id: v.id("automationRules"), status: v.union(v.literal("active"), v.literal("paused")) },
   handler: async (ctx, args) => {
-    const user = await requireAdmin(ctx);
+    const user = await requirePerson(ctx);
     const rule = await ownRule(ctx, user.orgId, args.id);
     if (rule.status === args.status) return null;
     const now = Date.now();
     if (args.status === "paused") {
       await ctx.db.patch(rule._id, { status: "paused", pausedReason: `Paused by ${user.name}`, updatedAt: now });
     } else {
-      await ensureCursor(ctx, user.orgId, rule._id);
       // A resumed schedule waits for its next slot: the slots it missed while paused never run.
-      await ctx.db.patch(rule._id, {
-        status: "active", pausedReason: undefined, activeSince: now, startSeqs: await shardHeads(ctx, user.orgId), nextSlotAt: await slotAfter(ctx, rule.orgId, rule.trigger, now), updatedAt: now,
-      });
+      await ctx.db.patch(rule._id, { status: "active", pausedReason: undefined, ...(await restartAt(ctx, rule, rule.trigger, now)), updatedAt: now });
     }
     await audit(ctx, user, `automation_rule.${args.status === "paused" ? "pause" : "resume"}`, { ruleId: rule._id, name: rule.name });
     return null;
@@ -262,7 +376,7 @@ export const setStatus = mutation({
 export const remove = mutation({
   args: { id: v.id("automationRules") },
   handler: async (ctx, args) => {
-    const user = await requireAdmin(ctx);
+    const user = await requirePerson(ctx);
     const rule = await ownRule(ctx, user.orgId, args.id);
     await ctx.db.delete(rule._id);
     await audit(ctx, user, "automation_rule.delete", { ruleId: rule._id, name: rule.name });
@@ -274,7 +388,7 @@ export const remove = mutation({
 export const retryRun = mutation({
   args: { runId: v.id("automationRuns") },
   handler: async (ctx, args) => {
-    const user = await requireAdmin(ctx);
+    const user = await requirePerson(ctx);
     const run = await ctx.db.get(args.runId);
     if (!run || run.orgId !== user.orgId) throw new ConvexError("Run not found");
     if (run.status !== "failed") throw new ConvexError("Only a failed run can be retried");
@@ -285,17 +399,98 @@ export const retryRun = mutation({
   },
 });
 
+const nameOf = async (ctx: QueryCtx, id: Id<"users"> | undefined) => (id ? (await ctx.db.get(id))?.name : undefined) ?? "A former member";
+
 const ruleView = async (ctx: QueryCtx, r: Doc<"automationRules">) => {
   const last = await ctx.db.query("automationRuns").withIndex("by_ruleId_and_createdAt", (q) => q.eq("ruleId", r._id)).order("desc").first();
-  const creator = await ctx.db.get(r.createdBy);
   return {
     id: r._id, name: r.name, object: r.object, trigger: r.trigger, conditions: r.conditions, actions: r.actions, status: r.status,
-    pausedReason: r.pausedReason ?? null, createdBy: creator?.name ?? "A former member", actsAs: creator?.name ?? "A former member", createdAt: r.createdAt, recipe: r.recipe ?? null,
+    pausedReason: r.pausedReason ?? null, createdBy: await nameOf(ctx, r.createdBy), actsAs: await nameOf(ctx, r.actsAs ?? r.createdBy),
+    version: r.version ?? 0, createdAt: r.createdAt, recipe: r.recipe ?? null,
     lastRun: last ? { status: last.status, at: last.createdAt } : null,
     nextSlotAt: r.status === "active" ? r.nextSlotAt ?? null : null,
     lastSlot: r.slotRun ? { at: r.slotRun.slot, runs: r.slotRun.count, done: r.slotRun.done, note: r.slotRun.note ?? null } : null,
   };
 };
+
+/** The words a rule's sentence uses in this workspace: the object's fields and options, members, teams, routing rules, time zone and currency. */
+async function namesFor(ctx: QueryCtx, orgId: Id<"organizations">, object: string): Promise<RuleNames> {
+  const def = isAutomationObject(object) ? await loadDef(ctx, orgId, object).catch(() => null) : null;
+  const teams = await ctx.db.query("teamGroups").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(100);
+  const routing = await ctx.db.query("routingRules").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(50);
+  return {
+    ...(def ? { object: { label: def.label, fields: def.fields.map((f) => ({ apiName: f.apiName, label: f.label, type: f.type, ...("options" in f && f.options ? { options: f.options } : {}) })) } } : {}),
+    members: (await workspaceMembers(ctx, orgId)).map((m) => ({ id: m.id, name: m.name })),
+    teams: teams.map((t) => ({ id: t._id, name: t.name })),
+    routingRules: routing.map((r) => ({ id: r._id, name: r.name })),
+    timezone: await timezoneOf(ctx, orgId),
+    currency: (await ctx.db.get(orgId))?.defaultCurrency ?? "USD",
+  };
+}
+
+/** A version as the proposals list and an agent read it: the document, who wrote it and why, and how it was decided. */
+const versionView = async (ctx: QueryCtx, row: Doc<"automationVersions">, head: Doc<"automationRules"> | null) => ({
+  id: row._id, ruleId: row.ruleId ?? null, version: row.version, parent: row.parent, spec: row.spec, note: row.note, status: row.status,
+  author: { name: await nameOf(ctx, row.author.userId), agent: row.author.agent ?? null },
+  // A proposal written against a version that is no longer in force can't be approved.
+  stale: row.status === "proposed" && row.ruleId !== undefined && (head?.version ?? 0) !== row.parent,
+  ruleGone: row.ruleId !== undefined && !head,
+  decidedBy: row.decidedBy ? await nameOf(ctx, row.decidedBy) : null, decidedAt: row.decidedAt ?? null, reason: row.reason ?? null, createdAt: row.createdAt,
+  sentence: describe(row.spec, await namesFor(ctx, row.orgId, row.spec.object)),
+});
+
+/** Proposals waiting for an admin, each with the rule in force it would change, then the latest decided ones. */
+export const proposals = query({
+  args: {},
+  handler: async (ctx) => {
+    const admin = await adminReader(ctx);
+    if (!admin) return null;
+    const orgId = admin.user.orgId;
+    const rowsOf = (status: "proposed" | "approved" | "rejected", n: number) =>
+      ctx.db.query("automationVersions").withIndex("by_orgId_and_status", (q) => q.eq("orgId", orgId).eq("status", status)).order("desc").take(n);
+    const view = async (row: Doc<"automationVersions">) => {
+      const head = row.ruleId ? await ctx.db.get(row.ruleId) : null;
+      return { ...(await versionView(ctx, row, head)), current: head ? { name: head.name, object: head.object, trigger: head.trigger, conditions: head.conditions, actions: head.actions, version: head.version ?? 0 } : null };
+    };
+    const open = await Promise.all((await rowsOf("proposed", OPEN_MAX)).map(view));
+    const decided = [...(await rowsOf("approved", 10)), ...(await rowsOf("rejected", 10))].sort((a, b) => (b.decidedAt ?? 0) - (a.decidedAt ?? 0)).slice(0, 10);
+    return { open, decided: await Promise.all(decided.map(view)) };
+  },
+});
+
+/** One rule, its sentence and its latest versions. */
+export const get = query({
+  args: { id: v.id("automationRules") },
+  handler: async (ctx, args) => {
+    const admin = await adminReader(ctx);
+    const rule = admin ? await ctx.db.get(args.id) : null;
+    if (!admin || !rule || rule.orgId !== admin.user.orgId) return null;
+    const versions = await ctx.db.query("automationVersions").withIndex("by_ruleId_and_version", (q) => q.eq("ruleId", rule._id)).order("desc").take(20);
+    return {
+      ...(await ruleView(ctx, rule)), sentence: describe(rule, await namesFor(ctx, rule.orgId, rule.object)),
+      versions: await Promise.all(versions.map((row) => versionView(ctx, row, rule))),
+    };
+  },
+});
+
+/**
+ * Check a rule document as a proposal would be checked, and say what it does in a sentence, without storing anything:
+ * what an agent shows its user before it proposes.
+ */
+export const check = query({
+  args: { ruleId: v.optional(v.id("automationRules")), ...ruleArgs },
+  handler: async (ctx, { ruleId, ...doc }): Promise<{ ok: true; sentence: string } | { ok: false; problem: string } | null> => {
+    const admin = await adminReader(ctx);
+    if (!admin) return null;
+    try {
+      if (ruleId) await ownRule(ctx, admin.user.orgId, ruleId);
+      const spec = await checkRule(ctx, admin.user.orgId, doc);
+      return { ok: true, sentence: describe(spec, await namesFor(ctx, admin.user.orgId, spec.object)) };
+    } catch (cause) {
+      return { ok: false, problem: cause instanceof ConvexError ? String(cause.data) : cause instanceof Error ? cause.message : "Invalid rule" };
+    }
+  },
+});
 
 export const list = query({
   args: {},
@@ -353,7 +548,7 @@ export const runs = query({
     const rows = await ctx.db.query("automationRuns").withIndex("by_ruleId_and_createdAt", (q) => q.eq("ruleId", rule._id)).order("desc").take(RUNS_SHOWN);
     return rows.map((r) => ({
       id: r._id, streamId: r.streamId, object: r.object, title: r.title, event: r.event, change: r.change ?? null, matched: r.matched,
-      status: r.status, reason: r.reason ?? null, depth: r.depth, steps: r.steps, createdAt: r.createdAt, finishedAt: r.finishedAt ?? null, triggeredAt: r.triggeredAt ?? null,
+      status: r.status, reason: r.reason ?? null, depth: r.depth, steps: r.steps, version: r.version ?? null, createdAt: r.createdAt, finishedAt: r.finishedAt ?? null, triggeredAt: r.triggeredAt ?? null,
     }));
   },
 });
@@ -373,20 +568,26 @@ export const labels = query({
 
 type Principal = { user: Doc<"users">; access: Access };
 
-/** The rule's creator as they act now in its workspace, or null once they are no longer a member. */
-async function principalOf(ctx: QueryCtx, rule: Doc<"automationRules">): Promise<Principal | null> {
-  const creator = await ctx.db.get(rule.createdBy);
+/**
+ * The member the rule acts as, as they act now in its workspace, or null once they are no longer a member: whoever
+ * approved its version in force (`actsAs`), else its creator, as before versions.
+ */
+async function principalOf(ctx: QueryCtx, rule: Doc<"automationRules">, as: Id<"users"> = actsAsOf(rule)): Promise<Principal | null> {
+  const creator = await ctx.db.get(as);
   const role = creator ? await roleIn(ctx, creator, rule.orgId) : null;
   const accesses = creator && role ? await principalAccess(ctx, rule.orgId, [creator._id]) : null;
   if (!creator || !role || !accesses) return null;
   return { user: { ...creator, orgId: rule.orgId, role }, access: accesses[0] };
 }
 
+/** Who the rule acts as now: the admin who approved its version in force, else its creator. */
+const actsAsOf = (rule: Doc<"automationRules">) => rule.actsAs ?? rule.createdBy;
+
 async function pause(ctx: MutationCtx, rule: Doc<"automationRules">, reason: string) {
   await ctx.db.patch(rule._id, { status: "paused", pausedReason: reason, updatedAt: Date.now() });
 }
 
-const CREATOR_GONE = "Paused: the rule's creator is no longer a member of this workspace";
+const CREATOR_GONE = "Paused: the member this rule acts as is no longer in this workspace";
 
 // ───────────────────────────── Fan-out: ledger to runs ─────────────────────────────
 
@@ -462,7 +663,10 @@ export const fanout = internalMutation({
         if (!mayTrigger(rule.trigger, def, row.version, body)) continue;
         const st = await statesAt(row.streamId, row.version, row.observedAt);
         if (!st) continue;
-        const base = { orgId, ruleId: rule._id, shard: row.shard, seq: row.seq, streamId: row.streamId, object: row.object, event: rule.trigger.kind, depth: origin.depth, triggeredAt: row.observedAt, createdAt: now };
+        const base = {
+          orgId, ruleId: rule._id, shard: row.shard, seq: row.seq, streamId: row.streamId, object: row.object, event: rule.trigger.kind, depth: origin.depth, triggeredAt: row.observedAt, createdAt: now,
+          ...(rule.version !== undefined ? { version: rule.version } : {}), actsAs: actsAsOf(rule),
+        };
         if (st === "too_long") {
           await ctx.db.insert("automationRuns", { ...base, title: "", matched: false, status: "skipped", reason: "The record's history is too long to compare", steps: [], leaseUntil: now, finishedAt: now });
           continue;
@@ -627,8 +831,11 @@ export const step = internalMutation({
     const action = (run.actions ?? rule?.actions)?.[index];
     if (!rule || !action || action.kind !== run.steps[index].kind) throw new ConvexError(rule ? "The rule's actions changed since this run started" : "The rule was deleted");
     if (rule.status !== "active") throw new ConvexError(rule.pausedReason ?? "The rule is paused");
-    const p = await principalOf(ctx, rule);
+    // A run does its version's actions as the admin who approved that version, never as whoever approved a later one.
+    const as = run.actsAs ?? actsAsOf(rule);
+    const p = await principalOf(ctx, rule, as);
     if (!p) {
+      if (as !== actsAsOf(rule)) throw new ConvexError("The admin who approved the version this run started under is no longer a member of this workspace");
       await pause(ctx, rule, CREATOR_GONE);
       throw new ConvexError("The rule's creator is no longer a member of this workspace");
     }
@@ -773,6 +980,7 @@ export const slotPage = internalMutation({
       const runId = await ctx.db.insert("automationRuns", {
         orgId: rule.orgId, ruleId: rule._id, shard: -1, seq: args.slot, slot: args.slot, streamId, object: rule.object, title: row.title, event: "schedule",
         matched: true, status: "pending", depth: 0, triggeredAt: args.slot, steps: initialSteps(rule.actions), actions: rule.actions, leaseUntil: now + LEASE_MS, createdAt: now,
+        ...(rule.version !== undefined ? { version: rule.version } : {}), actsAs: actsAsOf(rule),
       });
       await ctx.scheduler.runAfter(0, internal.automations.execute, { runId });
       count++;

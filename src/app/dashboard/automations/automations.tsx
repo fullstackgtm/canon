@@ -12,7 +12,7 @@ import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
 import { FlowCanvas, chain, type FlowNode } from "@/components/flow/flow-canvas";
-import { TODAY, describe, describeParts, type AutomationAction, type Condition, type OwnerChoice, type RuleNames, type RuleShape, type Trigger } from "../../../../modules/kernel/automation";
+import { TODAY, describe, describeParts, ruleChanges, type AutomationAction, type Condition, type OwnerChoice, type RuleNames, type RuleShape, type Trigger } from "../../../../modules/kernel/automation";
 
 const btn = "border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40";
 const input = "border border-border bg-background px-2 py-1 text-sm";
@@ -117,6 +117,7 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
   if (open) return <RuleDetail rule={open} ws={ws} onClose={() => onSelect(null)} />;
   return (
     <div className="max-w-5xl space-y-4">
+      <Proposals ws={ws} />
       {creating && <Builder ws={ws} onDone={() => onSelect(null)} />}
       {rules.length === 0 && !creating && (
         <p className="border border-border p-4 text-sm text-muted-foreground">No rules yet. A rule could create a follow-up task when a deal reaches Proposal, or hand each new lead to the next rep in turn.</p>
@@ -140,6 +141,79 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
         </ul>
       )}
     </div>
+  );
+}
+
+type ProposalRow = NonNullable<FunctionReturnType<typeof api.automations.proposals>>["open"][number];
+
+const PART_LABELS: Record<string, string> = { name: "Name", object: "Object", trigger: "When", condition: "Only if", action: "Then" };
+
+/** What a proposal changes against the version in force, part by part, in the sentence's words. */
+function Changes({ row, ws }: { row: ProposalRow; ws: Workspace }) {
+  const changes = ruleChanges(row.current, row.spec, namesFor(ws, row.spec.object));
+  if (!changes.length) return <p className="text-xs text-muted-foreground">No change from the version in force.</p>;
+  return (
+    <ul className="space-y-1 text-xs" data-testid="automation-changes">
+      {changes.map((c, i) => (
+        <li key={i} className="grid gap-x-2 sm:grid-cols-[5rem_1fr]">
+          <span className="text-muted-foreground">{PART_LABELS[c.part]}</span>
+          <span>
+            {c.before !== undefined && <del className="text-destructive">{c.before}</del>}
+            {c.before !== undefined && c.after !== undefined && <span className="text-muted-foreground"> → </span>}
+            {c.after !== undefined && <ins className="text-primary no-underline">{c.after}</ins>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Proposals waiting for an admin: each in a sentence, what it changes, who wrote it and why. Approving makes the approver the member the rule acts as. */
+function Proposals({ ws }: { ws: Workspace }) {
+  const data = useQuery(api.automations.proposals);
+  const approve = useMutation(api.automations.approve);
+  const reject = useMutation(api.automations.reject);
+  const [busy, setBusy] = useState(false);
+  if (!data?.open.length) return null;
+  async function run(fn: () => Promise<unknown>, done: string) {
+    setBusy(true);
+    try {
+      await fn();
+      void toast.success(done);
+    } catch (cause) {
+      void toast.error(getErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="space-y-3" aria-label="Proposals" data-testid="automation-proposals">
+      <h2 className="text-xs font-medium text-muted-foreground">Waiting for approval</h2>
+      {data.open.map((row) => (
+        <article key={row.id} className="space-y-2 border border-warning/40 bg-card p-4" data-testid="automation-proposal">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-medium">{row.spec.name} <span className="text-xs font-normal text-muted-foreground">{!row.current ? "new rule" : row.current.name === row.spec.name ? `version ${row.version}` : `version ${row.version} of ${row.current.name}`}</span></h3>
+            <StatusBadge status="pending" label="Proposed" />
+          </div>
+          <p className="text-sm">{sentence(row.spec, ws)}</p>
+          <p className="text-xs text-muted-foreground">
+            {row.author.agent ? `Written by ${row.author.agent} for ${row.author.name}` : `Written by ${row.author.name}`}, {when(row.createdAt)}
+            {row.note ? <>: “{row.note}”</> : null}
+          </p>
+          {row.current && <Changes row={row} ws={ws} />}
+          {row.stale && <p className="text-xs text-warning">The rule changed since this was written (version {row.current?.version} is in force). Ask for a fresh proposal.</p>}
+          <p className="text-xs text-muted-foreground">Approving it makes you the member this rule acts as, with your access.{row.current ? " A running rule keeps running on the new version from now on, never on what happened before." : " It starts at once."}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={busy || row.stale || row.ruleGone} className="bg-primary px-3 py-1 text-xs text-primary-foreground disabled:opacity-40"
+              onClick={() => void run(() => approve({ versionId: row.id }), "Approved. The rule acts as you.")}>Approve</button>
+            <button type="button" disabled={busy} className={btn} onClick={() => {
+              const reason = window.prompt("Why reject it? The author sees this.");
+              if (reason !== null) void run(() => reject({ versionId: row.id, reason }), "Rejected.");
+            }}>Reject</button>
+          </div>
+        </article>
+      ))}
+    </section>
   );
 }
 
@@ -176,6 +250,7 @@ function RuleDetail({ rule, ws, onClose }: { rule: Rule; ws: Workspace; onClose:
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-[max-content_1fr]">
           <dt className="text-muted-foreground">Status</dt><dd>{rule.status === "active" ? "Active" : rule.pausedReason ?? "Paused"}</dd>
           <dt className="text-muted-foreground">Acts as</dt><dd>{rule.actsAs}, with their access as it is when the rule runs</dd>
+          <dt className="text-muted-foreground">Version</dt><dd>{rule.version || "Before versions"}{rule.createdBy !== rule.actsAs ? ` · written by ${rule.createdBy}` : ""}</dd>
           <dt className="text-muted-foreground">Last run</dt><dd>{lastRunText(rule)}</dd>
           {rule.nextSlotAt ? <><dt className="text-muted-foreground">Next run</dt><dd>{when(rule.nextSlotAt)}</dd></> : null}
           {rule.lastSlot ? <><dt className="text-muted-foreground">Last slot</dt><dd>{when(rule.lastSlot.at)}: {rule.lastSlot.runs} record{rule.lastSlot.runs === 1 ? "" : "s"}{rule.lastSlot.done ? "" : ", in progress"}{rule.lastSlot.note ? ` (${rule.lastSlot.note})` : ""}</dd></> : null}
@@ -306,8 +381,7 @@ function OwnerPicker({ owner, onChange, ws, allowRecordOwner }: { owner: Owner; 
 
 /** The new rule form, or with `initial` the form for changing that rule. A value list the form cannot show (a trigger's several values, a condition's list) is kept until it is replaced. */
 function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDone: () => void }) {
-  const create = useMutation(api.automations.create);
-  const update = useMutation(api.automations.update);
+  const propose = useMutation(api.automations.propose);
   const t0 = initial?.trigger;
   /** A field of the rule being changed, for reading its stored values into the form. */
   const fieldIn = (apiName: string) => ws.objects.find((x) => x.apiName === initial?.object)?.fields.find((f) => f.apiName === apiName);
@@ -360,8 +434,8 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
   async function save() {
     setBusy(true);
     try {
-      if (initial) await update({ id: initial.id, name, ...draft, conditions: conditionList, actions });
-      else await create({ name, ...draft, conditions: conditionList, actions });
+      // A person's own change is approved as it is saved: they act as the admin who decides.
+      await propose({ ...(initial ? { ruleId: initial.id } : {}), name, ...draft, conditions: conditionList, actions });
       void toast.success(initial ? "Rule saved." : "Rule saved. It acts on changes from now on.");
       onDone();
     } catch (cause) {
