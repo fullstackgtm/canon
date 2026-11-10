@@ -229,6 +229,7 @@ import type * as lib_dialer_routes from "../lib/dialer/routes.js";
 import type * as lib_dialer_signature from "../lib/dialer/signature.js";
 import type * as lib_dialer_telnyx from "../lib/dialer/telnyx.js";
 import type * as lib_email_compose from "../lib/email/compose.js";
+import type * as lib_email_messageIds from "../lib/email/messageIds.js";
 import type * as lib_email_replies from "../lib/email/replies.js";
 import type * as lib_email_state from "../lib/email/state.js";
 import type * as lib_emailFinder from "../lib/emailFinder.js";
@@ -843,6 +844,7 @@ declare const fullApi: ApiFromModules<{
   "lib/dialer/signature": typeof lib_dialer_signature;
   "lib/dialer/telnyx": typeof lib_dialer_telnyx;
   "lib/email/compose": typeof lib_email_compose;
+  "lib/email/messageIds": typeof lib_email_messageIds;
   "lib/email/replies": typeof lib_email_replies;
   "lib/email/state": typeof lib_email_state;
   "lib/emailFinder": typeof lib_emailFinder;

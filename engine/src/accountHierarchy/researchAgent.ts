@@ -14,7 +14,7 @@
  * person (research.ts). When quotes fail, it gets one repair turn listing them (`buildEvidenceRepairPrompt`). The
  * model never sets `attestedBy`: only a person can vouch for a claim.
  */
-import { buildEvidenceRepairPrompt } from "../evidence.ts";
+import { buildEvidenceRepairPrompt } from "../../../modules/kernel/evidence.ts";
 // Type-only: llm.ts pulls in the Node credential store, and this module must run in Convex.
 import type { LlmCallOptions } from "../llm.ts";
 import type { CanonicalAccount, CanonicalGtmSnapshot } from "../types.ts";

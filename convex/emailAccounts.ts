@@ -1,5 +1,5 @@
 /**
- * Gmail accounts users link through Unipile's hosted login, and the emails
+ * Gmail and Outlook accounts users link through Unipile's hosted login, and the emails
  * they send from them (docs/gmail-sending.md). A user may link several; only
  * the owner sends from an account. Canon stores only Unipile's account id.
  * The Unipile calls are in convex/emailActions.ts.
@@ -30,7 +30,7 @@ async function ownAccounts(ctx: QueryCtx, userId: Id<"users">, orgId: Id<"organi
   return rows.filter((r) => r.orgId === orgId);
 }
 
-/** The caller's linked Gmail accounts in this org. Never the Unipile id. */
+/** The caller's linked Gmail and Outlook accounts in this org. Never the Unipile id. */
 export const mine = query({
   args: {},
   handler: async (ctx) => {
@@ -41,6 +41,7 @@ export const mine = query({
     const accounts = await Promise.all(rows.map(async (r) => ({
       _id: r._id,
       address: r.address,
+      provider: r.provider,
       displayName: r.displayName ?? null,
       status: r.status,
       statusReason: r.statusReason ?? null,
@@ -58,7 +59,7 @@ export const disconnect = mutation({
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     const row = await ctx.db.get(args.accountId);
-    if (!row || row.orgId !== user.orgId) throw new ConvexError("Gmail account not found");
+    if (!row || row.orgId !== user.orgId) throw new ConvexError("Email account not found");
     if (row.userId !== user._id && !can(user, "shared.moderate")) throw new ConvexError(refusal("shared.moderate"));
     if (row.status === "disconnected") return;
     await ctx.db.patch(row._id, { status: "disconnected", statusReason: "Unlinked in Canon", updatedAt: Date.now() });
@@ -87,6 +88,7 @@ export const connected = internalMutation({
     userId: v.id("users"),
     orgId: v.id("organizations"),
     unipileAccountId: v.string(),
+    provider: v.optional(v.union(v.literal("google"), v.literal("microsoft"))),
     address: v.string(),
     displayName: v.union(v.string(), v.null()),
     status: v.string(),
@@ -99,6 +101,7 @@ export const connected = internalMutation({
     const now = Date.now();
     const fresh = {
       unipileAccountId: args.unipileAccountId,
+      provider: args.provider ?? "google",
       address: args.address,
       ...(args.displayName ? { displayName: args.displayName } : {}),
       status: statusFromUnipile(args.status, "ok"),
@@ -119,7 +122,7 @@ export const connected = internalMutation({
       });
       return { ok: true };
     }
-    await ctx.db.insert("emailAccounts", { orgId: args.orgId, userId: args.userId, provider: "google", ...fresh, connectedAt: now });
+    await ctx.db.insert("emailAccounts", { orgId: args.orgId, userId: args.userId, ...fresh, connectedAt: now });
     return { ok: true };
   },
 });
@@ -133,7 +136,7 @@ export const applyStatus = internalMutation({
     const status = statusFromUnipile(args.message, row.status);
     if (status === row.status) return;
     const reason =
-      status === "credentials" ? "Google needs you to sign in again." : status === "paused" ? `Gmail connection stopped (${args.message.toUpperCase()}).` : undefined;
+      status === "credentials" ? `${row.provider === "microsoft" ? "Microsoft" : "Google"} needs you to sign in again.` : status === "paused" ? `${row.provider === "microsoft" ? "Outlook" : "Gmail"} connection stopped (${args.message.toUpperCase()}).` : undefined;
     await ctx.db.patch(row._id, { status, statusReason: reason, updatedAt: Date.now() });
   },
 });
@@ -155,7 +158,7 @@ export const claimSend = internalMutation({
   handler: async (ctx, args): Promise<{ sendId: Id<"emailSends">; account: Pick<Doc<"emailAccounts">, "unipileAccountId" | "address"> }> => {
     const account = await ctx.db.get(args.accountId);
     if (!account || account.orgId !== args.orgId || account.userId !== args.userId || account.status === "disconnected") {
-      throw new ConvexError("Pick one of your own linked Gmail accounts.");
+      throw new ConvexError("Pick one of your own linked email accounts.");
     }
     if (account.status !== "ok") throw new ConvexError(account.statusReason ?? `${account.address} can't send right now. Link it again on the Integrations page.`);
     const suppressed = (await suppressionFor(ctx, args.orgId, { email: args.to }, await callerOutreachPurpose(ctx))).email;
@@ -177,7 +180,7 @@ export const draftAccount = internalQuery({
   handler: async (ctx, args): Promise<Pick<Doc<"emailAccounts">, "unipileAccountId" | "address">> => {
     const account = await ctx.db.get(args.accountId);
     if (!account || account.orgId !== args.orgId || account.userId !== args.userId || account.status === "disconnected") {
-      throw new ConvexError("Pick one of your own linked Gmail accounts.");
+      throw new ConvexError("Pick one of your own linked email accounts.");
     }
     if (account.status !== "ok") throw new ConvexError(account.statusReason ?? `${account.address} can't take drafts right now. Link it again on the Integrations page.`);
     return { unipileAccountId: account.unipileAccountId, address: account.address };

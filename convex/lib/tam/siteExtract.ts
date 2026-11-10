@@ -1,6 +1,6 @@
 import { webPersonNameKey } from "./webPeople.ts";
 import { getDomain } from "tldts";
-import { websiteText } from "../../../engine/src/portable/websiteSources.ts";
+import { websiteText } from "../../../modules/kernel/websiteSources.ts";
 import { fetchHomepage } from "../homepageFetch.ts";
 import { readAtsBoard } from "../teamShape.ts";
 

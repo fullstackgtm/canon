@@ -242,7 +242,8 @@ function parseBinary(binary: string, depth: number): ParsedMail {
   return {
     messageId: ids(headers.get("message-id"))[0] ?? null,
     inReplyTo: ids(headers.get("in-reply-to"))[0] ?? null,
-    references: ids(headers.get("references")).slice(-50),
+    // The first entry is the thread's root (conversations.ts keys the thread on it); the rest, the latest 49.
+    references: ((r) => (r.length > 50 ? [r[0], ...r.slice(-49)] : r))(ids(headers.get("references"))),
     subject: (decoded.get("subject") ?? "").slice(0, 300),
     date: at,
     dateOffset: offset,

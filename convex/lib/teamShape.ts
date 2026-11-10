@@ -1,4 +1,4 @@
-import { websiteText } from "../../engine/src/portable/websiteSources.ts";
+import { websiteText } from "../../modules/kernel/websiteSources.ts";
 import { crmFromFingerprints } from "./crmFingerprints.ts";
 import { unknownTeamShape, type TeamShape } from "./startingPlan.ts";
 

@@ -11,6 +11,7 @@
  * text of every 1:1 message, the ones the account sent included. The webhook
  * route asks whether the account opted in before it keeps anything.
  */
+import { bareMessageId } from "../email/messageIds.ts";
 
 const str = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : null);
 const obj = (x: unknown) => (x && typeof x === "object" ? (x as Record<string, unknown>) : null);
@@ -103,6 +104,8 @@ export function emailReplyOf(body: unknown): EmailReply | null {
   const messageId = str(b.message_id) ?? str(b.email_id);
   if (!accountId || !from || !from.includes("@") || !messageId) return null;
   const text = (str(b.body_plain) ?? plainOf(str(b.body) ?? "")).slice(0, 50_000);
-  const inReplyTo = str(obj(b.in_reply_to)?.message_id)?.slice(0, 300) ?? null;
-  return { accountId, from, subject: (str(b.subject) ?? "").slice(0, 300), body: text, inReplyTo, messageId: messageId.slice(0, 300), at: when(b.date) };
+  const parent = str(obj(b.in_reply_to)?.message_id);
+  const inReplyTo = parent ? bareMessageId(parent).slice(0, 300) : null;
+  // Bare, as conversation intake keys the same email (lib/conversations/email.ts), so the two lines meet.
+  return { accountId, from, subject: (str(b.subject) ?? "").slice(0, 300), body: text, inReplyTo, messageId: bareMessageId(messageId).slice(0, 300), at: when(b.date) };
 }

@@ -13,7 +13,7 @@ import { getCurrentUser } from "./lib";
 import { shardOf } from "./lib/objects/write";
 import { subjectKey, type LoggedObservation, type PlannedObservation, type Subject } from "./lib/signals/observations";
 import { eraseContactLog, type ContactLog } from "./lib/signals/contactLog";
-import { eraseMessageOfKey, readableTexts } from "./lib/conversations/store";
+import { eraseConversation, eraseMessageOfKey, readableTexts } from "./lib/conversations/store";
 import { touchBodyOf } from "./lib/signals/observationTouches";
 
 /** A contact's observations read for its timeline: a few per LinkedIn cadence step, so far more than one contact has. */
@@ -154,18 +154,23 @@ export const firstLinkedinScoped = action({
 });
 
 /**
- * Erase a contact's observations (LinkedIn notes and messages are personal data), and the text of messages
- * intake read from them. The contact's erase
- * runs this; a contact with more than a batch continues in a follow-up run.
+ * Erase a contact's observations (LinkedIn notes and messages are personal data), the text of messages intake read
+ * from them, and every conversation they were matched to, with who else was on it (its participants and counterpart
+ * hold their address). The contact's erase runs this; a contact with more than a batch continues in a follow-up run.
  */
 export const eraseContact = internalMutation({
   args: { orgId: v.id("organizations"), contactId: v.string() },
   handler: async (ctx, args) => {
     const log = contactLog(ctx, args.orgId);
-    // The LinkedIn messages conversation intake read from them go with the observations that point at them.
+    // The messages conversation intake read from them go with the observations that point at them.
     for (const row of await log.unerased(args.contactId, ERASE_BATCH)) await eraseMessageOfKey(ctx, args.orgId, row.body.key);
     const erased = await eraseContactLog(log, args.contactId, Date.now(), ERASE_BATCH);
-    if (erased === ERASE_BATCH) await ctx.scheduler.runAfter(0, internal.observations.eraseContact, args);
+    let left = ERASE_BATCH;
+    for (const link of await ctx.db.query("conversationContacts").withIndex("by_orgId_and_contactId", (q) => q.eq("orgId", args.orgId).eq("contactId", args.contactId)).take(ERASE_BATCH)) {
+      left -= await eraseConversation(ctx, link.conversationId, left);
+      if (left <= 0) break;
+    }
+    if (erased === ERASE_BATCH || left <= 0) await ctx.scheduler.runAfter(0, internal.observations.eraseContact, args);
     return erased;
   },
 });

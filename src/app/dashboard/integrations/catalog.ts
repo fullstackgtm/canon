@@ -79,12 +79,12 @@ export const INTEGRATION_GROUPS: { title: string; items: IntegrationDef[] }[] = 
     items: [
       {
         key: "gmail",
-        name: "Gmail",
+        name: "Gmail and Outlook",
         logo: "/integrations/gmail.svg",
         mark: "GM",
         summary: "Send email to contacts from your own address",
         description:
-          "Send email to your contacts from your own Gmail address. Each email you send shows on the contact's timeline.",
+          "Send email to your contacts from your own Gmail or Outlook address. Each email you send shows on the contact's timeline.",
         href: "/dashboard/integrations/gmail",
       },
       {

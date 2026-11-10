@@ -5,7 +5,7 @@ import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
 import { publicHttpGet } from "../engine/src/publicHttp.ts";
-import { websiteText, websiteMeta } from "../engine/src/portable/websiteSources.ts";
+import { websiteText, websiteMeta } from "../modules/kernel/websiteSources.ts";
 import { marketSampleRequest } from "../modules/kernel/freePopulation.ts";
 import { freePopulationQuery } from "./lib/modules/freePopulation";
 import { quickEnrichPage } from "./lib/quickenrich";

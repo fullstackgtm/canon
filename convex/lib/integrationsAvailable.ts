@@ -3,7 +3,7 @@ export const INTEGRATIONS_AVAILABLE = {
   chatgpt: { label: "ChatGPT", keys: ["TOKEN_ENCRYPTION_KEY"] },
   openrouter: { label: "OpenRouter AI", keys: ["OPENROUTER_API_KEY"] },
   treg: { label: "treg data", keys: ["TREG_TOKEN"] },
-  unipile: { label: "Gmail and LinkedIn", keys: ["UNIPILE_API_KEY", "UNIPILE_DSN"] },
+  unipile: { label: "Gmail, Outlook and LinkedIn", keys: ["UNIPILE_API_KEY", "UNIPILE_DSN"] },
   dialer: { label: "Telnyx dialer", keys: ["TELNYX_API_KEY", "TELNYX_CONNECTION_ID"] },
   // Only the "Sign in with Salesforce" OAuth button; a workspace can always connect with its own app's key.
   salesforce: { label: "Salesforce sign-in", keys: ["SALESFORCE_CLIENT_ID"] },

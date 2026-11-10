@@ -26,5 +26,5 @@ test("a received email reads as a bounce, an auto-reply or a reply with its clas
 test("the webhook's mail carries the plain body and the Message-ID it answers", () => {
   const mail = { event: "mail_received", account_id: "acc1", message_id: "<m2@x>", from_attendee: { identifier: "C04@Northwind.test" }, subject: "Re: Q4",
     body: "<p>Let&#39;s talk</p>", in_reply_to: { message_id: "<m1@x>", id: "e1" }, folders: ["INBOX"] };
-  assert.deepEqual(emailReplyOf(mail), { accountId: "acc1", from: "c04@northwind.test", subject: "Re: Q4", body: "Let's talk\n", inReplyTo: "<m1@x>", messageId: "<m2@x>", at: null });
+  assert.deepEqual(emailReplyOf(mail), { accountId: "acc1", from: "c04@northwind.test", subject: "Re: Q4", body: "Let's talk\n", inReplyTo: "m1@x", messageId: "m2@x", at: null });
 });

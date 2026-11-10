@@ -16,4 +16,4 @@ DOMAIN: ${args.domain}
 ${args.sources.map((source) => `<source id="${source.id}" url="${source.url}">${source.text}</source>`).join("\n")}`;
 }
 
-export { buildEvidenceRepairPrompt as buildWebsiteIcpRepairPrompt } from "../evidence.ts";
+export { buildEvidenceRepairPrompt as buildWebsiteIcpRepairPrompt } from "../../../modules/kernel/evidence.ts";

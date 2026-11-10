@@ -1,4 +1,4 @@
-import { websiteText } from "../../../engine/src/portable/websiteSources.ts";
+import { websiteText } from "../../../modules/kernel/websiteSources.ts";
 import { candidateKeys, rootDomain, type CompanyCandidate } from "./dedupe.ts";
 import type { PlanSource } from "./investigation.ts";
 import { catalogAllowsFetch } from "./sourceCatalog.ts";

@@ -18,7 +18,8 @@ import { can } from "./lib/capabilities";
 import { INTAKE_CONSENT } from "./lib/conversations/consent";
 import { BACKFILL_DAYS, EXTRACT_QUIET_MS, emailMessageKey, emailReceivedKey, messageKey, replyKey, slugOf } from "./lib/conversations/intake";
 import { advanceIntakeJob, finishIntakeJob, startIntakeJob } from "./lib/conversations/intakeJob";
-import { accountCopy, linkContacts, storedInOrg, unlinkContacts } from "./lib/conversations/store";
+import { accountCopy, eraseConversation, firstCopy, linkContacts, storedInOrg } from "./lib/conversations/store";
+import { emailThreadKey, messageIdForms } from "./lib/email/messageIds";
 import { loggingMember } from "./emailLog";
 import { MESSAGE_TEXT_MAX } from "./lib/linkedin/inbound";
 import { nextGapMs } from "./lib/linkedin/limits";
@@ -145,18 +146,32 @@ export const unlinkedReads = query({
   },
 });
 
+/**
+ * Erase what an account read: its conversations and their messages. A conversation that also holds email its owner
+ * logged by BCC or forward (it moved to the inbox when the inbox read the thread, emailThreadOf) keeps the logged
+ * messages and goes back to the owner's logged mail.
+ */
 export const eraseRead = internalMutation({
   args: { accountRef: v.string() },
   handler: async (ctx, args) => {
     let left = ERASE_BATCH;
     for (const c of await ctx.db.query("conversations").withIndex("by_accountRef_and_externalThreadId", (q) => q.eq("accountRef", args.accountRef)).take(ERASE_BATCH)) {
-      const messages = await ctx.db.query("conversationMessages").withIndex("by_conversationId_and_at", (q) => q.eq("conversationId", c._id)).take(left);
-      for (const m of messages) await ctx.db.delete(m._id);
-      left -= messages.length;
+      let kept = false;
+      // Read the whole thread: a conversation moves back to logged mail only once nothing the inbox read is left in it.
+      for await (const m of ctx.db.query("conversationMessages").withIndex("by_conversationId_and_at", (q) => q.eq("conversationId", c._id))) {
+        if (left <= 0) break;
+        if (m.logged) kept = true;
+        else {
+          await ctx.db.delete(m._id);
+          left--;
+        }
+      }
       if (left <= 0) break;
-      left -= await unlinkContacts(ctx, c._id);
-      await ctx.db.delete(c._id);
-      if (--left <= 0) break;
+      if (kept) {
+        await ctx.db.patch(c._id, { accountRef: loggedAccountRef(c.ownerUserId), extractDueAt: undefined, updatedAt: Date.now() });
+        left--;
+      } else left -= await eraseConversation(ctx, c._id, left);
+      if (left <= 0) break;
     }
     if (left <= 0) await ctx.scheduler.runAfter(0, internal.conversations.eraseRead, args);
   },
@@ -167,24 +182,37 @@ export const eraseRead = internalMutation({
 export type IntakeAccount = { accountId: Id<"linkedinAccounts">; orgId: Id<"organizations">; userId: Id<"users"> };
 export type EmailIntakeAccount = { accountId: Id<"emailAccounts">; orgId: Id<"organizations">; userId: Id<"users">; unipileAccountId: string; address: string };
 
-const intakeOf = (row: Doc<"linkedinAccounts"> | null): IntakeAccount | null =>
-  row?.ingest && row.status !== "disconnected" ? { accountId: row._id, orgId: row.orgId, userId: row.userId } : null;
+/**
+ * Why an account's messages may not be read now, or null when they may: intake is on, the account is still linked,
+ * and its owner is an active member of the account's workspace. Every reader asks here (the webhooks, the backfill,
+ * the daily reconcile and extraction, conversationExtract.ts), so a member who leaves stops being read everywhere.
+ * What was read stays, under the same visibility rules.
+ */
+export async function intakeClosed(ctx: QueryCtx, found: Found | null): Promise<string | null> {
+  if (!found || found.row.status === "disconnected") return "account is gone";
+  if (!found.row.ingest) return "intake is off";
+  const owner = await ctx.db.get(found.row.userId);
+  return owner?.isActive && owner.orgId === found.row.orgId ? null : "owner is no longer a member";
+}
 
-const emailIntakeOf = (row: Doc<"emailAccounts"> | null): EmailIntakeAccount | null =>
-  row?.ingest && row.status !== "disconnected" ? { accountId: row._id, orgId: row.orgId, userId: row.userId, unipileAccountId: row.unipileAccountId, address: row.address } : null;
+const intakeOf = async (ctx: QueryCtx, row: Doc<"linkedinAccounts"> | null): Promise<IntakeAccount | null> =>
+  row && !(await intakeClosed(ctx, { channel: "linkedin", row })) ? { accountId: row._id, orgId: row.orgId, userId: row.userId } : null;
+
+const emailIntakeOf = async (ctx: QueryCtx, row: Doc<"emailAccounts"> | null): Promise<EmailIntakeAccount | null> =>
+  row && !(await intakeClosed(ctx, { channel: "email", row })) ? { accountId: row._id, orgId: row.orgId, userId: row.userId, unipileAccountId: row.unipileAccountId, address: row.address } : null;
 
 /** The account behind a Unipile id, when its owner turned intake on; null otherwise, and then nothing is kept. */
 export const intakeAccount = internalQuery({
   args: { unipileAccountId: v.string() },
   handler: async (ctx, args): Promise<IntakeAccount | null> =>
-    intakeOf(await ctx.db.query("linkedinAccounts").withIndex("by_unipileAccountId", (q) => q.eq("unipileAccountId", args.unipileAccountId)).first()),
+    intakeOf(ctx, await ctx.db.query("linkedinAccounts").withIndex("by_unipileAccountId", (q) => q.eq("unipileAccountId", args.unipileAccountId)).first()),
 });
 
 /** The same for a Gmail inbox. */
 export const emailIntakeAccount = internalQuery({
   args: { unipileAccountId: v.string() },
   handler: async (ctx, args): Promise<EmailIntakeAccount | null> =>
-    emailIntakeOf(await ctx.db.query("emailAccounts").withIndex("by_unipileAccountId", (q) => q.eq("unipileAccountId", args.unipileAccountId)).first()),
+    emailIntakeOf(ctx, await ctx.db.query("emailAccounts").withIndex("by_unipileAccountId", (q) => q.eq("unipileAccountId", args.unipileAccountId)).first()),
 });
 
 /** Who is on the inbox owner's team, by Granola's rules (lib/calls/suggestions.ts teamOf): members and what an admin added. */
@@ -301,7 +329,8 @@ const emailTimeline = (userId: Id<"users">, live: boolean, senders: ReadonlyMap<
   if (m.viaCanon || (fresh && live && m.direction === "in" && senders.get(m.from.toLowerCase()) === contactId)) return null;
   const key = emailMessageKey(m.externalMessageId);
   return {
-    seen: [key, emailReceivedKey(m.externalMessageId)],
+    // Either form of the id: a line written before ids were stored bare kept its angle brackets.
+    seen: messageIdForms(m.externalMessageId).flatMap((id) => [emailMessageKey(id), emailReceivedKey(id)]),
     body: { type: "email", key, event: { kind: "message", direction: m.direction, userId, from: m.from, to: m.to ?? "", subject: m.subject ?? "" } },
   };
 };
@@ -339,7 +368,7 @@ export const storeLinkedin = internalMutation({
     messages: v.array(v.object({ messageId: v.string(), direction, at: v.number(), from: v.string(), text: v.string() })),
   },
   handler: async (ctx, args): Promise<number> => {
-    const account = intakeOf(await ctx.db.get(args.accountId));
+    const account = await intakeOf(ctx, await ctx.db.get(args.accountId));
     if (!account) return 0;
     const slug = slugOf(args.counterpart.publicIdentifier, args.counterpart.profileUrl)?.toLowerCase();
     if (slug) {
@@ -355,6 +384,47 @@ export const storeLinkedin = internalMutation({
 });
 
 const person = v.object({ email: v.string(), name: v.optional(v.string()) });
+
+/** The conversations a member's logged email is kept under (convex/emailLog.ts): one "account" per member. */
+export const loggedAccountRef = (userId: Id<"users">) => `emaillog:${userId}`;
+
+type EmailHead = { messageId: string; inReplyTo?: string | null; references?: readonly string[] };
+
+/**
+ * Where an email joins its owner's mail, the same from every source (docs/email-logging.md). `accountRef` is the
+ * linked inbox that read it, or the owner's logged mail (`emaillog:<userId>`). Returns the conversation it is stored
+ * under, as its account and thread key:
+ * 1. the conversation already holding this email or one it replies to (In-Reply-To, then References newest first),
+ *    in this account or the owner's other sources;
+ * 2. else the owner's conversation keyed on the thread's root (lib/email/messageIds.ts emailThreadKey), or one this
+ *    inbox keyed before on Unipile's thread id (`legacyThreadId`, how a linked inbox keyed threads until then);
+ * 3. else a new one under that root key.
+ * An inbox's own sources are itself and the owner's logged mail: a thread they logged that the inbox then reads
+ * moves to the inbox, so it is one conversation. Logged mail's are itself and each inbox the owner linked. Two
+ * inboxes never share one: each keeps its copy, as two teammates' do.
+ */
+async function emailThreadOf(ctx: MutationCtx, owner: { orgId: Id<"organizations">; userId: Id<"users"> }, accountRef: string, head: EmailHead, legacyThreadId: string | null): Promise<{ accountRef: string; threadId: string }> {
+  const logged = loggedAccountRef(owner.userId);
+  const refs = accountRef === logged
+    ? [logged, ...(await ctx.db.query("emailAccounts").withIndex("by_userId", (q) => q.eq("userId", owner.userId)).take(SENDERS_MAX)).filter((a) => a.orgId === owner.orgId).map((a) => a._id as string)]
+    : [accountRef, logged];
+  const joined = async (c: Doc<"conversations">) => {
+    if (c.accountRef === logged && accountRef !== logged) await ctx.db.patch(c._id, { accountRef, updatedAt: Date.now() });
+    return { accountRef: c.accountRef === logged ? accountRef : c.accountRef, threadId: c.externalThreadId };
+  };
+  for (const id of [head.messageId, head.inReplyTo, ...[...(head.references ?? [])].reverse()]) {
+    const copy = id ? await firstCopy(ctx, owner.orgId, refs, id) : null;
+    if (copy) return joined(copy.conversation);
+  }
+  const key = emailThreadKey(head);
+  const keyed = (ref: string, threadId: string) => ctx.db.query("conversations").withIndex("by_accountRef_and_externalThreadId", (q) => q.eq("accountRef", ref).eq("externalThreadId", threadId)).first();
+  const candidates: Array<[string, string]> = [[accountRef, key], ...(legacyThreadId ? [[accountRef, legacyThreadId] as [string, string]] : []), ...refs.filter((r) => r !== accountRef).map((r): [string, string] => [r, key])];
+  for (const [ref, threadId] of candidates) {
+    const c = await keyed(ref, threadId);
+    if (c && c.ownerUserId === owner.userId) return joined(c);
+  }
+  return { accountRef, threadId: key };
+}
 
 /**
  * Store one email thread's messages, once each by Message-ID in this inbox, and log each on the timeline of the
@@ -373,32 +443,24 @@ export const storeEmail = internalMutation({
     contacts: v.array(v.object({ email: v.string(), contactId: v.string() })),
     live: v.boolean(),
     messages: v.array(v.object({
-      messageId: v.string(), inReplyTo: v.optional(v.string()), direction, at: v.number(), from: v.string(), to: v.string(), subject: v.string(), text: v.string(), viaCanon: v.boolean(),
+      messageId: v.string(), inReplyTo: v.optional(v.string()), references: v.optional(v.array(v.string())), direction, at: v.number(), from: v.string(), to: v.string(), subject: v.string(), text: v.string(), viaCanon: v.boolean(),
     })),
   },
   handler: async (ctx, args): Promise<number> => {
-    const account = emailIntakeOf(await ctx.db.get(args.accountId));
+    const account = await emailIntakeOf(ctx, await ctx.db.get(args.accountId));
     if (!account || !args.messages.length) return 0;
-    let threadId = args.threadId;
-    if (!threadId) {
-      const parent = args.messages[0].inReplyTo;
-      const copy = parent ? await accountCopy(ctx, account.orgId, account.accountId, parent) : null;
-      threadId = copy?.conversation.externalThreadId ?? `msg:${args.messages[0].messageId}`;
-    }
+    const at = await emailThreadOf(ctx, account, account.accountId, args.messages[0], args.threadId);
     const senders = new Map(args.contacts.map((c) => [c.email.toLowerCase(), c.contactId]));
     return storeThread(
-      ctx, { orgId: account.orgId, userId: account.userId, accountRef: account.accountId, channel: "email" },
+      ctx, { orgId: account.orgId, userId: account.userId, accountRef: at.accountRef, channel: "email" },
       {
-        threadId, counterpart: args.counterpart, contactIds: [...new Set(args.contacts.map((c) => c.contactId))], subject: args.subject, participants: args.participants,
-        messages: args.messages.map(({ inReplyTo: _r, ...m }) => m),
+        threadId: at.threadId, counterpart: args.counterpart, contactIds: [...new Set(args.contacts.map((c) => c.contactId))], subject: args.subject, participants: args.participants,
+        messages: args.messages.map(({ inReplyTo: _r, references: _f, ...m }) => m),
       },
       emailTimeline(account.userId, args.live, senders),
     );
   },
 });
-
-/** The conversations a member's logged email is kept under (convex/emailLog.ts): one "account" per member. */
-export const loggedAccountRef = (userId: Id<"users">) => `emaillog:${userId}`;
 
 /**
  * Store one email a member logged by BCC or forward (convex/emailLog.ts), once per workspace: by its Message-ID, or,
@@ -431,15 +493,7 @@ export const storeLogged = internalMutation({
     const seen = await ctx.db.query("emailLogKeys").withIndex("by_orgId_and_key", (q) => q.eq("orgId", orgId).eq("key", key)).first();
     if (seen && args.byFingerprint) return { status: "duplicate" };
     if (!seen) await ctx.db.insert("emailLogKeys", { orgId, key, createdAt: Date.now() });
-    const accountRef = loggedAccountRef(userId);
-    let threadId = `msg:${m.references[0] ?? m.inReplyTo ?? m.messageId}`;
-    for (const parent of [m.inReplyTo, ...[...m.references].reverse()]) {
-      const copy = parent ? await accountCopy(ctx, orgId, accountRef, parent) : null;
-      if (copy) {
-        threadId = copy.conversation.externalThreadId;
-        break;
-      }
-    }
+    const { accountRef, threadId } = await emailThreadOf(ctx, member, loggedAccountRef(userId), m, null);
     const logged: Logged = {
       logged: m.logged, ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}), ...(m.references.length ? { references: m.references.join(" ").slice(0, 4_000) } : {}),
     };
@@ -478,10 +532,10 @@ export const backfillState = internalQuery({
     if (!found || found.row.status !== "ok" || found.row.ingestSince === undefined) return { run: false };
     const base = { since: found.row.ingestSince, cursor: found.row.ingestBackfillCursor ?? null, unipileAccountId: found.row.unipileAccountId };
     if (found.channel === "email") {
-      const account = emailIntakeOf(found.row);
+      const account = await emailIntakeOf(ctx, found.row);
       return account ? { run: true, channel: "email", account, ...base, holdUntil: null } : { run: false };
     }
-    const account = intakeOf(found.row);
+    const account = await intakeOf(ctx, found.row);
     if (!account) return { run: false };
     const now = Date.now();
     return { run: true, channel: "linkedin", account, ...base, resume: found.row.ingestBackfillResume ?? null, holdUntil: (found.row.holdUntil ?? 0) > now ? found.row.holdUntil! : null };
@@ -508,13 +562,14 @@ export const backfillAdvance = internalMutation({
     if (!found) return;
     const { row, channel } = found;
     const now = Date.now();
-    const on = channel === "linkedin" ? intakeOf(found.row) : emailIntakeOf(found.row);
+    const closed = await intakeClosed(ctx, found);
     const step = { read: args.read, reachedAt: args.reachedAt };
-    if (!on || args.stop) {
+    if (closed || args.stop) {
       await patchIntake(ctx, found, { ingestLeaseUntil: undefined });
       if (row.status === "disconnected") await finishIntakeJob(ctx, found, now, { error: "The account was unlinked.", resumes: false });
+      else if (closed === "owner is no longer a member") await finishIntakeJob(ctx, found, now, { error: "The account's owner is no longer a member.", resumes: false });
       else if (row.status !== "ok") await finishIntakeJob(ctx, found, now, { error: "The account needs you to sign in again.", resumes: true });
-      else if (on) await finishIntakeJob(ctx, found, now, { error: args.error ?? "Reading stopped.", resumes: true });
+      else if (!closed) await finishIntakeJob(ctx, found, now, { error: args.error ?? "Reading stopped.", resumes: true });
       return;
     }
     const next = (delayMs: number) => scheduleBackfill(ctx, delayMs, found);
@@ -559,7 +614,7 @@ export const reconcile = internalMutation({
     ];
     for (const found of rows) {
       const { row } = found;
-      if (!row.ingest || (row.ingestLeaseUntil ?? 0) > now) continue;
+      if ((row.ingestLeaseUntil ?? 0) > now || (await intakeClosed(ctx, found))) continue;
       const last = row.ingestBackfilledAt === undefined ? null : row.ingestSyncedAt ?? row.ingestBackfilledAt;
       const start = Math.floor(Math.random() * RECONCILE_SPREAD_MS);
       await patchIntake(ctx, found, {

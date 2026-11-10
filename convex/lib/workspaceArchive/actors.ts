@@ -80,7 +80,7 @@ export const ARRIVALS: Readonly<Record<string, Arrival>> = {
   },
   agents: {
     why: "arrives paused with its Slack messages off, and with no grants and no webhook secret: resuming it here runs it on what happens from then on",
-    // Slack too: a paused agent still reports each skipped turn there (lib/agents/slack.ts shouldNotify).
+    // Slack too: the Slack connection doesn't move with an archive, so a person here chooses where it posts when they resume it.
     fields: ["pause", "slack"],
     apply: (row, at) => ({ ...without(row, "slack"), pause: { reason: "imported", at: at.now } }),
   },

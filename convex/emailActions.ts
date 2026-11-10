@@ -1,6 +1,6 @@
 /**
- * Gmail through Unipile (docs/gmail-sending.md): link an account on Unipile's
- * hosted Google login, and send one email to a contact from it. Canon's
+ * Gmail and Outlook through Unipile (docs/gmail-sending.md): link an account on
+ * Unipile's hosted Google or Microsoft login, and send one email to a contact from it. Canon's
  * Unipile key goes nowhere but the X-API-KEY header (lib/linkedin/unipile.ts).
  *
  * A local stack shares Canon's Unipile key, so it never sends real email: it
@@ -22,7 +22,7 @@ import { callerClient, principalClient, requireCaller } from "./records";
 
 function clientOrThrow(): { client: UnipileClient; apiKey: string } {
   const env = unipileEnv();
-  if (!env) throw new ConvexError("Gmail isn't set up on this deployment yet (UNIPILE_API_KEY and UNIPILE_DSN).");
+  if (!env) throw new ConvexError("Email isn't set up on this deployment yet (UNIPILE_API_KEY and UNIPILE_DSN).");
   if (!DSN_SHAPE.test(env.dsn)) throw new ConvexError("UNIPILE_DSN must be the host and port from Unipile's dashboard, like api8.unipile.com:13851.");
   return { client: createUnipileClient(env), apiKey: env.apiKey };
 }
@@ -30,14 +30,19 @@ function clientOrThrow(): { client: UnipileClient; apiKey: string } {
 /** A local stack: its Convex site is a loopback address. */
 const isLocalStack = () => isLoopback(convexSiteUrl());
 
-/** Start linking a Gmail account: returns Unipile's hosted Google login URL. */
+/** Unipile's hosted-login provider for each mailbox Canon links (developer.unipile.com/reference/hostedcontroller_requestlink). */
+const HOSTED_PROVIDER = { google: "GOOGLE", microsoft: "OUTLOOK" } as const;
+const PROVIDER_NAME = { google: "Google", microsoft: "Microsoft" } as const;
+
+/** Start linking a Gmail or Outlook account: returns Unipile's hosted Google or Microsoft login URL. */
 export const startConnect = action({
-  args: {},
-  handler: async (ctx): Promise<{ url: string | null }> => {
+  args: { provider: v.optional(v.union(v.literal("google"), v.literal("microsoft"))) },
+  handler: async (ctx, args): Promise<{ url: string | null }> => {
+    const provider = args.provider ?? "google";
     if (!integrationEnabled("unipile")) return { url: null };
     const caller: { orgId: Id<"organizations">; userId: Id<"users"> } | null = await ctx.runQuery(internal.emailAccounts.caller, {});
     if (!caller) throw new ConvexError("Not authenticated");
-    if (isLocalStack()) throw new ConvexError("Local stacks never link a real Gmail account. Run devSeed:seedGmailAccount for a stand-in.");
+    if (isLocalStack()) throw new ConvexError("Local stacks never link a real mailbox. Run devSeed:seedGmailAccount for a stand-in.");
     const { client, apiKey } = clientOrThrow();
     const now = Date.now();
     const state = await signEmailState(apiKey, { userId: caller.userId, orgId: caller.orgId, expiresAt: now + EMAIL_STATE_TTL_MS });
@@ -45,7 +50,7 @@ export const startConnect = action({
     try {
       const url = await client.hostedLink({
         name: state,
-        provider: "GOOGLE",
+        provider: HOSTED_PROVIDER[provider],
         notifyUrl: `${convexSiteUrl()}${EMAIL_NOTIFY_PATH}`,
         successUrl: `${back}?gmail=connected`,
         failureUrl: `${back}?gmail=failed`,
@@ -53,7 +58,7 @@ export const startConnect = action({
       });
       return { url };
     } catch (cause) {
-      if (cause instanceof UnipileError) throw new ConvexError(`Couldn't start the Google login: ${cause.message}`);
+      if (cause instanceof UnipileError) throw new ConvexError(`Couldn't start the ${PROVIDER_NAME[provider]} login: ${cause.message}`);
       throw cause;
     }
   },
@@ -74,6 +79,7 @@ export async function finishEmailConnect(ctx: ActionCtx, event: { accountId: str
     userId: state.userId as Id<"users">,
     orgId: state.orgId as Id<"organizations">,
     unipileAccountId: account.id,
+    provider: account.provider,
     address: account.address,
     displayName: account.name,
     status: account.status,
@@ -84,14 +90,14 @@ export async function finishEmailConnect(ctx: ActionCtx, event: { accountId: str
 
 /** Why Unipile refused a send, in words for the user. Never the response body. */
 function sendError(cause: unknown): string {
-  if (!(cause instanceof UnipileError)) return "Couldn't reach Gmail. Nothing was sent; try again.";
-  if (cause.status === 401 || cause.status === 403) return "Gmail refused the send. Link the account again on the Integrations page.";
-  if (cause.status === 429) return "Gmail is rate limiting this account. Try again later.";
-  if (cause.status === 422) return `Gmail rejected the email (${cause.type ?? "invalid"}).`;
+  if (!(cause instanceof UnipileError)) return "Couldn't reach your mailbox. Nothing was sent; try again.";
+  if (cause.status === 401 || cause.status === 403) return "Your mailbox refused the send. Link the account again on the Integrations page.";
+  if (cause.status === 429) return "Your mailbox is rate limiting this account. Try again later.";
+  if (cause.status === 422) return `Your mailbox rejected the email (${cause.type ?? "invalid"}).`;
   return cause.message;
 }
 
-/** Send one email to a contact from one of the caller's linked Gmail accounts. The contact's address is read from Canon, not taken from the client. */
+/** Send one email to a contact from one of the caller's linked Gmail or Outlook accounts. The contact's address is read from Canon, not taken from the client. */
 export const sendToContact = action({
   args: { accountId: v.id("emailAccounts"), contactId: v.string(), subject: v.string(), body: v.string() },
   handler: async (ctx, args): Promise<{ ok: true }> => {

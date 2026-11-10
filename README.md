@@ -83,9 +83,8 @@ No credentials or hosted service access are included.
 
 ## License
 
-The application is licensed under [AGPL-3.0-only](LICENSE).
-The `engine/` directory is licensed under [Apache-2.0](engine/LICENSE).
-The module kit in `modules/kernel/` is AGPL-3.0-only, except two files it copies
-from `engine/`, which keep Apache-2.0.
+Everything under `engine/` and `modules/kernel/` (the module kit) is licensed
+under [Apache-2.0](engine/LICENSE). Everything else is licensed under
+[AGPL-3.0-only](LICENSE). A module built with the kit can use any license.
 The self-hosted image bundles the Convex open-source backend, which is licensed
 separately under FSL-1.1-Apache-2.0.

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { accessOf } from "../convex/lib/access.ts";
+import { teamOf } from "../convex/lib/calls/suggestions.ts";
+import { intakeMailOf } from "../convex/lib/conversations/email.ts";
 import { parseMime } from "../convex/lib/emailLog/mime.ts";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
@@ -25,7 +27,7 @@ const register = {
   },
 };
 
-const M = loadConvex(["emailLog.ts", "conversations.ts", "callSuggestions.ts", "conversationView.ts", "lib/emailLog/routes.ts"], {
+const M = loadConvex(["emailLog.ts", "conversations.ts", "conversationActions.ts", "callSuggestions.ts", "conversationView.ts", "lib/emailLog/routes.ts"], {
   "records.ts": (real) => ({ ...real, principalClient: () => register, clientFor: () => register }),
   "lib.ts": (real) => ({ ...real, requireUser: async (ctx: { user: unknown }) => ctx.user, getCurrentUser: async (ctx: { user: unknown }) => ctx.user }),
 });
@@ -39,6 +41,8 @@ function world() {
       { _id: "emailLogAddresses:ada", orgId: "organizations:o", userId: "users:ada", token: TOKEN, createdAt: 0 },
       { _id: "emailLogAddresses:bob", orgId: "organizations:o", userId: "users:bob", token: BOB, createdAt: 0 },
     ],
+    // Ada's and Bob's linked inboxes, reading their mail (conversation intake).
+    emailAccounts: ["ada", "bob"].map((id) => ({ _id: `emailAccounts:${id}`, orgId: "organizations:o", userId: `users:${id}`, unipileAccountId: `u-${id}`, address: `${id}@example.com`, status: "ok", ingest: true })),
     // Carol's role sees only her own people.
     rolePermissions: [{ _id: "rolePermissions:n", orgId: "organizations:o", role: "narrow", rules: [{ object: "contact", visibility: "own" }] }],
   });
@@ -53,8 +57,20 @@ function world() {
   const deliver = (raw: Buffer | string, token = TOKEN) => logInbound(actx, { mail: parseMime(raw), recipients: [`log+${token}@log.example.com`] });
   const messages = () => db.rows("conversationMessages");
   const timeline = (contactId: string) => db.rows("observations").filter((o) => (o.subject as { contactId: string }).contactId === contactId).map((o) => plain({ body: o.body, occurredAt: o.occurredAt }));
-  return { db, mctx, actx, scheduled, deliver, messages, timeline };
+  /** Mail read from a member's linked inbox, as Unipile's mail list returns it. */
+  const sync = (who: "ada" | "bob", raws: unknown[]) => (M["conversationActions.ts"].ingestMails as unknown as (...a: unknown[]) => Promise<number>)(
+    actx, { accountId: `emailAccounts:${who}`, orgId: "organizations:o", userId: `users:${who}`, unipileAccountId: `u-${who}`, address: `${who}@example.com` },
+    teamOf(["ada@example.com", "bob@example.com", "carol@example.com"], []), raws.map((r) => intakeMailOf(r, `${who}@example.com`)!), false);
+  return { db, mctx, actx, scheduled, deliver, messages, timeline, sync };
 }
+
+/** One email of the pilot thread as Unipile returns it: Message-IDs in angle brackets, Gmail's thread id. */
+const unipile = (id: string, from: string, extra: Record<string, unknown> = {}) => ({
+  id: `u-${id}`, message_id: `<${id}@mail.example.com>`, thread_id: "gmail-thread-1", date: "2026-11-02T18:15:00Z", subject: "Pilot plan – next steps",
+  from_attendee: { identifier: from }, to_attendees: [{ identifier: "grace@example.org" }], cc_attendees: [{ identifier: "bob@example.com" }],
+  body_plain: `text of ${id}`, headers: id === "pilot-1" ? [] : [{ name: "References", value: "<pilot-1@mail.example.com>" }], ...extra,
+});
+const fromGrace = unipile("pilot-1r", "grace@example.org", { date: "2026-11-02T19:40:00Z", to_attendees: [{ identifier: "ada@example.com" }], in_reply_to: { message_id: "<pilot-1@mail.example.com>", id: "u-pilot-1" } });
 
 test("a BCC on a sent email logs once on each matched person, from the rep, suggests the unknown one, and sends nothing", async () => {
   const w = world();
@@ -105,6 +121,59 @@ test("the same email is stored once: delivered twice, and BCCed by one rep then 
   const correction = fixture("bcc-sent.eml").toString("latin1").replace("pilot-1@mail", "pilot-1b@mail").replace("Subject: ", "Subject: Re: ");
   assert.equal((await w.deliver(correction)).body.status, "logged");
   assert.equal(w.messages().length, 2);
+});
+
+test("mail logged by BCC and the same thread read from the member's inbox are one conversation with one copy, either way round", async () => {
+  const shape = (w: ReturnType<typeof world>) => plain({
+    conversations: w.db.rows("conversations").map((c) => [c.accountRef, c.externalThreadId]),
+    messages: w.messages().map((m) => [m.externalMessageId, m.logged ?? null]).sort(),
+    lines: w.timeline("contact-grace").map((o) => o.body.key).sort(),
+  });
+  const loggedFirst = world();
+  await loggedFirst.deliver(fixture("bcc-sent.eml"));
+  await loggedFirst.sync("ada", [unipile("pilot-1", "ada@example.com", { role: "sent" }), fromGrace]);
+  await loggedFirst.deliver(fixture("reply.eml"));
+  const readFirst = world();
+  await readFirst.sync("ada", [unipile("pilot-1", "ada@example.com", { role: "sent" }), fromGrace]);
+  await readFirst.deliver(fixture("reply.eml"));
+  assert.equal((await readFirst.deliver(fixture("bcc-sent.eml"))).body.status, "duplicate");
+  await readFirst.sync("ada", [unipile("pilot-2", "ada@example.com", { role: "sent" })]);
+  const one = {
+    conversations: [["emailAccounts:ada", "msg:pilot-1@mail.example.com"]],
+    messages: [["pilot-1@mail.example.com", "bcc"], ["pilot-1r@mail.example.com", null], ["pilot-2@mail.example.com", "bcc"]],
+    lines: ["email:msg:pilot-1@mail.example.com", "email:msg:pilot-1r@mail.example.com", "email:msg:pilot-2@mail.example.com"],
+  };
+  assert.deepEqual(shape(loggedFirst), one);
+  assert.deepEqual(shape(readFirst), { ...one, messages: [["pilot-1@mail.example.com", null], ["pilot-1r@mail.example.com", null], ["pilot-2@mail.example.com", "bcc"]] });
+
+  // Deleting what the inbox read keeps what the member logged, back under their logged mail.
+  await M["conversations.ts"].eraseRead.handler(loggedFirst.mctx, { accountRef: "emailAccounts:ada" });
+  assert.deepEqual(shape(loggedFirst).conversations, [["emaillog:users:ada", "msg:pilot-1@mail.example.com"]]);
+  assert.deepEqual(shape(loggedFirst).messages, [["pilot-1@mail.example.com", "bcc"], ["pilot-2@mail.example.com", "bcc"]]);
+});
+
+test("a thread an inbox keyed on Gmail's thread id before keeps taking its mail, without a second copy", async () => {
+  const w = world();
+  await w.db.insert("conversations", {
+    orgId: "organizations:o", ownerUserId: "users:ada", channel: "email", accountRef: "emailAccounts:ada", externalThreadId: "gmail-thread-1",
+    counterpart: { email: "grace@example.org" }, contactIds: [], lastMessageAt: 1, createdAt: 1, updatedAt: 1,
+  });
+  const [old] = w.db.rows("conversations");
+  await w.db.insert("conversationMessages", { orgId: "organizations:o", conversationId: old._id, externalMessageId: "<pilot-1@mail.example.com>", direction: "out", at: 1, from: "ada@example.com", text: "old copy" });
+  await w.sync("ada", [unipile("pilot-1", "ada@example.com", { role: "sent" }), fromGrace]);
+  assert.deepEqual(plain(w.db.rows("conversations").map((c) => c.externalThreadId)), ["gmail-thread-1"]);
+  assert.deepEqual(plain(w.messages().map((m) => m.externalMessageId)), ["<pilot-1@mail.example.com>", "pilot-1r@mail.example.com"]);
+  assert.equal((await w.deliver(fixture("bcc-sent.eml"))).body.status, "duplicate");
+});
+
+test("a teammate's email in two inboxes is a copy in each and one sent line on the person, whichever inbox reads it first", async () => {
+  for (const order of [["bob", "ada"], ["ada", "bob"]] as const) {
+    const w = world();
+    for (const who of order) await w.sync(who, [unipile("pilot-1", "ada@example.com", who === "ada" ? { role: "sent" } : {})]);
+    assert.deepEqual(plain(w.db.rows("conversations").map((c) => c.accountRef).sort()), ["emailAccounts:ada", "emailAccounts:bob"], order.join());
+    assert.deepEqual(plain(w.messages().map((m) => m.direction)), ["out", "out"], order.join());
+    assert.deepEqual(plain(w.timeline("contact-grace").map((o) => [o.body.key, o.body.event.direction])), [["email:msg:pilot-1@mail.example.com", "out"]], order.join());
+  }
 });
 
 test("a reply joins the thread of the message it answers", async () => {

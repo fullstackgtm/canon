@@ -7,6 +7,7 @@ import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import type { Access } from "../access.ts";
 import type { StoredMessage } from "./extract.ts";
+import { messageIdForms } from "../email/messageIds.ts";
 import { mayReadText, messageIdOfKey } from "./intake.ts";
 
 /** A message's text as one reader may see it: the text, or only whose conversation it was. */
@@ -15,9 +16,15 @@ export type MessageText = { text: string } | { hidden: true; ownerUserId: string
 /** Copies of one message kept, at most: one per linked account that read it (an email to several teammates). */
 const COPIES_MAX = 20;
 
-/** Every copy of a message in the org, each with its conversation (one in another org is dropped). */
+/**
+ * Every copy of a message in the org, each with its conversation (one in another org is dropped), under either form
+ * of its id (an email's Message-ID was once kept with its angle brackets).
+ */
 async function copiesOf(ctx: QueryCtx, orgId: Id<"organizations">, externalMessageId: string) {
-  const rows = await ctx.db.query("conversationMessages").withIndex("by_orgId_and_externalMessageId", (q) => q.eq("orgId", orgId).eq("externalMessageId", externalMessageId)).take(COPIES_MAX);
+  const rows: Doc<"conversationMessages">[] = [];
+  for (const id of messageIdForms(externalMessageId)) {
+    rows.push(...await ctx.db.query("conversationMessages").withIndex("by_orgId_and_externalMessageId", (q) => q.eq("orgId", orgId).eq("externalMessageId", id)).take(COPIES_MAX));
+  }
   const out: Array<{ message: Doc<"conversationMessages">; conversation: Doc<"conversations"> }> = [];
   for (const message of rows) {
     const conversation = await ctx.db.get(message.conversationId);
@@ -37,6 +44,16 @@ function textOfCopies(access: Access, copies: readonly Copy[], ownerUserId: stri
 /** The account's own copy of a message, when it has read it (intake's dedupe, and a reply finding its thread). */
 export async function accountCopy(ctx: QueryCtx, orgId: Id<"organizations">, accountRef: string, externalMessageId: string) {
   return (await copiesOf(ctx, orgId, externalMessageId)).find((c) => c.conversation.accountRef === accountRef) ?? null;
+}
+
+/** The first of `accountRefs`' copies of a message, in their order (one member's inbox, then the mail they logged). */
+export async function firstCopy(ctx: QueryCtx, orgId: Id<"organizations">, accountRefs: readonly string[], externalMessageId: string) {
+  const copies = await copiesOf(ctx, orgId, externalMessageId);
+  for (const ref of accountRefs) {
+    const copy = copies.find((c) => c.conversation.accountRef === ref);
+    if (copy) return copy;
+  }
+  return null;
 }
 
 /** Whether any copy of a message is stored in the org: email logging (convex/emailLog.ts) keeps one per workspace. */
@@ -104,6 +121,20 @@ export async function linkContacts(ctx: MutationCtx, orgId: Id<"organizations">,
     const linked = await ctx.db.query("conversationContacts").withIndex("by_conversationId_and_contactId", (q) => q.eq("conversationId", conversationId).eq("contactId", contactId)).first();
     if (!linked) await ctx.db.insert("conversationContacts", { orgId, contactId, conversationId });
   }
+}
+
+/**
+ * Erase a conversation: its messages, its links to contacts, then the row, within `budget` deletes. Returns the
+ * deletes spent; the row is gone only when they fit, so a caller that ran out runs again.
+ */
+export async function eraseConversation(ctx: MutationCtx, conversationId: Id<"conversations">, budget: number): Promise<number> {
+  if (!(await ctx.db.get(conversationId))) return unlinkContacts(ctx, conversationId);
+  const messages = await ctx.db.query("conversationMessages").withIndex("by_conversationId_and_at", (q) => q.eq("conversationId", conversationId)).take(budget);
+  for (const m of messages) await ctx.db.delete(m._id);
+  if (messages.length === budget) return budget;
+  const links = await unlinkContacts(ctx, conversationId);
+  await ctx.db.delete(conversationId);
+  return messages.length + links + 1;
 }
 
 /** Drop a conversation's links to its contacts (it is being erased). Returns how many rows went. */

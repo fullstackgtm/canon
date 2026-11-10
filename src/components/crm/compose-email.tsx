@@ -55,7 +55,7 @@ function ComposeEmailEnabled({ contactId, email, actions, ctx, title = "Email" }
     try {
       if (asDraft) await saveDraft({ accountId: sender._id, contactId, subject, body });
       else await send({ accountId: sender._id, contactId, subject, body });
-      void toast.success(asDraft ? `Saved to ${sender.address} drafts. Send it from Gmail.` : `Sent to ${email} from ${sender.address}`);
+      void toast.success(asDraft ? `Saved to ${sender.address} drafts. Send it from ${sender.provider === "microsoft" ? "Outlook" : "Gmail"}.` : `Sent to ${email} from ${sender.address}`);
       setSubject("");
       setBody("");
       setOpen(false);
@@ -71,7 +71,7 @@ function ComposeEmailEnabled({ contactId, email, actions, ctx, title = "Email" }
       <h2 className="mb-2 text-xs font-medium text-muted-foreground">{title}</h2>
       {!sender ? (
         <p className="text-sm text-muted-foreground">
-          Link a Gmail account to email this contact. <Link href="/dashboard/integrations/gmail" className="underline">Link Gmail</Link>
+          Link a Gmail or Outlook account to email this contact. <Link href="/dashboard/integrations/gmail" className="underline">Link a mailbox</Link>
         </p>
       ) : (
         <form className="space-y-2" onSubmit={(e) => { e.preventDefault(); if (sendOffer && !sendOffer.disabled) void submit(); }}>

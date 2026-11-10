@@ -4,11 +4,17 @@ import { bodyHtml, composeProblem } from "../convex/lib/email/compose.ts";
 import { signEmailState, verifyEmailState } from "../convex/lib/email/state.ts";
 import { signState } from "../convex/lib/linkedin/state.ts";
 import { createUnipileClient, mailAccountOf } from "../convex/lib/linkedin/unipile.ts";
+import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
-test("only a Google account with a readable address is a mail account", () => {
+test("only a Google or Microsoft account with a readable address is a mail account", () => {
   assert.deepEqual(
     mailAccountOf({ id: "a1", type: "GOOGLE_OAUTH", name: "Riley", sources: [{ status: "OK" }], connection_params: { mail: { username: "Riley@Acme.com" } } }),
-    { id: "a1", status: "OK", address: "riley@acme.com", name: "Riley" },
+    { id: "a1", provider: "google", status: "OK", address: "riley@acme.com", name: "Riley" },
+  );
+  // The shape developer.unipile.com/reference/accountscontroller_getaccountbyid documents for OUTLOOK: mail.mailbox_id is Outlook's own.
+  assert.deepEqual(
+    mailAccountOf({ id: "a4", type: "OUTLOOK", name: "Riley Park", sources: [{ status: "OK" }], connection_params: { mail: { id: "AAMkAD-fixture", username: "riley@example.org", mailbox_id: "mbx-fixture" } } }),
+    { id: "a4", provider: "microsoft", status: "OK", address: "riley@example.org", name: "Riley Park" },
   );
   assert.equal(mailAccountOf({ id: "a2", type: "LINKEDIN", name: "x@y.com" }), null);
   assert.equal(mailAccountOf({ id: "a3", type: "GOOGLE_OAUTH", name: "no address" }), null);
@@ -51,4 +57,24 @@ test("compose refuses a missing address or a multi-line subject, and escapes the
   assert.ok(composeProblem({ to: "sam@atlas.example", subject: "Hi\nBcc: x", body: "x" }));
   assert.equal(composeProblem({ to: "sam@atlas.example", subject: "Hi", body: "x" }), null);
   assert.equal(bodyHtml("Hi <b>Sam</b>,\nline two\n\nBest"), "<p>Hi &lt;b&gt;Sam&lt;/b&gt;,<br>line two</p>\n<p>Best</p>");
+});
+
+const accounts = loadConvex(["emailAccounts.ts"], { "lib.ts": (real) => ({ ...real, requireUser: async (ctx: { user: unknown }) => ctx.user }) })["emailAccounts.ts"];
+
+test("an Outlook account links, sends under the same daily cap, and unlinks like a Gmail one", async () => {
+  const db = memoryDb({ users: [{ _id: "users:riley", orgId: "organizations:o", email: "riley@example.org", isActive: true }] });
+  const scheduled: string[] = [];
+  const ctx = { db, auth: { getUserIdentity: async () => null }, user: { _id: "users:riley", orgId: "organizations:o" }, scheduler: { runAfter: async (_ms: number, fn: unknown) => void scheduled.push(String(fn)) } };
+  const link = { userId: "users:riley", orgId: "organizations:o", unipileAccountId: "u-outlook", address: "riley@example.org", displayName: "Riley Park", status: "OK" };
+  assert.deepEqual(JSON.parse(JSON.stringify(await accounts.connected.handler(ctx, { ...link, provider: "microsoft" }))), { ok: true });
+  const [row] = db.rows("emailAccounts");
+  assert.deepEqual([row.provider, row.address, row.status], ["microsoft", "riley@example.org", "ok"]);
+
+  const now = Date.now();
+  for (let i = 0; i < 100; i++) await db.insert("emailSends", { orgId: "organizations:o", accountId: row._id, userId: "users:riley", contactId: "c", to: "x@example.com", subject: "s", state: "sent", at: now - 1000 - i });
+  await assert.rejects(accounts.claimSend.handler(ctx, { userId: "users:riley", orgId: "organizations:o", accountId: row._id, contactId: "c", to: "grace@example.com", subject: "Hi" }), /100 emails in the last 24 hours/);
+
+  await accounts.disconnect.handler(ctx, { accountId: row._id });
+  assert.equal((await db.get(row._id))?.status, "disconnected");
+  assert.deepEqual(scheduled, ["internal.linkedinActions.deleteRemote"]);
 });

@@ -24,7 +24,10 @@ self-hosted install.
 - The names and sizes of attachments, not their content.
 
 The same email is stored once per workspace: delivered twice, BCCed by you and
-forwarded by a teammate, or already read from a linked Gmail inbox.
+forwarded by a teammate, or already read from a linked Gmail inbox. A thread
+you logged and also read from your own linked inbox is one conversation, keyed
+on the thread's first Message-ID. Turning off and deleting what the inbox read
+keeps the emails you logged.
 
 ## Who sees it
 

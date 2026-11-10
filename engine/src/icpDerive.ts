@@ -23,8 +23,8 @@ export type IcpDerivationProgress = {
   message: string;
 };
 
-export { normalizeCompanyWebsite, websiteText, websiteMeta, keyPageLinks, MIN_SOURCE_CHARS } from "./portable/websiteSources.ts";
-import { normalizeCompanyWebsite, websiteText, websiteMeta, keyPageLinks, MIN_SOURCE_CHARS, PAGE_CHARS } from "./portable/websiteSources.ts";
+export { normalizeCompanyWebsite, websiteText, websiteMeta, keyPageLinks, MIN_SOURCE_CHARS } from "../../modules/kernel/websiteSources.ts";
+import { normalizeCompanyWebsite, websiteText, websiteMeta, keyPageLinks, MIN_SOURCE_CHARS, PAGE_CHARS } from "../../modules/kernel/websiteSources.ts";
 
 async function fetchPublicText(url: string): Promise<{ text: string; finalUrl: string } | null> {
   try {
