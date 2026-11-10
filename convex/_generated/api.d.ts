@@ -451,6 +451,7 @@ import type * as lib_researchPipeline from "../lib/researchPipeline.js";
 import type * as lib_roles from "../lib/roles.js";
 import type * as lib_runs from "../lib/runs.js";
 import type * as lib_salesforceClientCredentials from "../lib/salesforceClientCredentials.js";
+import type * as lib_sampleAcme from "../lib/sampleAcme.js";
 import type * as lib_sampleDataset from "../lib/sampleDataset.js";
 import type * as lib_scopeValidators from "../lib/scopeValidators.js";
 import type * as lib_scopedRecordClient from "../lib/scopedRecordClient.js";
@@ -1069,6 +1070,7 @@ declare const fullApi: ApiFromModules<{
   "lib/roles": typeof lib_roles;
   "lib/runs": typeof lib_runs;
   "lib/salesforceClientCredentials": typeof lib_salesforceClientCredentials;
+  "lib/sampleAcme": typeof lib_sampleAcme;
   "lib/sampleDataset": typeof lib_sampleDataset;
   "lib/scopeValidators": typeof lib_scopeValidators;
   "lib/scopedRecordClient": typeof lib_scopedRecordClient;

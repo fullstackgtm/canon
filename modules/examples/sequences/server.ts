@@ -1,9 +1,11 @@
 /**
  * Sequences' server code (docs/modules.md, "Server code"), built into dist/module.js by
- * `node --experimental-strip-types scripts/build-module-examples.ts`. The computing is in engine.ts.
+ * `node --experimental-strip-types scripts/build-module-examples.ts`. The computing is in engine.ts and the kit's
+ * sequences.ts.
  */
 import type { CallFunctions, Intent, ReadDoc, RecordChange } from "../../kernel/calls.ts";
-import { firstDay, localDate, MANUAL_STEPS, plan, skipReasons, type Candidate, type Schedule, type Step, type StepKind } from "./engine.ts";
+import { firstDay, localDate, MANUAL_STEPS, plan, type Schedule, type Step, type StepKind } from "../../kernel/sequences.ts";
+import { skipReasons, type Candidate } from "./engine.ts";
 
 /** A schedule doc as the engine reads it; a sequence without one sends Mon–Fri 08:00–17:00 New York time. */
 const scheduleOf = (doc: ReadDoc | null): Schedule => doc

@@ -3275,7 +3275,8 @@ integrations, default installation and the built-in page cutover belong to later
 LinkedIn and calls (decision 2026-10-18: no Canon-provisioned mailboxes in phase 1). Version 0.1.0 builds sequences:
 named schedules, steps of seven kinds with day delays, A/B variants on email steps (at most 5, shares adding to 100),
 settings for senders, pacing and stop rules, and "When each step goes out" for someone enrolled now (`timeline`, over
-the pure engine in `engine.ts`). Version 0.2.0 adds people from an audience: Add people freezes it (`audiences.snapshot`)
+the pure engine in `engine.ts` and the kit's `sequences.ts`, whose step timing and A/B arms Canon also runs launched
+sequences by). Version 0.2.0 adds people from an audience: Add people freezes it (`audiences.snapshot`)
 as an enroll run, the `snap` job copies each page of 500 (`audiences.members`) and the `check` job marks who to skip
 and why (no email or LinkedIn URL for the steps' channels, active in another sequence, enrolled before, a name field it
 can't fill); Enroll them writes the enrollments page by page (`enroll` job), leaving out anyone active elsewhere by

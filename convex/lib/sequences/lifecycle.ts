@@ -8,7 +8,7 @@ import { moduleScope, projectSq1Lifecycle, sq1ProjectionDoc, type ModuleScope } 
 import { installedModule, isEnabled, manifestOf } from "../modules/packages";
 import { senderReader } from "../modules/senders";
 import { sq1Launches, SQ1_MAX_LAUNCHES, type Sq1Projection } from "./bindings";
-import { plan, localDate } from "../../../modules/examples/sequences/engine.ts";
+import { plan, localDate } from "../../../modules/kernel/sequences.ts";
 import { requireVariableReview } from "./preflight";
 
 const SEQUENCES = "@canon/sequences";
