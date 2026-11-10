@@ -98,7 +98,9 @@ try {
   inside(`
     const url = 'http://127.0.0.1:3000/api/local-auth';
     const headers = {Origin:'http://localhost:3000', 'Content-Type':'application/json'};
-    const created = await fetch(url, {method:'POST', headers, body:JSON.stringify({kind:'register', email:'owner@example.test', name:'Docker owner', workspaceName:'Docker smoke', password:'docker smoke password'})});
+    const {execFileSync} = await import('node:child_process');
+    const setupCode = execFileSync(process.execPath, ['scripts/selfhost/setup-code.mjs'], {encoding:'utf8'}).trim();
+    const created = await fetch(url, {method:'POST', headers, body:JSON.stringify({kind:'register', email:'owner@example.test', name:'Docker owner', workspaceName:'Docker smoke', password:'docker smoke password', setupCode})});
     if (created.status !== 200) throw new Error('Local owner setup failed ('+created.status+'): '+await created.text());
     const cookie = created.headers.get('set-cookie')?.split(';')[0];
     if (!cookie) throw new Error('Local owner session cookie is missing');

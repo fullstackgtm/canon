@@ -4,7 +4,7 @@ import { chown, mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/
 import { join } from "node:path";
 import { INTEGRATIONS_AVAILABLE, integrationEnabled, integrationNeeds } from "../../convex/lib/integrationsAvailable.ts";
 import { functionsDigest, mustPush } from "./functions.mjs";
-import { checkDataEpoch, imageContract, recordDataEpoch } from "./dataEpoch.mjs";
+import { advanceDataEpoch, checkDataEpoch, imageContract } from "./dataEpoch.mjs";
 import { newSetupCode, newTokenEncryptionKey, platformSiteUrl, SETUP_CODE_FILE } from "./platform.mjs";
 
 // How the processes in this container reach each other. SITE_URL and its port are the browser's
@@ -124,7 +124,7 @@ async function main() {
   const contract = imageContract();
   const epoch = checkDataEpoch("/data", contract);
   if (!epoch.ok) throw new Error(epoch.reason);
-  if (epoch.fresh) recordDataEpoch("/data", contract, contract.epoch);
+  if (epoch.fresh) await advanceDataEpoch("/data", contract, contract.epoch, async () => {});
   const credentials = "/data/credentials";
   await mkdir(credentials, { recursive: true });
   await mkdir("/data/convex", { recursive: true });
@@ -213,8 +213,11 @@ async function main() {
     { ...env, HOSTNAME: "0.0.0.0", PORT: port, CANON_SETUP_CODE: setupCode, CANON_INTERNAL_CONVEX_URL: BACKEND, CANON_INTERNAL_CONVEX_SITE_URL: BACKEND_SITE });
   await waitFor(`http://127.0.0.1:${port}/api/public/version`);
   await writeFile("/tmp/canoncrm-ready", "ready\n");
-  const pendingMigrations = recordDataEpoch("/data", contract, epoch.epoch);
-  if (pendingMigrations.length) console.log(`This release lists migrations for data epoch ${contract.epoch}: ${pendingMigrations.map((m) => m.run).join(", ")}. The volume stays at epoch ${epoch.epoch} until they run (docs/updating.md).`);
+  const advanced = await advanceDataEpoch("/data", contract, epoch.epoch, async (m) => {
+    console.log(`Running migration ${m.run}`);
+    await cli(["run", m.run]);
+  });
+  if (advanced.failed) console.log(`Migration ${advanced.failed.run} failed (${advanced.failed.error}). The volume stays at data epoch ${epoch.epoch}; restart this release to run it again (docs/updating.md).`);
   console.log(`CanonCRM ready at ${site}. Recipe runtime is off unless RECIPE_RUNTIME_URL and RECIPE_RUNTIME_SECRET are configured.`);
   const pending = await start("Convex CLI", process.execPath, ["node_modules/convex/bin/main.js", "run", "localAuth:setupPending", "--env-file", cliEnvFile], env, "/app", true)
     .done.then((out) => out.trim() === "true", () => false);

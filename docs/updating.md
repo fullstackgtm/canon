@@ -44,7 +44,10 @@ ignored.
    - Otherwise rebuild from the checkout: `docker compose up -d --build`.
 5. Run the verifier again with the existing owner, as after installing, and
    report its output.
-6. Run any migrations the release listed, then record that the data is current:
+6. Once the container is healthy, it runs any migrations the release listed, in
+   order, and then records the volume's new data epoch. Its log says which
+   migration failed, if one did; restarting the container runs them again.
+   After they ran, record that the checkout's data is current:
    `node scripts/selfhost/releases.mjs --no-fetch --mark-data-current`.
 
 If a step fails, check out the previous commit, set `CANON_IMAGE` back or run
