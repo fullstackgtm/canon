@@ -1,7 +1,7 @@
 /**
  * Reports pacing: what was booked (won deals by close date) or created (deals by created time) on each day of a
  * period, for the period now, the ones it is compared with and the four before it (the pace past periods kept,
- * lib/reports/pacing.ts historicalShape). The page turns the days into running totals and reads targets from
+ * modules/kernel/pacing.ts historicalShape). The page turns the days into running totals and reads targets from
  * the plan (convex/targets.ts). Counts only the deals the caller can see; amounts in cents.
  */
 import { ConvexError, v } from "convex/values";

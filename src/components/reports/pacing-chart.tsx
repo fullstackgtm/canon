@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { targetLine, type Grain, type Period, type TargetShape } from "../../../convex/lib/reports/pacing";
+import { targetLine, type Grain, type Period, type TargetShape } from "../../../modules/kernel/pacing";
 import { AXIS, GRID, SERIES } from "./report-chart";
 
 /** The Ledger palette report-chart.tsx validated; a series keeps its colour whatever its rank. */

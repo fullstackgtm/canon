@@ -12,7 +12,7 @@ import { ConvexError } from "convex/values";
 import { V1Error, toV1Error, type V1Client, type V1Result } from "./_lib.ts";
 import type { FieldValue as RegistryValue } from "../../../../convex/lib/objects/registry.ts";
 import type { Stored } from "../../../../convex/lib/objects/validators.ts";
-import { parseSplits } from "../../../../convex/lib/objects/splits.ts";
+import { parseSplits } from "../../../../modules/kernel/splits.ts";
 import { setRecordLifecycle, type LifecycleOp } from "../../mcp/_recordLifecycle.ts";
 import { isGenericObject } from "../../../../convex/lib/objects/describe.ts";
 import { GROUP_QUERY, LIST_QUERY, readQuery, VERSION_QUERY, WRITE_MESSAGES, WriteBody, type ApiRecord } from "./_contract.ts";

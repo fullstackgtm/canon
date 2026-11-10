@@ -30,10 +30,10 @@ import { computeStandardRecordFields, STANDARD_REPORT_OBJECTS } from "../convex/
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Source under convex/lib, copy under services/record-service/src/core, same relative layout so imports resolve unchanged. */
-export const CORE_FILES = ["canon/policy.ts", "objects/registry.ts", "objects/splits.ts", "objects/rules.ts", "objects/formula.ts", "objects/fold.ts", "objects/listSpec.ts", "objects/reportSpec.ts", "objects/duplicates.ts", "objects/leadConversion.ts", "objects/inboundMatch.ts", "objects/moduleReport.ts"] as const;
+export const CORE_FILES = ["canon/policy.ts", "objects/registry.ts", "objects/rules.ts", "objects/formula.ts", "objects/fold.ts", "objects/listSpec.ts", "objects/reportSpec.ts", "objects/duplicates.ts", "objects/leadConversion.ts", "objects/inboundMatch.ts", "objects/moduleReport.ts"] as const;
 
 /** Dependency-free files under modules/kernel, copied to services/record-service/src/core/kernel. They import only each other. */
-export const KERNEL_FILES = ["reportLanguage.ts", "industries.ts", "dimensions.ts", "titles.ts"] as const;
+export const KERNEL_FILES = ["reportLanguage.ts", "industries.ts", "dimensions.ts", "titles.ts", "splits.ts", "inboundMatchInput.ts"] as const;
 const KERNEL_COPY = "kernel/";
 
 /** Every copy: core files by their convex/lib path, kernel files under `kernel/`. */

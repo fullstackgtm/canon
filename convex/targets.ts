@@ -1,7 +1,7 @@
 /**
  * Targets for Reports pacing: one bookings plan per workspace and fiscal year,
  * entered top down and split into teams, reps and months by
- * lib/reports/targets.ts (the editor runs the split; the plan it produced is
+ * modules/kernel/targets.ts (the editor runs the split; the plan it produced is
  * saved with the choices that made it). Everyone in the workspace reads the
  * plan; admins and managers set it.
  */
@@ -14,8 +14,8 @@ import { getCurrentUser, requireCap, requireUser } from "./lib";
 import { callerClient, requireCaller, type ActionCaller } from "./records";
 import { asListError } from "./objects";
 import { targetPlanChoices, targetPlanFields } from "./lib/reports/validators";
-import { buildPlan, planInput } from "./lib/reports/targets";
-import { fiscalMonth, lastDay, monthStart, periodOf, type Grain } from "./lib/reports/pacing";
+import { buildPlan, planInput } from "../modules/kernel/targets";
+import { fiscalMonth, lastDay, monthStart, periodOf, type Grain } from "../modules/kernel/pacing";
 
 /** The team a rep's target counts toward when they are on no team. */
 export const NO_TEAM = "none";
@@ -109,7 +109,7 @@ export const history = action({
 /**
  * Set a year's targets top down: the total, how it spreads over months, teams and reps, and any amounts already
  * known (locks, a rep's quarters, start dates and ramps). Splits it against last year's bookings and today's
- * roster (lib/reports/targets.ts) and saves the plan it produces. Admins and managers only.
+ * roster (modules/kernel/targets.ts) and saves the plan it produces. Admins and managers only.
  */
 export const set = action({
   args: {

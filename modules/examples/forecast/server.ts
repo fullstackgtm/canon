@@ -1,10 +1,10 @@
 /**
  * Forecast (docs/module-plans/forecast.md): each person's call for the period, rolled up their manager chain beside
  * Canon's own numbers from the deals closing in it. The arithmetic is engine.ts, golden-tested; this file reads,
- * shapes and writes. Periods are the workspace's fiscal quarters (convex/lib/reports/pacing.ts, bundled).
+ * shapes and writes. Periods are the workspace's fiscal quarters (the kit's pacing.ts, bundled).
  */
 import type { CallContext, CallFunctions, Intent, ReadDoc, RecordChange } from "../../kernel/calls.ts";
-import { lastDay, periodOf, shiftPeriod } from "../../../convex/lib/reports/pacing.ts";
+import { lastDay, periodOf, shiftPeriod } from "../../kernel/pacing.ts";
 import { accuracyOf, categoryOf, DEFAULT_RISK_SETTINGS, dollars, flow, moves, risksOf, rollup, standingOf, systemNumbers, tree, type Adjustment, type Deal, type DealChange, type Member, type Submission, type Team, type Version } from "./engine.ts";
 
 type Settings = { cadenceDay: number };

@@ -1,4 +1,4 @@
-/** Validators for targets (lib/reports/targets.ts), shared by the schema and convex/targets.ts. */
+/** Validators for targets (modules/kernel/targets.ts), shared by the schema and convex/targets.ts. */
 import { v } from "convex/values";
 
 export const monthsSplit = v.object({

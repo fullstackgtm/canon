@@ -5,11 +5,11 @@ import { useAction } from "convex/react";
 import { toast } from "sonner";
 import { ArrowLeft, Check, Lock, Unlock } from "lucide-react";
 import { api } from "../../../../convex/_generated/api";
-import { buildPlan, parseAmount, parseTargets, planInput, type PlanChoices } from "../../../../convex/lib/reports/targets";
+import { buildPlan, parseAmount, parseTargets, planInput, type PlanChoices } from "../../../../modules/kernel/targets";
 import { LoadingRows, ViewFrame } from "@/components/dashboard";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { money } from "@/components/reports/pacing-chart";
-import { fiscalYearName } from "../../../../convex/lib/reports/pacing";
+import { fiscalYearName } from "../../../../modules/kernel/pacing";
 import type { Roster } from "../../../../convex/targets";
 
 const CALENDAR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

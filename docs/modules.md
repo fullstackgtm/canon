@@ -4106,6 +4106,8 @@ and `candidates`. It returns one result. Only Canon jobs, watches and schedules
 run this read. Member and agent calls cannot directly run this read, even with full visibility.
 An admin or their agent can queue the system job that runs it.
 The workspace comes from the installed module, never from the email or input.
+The kit's `inboundMatchInput.ts` checks and normalizes `{ email, companyName? }` as Canon does, so a module can refuse
+a bad address before it queues the job.
 
 An exact person or lead email wins, followed by a company domain and then its
 domain family. Matching reuses the duplicate keys and lead conversion's free-mail

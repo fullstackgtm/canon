@@ -57,7 +57,7 @@ function render(available: boolean, mailboxGrants = false, role = "admin", email
     "./suppressions-section": { SuppressionsSection: () => null },
     "./workspace-form": { fiscalYearLabel: () => "FY26", fiscalQuarterLabel: () => "Q4" },
     "@/components/reports/pacing-chart": {},
-    "../../../../convex/lib/reports/pacing": {},
+    "../../../../modules/kernel/pacing": {},
     "../../../../modules/kernel/outbound": { OUTBOX_STATES: [] },
   };
   function load(path: string): Record<string, ComponentType<any>> {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cohorts, cumulative, fiscalMonth, historicalShape, periodOf, targetLine, type PacingRow } from "../convex/lib/reports/pacing.ts";
-import { allocate, buildPlan, parseTargets, targetFor, type PlanInput } from "../convex/lib/reports/targets.ts";
+import { cohorts, cumulative, fiscalMonth, historicalShape, periodOf, targetLine, type PacingRow } from "../modules/kernel/pacing.ts";
+import { allocate, buildPlan, parseTargets, targetFor, type PlanInput } from "../modules/kernel/targets.ts";
 
 const row = (day: string, amount: number): PacingRow => ({ day, amount, attrs: {} });
 

@@ -1,6 +1,6 @@
 import { query, type QueryCtx } from "./_generated/server";
 import { currentPeriod } from "./targets";
-import { lastDay, periodOf } from "./lib/reports/pacing";
+import { lastDay, periodOf } from "../modules/kernel/pacing";
 import { v } from "convex/values";
 // CP14: these pages read the CRM mirror and deal tables whole, so a role whose rules narrow its reads sees them empty.
 import { unrestrictedUser } from "./permissions";
