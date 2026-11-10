@@ -13,6 +13,23 @@ import { awaitsLogin } from "./clerkRoles";
 type Db = Pick<QueryCtx, "db">;
 
 /**
+ * Who may turn a member back on. A member turned off in Canon (the Team page) stays off until a person in Canon turns
+ * them on; Clerk can only turn someone off, or turn back on someone Clerk turned off. A row turned off before
+ * `deactivatedBy` existed reads as Canon's: a wrong "stays off" shows on the Team page, a wrong "back on" does not.
+ */
+export type TurnedOffBy = "canon" | "clerk";
+type Switch = { isActive: boolean; deactivatedBy?: TurnedOffBy };
+
+/** Whether a Clerk membership event or backfill may set this member or membership row active. */
+export const clerkMayTurnOn = (row: Switch) => row.isActive || row.deactivatedBy === "clerk";
+
+/** The patch that turns a row off as `by`; a row already off keeps who turned it off. */
+export const turnOff = (row: Switch, by: TurnedOffBy): Partial<Switch> => (row.isActive ? { isActive: false, deactivatedBy: by } : {});
+
+/** The patch that turns a row on. */
+export const turnOn = { isActive: true, deactivatedBy: undefined } as const;
+
+/**
  * The role `user` holds as an active member of `orgId`, or null when they are not one. Their home workspace needs
  * their member row on and, when it has one, its membership row on; any other needs its membership row on. Judged
  * from the stored member row: a member a session scoped to another workspace carries that workspace's `orgId`.

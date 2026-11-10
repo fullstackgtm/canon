@@ -58,6 +58,12 @@ http.route({
         break;
       }
 
+      case "organization.deleted": {
+        // Members off and credentials revoked, agents and rules paused, data kept (convex/clerkOrgDeletion.ts).
+        if (event.data.id) await ctx.runMutation(internal.clerkOrgDeletion.deleteFromClerk, { clerkOrgId: event.data.id });
+        break;
+      }
+
       case "organizationMembership.created":
       case "organizationMembership.updated": {
         // Ensure org row exists before inserting user — orgId is required.
@@ -244,7 +250,7 @@ function fullName(data: ClerkUserData): string {
 // Minimal local shapes — avoid importing @clerk/nextjs/server (Node-only).
 type ClerkEvent =
   | { type: "user.created" | "user.updated"; data: ClerkUserData }
-  | { type: "user.deleted"; data: { id?: string } }
+  | { type: "user.deleted" | "organization.deleted"; data: { id?: string } }
   | {
       type: "organization.created" | "organization.updated";
       data: { id: string; name: string; slug?: string };

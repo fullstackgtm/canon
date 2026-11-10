@@ -48,6 +48,8 @@ export default defineSchema({
     clerkOrgId: v.string(),
     name: v.string(),
     slug: v.string(),
+    // When Clerk deleted the organization (convex/clerkOrgDeletion.ts): its members are off and its data is kept.
+    clerkDeletedAt: v.optional(v.number()),
     industry: v.optional(v.string()),
     fiscalYearStartMonth: v.number(),
     defaultCurrency: v.string(),
@@ -744,6 +746,9 @@ export default defineSchema({
     // suggestions key on this.
     crmOwnerId: v.optional(v.string()),
     isActive: v.boolean(),
+    // Who turned the member off (lib/membership.ts): `canon` (the Team page) holds until a person turns them back on;
+    // `clerk` (a removal in Clerk) a later Clerk membership event may undo. Absent while active.
+    deactivatedBy: v.optional(v.union(v.literal("canon"), v.literal("clerk"))),
     isHidden: v.optional(v.boolean()),
     lastLoginAt: v.optional(v.number()),
     startDate: v.optional(v.string()),
@@ -793,6 +798,8 @@ export default defineSchema({
     // admin, manager, rep, other, or a workspace's own role (orgRoles.key).
     role: v.string(),
     isActive: v.boolean(),
+    // As users.deactivatedBy, for this membership.
+    deactivatedBy: v.optional(v.union(v.literal("canon"), v.literal("clerk"))),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

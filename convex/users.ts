@@ -5,10 +5,10 @@ import { orgRolesOf, requireRoleKey, roleBasesOf } from "./permissions";
 import { baseRole } from "./lib/roles";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { awaitsLogin, syncedRole } from "./lib/clerkRoles";
-import { revokeMemberCredentials } from "./lib/membership";
+import { clerkMayTurnOn, revokeMemberCredentials, turnOff, turnOn, type TurnedOffBy } from "./lib/membership";
 
 /** A calendar day as YYYY-MM-DD that is a real date. */
 const isDay = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d);
@@ -22,18 +22,20 @@ const roleValidator = v.union(
 
 type AppRole = "admin" | "manager" | "rep" | "other";
 
+/** A membership on, as `by` may set it (lib/membership.ts clerkMayTurnOn): Clerk leaves one Canon turned off as it is. */
 async function upsertMembership(
   ctx: MutationCtx,
   userId: Id<"users">,
   orgId: Id<"organizations">,
   role: string,
+  by: TurnedOffBy,
 ) {
   const existing = await ctx.db
     .query("orgMemberships")
     .withIndex("by_userId_orgId", (q) => q.eq("userId", userId).eq("orgId", orgId))
     .first();
   if (existing) {
-    await ctx.db.patch(existing._id, { role, isActive: true, updatedAt: Date.now() });
+    await ctx.db.patch(existing._id, { role, ...(by === "canon" || clerkMayTurnOn(existing) ? turnOn : {}), updatedAt: Date.now() });
     return existing._id;
   }
   return ctx.db.insert("orgMemberships", {
@@ -183,6 +185,7 @@ export const update = mutation({
       role?: string;
       managerId?: Id<"users">;
       isActive?: boolean;
+      deactivatedBy?: TurnedOffBy;
       isHidden?: boolean;
       startDate?: string;
       endDate?: string;
@@ -211,7 +214,7 @@ export const update = mutation({
     if (args.managerId !== undefined) {
       cleanUpdates.managerId = args.managerId ?? undefined;
     }
-    if (args.isActive !== undefined) cleanUpdates.isActive = args.isActive;
+    if (args.isActive !== undefined) Object.assign(cleanUpdates, args.isActive ? turnOn : turnOff(target, "canon"));
     if (args.isHidden !== undefined) cleanUpdates.isHidden = args.isHidden || undefined;
 
     const turnedOff = args.isActive === false && target.isActive;
@@ -224,7 +227,7 @@ export const update = mutation({
     if (membership) {
       await ctx.db.patch(membership._id, {
         ...(cleanUpdates.role !== undefined ? { role: cleanUpdates.role } : {}),
-        ...(args.isActive !== undefined ? { isActive: args.isActive } : {}),
+        ...(args.isActive === undefined ? {} : args.isActive ? turnOn : turnOff(membership, "canon")),
         updatedAt: Date.now(),
       });
     }
@@ -416,6 +419,8 @@ export const upsertFromClerk = internalMutation({
       .withIndex("by_clerkOrgId", (q) => q.eq("clerkOrgId", args.clerkOrgId))
       .first();
     if (!org) throw new Error(`Organization not found: ${args.clerkOrgId}`);
+    // Nobody joins or comes back to a workspace Clerk deleted, however late the event arrives.
+    if (org.clerkDeletedAt) return null;
 
     const existing = await ctx.db
       .query("users")
@@ -437,11 +442,12 @@ export const upsertFromClerk = internalMutation({
         email: args.email,
         name: args.name,
         imageUrl: args.imageUrl,
-        isActive: true,
+        // A member turned off in Canon stays off (lib/membership.ts clerkMayTurnOn).
+        ...(clerkMayTurnOn(existing) ? turnOn : {}),
       };
       if (home) updates.role = role;
       await ctx.db.patch(existing._id, updates);
-      await upsertMembership(ctx, existing._id, org._id, role);
+      await upsertMembership(ctx, existing._id, org._id, role, "clerk");
       return existing._id;
     }
 
@@ -452,7 +458,7 @@ export const upsertFromClerk = internalMutation({
     if (added && awaitsLogin(added.clerkUserId)) {
       const role = syncedRole(args.role, added.role);
       await ctx.db.patch(added._id, { clerkUserId: args.clerkUserId, name: args.name, imageUrl: args.imageUrl, role, isActive: true });
-      await upsertMembership(ctx, added._id, org._id, role);
+      await upsertMembership(ctx, added._id, org._id, role, "clerk");
       return added._id;
     }
 
@@ -466,7 +472,7 @@ export const upsertFromClerk = internalMutation({
       isActive: true,
       createdAt: Date.now(),
     });
-    await upsertMembership(ctx, userId, org._id, args.role);
+    await upsertMembership(ctx, userId, org._id, args.role, "clerk");
     return userId;
   },
 });
@@ -503,7 +509,7 @@ export const deactivateFromClerk = internalMutation({
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))
       .first();
     if (!user) return;
-    await ctx.db.patch(user._id, { isActive: false });
+    await ctx.db.patch(user._id, turnOff(user, "clerk"));
     await revokeMemberCredentials(ctx, user, null);
     const memberships = await ctx.db
       .query("orgMemberships")
@@ -511,7 +517,7 @@ export const deactivateFromClerk = internalMutation({
       .collect();
     for (const membership of memberships) {
       if (membership.isActive) {
-        await ctx.db.patch(membership._id, { isActive: false, updatedAt: Date.now() });
+        await ctx.db.patch(membership._id, { ...turnOff(membership, "clerk"), updatedAt: Date.now() });
       }
     }
   },
@@ -534,30 +540,34 @@ export const removeMembershipFromClerk = internalMutation({
       .withIndex("by_clerkOrgId", (q) => q.eq("clerkOrgId", args.clerkOrgId))
       .first();
     if (!org) return;
-
-    const membership = await ctx.db
-      .query("orgMemberships")
-      .withIndex("by_userId_orgId", (q) => q.eq("userId", user._id).eq("orgId", org._id))
-      .first();
-    if (membership && membership.isActive) {
-      await ctx.db.patch(membership._id, { isActive: false, updatedAt: Date.now() });
-    }
-    await revokeMemberCredentials(ctx, user, org._id);
-
-    if (user.orgId !== org._id) return;
-
-    const remaining = await ctx.db
-      .query("orgMemberships")
-      .withIndex("by_userId", (q) => q.eq("userId", user._id))
-      .collect();
-    const next = remaining.find((m) => m.isActive && m.orgId !== org._id);
-    if (next) {
-      await ctx.db.patch(user._id, { orgId: next.orgId, role: next.role });
-    } else {
-      await ctx.db.patch(user._id, { isActive: false });
-    }
+    await endMembershipFromClerk(ctx, user, org._id);
   },
 });
+
+/** Clerk ended `user`'s membership of `orgId` (a removal, or the organization deleted): see removeMembershipFromClerk. */
+export async function endMembershipFromClerk(ctx: MutationCtx, user: Doc<"users">, orgId: Id<"organizations">) {
+  const membership = await ctx.db
+    .query("orgMemberships")
+    .withIndex("by_userId_orgId", (q) => q.eq("userId", user._id).eq("orgId", orgId))
+    .first();
+  if (membership && membership.isActive) {
+    await ctx.db.patch(membership._id, { ...turnOff(membership, "clerk"), updatedAt: Date.now() });
+  }
+  await revokeMemberCredentials(ctx, user, orgId);
+
+  if (user.orgId !== orgId) return;
+
+  const remaining = await ctx.db
+    .query("orgMemberships")
+    .withIndex("by_userId", (q) => q.eq("userId", user._id))
+    .collect();
+  const next = remaining.find((m) => m.isActive && m.orgId !== orgId);
+  if (next) {
+    await ctx.db.patch(user._id, { orgId: next.orgId, role: next.role });
+  } else {
+    await ctx.db.patch(user._id, turnOff(user, "clerk"));
+  }
+}
 
 // One-time migration: give every existing user a membership row for their
 // home org (webhooks only create rows going forward). Idempotent. Run with
@@ -614,7 +624,7 @@ export const grantMembership = internalMutation({
     const user = users.find((u) => u.email.toLowerCase() === email);
     if (!user) throw new Error(`User not found: ${args.email}`);
 
-    await upsertMembership(ctx, user._id, org._id, args.role);
+    await upsertMembership(ctx, user._id, org._id, args.role, "canon");
     if (args.makeHome) {
       await ctx.db.patch(user._id, { orgId: org._id, role: args.role });
     }
