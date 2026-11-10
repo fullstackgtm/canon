@@ -35,7 +35,7 @@ import {
   revenueQuestion,
   traitKeyFor,
 } from "./lib/tam/jevSegments";
-import { TRAIT_KEY_RE } from "../services/record-service/src/dimensions.ts";
+import { TRAIT_KEY_RE } from "../modules/kernel/dimensions.ts";
 
 /** Accounts one run scores at most (highest fit first). Re-run to continue. */
 export const RUN_CAP = 500;

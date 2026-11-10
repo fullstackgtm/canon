@@ -8,7 +8,7 @@ import { ConvexError, v, type Infer } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
-import { viewSpecProblem } from "./lib/objects/views";
+import { normalizeViewSpec, viewSpecProblem } from "./lib/objects/views";
 import { listViewDef } from "./lib/objects/listSpec";
 import { isLedgerObjectName, type ResolvedObjectDef } from "./lib/objects/registry";
 import { loadOrgObject } from "./lib/objects/orgDefs";
@@ -38,9 +38,11 @@ async function displayColumnsOf(ctx: QueryCtx, orgId: Id<"organizations">, objec
   return new Set(fields.filter((f) => f.entityType === "contact").map((f) => `custom.${f.slug}`));
 }
 
-async function checkViewSpec(ctx: QueryCtx, orgId: Id<"organizations">, object: string, spec: ViewSpec): Promise<void> {
+/** The spec as it is stored: checked, and with its grouping in `group` only (views.ts normalizeViewSpec). */
+async function checkedViewSpec(ctx: QueryCtx, orgId: Id<"organizations">, object: string, spec: ViewSpec): Promise<ViewSpec> {
   const problem = viewSpecProblem(await listedDef(ctx, orgId, object), spec, await displayColumnsOf(ctx, orgId, object));
   if (problem) throw new ConvexError(problem);
+  return normalizeViewSpec(spec);
 }
 
 function cleanName(name: string): string {
@@ -82,11 +84,11 @@ export const create = mutation({
   args: { object: v.string(), name: v.string(), shared: v.boolean(), spec: viewSpec },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    await checkViewSpec(ctx, user.orgId, args.object, args.spec);
+    const spec = await checkedViewSpec(ctx, user.orgId, args.object, args.spec);
     if ((await ownViews(ctx, user, args.object).take(VIEWS_MAX)).length >= VIEWS_MAX) throw new ConvexError(`At most ${VIEWS_MAX} saved views per object`);
     if (args.shared) await checkShareQuota(ctx, user.orgId, args.object);
     return ctx.db.insert("savedViews", {
-      orgId: user.orgId, object: args.object, name: cleanName(args.name), createdBy: user._id, shared: args.shared, spec: args.spec, updatedAt: Date.now(),
+      orgId: user.orgId, object: args.object, name: cleanName(args.name), createdBy: user._id, shared: args.shared, spec, updatedAt: Date.now(),
     });
   },
 });
@@ -103,12 +105,12 @@ export const update = mutation({
   args: { viewId: v.id("savedViews"), name: v.optional(v.string()), shared: v.optional(v.boolean()), spec: v.optional(viewSpec) },
   handler: async (ctx, args) => {
     const { user, view } = await ownView(ctx, args.viewId);
-    if (args.spec) await checkViewSpec(ctx, user.orgId, view.object, args.spec);
+    const spec = args.spec ? await checkedViewSpec(ctx, user.orgId, view.object, args.spec) : null;
     if (args.shared && !view.shared) await checkShareQuota(ctx, user.orgId, view.object);
     await ctx.db.patch(view._id, {
       ...(args.name !== undefined ? { name: cleanName(args.name) } : {}),
       ...(args.shared !== undefined ? { shared: args.shared } : {}),
-      ...(args.spec ? { spec: args.spec } : {}),
+      ...(spec ? { spec } : {}),
       updatedAt: Date.now(),
     });
   },

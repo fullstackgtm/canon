@@ -18,7 +18,8 @@ import { can } from "./lib/capabilities";
 import { INTAKE_CONSENT } from "./lib/conversations/consent";
 import { BACKFILL_DAYS, EXTRACT_QUIET_MS, emailMessageKey, emailReceivedKey, messageKey, replyKey, slugOf } from "./lib/conversations/intake";
 import { advanceIntakeJob, finishIntakeJob, startIntakeJob } from "./lib/conversations/intakeJob";
-import { accountCopy, linkContacts, unlinkContacts } from "./lib/conversations/store";
+import { accountCopy, linkContacts, storedInOrg, unlinkContacts } from "./lib/conversations/store";
+import { loggingMember } from "./emailLog";
 import { MESSAGE_TEXT_MAX } from "./lib/linkedin/inbound";
 import { nextGapMs } from "./lib/linkedin/limits";
 import type { PlannedObservation } from "./lib/signals/observations";
@@ -211,7 +212,8 @@ export const contactForProviderId = internalQuery({
 });
 
 type Stored = Pick<Doc<"conversationMessages">, "externalMessageId" | "direction" | "at" | "from" | "to" | "subject" | "viaCanon">;
-type Incoming = { messageId: string; direction: "in" | "out"; at: number; from: string; text: string; to?: string; subject?: string; viaCanon?: boolean };
+type Logged = Pick<Doc<"conversationMessages">, "logged" | "inReplyTo" | "references">;
+type Incoming = { messageId: string; direction: "in" | "out"; at: number; from: string; text: string; to?: string; subject?: string; viaCanon?: boolean; logged?: Logged };
 /**
  * A stored message's timeline entry on one contact's timeline: the keys meaning it is there already, and the body;
  * null for none. `fresh` is true for a message this call stored.
@@ -228,6 +230,7 @@ async function storeThread(
   account: { orgId: Id<"organizations">; userId: Id<"users">; accountRef: string; channel: Channel },
   thread: { threadId: string; counterpart: Doc<"conversations">["counterpart"]; contactIds: readonly string[]; subject?: string; participants?: Doc<"conversations">["participants"]; messages: readonly Incoming[] },
   timeline: TimelineOf,
+  { extract = true }: { extract?: boolean } = {},
 ): Promise<number> {
   const { orgId } = account;
   const now = Date.now();
@@ -247,7 +250,7 @@ async function storeThread(
   for (const m of thread.messages) {
     if (await accountCopy(ctx, orgId, account.accountRef, m.messageId)) continue;
     const row = { externalMessageId: m.messageId, direction: m.direction, at: Math.min(m.at, now), from: m.from, ...(m.to ? { to: m.to } : {}), ...(m.subject ? { subject: m.subject } : {}), ...(m.viaCanon ? { viaCanon: true } : {}) };
-    await ctx.db.insert("conversationMessages", { orgId, conversationId, ...row, text: m.text.slice(0, MESSAGE_TEXT_MAX) });
+    await ctx.db.insert("conversationMessages", { orgId, conversationId, ...row, ...m.logged, text: m.text.slice(0, MESSAGE_TEXT_MAX) });
     fresh.push(row);
     latest = Math.max(latest, row.at);
   }
@@ -264,7 +267,7 @@ async function storeThread(
     ...(thread.subject && !found?.subject ? { subject: thread.subject } : {}),
     ...(thread.participants ? { participants: mergedPeople(found?.participants ?? [], thread.participants) } : {}),
     // CI3 extracts once the thread has been quiet this long.
-    ...(fresh.length ? { extractDueAt: latest + EXTRACT_QUIET_MS } : {}), updatedAt: now,
+    ...(fresh.length && extract ? { extractDueAt: latest + EXTRACT_QUIET_MS } : {}), updatedAt: now,
   });
   await linkContacts(ctx, orgId, conversationId, added);
   return fresh.length;
@@ -391,6 +394,66 @@ export const storeEmail = internalMutation({
       },
       emailTimeline(account.userId, args.live, senders),
     );
+  },
+});
+
+/** The conversations a member's logged email is kept under (convex/emailLog.ts): one "account" per member. */
+export const loggedAccountRef = (userId: Id<"users">) => `emaillog:${userId}`;
+
+/**
+ * Store one email a member logged by BCC or forward (convex/emailLog.ts), once per workspace: by its Message-ID, or,
+ * for a forward that carries no id of the original, by its fingerprint (sender, minute, subject). It joins the member's thread of the message it replies to, and
+ * is logged on the timeline of each contact it is with, as email intake's are, without its text. Logged mail is not
+ * read for facts (no `extractDueAt`).
+ */
+export const storeLogged = internalMutation({
+  args: {
+    token: v.string(),
+    fingerprint: v.string(),
+    /** The message carries no id of its own (an inline forward): it is a duplicate when its fingerprint was logged. */
+    byFingerprint: v.boolean(),
+    subject: v.string(),
+    counterpart: v.object({ email: v.string(), name: v.optional(v.string()), domain: v.optional(v.string()) }),
+    participants: v.array(person),
+    contacts: v.array(v.object({ email: v.string(), contactId: v.string() })),
+    message: v.object({
+      messageId: v.string(), direction, at: v.number(), from: v.string(), to: v.string(), text: v.string(),
+      logged: v.union(v.literal("bcc"), v.literal("forward")), inReplyTo: v.optional(v.string()), references: v.array(v.string()),
+    }),
+  },
+  handler: async (ctx, args): Promise<{ status: "logged"; conversationId: Id<"conversations"> } | { status: "duplicate" | "unknown_address" }> => {
+    const member = await loggingMember(ctx, args.token);
+    if (!member) return { status: "unknown_address" };
+    const { orgId, userId } = member;
+    const m = args.message;
+    const key = `fp:${args.fingerprint}`;
+    if (await storedInOrg(ctx, orgId, m.messageId)) return { status: "duplicate" };
+    const seen = await ctx.db.query("emailLogKeys").withIndex("by_orgId_and_key", (q) => q.eq("orgId", orgId).eq("key", key)).first();
+    if (seen && args.byFingerprint) return { status: "duplicate" };
+    if (!seen) await ctx.db.insert("emailLogKeys", { orgId, key, createdAt: Date.now() });
+    const accountRef = loggedAccountRef(userId);
+    let threadId = `msg:${m.references[0] ?? m.inReplyTo ?? m.messageId}`;
+    for (const parent of [m.inReplyTo, ...[...m.references].reverse()]) {
+      const copy = parent ? await accountCopy(ctx, orgId, accountRef, parent) : null;
+      if (copy) {
+        threadId = copy.conversation.externalThreadId;
+        break;
+      }
+    }
+    const logged: Logged = {
+      logged: m.logged, ...(m.inReplyTo ? { inReplyTo: m.inReplyTo } : {}), ...(m.references.length ? { references: m.references.join(" ").slice(0, 4_000) } : {}),
+    };
+    await storeThread(
+      ctx, { orgId, userId, accountRef, channel: "email" },
+      {
+        threadId, counterpart: args.counterpart, contactIds: [...new Set(args.contacts.map((c) => c.contactId))], subject: args.subject, participants: args.participants,
+        messages: [{ messageId: m.messageId, direction: m.direction, at: m.at, from: m.from, to: m.to, subject: args.subject, text: m.text, logged }],
+      },
+      emailTimeline(userId, false),
+      { extract: false },
+    );
+    const conversation = await ctx.db.query("conversations").withIndex("by_accountRef_and_externalThreadId", (q) => q.eq("accountRef", accountRef).eq("externalThreadId", threadId)).first();
+    return { status: "logged", conversationId: conversation!._id };
   },
 });
 

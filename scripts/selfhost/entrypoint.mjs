@@ -3,6 +3,15 @@ import { randomBytes, generateKeyPairSync, createPublicKey } from "node:crypto";
 import { chown, mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { INTEGRATIONS_AVAILABLE, integrationEnabled, integrationNeeds } from "../../convex/lib/integrationsAvailable.ts";
+import { functionsDigest, mustPush } from "./functions.mjs";
+
+// How the processes in this container reach each other. SITE_URL and its port are the browser's
+// address: the published port can differ from the container's, and a public domain may not
+// resolve from inside, so no process calls another through it.
+const BACKEND = "http://127.0.0.1:3210";
+const BACKEND_SITE = "http://127.0.0.1:3211";
+const RECORDS = "http://127.0.0.1:8787";
+const PUSHED = "/data/convex/pushed-functions.json";
 
 process.umask(0o077);
 const children = new Set();
@@ -118,8 +127,8 @@ async function main() {
   for (const key of ["CONVEX_DEPLOYMENT", "CONVEX_DEPLOY_KEY", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY"]) delete env[key];
   Object.assign(env, {
     SITE_URL: site, APP_URL: site, NEXT_PUBLIC_SITE_URL: site,
-    NEXT_PUBLIC_CONVEX_URL: "http://127.0.0.1:3210", NEXT_PUBLIC_CONVEX_SITE_URL: publicActions,
-    CONVEX_SELF_HOSTED_URL: "http://127.0.0.1:3210",
+    NEXT_PUBLIC_CONVEX_URL: BACKEND, NEXT_PUBLIC_CONVEX_SITE_URL: publicActions,
+    CONVEX_SELF_HOSTED_URL: BACKEND,
     DATA_DIR: "/data/convex", CREDENTIALS_DIR: credentials,
     CONVEX_CLOUD_ORIGIN: publicBackend, CONVEX_SITE_ORIGIN: publicActions,
     DISABLE_BEACON: "true", DISABLE_METRICS_ENDPOINT: "true",
@@ -137,9 +146,12 @@ async function main() {
   const jwk = createPublicKey(env.CANON_SERVICE_JWT_PRIVATE_KEY).export({ format: "jwk" });
   env.CANON_SERVICE_JWKS = `data:application/json;base64,${Buffer.from(JSON.stringify({ keys: [{ ...jwk, kid: env.CANON_SERVICE_JWT_KID, alg: "RS256", use: "sig" }] })).toString("base64")}`;
   env.CLERK_JWT_ISSUER_DOMAIN ||= "https://unconfigured.invalid";
-  env.RECORD_SERVICE_URL = "http://127.0.0.1:8787";
+  env.RECORD_SERVICE_URL = RECORDS;
+  // The backend's scratch directory (run_backend.sh puts it in the volume) holds one unpacked
+  // function runtime and socket per backend process, which it never removes. Nothing runs yet.
+  await rm("/data/convex/tmp", { recursive: true, force: true });
   daemon("Convex", "/convex/run_backend.sh", [], env, "/convex");
-  await waitFor("http://127.0.0.1:3210/version");
+  await waitFor(`${BACKEND}/version`);
   const changes = [];
   const names = await convexEnvNames("/app/convex");
   for (const [feature, definition] of Object.entries(INTEGRATIONS_AVAILABLE)) {
@@ -151,17 +163,33 @@ async function main() {
     if (name === "CONVEX_CLOUD_URL" || name === "CONVEX_SITE_URL") continue;
     changes.push({ name, ...(env[name] === undefined ? {} : { value: env[name] }) });
   }
-  const updated = await fetch("http://127.0.0.1:3210/api/update_environment_variables", {
+  const updated = await fetch(`${BACKEND}/api/update_environment_variables`, {
     method: "POST", headers: { Authorization: `Convex ${env.CONVEX_SELF_HOSTED_ADMIN_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ changes }),
   });
   if (!updated.ok) throw new Error(`Setting backend environment failed (${updated.status})`);
   const cliEnvFile = "/tmp/canoncrm-convex.env";
-  await writeFile(cliEnvFile, `CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210\nCONVEX_SELF_HOSTED_ADMIN_KEY=${env.CONVEX_SELF_HOSTED_ADMIN_KEY}\n`, { mode: 0o600 });
-  console.log("Pushing functions to the in-container Convex backend");
+  await writeFile(cliEnvFile, `CONVEX_SELF_HOSTED_URL=${BACKEND}\nCONVEX_SELF_HOSTED_ADMIN_KEY=${env.CONVEX_SELF_HOSTED_ADMIN_KEY}\n`, { mode: 0o600 });
   const cli = async (args) => start("Convex CLI", process.execPath, ["node_modules/convex/bin/main.js", ...args, "--env-file", cliEnvFile], env).done;
-  await cli(["deploy", "--yes", "--typecheck", "disable", "--codegen", "disable"]);
-  daemon("Record service", process.execPath, ["--experimental-strip-types", "--no-warnings", "src/main.ts"], { ...env, DATA_DIR: "/data/records", PORT: "8787", HOST: "127.0.0.1" }, "/app/services/record-service");
-  await waitFor("http://127.0.0.1:8787/healthz");
+  const digest = functionsDigest({
+    source: await readFile("/app/.source-sha256", "utf8").catch(() => null),
+    backend: await (await fetch(`${BACKEND}/version`)).text(),
+    env: changes,
+  });
+  const recorded = await readFile(PUSHED, "utf8").then((text) => JSON.parse(text).digest, () => null);
+  if (mustPush(digest, recorded)) {
+    // Forget the last push first, so a push cut off part way is retried on the next boot.
+    await rm(PUSHED, { force: true });
+    console.log("Pushing functions to the in-container Convex backend");
+    await cli(["deploy", "--yes", "--typecheck", "disable", "--codegen", "disable"]);
+    if (digest) {
+      await writeFile(`${PUSHED}.tmp`, JSON.stringify({ digest, at: new Date().toISOString() }));
+      await rename(`${PUSHED}.tmp`, PUSHED);
+    }
+  } else console.log("Functions match the last push; not pushing them again");
+  // Convex names its public site URL as the ledger source in every nudge; this pins the address beside it.
+  daemon("Record service", process.execPath, ["--experimental-strip-types", "--no-warnings", "src/main.ts"],
+    { ...env, DATA_DIR: "/data/records", PORT: "8787", HOST: "127.0.0.1", PROJECTOR_SOURCE_URL: BACKEND_SITE }, "/app/services/record-service");
+  await waitFor(`${RECORDS}/healthz`);
   if (env.FSGTM_ENABLE_DEMO_DATA === "true") {
     await cli(["run", "devSeed:ensureWorkspace"]);
     await cli(["run", "devSeed:provisionRecords"]);

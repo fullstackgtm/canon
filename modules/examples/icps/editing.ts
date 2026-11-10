@@ -4,8 +4,8 @@ import type { CallContext, CallFunctions, CallOutput, Expect, Intent, ReadDoc, R
 import { fieldSlugs, formatQuery, parseQuery, queryToSpec, type Clause, type IcpQuery, type NodeKind } from "../../../convex/lib/icpQuery.ts";
 import { treeMoveError } from "../../../convex/lib/icpTreeMove.ts";
 import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS } from "../../../convex/lib/icpVocabulary.ts";
-import { INDUSTRIES } from "../../../services/record-service/src/industries.ts";
-import { REGIONS } from "../../../services/record-service/src/dimensions.ts";
+import { INDUSTRIES } from "../../kernel/industries.ts";
+import { REGIONS } from "../../kernel/dimensions.ts";
 
 type FormClause = { group: number; kind: string; value: { slug?: string; min?: number; max?: number } & Record<string, unknown> };
 type Criteria = FormClause[];

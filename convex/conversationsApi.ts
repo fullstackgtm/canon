@@ -14,7 +14,7 @@ import { agentClientOf, getCurrentUser, requireUser } from "./lib";
 import type { Access } from "./lib/access";
 import { readableThread, type ThreadMessage } from "./lib/conversations/store";
 import { admitThenRead } from "./lib/scopedRecordClient";
-import { accountOf, patchIntake } from "./conversations";
+import { accountOf, loggedAccountRef, patchIntake } from "./conversations";
 import { conversationsOf } from "./conversationView";
 import { accessFor, sightJudge } from "./permissions";
 import { callerClient, requireCaller } from "./records";
@@ -73,8 +73,9 @@ async function listAs(ctx: QueryCtx, user: Doc<"users">, args: { contactIds?: st
   const judge = sightJudge(ctx, [access], admitted);
   if (!args.contactIds) {
     // Each account's most recently active, so the newest `limit` overall are among them.
-    for (const { row } of await ownAccounts(ctx, user)) {
-      for (const c of await ctx.db.query("conversations").withIndex("by_accountRef_and_lastMessageAt", (q) => q.eq("accountRef", row._id)).order("desc").take(limit)) {
+    // Email they logged by BCC or forward is kept under their own ref (conversations.ts storeLogged).
+    for (const ref of [...(await ownAccounts(ctx, user)).map((a) => a.row._id as string), loggedAccountRef(user._id)]) {
+      for (const c of await ctx.db.query("conversations").withIndex("by_accountRef_and_lastMessageAt", (q) => q.eq("accountRef", ref)).order("desc").take(limit)) {
         if (c.orgId === user.orgId && c.ownerUserId === user._id) found.set(c._id, c);
       }
     }

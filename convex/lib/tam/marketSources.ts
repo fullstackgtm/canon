@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { canonIndustry } from "../../../services/record-service/src/industries.ts";
+import { canonIndustry } from "../../../modules/kernel/industries.ts";
 import { htmlText } from "../research/agentLoop.ts";
 import type { SerpRow } from "../research/webSearch.ts";
 import { companyRootDomain } from "./siteExtract.ts";

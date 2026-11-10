@@ -1,4 +1,4 @@
-import { canonIndustry } from "../../services/record-service/src/industries.ts";
+import { canonIndustry } from "../../modules/kernel/industries.ts";
 
 const INDUSTRY_RULES: Array<[RegExp, string[]]> = [
   [/(saas|software|developer|devtools|platform|b2b tech)/, ["software development"]],

@@ -13,10 +13,11 @@ import { ChevronDown, ChevronRight, Download, GripVertical, Save, Share2, Trash2
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { FILTERS_MAX, listColumns } from "../../../convex/lib/objects/listSpec";
-import { bucketStart, MEASURES_MAX, type AggregateGroup, type ReportBucket } from "../../../convex/lib/objects/reportSpec";
+import { bucketStart, MEASURES_MAX, type AggregateGroup } from "../../../convex/lib/objects/reportSpec";
+import type { ReportBucket, ReportChart as ChartKind } from "../../../modules/kernel/reportLanguage";
 import { moduleReportDef } from "../../../convex/lib/objects/moduleReport";
 import { collapseDayFilters, dayColumnsOf, expandDayFilters } from "../../../convex/lib/objects/views";
-import type { ReportChart as ChartKind, ReportSpec, ViewFilter } from "../../../convex/lib/objects/validators";
+import type { ReportSpec, ViewFilter } from "../../../modules/kernel/reportValidators";
 import type { CANON_PAGES, Node, ReportKey, ReportShape } from "../../../modules/kernel/manifest";
 import { expandSources, isMeasure, recordObjectName, unfilterable, type ReportField } from "../../../modules/kernel/reports";
 import { valueAt, type Doc, type TextScope } from "../../../modules/kernel/text";

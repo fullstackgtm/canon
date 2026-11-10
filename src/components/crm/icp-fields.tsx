@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { INDUSTRIES, canonIndustry, industryLabel } from "../../../services/record-service/src/industries";
+import { INDUSTRIES, canonIndustry, industryLabel } from "../../../modules/kernel/industries";
 import { COUNTRIES, DEPARTMENTS, EMPLOYEE_BANDS, LEVELS, canonDepartments, type Market, type Persona } from "../../../convex/lib/addRecords";
 import type { IcpExclude } from "../../../convex/lib/icpSpec";
 
@@ -74,7 +74,7 @@ export function TagInput({ value, onChange, placeholder }: { value: string[]; on
 }
 
 /**
- * Industries: a searchable pick from the canonical list (services/record-service/src/industries.ts).
+ * Industries: a searchable pick from the canonical list (modules/kernel/industries.ts).
  * Searching any source's name ("computer software", "HOSPITAL_HEALTH_CARE") offers the industry it maps to.
  */
 export function IndustryPicker({ value, onChange, ariaLabel = "Search industries" }: { value: string[]; onChange: (next: string[]) => void; ariaLabel?: string }) {

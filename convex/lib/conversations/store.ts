@@ -39,6 +39,11 @@ export async function accountCopy(ctx: QueryCtx, orgId: Id<"organizations">, acc
   return (await copiesOf(ctx, orgId, externalMessageId)).find((c) => c.conversation.accountRef === accountRef) ?? null;
 }
 
+/** Whether any copy of a message is stored in the org: email logging (convex/emailLog.ts) keeps one per workspace. */
+export async function storedInOrg(ctx: QueryCtx, orgId: Id<"organizations">, externalMessageId: string): Promise<boolean> {
+  return (await copiesOf(ctx, orgId, externalMessageId)).length > 0;
+}
+
 /**
  * The stored text behind each timeline key (`linkedin:msg:<id>`, `linkedin:reply:<id>`, `email:msg:<id>`,
  * `email:received:<id>`) that has some, as `access` may see it: a copy whose owner's text it may read, else only

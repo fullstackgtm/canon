@@ -131,6 +131,9 @@ crons.interval(
 
 crons.interval("notify expiring customer links", { hours: 1 }, internal.visits.notifyExpiring, {});
 
+// Record creates' Idempotency-Keys past their day (convex/lib/idempotency.ts).
+crons.interval("purge expired idempotency keys", { hours: 1 }, internal.apiIdempotency.purgeExpired, {});
+
 export default process.env.CANONCRM_LOCAL_STACK === "true" &&
   process.env.CANONCRM_LOCAL_CRONS !== "true"
   ? cronJobs()

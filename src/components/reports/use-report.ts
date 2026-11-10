@@ -6,7 +6,7 @@ import type { FunctionReturnType } from "convex/server";
 import { api } from "../../../convex/_generated/api";
 import { indexObjectDef, type ObjectDef } from "../../../convex/lib/objects/registry";
 import { relationsOf } from "../../../convex/lib/objects/reportSpec";
-import type { ReportSpec } from "../../../convex/lib/objects/validators";
+import type { ReportSpec } from "../../../modules/kernel/reportValidators";
 import type { ObjectDescription, TeamMember } from "../records/fields";
 import { present, type FieldInfo, type Presented } from "./present";
 

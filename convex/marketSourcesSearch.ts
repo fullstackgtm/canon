@@ -10,7 +10,7 @@ import { paidCallsAllowed, tregCall } from "./lib/treg";
 import { serpRows } from "./lib/research/webSearch";
 import { searchMarketSources, SEARCH_REFUSAL, eligibleSource } from "./lib/tam/marketSources";
 import { SOURCE_KINDS } from "./lib/tam/sourceCatalog";
-import { INDUSTRIES } from "../services/record-service/src/industries.ts";
+import { INDUSTRIES } from "../modules/kernel/industries.ts";
 
 const SCHEMA = { type: "object", properties: {
   listsCompanies: { type: "boolean" }, title: { type: "string" }, kind: { type: "string", enum: SOURCE_KINDS },

@@ -7,6 +7,7 @@ import { bearerMatches, parseOrgParam, parseStreamParams, parseTailParams } from
 import { registerAgentWebhookRoutes } from "./lib/agents/webhookRoute";
 import { registerLinkedinRoutes } from "./lib/linkedin/routes";
 import { registerDialerRoutes } from "./lib/dialer/routes";
+import { registerEmailLogRoutes } from "./lib/emailLog/routes";
 import { registerModuleUploadRoute } from "./lib/modules/uploadRoute";
 import { registerPiRoute } from "./lib/research/piRoute";
 import { registerConnectorWebhookRoutes } from "./lib/connectors/webhookRoute";
@@ -396,6 +397,8 @@ registerLinkedinRoutes(http);
 
 // Telnyx's signed Call Control webhook for the dialer (docs/dialer.md).
 registerDialerRoutes(http);
+// Email a member logs by BCC or forward, from each inbound adapter (convex/emailLog.ts).
+registerEmailLogRoutes(http);
 // Module file uploads (docs/modules.md, "Files"): a person's ticket, stored and recorded in one step.
 registerModuleUploadRoute(http);
 

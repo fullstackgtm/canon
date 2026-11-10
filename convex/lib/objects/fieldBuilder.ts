@@ -16,10 +16,8 @@
 import { checkFormula, checkRollup, COMPUTED_MAX, FormulaError, type ComputedType, type RollupDef } from "./formula.ts";
 import { isRegisterObject, registerListDef } from "./listSpec.ts";
 import { checkRuleDefs, type FieldRule } from "./rules.ts";
-import {
-  baseFields, CUSTOM_FIELD_API_NAME, isCustomObjectName, isMultiValueType, PICKLIST_COLORS, RegistryError, resolveOrgObject,
-  type FieldDef, type FieldId, type OrgObjectExtension, type PicklistOption, type ResolvedObjectDef, type StandardObjectName,
-} from "./registry.ts";
+import { baseFields, CUSTOM_FIELD_API_NAME, isMultiValueType, PICKLIST_COLORS, RegistryError, resolveOrgObject, type FieldDef, type FieldId, type OrgObjectExtension, type PicklistOption, type ResolvedObjectDef, type StandardObjectName } from "./registry.ts";
+import { isCustomObjectName } from "../../../modules/kernel/reportLanguage.ts";
 
 /** The field types an admin can create. */
 export const BUILDER_TYPES = ["text", "number", "currency", "date", "checkbox", "picklist", "multipicklist", "lookup", "user", "emails", "phones", "links", "formula", "rollup"] as const;

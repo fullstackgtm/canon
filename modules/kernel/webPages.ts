@@ -1,4 +1,4 @@
-import { normalizeCompanyWebsite } from "../../engine/src/portable/websiteSources.ts";
+import { normalizeCompanyWebsite } from "./websiteSources.ts";
 
 export type WebPagesRequest = { domain: string; urls?: never } | { urls: string[]; domain?: never };
 

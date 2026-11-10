@@ -9,7 +9,7 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 import { LEVELS } from "../../../../../convex/lib/addRecords";
 import { NONE, cellFromKey, facetOf, hasKeywords, needsCount, selects, totalsOf, type FacetDim, type Keywords, type Selection, type Terms } from "../../../../../convex/lib/staging";
-import { REGIONS, SIZE_BANDS } from "../../../../../services/record-service/src/dimensions";
+import { REGIONS, SIZE_BANDS } from "../../../../../modules/kernel/dimensions";
 import { EmptyState, LoadingRows, ViewFrame } from "@/components/dashboard";
 import { TagInput } from "@/components/crm/icp-fields";
 import { JobPhaseBars } from "@/components/job-phase-bars";

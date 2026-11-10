@@ -13,6 +13,7 @@
  */
 import { project, titleOf, type FoldState, type Lifecycle } from "./fold.ts";
 import { ASSOCIATION_OBJECT, CUSTOM_FIELD_API_NAME, isMultiValueType, type FieldDef, type FieldId, type FieldType, type FieldValue, type ResolvedObjectDef } from "./registry.ts";
+import type { FilterOp } from "../../../modules/kernel/reportLanguage.ts";
 
 export const LIST_LIMIT_MAX = 200;
 export const LIST_LIMIT_DEFAULT = 50;
@@ -21,15 +22,6 @@ export const IN_VALUES_MAX = 500;
 export const SEARCH_LIMIT_MAX = 50;
 export const SEARCH_LIMIT_DEFAULT = 20;
 export const TEXT_VALUE_MAX = 512;
-
-export type FilterOp =
-  | "eq" | "neq" | "in"
-  | "contains" | "startsWith"
-  | "gt" | "gte" | "lt" | "lte"
-  | "hasAny" | "hasAll"
-  | "empty" | "notEmpty";
-
-export const FILTER_OPS: readonly FilterOp[] = ["eq", "neq", "in", "contains", "startsWith", "gt", "gte", "lt", "lte", "hasAny", "hasAll", "empty", "notEmpty"];
 
 export type ListFilter = { field: string; op: FilterOp; value?: unknown };
 export type ListSort = { field: string; dir: "asc" | "desc" };

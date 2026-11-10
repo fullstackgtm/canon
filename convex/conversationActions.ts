@@ -156,7 +156,7 @@ async function teamOfOrg(ctx: ActionCtx, orgId: Id<"organizations">): Promise<Te
 }
 
 /** The contacts these addresses are, read as the inbox's owner (CP14): an address with one contact the owner sees, none for several. */
-async function contactsByEmail(ctx: ActionCtx, account: EmailIntakeAccount, emails: readonly string[]): Promise<Map<string, string>> {
+export async function contactsByEmail(ctx: ActionCtx, account: Pick<EmailIntakeAccount, "orgId" | "userId">, emails: readonly string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (!emails.length) return out;
   const owner = await ctx.runQuery(internal.dealPlays.principalCaller, { orgId: account.orgId, userId: account.userId });

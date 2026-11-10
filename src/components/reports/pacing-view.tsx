@@ -10,7 +10,7 @@ import { api } from "../../../convex/_generated/api";
 import { listColumns } from "../../../convex/lib/objects/listSpec";
 import { indexObjectDef, type ObjectDef } from "../../../convex/lib/objects/registry";
 import { dayColumnsOf, expandDayFilters } from "../../../convex/lib/objects/views";
-import type { ViewFilter } from "../../../convex/lib/objects/validators";
+import type { ViewFilter } from "../../../modules/kernel/reportValidators";
 import { PACING_COMPARE_MAX, dayOf, fiscalMonth, fiscalYearName, historicalShape, targetLine, type Grain, type Period, type TargetShape } from "../../../convex/lib/reports/pacing";
 import { parseAmount, targetFor, type Plan } from "../../../convex/lib/reports/targets";
 import { LoadingRows } from "@/components/dashboard";

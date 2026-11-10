@@ -121,6 +121,8 @@ test("verification creates and reads CRM records, checks restart persistence, an
         return result({ upserted: 1, ids: ["person1"] });
       }
       if (body.path === "records:get") return result(company ? { account: company, contacts: person ? [person] : [] } : null);
+      if (body.path === "activityTargets:logScoped") return result({ status: "applied", streamId: "note1" });
+      if (body.path === "activityTargets:forRecord") return result({ activities: [{ id: "note1" }] });
       if (body.path === "pipelines:list") return result([{ id: null, stages: [{ value: "qualified" }] }]);
       if (body.path === "deals:createScoped") {
         deal = { _id: "deal1", ...body.args };

@@ -8,7 +8,7 @@ import { ArrowUpLeft, Loader2, Sparkles, Target } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { FacetsResponse } from "../../../convex/lib/recordContract";
-import { NONE } from "../../../services/record-service/src/dimensions";
+import { NONE } from "../../../modules/kernel/dimensions";
 import type { Rect } from "@/lib/squarify";
 import {
   OTHER_KEY,

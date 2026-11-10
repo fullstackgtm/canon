@@ -16,7 +16,8 @@
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@fullstackgtm/canon-module-kit/*": ["./modules/kernel/*"]
     }
   },
   "include": [

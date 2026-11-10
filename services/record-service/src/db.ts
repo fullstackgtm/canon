@@ -1,7 +1,7 @@
 // Small helpers over @duckdb/node-api plus the per-workspace schema migrations.
 import type { DuckDBConnection, DuckDBValue } from "@duckdb/node-api";
 import { domainMatchSql } from "./contactLinks.ts";
-import { industryKeySql } from "./industries.ts";
+import { industryKeySql } from "./core/kernel/industries.ts";
 import { refitSql } from "./upsert.ts";
 
 export type Params = Record<string, DuckDBValue>;

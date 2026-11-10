@@ -19,6 +19,7 @@ import { indexById } from "./lib/collections";
 import { modelSettings } from "./lib/recipes";
 import { readDealDef, saveDeal, saveDealValues, type DealSource } from "./canon";
 import { coerce, resolveObjectDef, STANDARD_OBJECTS } from "./lib/objects/registry";
+import { dealCreateArgs } from "./lib/objects/createArgs";
 import { orgPipelines } from "./pipelines";
 import { currentPeriod } from "./targets";
 import { planDealCreate, withStageOutcome } from "./lib/pipelines";
@@ -26,6 +27,7 @@ import type { DealValues } from "./lib/canon/dealLedger";
 import type { FactValue } from "./lib/canon/policy";
 import { companyDeals, companyLinkOf } from "./lib/dealCompany";
 import { ID, normalizeDomain } from "./lib/canon/identity";
+import { createOnce } from "./lib/idempotency";
 
 const COMPANY_DEALS_MAX = 100;
 const CRM_PROVIDERS = ["hubspot", "salesforce"] as const;
@@ -307,28 +309,10 @@ export const get = query({
  * pipeline's and sets the deal's forecast category, probability, closed and
  * won. Like deal edits, admins and managers only. The owner defaults to the
  * caller. The row and its ledger stream (a create entry naming the caller,
- * then the values) are written in this one mutation.
- */
-const dealCreateArgs = {
-  name: v.string(),
-  amount: v.optional(v.number()),
-  currency: v.optional(v.string()),
-  closeDate: v.string(),
-  stage: v.string(),
-  pipelineId: v.optional(v.union(v.string(), v.null())),
-  dealType: v.optional(v.string()),
-  revenueType: v.optional(v.string()),
-  primaryRepId: v.optional(v.id("users")),
-  /** The register company (`acc_…`) the deal is with. */
-  companyId: v.optional(v.string()),
-  /** Values of the org's custom deal fields, by `custom.<slug>`; a required one must be here (CP7b). */
-  custom: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null()))),
-};
-
-/**
- * Create a deal. A role that sees only some companies links one through
- * createScoped, which admits it first (CP14): here a company only the record
- * service can judge reads as missing for that role.
+ * then the values) are written in this one mutation. A role that sees only
+ * some companies links one through createScoped, which admits it first (CP14):
+ * here a company only the record service can judge reads as missing for that
+ * role. The arguments are `dealCreateArgs` (lib/objects/createArgs.ts).
  */
 export const create = mutation({
   args: dealCreateArgs,
@@ -336,13 +320,17 @@ export const create = mutation({
 });
 
 export const createAdmitted = internalMutation({
-  args: { ...dealCreateArgs, admitted: v.array(v.string()) },
-  handler: async (ctx, { admitted, ...args }) => createDealAsUser(ctx, await requireUser(ctx), { ...args, custom: args.custom ?? {} }, { admitted: new Set(admitted) }),
+  args: { ...dealCreateArgs, admitted: v.array(v.string()), idempotencyKey: v.optional(v.string()) },
+  handler: async (ctx, { admitted, idempotencyKey, ...args }) => {
+    const user = await requireUser(ctx);
+    return createOnce(ctx, { orgId: user.orgId, userId: user._id }, idempotencyKey, { op: "deals.create", ...args },
+      () => createDealAsUser(ctx, user, { ...args, custom: args.custom ?? {} }, { admitted: new Set(admitted) }));
+  },
 });
 
 /** deals.create with its company admitted through the caller's scoped client: what the deal form, the API and MCP call. */
 export const createScoped = action({
-  args: dealCreateArgs,
+  args: { ...dealCreateArgs, idempotencyKey: v.optional(v.string()) },
   handler: async (ctx, args): Promise<Awaited<ReturnType<typeof createDealAsUser>>> => {
     const caller = await requireCaller(ctx);
     const company = args.companyId?.trim();

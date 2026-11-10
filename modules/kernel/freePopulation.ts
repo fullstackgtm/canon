@@ -1,5 +1,5 @@
-import { INDUSTRIES } from "../../services/record-service/src/industries.ts";
-import { icpGeosToIso } from "../../convex/lib/icpGeography.ts";
+import { INDUSTRIES } from "./industries.ts";
+import { icpGeosToIso } from "./icpGeography.ts";
 
 /** One explicit free search. Numeric bounds stay intact until the existing provider mapper runs. */
 export type FreePopulationQuery = {

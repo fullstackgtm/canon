@@ -12,7 +12,8 @@
 //   the doc's generation as its live one. A doc the scope doesn't admit is never counted.
 import { fieldColumn, ListRequestError } from "./core/objects/listSpec.ts";
 import { compileAggregateRequest, type AggregateResponse } from "./core/objects/reportSpec.ts";
-import { moduleReportDef, MODULE_SCOPE_DEPTH, sameProjection, type ModuleActivityReportSource, type ModuleDocScope, type ModuleFieldType, type ModuleProjection, type ModuleScalar, type ModuleSyncResponse, type ModuleWhere } from "./core/objects/moduleReport.ts";
+import { moduleReportDef, MODULE_SCOPE_DEPTH, sameProjection, type ModuleActivityReportSource, type ModuleDocScope, type ModuleProjection, type ModuleScalar, type ModuleSyncResponse, type ModuleWhere } from "./core/objects/moduleReport.ts";
+import type { ModuleFieldType } from "./core/kernel/reportLanguage.ts";
 import { aggregateCompiled } from "./aggregate.ts";
 import type { ModuleAggregateBody, ModuleSyncBody } from "./contract.ts";
 import { HttpError } from "./errors.ts";

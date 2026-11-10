@@ -26,7 +26,7 @@ function SettingsContent() {
     if (legacy) router.replace(legacy);
   }, [legacy, router]);
 
-  const groups = SETTINGS_GROUPS.map((group) => ({ ...group, items: group.items.filter((item) => !item.adminOnly || access.isAdmin) })).filter(
+  const groups = SETTINGS_GROUPS.map((group) => ({ ...group, items: group.items.filter((item) => (!item.adminOnly || access.isAdmin) && (!item.feature || access.features?.[item.feature])) })).filter(
     (group) => group.items.length,
   );
   const requested = searchParams.get("selected");

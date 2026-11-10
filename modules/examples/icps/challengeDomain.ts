@@ -1,4 +1,4 @@
-import { INDUSTRIES as INDUSTRY_ROWS } from "../../../services/record-service/src/industries.ts";
+import { INDUSTRIES as INDUSTRY_ROWS } from "../../kernel/industries.ts";
 import type { LeadsforgeFilters } from "../../../convex/lib/leadsforge.ts";
 import type { FreePopulationQuery } from "../../kernel/freePopulation.ts";
 import type { Icp } from "../../../engine/src/icp.ts";

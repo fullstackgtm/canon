@@ -1,0 +1,72 @@
+{
+  "FromName": "Ada Lovelace",
+  "MessageStream": "inbound",
+  "From": "ada@example.com",
+  "FromFull": {
+    "Email": "ada@example.com",
+    "Name": "Ada Lovelace",
+    "MailboxHash": ""
+  },
+  "To": "\"Grace Hopper\" <grace@example.org>",
+  "ToFull": [
+    {
+      "Email": "grace@example.org",
+      "Name": "Grace Hopper",
+      "MailboxHash": ""
+    }
+  ],
+  "Cc": "\"Turing, Alan\" <alan@example.org>, \"Bob Babbage\" <bob@example.com>",
+  "CcFull": [
+    {
+      "Email": "alan@example.org",
+      "Name": "Turing, Alan",
+      "MailboxHash": ""
+    },
+    {
+      "Email": "bob@example.com",
+      "Name": "Bob Babbage",
+      "MailboxHash": ""
+    }
+  ],
+  "Bcc": "log+testtokentesttokentestto@log.example.com",
+  "BccFull": [
+    {
+      "Email": "log+testtokentesttokentestto@log.example.com",
+      "Name": "",
+      "MailboxHash": "testtokentesttokentestto"
+    }
+  ],
+  "OriginalRecipient": "log+testtokentesttokentestto@log.example.com",
+  "Subject": "Pilot plan – next steps",
+  "MessageID": "00000000-0000-0000-0000-000000000001",
+  "ReplyTo": "",
+  "MailboxHash": "testtokentesttokentestto",
+  "Date": "Mon, 2 Nov 2026 10:15:00 -0800",
+  "TextBody": "Hi Grace and Alan,\n\nAttached is the pilot plan. Can we start on the 16th – does that work?\n\nAda\n\nOn Fri, Oct 30, 2026 at 4:02 PM Grace Hopper <grace@example.org> wrote:\n> Send us the plan when it's ready.\n",
+  "HtmlBody": "<p>Hi Grace and Alan,</p><p>Attached is the pilot plan.</p>",
+  "StrippedTextReply": "",
+  "Tag": "",
+  "Headers": [
+    {
+      "Name": "Return-Path",
+      "Value": "<ada@example.com>"
+    },
+    {
+      "Name": "Message-ID",
+      "Value": "<pilot-1@mail.example.com>"
+    },
+    {
+      "Name": "MIME-Version",
+      "Value": "1.0"
+    }
+  ],
+  "Attachments": [
+    {
+      "Name": "pilot-plan.pdf",
+      "Content": "JVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4K",
+      "ContentType": "application/pdf",
+      "ContentLength": 600,
+      "ContentID": ""
+    }
+  ]
+}

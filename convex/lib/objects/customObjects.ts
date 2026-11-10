@@ -12,10 +12,8 @@
  * Pure: no database access, no Node-only imports.
  */
 import { cleanLabel, slugOf } from "./fieldBuilder.ts";
-import {
-  CUSTOM_OBJECT_API_NAME, OBJECT_ICONS, RegistryError, resolveOrgObject,
-  type CustomObjectMeta, type FieldId, type ObjectLabels, type OrgObjectExtension,
-} from "./registry.ts";
+import { OBJECT_ICONS, RegistryError, resolveOrgObject, type CustomObjectMeta, type FieldId, type ObjectLabels, type OrgObjectExtension } from "./registry.ts";
+import { CUSTOM_OBJECT_API_NAME } from "../../../modules/kernel/reportLanguage.ts";
 
 /** Objects an org may define, archived ones included: each is a projection table in the record service. */
 export const CUSTOM_OBJECTS_MAX = 30;

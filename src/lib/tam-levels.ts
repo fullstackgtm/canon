@@ -8,8 +8,8 @@
  * level to that value") steps down the list. Encoded in the URL as JSON (`pv`).
  */
 import type { AccountsFilter } from "../../convex/lib/recordContract";
-import { NONE, REGIONS, SIZE_BANDS } from "../../services/record-service/src/dimensions.ts";
-import { UNMAPPED_PREFIX, industryLabel, isCanonicalIndustry } from "../../services/record-service/src/industries.ts";
+import { NONE, REGIONS, SIZE_BANDS } from "../../modules/kernel/dimensions.ts";
+import { UNMAPPED_PREFIX, industryLabel, isCanonicalIndustry } from "../../modules/kernel/industries.ts";
 
 /** `trait:<key>`: a Jev segment. `field:<slug>`: an AI field's accepted answer (record service 1.21.0). */
 export type Dimension = "industry" | "sizeBand" | "region" | "country" | "segment" | `trait:${string}` | `field:${string}`;

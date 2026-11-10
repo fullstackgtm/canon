@@ -19,9 +19,8 @@ import { FACT_ATTRIBUTE, FACT_OBJECTS, FACTS_MAX_ATTRIBUTES, factsDeclProblems, 
 import { EMAIL_SENDERS, OUTBOUND_CHANNELS, OUTBOX_ACTIONS, OUTBOX_STATES, SEND_KINDS, TEMPLATE_BINDS, placeholders, type OutboundDecl, type OutboxAction, type OutboxState, type SendKind, type TemplateDecl } from "./outbound.ts";
 import { ICP_TREE_FIELDS, icpTreeSchemaFits } from "./icpTree.ts";
 import type { DefinitionEdit, EditableHierarchy, EditorCall, InlineEdit } from "./editor.ts";
-import { mismatch } from "../../recipes/templates.ts";
-import { reportSpec, type ReportSpec } from "../../convex/lib/objects/validators.ts";
-import type { ViewFilter } from "../../convex/lib/objects/validators.ts";
+import { mismatch } from "./mismatch.ts";
+import { reportSpec, type ReportSpec, type ViewFilter } from "./reportValidators.ts";
 import type { RowFocus } from "./setMap.ts";
 import { CSV_IMPORT_BATCH_MAX, csvImportProblems, type CsvImportDecl } from "./csvImport.ts";
 
@@ -1446,7 +1445,7 @@ export type ModuleManifest = {
   provides?: Record<string, ProvideDecl>;
   /** The other modules' interfaces this one reads, by module id: the install screen lists them. */
   uses?: Record<string, readonly string[]>;
-  /** The server bundle's path in the package, as "dist/module.js" (scripts/module-build.ts). Required with `calls`. */
+  /** The server bundle's path in the package, as "dist/module.js" (modules/kernel/tools/build.ts). Required with `calls`. */
   server?: string;
   calls?: Record<string, CallDecl>;
   jobs?: Record<string, JobDecl>;

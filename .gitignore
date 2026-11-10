@@ -78,8 +78,9 @@ hubspot.config.yml
 /scale-spike/convex/_generated/
 
 # isolated per-worktree dev stack (scripts/dev/*): ports, PID files, logs, ci-local caches,
-# and a cloud .env.local that worktree-setup.sh moved aside (.devstack/env.local.cloud-backup*)
-/.devstack/
+# and a cloud .env.local that worktree-setup.sh moved aside (.devstack/env.local.cloud-backup*).
+# Unanchored: the resource runner also writes .devstack/activity in a service directory it runs from.
+.devstack/
 # belt and braces in case a moved-aside env file is ever relocated
 *.cloud-backup
 *.cloud-backup.*
@@ -107,3 +108,6 @@ hubspot.config.yml
 
 # Account hierarchy prototype data (holds a CRM's records)
 .hierarchy/
+
+# the module kit's build output (modules/kernel, npm pack)
+/modules/kernel/dist/

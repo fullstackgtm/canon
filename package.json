@@ -16,8 +16,10 @@
     "selfhost:deploy": "node --experimental-strip-types scripts/selfhost-deploy.ts",
     "selfhost:doctor": "node --experimental-strip-types scripts/selfhost-doctor.ts",
     "selfhost:releases": "node scripts/selfhost/releases.mjs",
+    "selfhost:backup": "node scripts/selfhost/backup.mjs",
+    "selfhost:restore": "node scripts/selfhost/backup.mjs --restore",
     "module:examples": "node --experimental-strip-types scripts/build-module-examples.ts",
-    "module:build": "node --experimental-strip-types scripts/module-build.ts",
+    "module:build": "node --experimental-strip-types modules/kernel/tools/cli.ts build",
     "fullstackgtm": "node --experimental-strip-types scripts/fullstackgtm.ts",
     "fullstackgtm:mcp": "node --experimental-strip-types scripts/fullstackgtm-mcp.ts"
   },

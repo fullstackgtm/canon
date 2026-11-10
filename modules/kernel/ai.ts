@@ -7,7 +7,7 @@
  * This file is the pure half: the manifest's checks, the answer's JSON schema, the prompt, the gate, and the fake model
  * tests and local stacks run on. convex/lib/modules/ai.ts runs it. No Node-only imports.
  */
-import { QUOTE_MIN_CHARS, quoteFound } from "../../engine/src/evidence.ts";
+import { QUOTE_MIN_CHARS, quoteFound } from "./evidence.ts";
 import type { CallDecl, CallExpr, ModuleManifest } from "./manifest.ts";
 import type { ReadValue } from "./calls.ts";
 import { coreOf, jsonSchema, valueProblems, type ObjectValidator, type ValidatorJSON } from "./schema.ts";

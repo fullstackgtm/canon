@@ -40,8 +40,9 @@ agent would, send `"source": "agent_run"` (or `enrichment`, `call`,
 with `"status": "proposed"` and nothing changes until a reviewer approves it.
 `expectedVersion` makes an update fail with 409 instead of overwriting a
 concurrent change. Companies and people (`account`, `contact`) are register
-rows: they have no version check or recycle bin, `source` does not apply, and
-create is fill-only (dedupe by domain or person, like `canon_upsert_accounts`).
+rows: they have no version check (an update, archive or restore sent
+`expectedVersion` answers 405), `source` does not apply, and create is
+fill-only (dedupe by domain or person, like `canon_upsert_accounts`).
 
 ## Errors
 
@@ -62,23 +63,83 @@ and update the deal projection without changing its amount.
 | code | status | meaning |
 |---|---|---|
 | `unauthorized` | 401 | no, unknown or unverifiable token |
-| `forbidden` | 403 | agent token, or the user's role cannot do this |
+| `forbidden` | 403 | agent token, or the user's role cannot do this (for example a rep archiving a company, or creating a deal) |
 | `unknown_object`, `not_found` | 404 | no such object or record |
 | `invalid_request` | 400 | malformed body, query or filter |
 | `validation_failed` | 422 | values rejected by the object's fields |
 | `version_conflict` | 409 | `expectedVersion` is stale |
-| `unsupported` | 405 | the object has no such verb (for example delete of companies) |
+| `idempotency_key_reused` | 422 | an `Idempotency-Key` sent again with a different request |
+| `unsupported` | 405 | the route or object has no such verb (the answer's `Allow` header lists the route's methods), or companies and people were sent `expectedVersion` |
+| `rate_limited` | 429 | over a token's or workspace's budget; retry after `Retry-After` seconds |
 | `not_configured`, `internal` | 503, 500 | server side |
+
+## Rate limits
+
+Each token has a budget of requests a minute, and so does each workspace, so
+several tokens in one workspace cannot multiply it. Reads (`GET`) and writes
+(every other method) are counted separately.
+
+| budget | reads a minute | writes a minute | variable |
+|---|---|---|---|
+| per token | 600 | 300 | `CANON_API_TOKEN_READS_PER_MINUTE`, `CANON_API_TOKEN_WRITES_PER_MINUTE` |
+| per workspace | 1,200 | 600 | `CANON_API_WORKSPACE_READS_PER_MINUTE`, `CANON_API_WORKSPACE_WRITES_PER_MINUTE` |
+
+A paired CLI token (`fsgtm_...`) has its own budget, which it shares between
+`/api/v1` and the `/mcp` tools. A session JWT is reissued every minute, so its
+budget is its user's. An MCP connection signed in through OAuth counts as its
+user, and its second ceiling is that user's, since an OAuth token names no
+workspace. A tool that writes counts as a write.
+
+Every answer carries `RateLimit-Limit`, `RateLimit-Remaining` and
+`RateLimit-Reset` (seconds). They describe the tightest budget that applies.
+Past it, the answer is `429` with `Retry-After` (seconds) and
+`{"error": {"code": "rate_limited", ...}}`. A request refused this way did
+nothing and is not counted. Retrying it after `Retry-After` is safe, a create
+included. A create that timed out is safe to retry only with an
+`Idempotency-Key` (see Create).
+
+The windows are fixed one-minute windows, counted in the app process. Hosted
+Canon runs one app container, and a self-hosted install runs one. An install
+with more app replicas allows up to that many times each budget. A deployment
+sets its own limits with the variables above: a whole number, or `0` for no
+limit. Workspace export and import (`/api/v1/workspace/...`) are not limited.
+They take an admin's one-hour key, and a large workspace's export runs to
+thousands of pages.
+
+**How the defaults were chosen.** These were measured on a local stack with
+10,003 companies, p50 of 15 calls each:
+
+| request | p50 | backend work |
+|---|---|---|
+| list 50 companies | 71 ms | one record-service query |
+| list 200, filtered | 74 ms | one record-service query |
+| group by a field | 57 ms | one record-service aggregate |
+| get one company | 60 ms | one record-service query |
+| create a lead | 169 ms | 3 Convex calls, 5 document writes |
+| update a company | 342 ms | about 4 record-service calls and a wait for the projector |
+
+Every request also costs one Convex query to identify the caller. A CLI token
+adds one Convex action. A nightly sync of 50,000 updates at 300 a minute takes
+under three hours. One client updating companies one at a time makes about 175
+a minute. An agent that reads and then writes each record of a list stays
+under both budgets. A loop with no pause reads about 1,000 times a minute on one
+connection, and ten times that with ten in parallel. It is refused after 600.
 
 ## Verbs
 
 Records come back as `{id, object, version, status, title, values, createdAt, updatedAt, deletedAt}`.
 
-**List.** `filter` repeats, as `field:op:value` with the list view's ops (`eq neq in contains startsWith gt gte lt lte hasAny hasAll empty notEmpty`; list values comma-separated; `empty` and `notEmpty` take no value). `sort=field:asc|desc`, `limit` (1 to 200), `cursor` from `nextCursor`, `deleted=true` for archived records. Returns `{data, nextCursor, total}`.
+**List.** `filter` repeats, as `field:op:value` with the list view's ops (`eq neq in contains startsWith gt gte lt lte hasAny hasAll empty notEmpty`; list values comma-separated; `empty` and `notEmpty` take no value). `sort=field:asc|desc`, `limit` (1 to 200, 50 by default), `cursor` from `nextCursor`, `deleted=true` for archived records. Returns `{data, nextCursor, total}`.
 
 ```sh
 curl -H "Authorization: Bearer $TOKEN" \
   "$BASE/api/v1/records/lead?filter=company:contains:acme&sort=updatedAt:desc&limit=50"
+```
+
+**Groups.** `GET /api/v1/records/<object>/groups?field=<apiName>` counts the records in each value of one field, as a grouped list does: a picklist, owner, lookup or yes/no field, or a date with `bucket=day|week|month|quarter|year` (month by default; date-times bucket by UTC day). `filter` repeats as in List. Returns `{data: [{key, count, sum}], rows, sum, summed, truncated}`: `sum` is a deal's amount in cents, `key` null holds the records with none, and past 100 groups `truncated` is true. A group's records are a List with its key as a filter. A field the caller's role hides cannot be grouped on.
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/records/lead/groups?field=status"
 ```
 
 **Get.** `{data}`. Companies and people use their register id (`acc_...`); others their record id.
@@ -87,21 +148,32 @@ curl -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/records/lead/$ID"
 ```
 
-**Create.** `201` with `{status, id, version, data}`. `Idempotency-Key` makes a company or person create safe to retry.
+**Create.** `201` with `{status, id, version, data}`. A company, person or deal create answers `{status, id}` only. A create is never a proposal: a `source` other than `user` is refused, since agents propose values on records that exist.
+
+Send an `Idempotency-Key` header (up to 200 characters; a new UUID per create) to make any create safe to retry, logging an activity included:
+
+- A retry with the same key and body creates nothing and answers as the first request did: the same status, `id` and `version`. `data` is the record as it is now.
+- Two requests with one key that arrive at once make one record. Both get the same answer.
+- The same key with a different body, or for another object, is refused with `422` `idempotency_key_reused`.
+- A ledger, deal or activity create that failed did not use its key: fix it and retry with the same key. A company or person create uses its key once sent, so retry a corrected one with a new key.
+- A key is your user's in this workspace: another user's same key, or another workspace's, is a different key. It is kept for 24 hours.
 
 ```sh
 curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"values":{"lastName":"Rivera","company":"Acme"}}' "$BASE/api/v1/records/lead"
 ```
 
-**Update.** `PATCH`, only the fields sent change; `null` clears one.
+The MCP create tools take the same key as an `idempotencyKey` argument: `canon_create_record`, `canon_create_deal`, `canon_upsert_accounts`, `canon_upsert_contacts` and `canon_activities` `log`.
+
+**Update.** `PATCH`, only the fields sent change; `null` clears one. Answers as a create does, with `200`; a company or person update answers `{status, id, version}`.
 
 ```sh
 curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"values":{"company":"Acme Inc"},"expectedVersion":3}' "$BASE/api/v1/records/lead/$ID"
 ```
 
-**Delete** archives the record: it leaves lists, search, reports and agents until restored, and nothing is erased. Deals archive too (`?expectedVersion=n` optional).
+**Delete** archives the record: it leaves lists, search, reports and agents until restored, and nothing is erased. It answers as an update does, with the record as it now is (`status: "deleted"`); archiving an archived record answers `unchanged`. `?expectedVersion=n` is optional for ledger records and deals, required for a line item, and refused (405) for companies and people. Companies, people and deals are archived and restored only by admins and managers (403 otherwise). A company or person is archived through the function its own page uses, so the archive shows in its history as the caller's and its Undo is Restore. Get still reads an archived record, with `status: "deleted"`; List leaves it out unless `deleted=true`.
 
 ```sh
 curl -X DELETE -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/records/lead/$ID"
@@ -113,8 +185,14 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/records/lead/$ID"
 curl -X POST -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/records/lead/$ID/restore"
 ```
 
-Deal create takes the deal's own fields (`name`, `closeDate`, `stage`, ...) in
-`values`, as `canon_create_deal` does.
+Deal create takes the arguments of `canon_create_deal` in `values`: `name`,
+`closeDate` and `stage`, and optionally `amount` (cents), `currency`,
+`pipelineId`, `dealType`, `revenueType`, `primaryRepId`, `companyId` and the
+deal's `custom.<slug>` fields. A company create takes `domain` and `name`, and
+optionally `industry`, `employees`, `country` and `linkedinUrl`; a person
+create takes `fullName`, and optionally `accountDomain` or `accountId`,
+`title`, `email` and `linkedinUrl`. The OpenAPI document below names every
+object's fields.
 
 ## Merges, links, deal roles and activities (CP16d)
 
@@ -173,6 +251,50 @@ so it shows on every timeline. `201`. `GET
 curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"object":"note","values":{"body":"Intro call"},"targets":[{"object":"account","id":"acc_1"},{"object":"contact","id":"con_1"}]}' "$BASE/api/v1/activities"
 ```
+
+## OpenAPI
+
+The API is described in an OpenAPI 3.1 document generated from the code the
+routes validate with: each operation's query, body and answer shapes
+(`src/app/api/v1/_contract.ts`) and each object's fields from the registry,
+as `canon_describe_object` gives them. A test sends every described
+operation through the real routes and fails when a request or an answer
+leaves the document, so the document cannot drift from the API.
+
+- [`docs/openapi.json`](openapi.json) describes the standard objects as an
+  admin sees them. Regenerate it with
+  `node --experimental-strip-types scripts/build-openapi.ts`; the script
+  refuses a change that breaks a stable operation.
+- `GET /api/v1/openapi.json` returns the calling workspace's own document:
+  its custom objects and fields, without the objects and fields the caller's
+  role cannot see, and only the verbs the role may use.
+- `GET /api/v1/objects` returns the same objects and fields as plain JSON:
+  each field's apiName, type, options, whether it is required and whether
+  the caller may write it.
+
+Each operation carries `x-stability`. `stable` marks what this page
+documents; `preview` marks what may still change (the Salesforce spot check,
+workspace export and import, and the two documents themselves).
+`x-canon-undescribed` lists what is not described yet. The relationship
+routes' `data` is the Convex function's answer and has no declared shape
+yet. Workspace export and import speak the `canon` CLI's own protocol.
+
+`info.version` is the API's own version, `1.x` while the paths stay under
+`/api/v1`. It changes when the owner revises the contract. The data epoch and
+the record service's contract version describe stored data and an internal
+service, not this API.
+
+To generate a typed client, run a generator against either document:
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/openapi.json" > canon.json
+npx openapi-typescript canon.json -o canon.d.ts
+```
+
+Use the API from your own code: a sync job, a form, an integration that
+reads and writes records on a schedule. Use `/mcp` for an agent. Its tools
+cover these operations and more (research, plays, reports), describe
+themselves, and return errors an agent can act on.
 
 ## Webhooks
 

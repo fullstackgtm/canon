@@ -9,6 +9,7 @@ import { v } from "convex/values";
 import { marketSegmentsValidator } from "./lib/segments/validator";
 import { PAUSE_REASON_KEYS } from "./lib/agents/standing";
 import * as objectValidators from "./lib/objects/validators";
+import { listFilter, reportSpec } from "../modules/kernel/reportValidators";
 import { deciderValidator } from "./lib/canon/decider";
 import { filterValidator, runScopeValidator } from "./lib/scopeValidators";
 import { outcomeFields, traceValidator } from "./lib/research/validators";
@@ -1106,6 +1107,32 @@ export default defineSchema({
   })
     .index("by_researchId_and_itemKey", ["researchId", "itemKey"])
     .index("by_orgId_and_itemKey", ["orgId", "itemKey"]),
+  /**
+   * What a CRM says about a link a person decided in Canon (docs/account-hierarchy-manager.md): a company's parent, a
+   * person's company or primary company, a person's role on a deal. The import or sync keeps Canon's and records what
+   * the CRM says, one row per CRM record and claim. Cleared when the CRM agrees with Canon, or when a person uses the
+   * CRM's value.
+   */
+  parentDisagreements: defineTable({
+    orgId: v.id("organizations"),
+    accountId: v.string(),
+    provider: v.union(v.literal("salesforce"), v.literal("hubspot")),
+    /** The CRM record's source ref: `salesforce:<Account id>` or `hubspot:<company id>`. */
+    crmRef: v.string(),
+    /** The Canon company the CRM's parent maps to; null when the CRM has no parent. */
+    crmParentId: v.union(v.string(), v.null()),
+    /** When the CRM was first seen with this parent. */
+    seenAt: v.number(),
+    /**
+     * Which link (lib/objects/associations.ts Disagreement); absent for a company's parent, as every row before it was.
+     * For a person's company, `accountId` is the person and `crmParentId` the company the CRM has them at (`primary`:
+     * as their primary company). For a deal, `accountId` is the deal and `crmParentId` the person the CRM has on it,
+     * in role `crmLabel`.
+     */
+    association: v.optional(v.union(v.literal("contact_account"), v.literal("deal_contact"))),
+    primary: v.optional(v.literal(true)),
+    crmLabel: v.optional(v.string()),
+  }).index("by_orgId_and_accountId_and_crmRef", ["orgId", "accountId", "crmRef"]),
   integrations: defineTable({
     orgId: v.id("organizations"),
     provider: v.union(
@@ -1376,6 +1403,10 @@ export default defineSchema({
     startedAt: v.number(),
     finishedAt: v.optional(v.number()),
     heartbeatAt: v.number(),
+    // Set on runs that write parent links as HubSpot. A run without it wrote them as the person who started it.
+    parentLinksAs: v.optional(v.literal("hubspot")),
+    // Set on runs that write a person's companies, a deal's people and what an activity is about as HubSpot too.
+    linksAs: v.optional(v.literal("hubspot")),
     objects: v.array(v.string()),
     phase: v.string(),
     cursor: v.union(v.string(), v.null()),
@@ -1458,6 +1489,30 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_tokenHash", ["tokenHash"])
+    .index("by_orgId", ["orgId"]),
+
+  // A key an admin created in Settings to export the workspace (convex/workspaceTransfer.ts): the export CLI presents
+  // it for an hour. Its SHA-256 only; creating another replaces it.
+  workspaceExportKeys: defineTable({
+    orgId: v.id("organizations"),
+    userId: v.id("users"),
+    keyHash: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_keyHash", ["keyHash"])
+    .index("by_orgId", ["orgId"]),
+
+  // A key an admin created in Settings to import an archive into this workspace (convex/workspaceImport.ts). Its own
+  // table, so an export key can never import.
+  workspaceImportKeys: defineTable({
+    orgId: v.id("organizations"),
+    userId: v.id("users"),
+    keyHash: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_keyHash", ["keyHash"])
     .index("by_orgId", ["orgId"]),
 
   // Agents (MCP clients, the canon CLI, paired CLI tokens) that have reached
@@ -1804,6 +1859,9 @@ export default defineSchema({
     linkedin: v.optional(v.array(v.object({ senderAccountId: v.id("linkedinAccounts"), cadenceId: v.id("linkedinCadences") }))),
     // The keeper's last daily check (dealPlayKeeper.ts): health, the flags it raised, and when it last told Slack.
     keeperCheckedAt: v.optional(v.number()),
+    // The keeper is off for this play until a person runs it (dealPlayKeeper.ts checkNow): set on a play imported
+    // from another workspace (lib/workspaceArchive/actors.ts), so nothing drafts or posts from history on its own.
+    keeperPaused: v.optional(v.object({ reason: v.string(), at: v.number() })),
     keeper: v.optional(v.object({
       lastTouch: v.optional(v.object({ at: v.number(), channel: playChannel })),
       health: v.union(v.literal("on_track"), v.literal("needs_attention"), v.literal("at_risk")),
@@ -4076,6 +4134,20 @@ export default defineSchema({
     .index("by_endpointId_and_createdAt", ["endpointId", "createdAt"])
     .index("by_status_and_nextAttemptAt", ["status", "nextAttemptAt"]),
 
+  // A create's Idempotency-Key (convex/lib/idempotency.ts): a SHA-256 of the request it was first sent
+  // with and that create's answer, per user in one workspace, until `expiresAt`. A company or person
+  // create stores `result` null: the record service replays it by the same key.
+  apiIdempotencyKeys: defineTable({
+    orgId: v.id("organizations"),
+    userId: v.id("users"),
+    key: v.string(),
+    request: v.string(),
+    result: v.any(),
+    expiresAt: v.number(),
+  })
+    .index("by_orgId_and_userId_and_key", ["orgId", "userId", "key"])
+    .index("by_expiresAt", ["expiresAt"]),
+
   // An automation rule (CP17, convex/automations.ts): when a record of `object` changes as `trigger`
   // says and passes `conditions` (the list views' filters), run `actions` in order, as `createdBy`.
   // It acts on entries after `startSeqs` (per shard, the ledger heads when it was created or resumed)
@@ -4816,7 +4888,7 @@ export default defineSchema({
     name: v.string(),
     createdBy: v.id("users"),
     shared: v.boolean(),
-    spec: objectValidators.reportSpec,
+    spec: reportSpec,
     updatedAt: v.number(),
     /** Canon's own report, by its canon-base template key (recipes/canon-base/recipe.md). */
     builtIn: v.optional(v.string()),
@@ -4857,7 +4929,7 @@ export default defineSchema({
   audiences: defineTable({
     orgId: v.id("organizations"),
     name: v.string(),
-    filter: v.array(objectValidators.listFilter),
+    filter: v.array(listFilter),
     viewId: v.optional(v.id("savedViews")),
     createdBy: v.id("users"),
     shared: v.optional(v.boolean()),
@@ -5069,7 +5141,8 @@ export default defineSchema({
     .index("by_enrollmentId_and_at", ["enrollmentId", "at"]),
 
   // A rep's 1:1 conversation with someone outside the team, read from a linked account whose owner turned
-  // intake on (docs/conversation-intake.md). `accountRef` is the linkedinAccounts or emailAccounts id.
+  // intake on (docs/conversation-intake.md). `accountRef` is the linkedinAccounts or emailAccounts id, or
+  // `emaillog:<userId>` for email a member logged by BCC or forward (convex/emailLog.ts).
   // An unmatched counterpart leaves `contactIds` empty and keeps who they are for a suggested contact (CI3).
   // A contact's conversations are found through conversationContacts (convex/conversationView.ts); its timeline
   // observations carry `linkedin:msg:<id>`, `email:msg:<id>` and `email:received:<id>` keys (an email's id is its Message-ID).
@@ -5107,7 +5180,9 @@ export default defineSchema({
     .index("by_accountRef_and_externalThreadId", ["accountRef", "externalThreadId"])
     // An account's conversations, most recently active first (convex/conversationsApi.ts list).
     .index("by_accountRef_and_lastMessageAt", ["accountRef", "lastMessageAt"])
-    .index("by_extractDueAt", ["extractDueAt"]),
+    .index("by_extractDueAt", ["extractDueAt"])
+    // A workspace's conversations, for its archive (lib/workspaceArchive/tables.ts).
+    .index("by_orgId", ["orgId"]),
 
   // One message of a conversation, verbatim (capped at 50k characters). Read only through
   // lib/conversations/store.ts readableTexts, which shows the text to its owner and to roles that read their activity.
@@ -5124,6 +5199,11 @@ export default defineSchema({
     to: v.optional(v.string()),
     subject: v.optional(v.string()),
     viaCanon: v.optional(v.boolean()),
+    // An email a member logged by BCC or forward (convex/emailLog.ts): how it came in, and the ids it replies to
+    // (In-Reply-To, and References space-separated). Its attachments' names and sizes end its text; their content is not kept.
+    logged: v.optional(v.union(v.literal("bcc"), v.literal("forward"))),
+    inReplyTo: v.optional(v.string()),
+    references: v.optional(v.string()),
   })
     .index("by_orgId_and_externalMessageId", ["orgId", "externalMessageId"])
     .index("by_conversationId_and_at", ["conversationId", "at"]),
@@ -5168,6 +5248,30 @@ export default defineSchema({
     .index("by_userId", ["userId"])
     .index("by_unipileAccountId", ["unipileAccountId"])
     .index("by_status", ["status"]),
+
+  // A member's private address for logging email by BCC or forward (convex/emailLog.ts): `log+<token>@` the
+  // deployment's EMAIL_LOG_DOMAIN. The token alone says whose mail it is; generating a new one revokes the old
+  // (`revokedAt`). `windowStart` and `count` rate-limit deliveries; `held` lists the latest mail it did not log.
+  emailLogAddresses: defineTable({
+    orgId: v.id("organizations"),
+    userId: v.id("users"),
+    token: v.string(),
+    createdAt: v.number(),
+    revokedAt: v.optional(v.number()),
+    windowStart: v.optional(v.number()),
+    count: v.optional(v.number()),
+    held: v.optional(v.array(v.object({ at: v.number(), from: v.string(), subject: v.string(), reason: v.string() }))),
+  })
+    .index("by_token", ["token"])
+    .index("by_userId", ["userId"]),
+
+  // A logged email's sender, minute and subject (lib/emailLog/attribute.ts fingerprintOf): a forward of an email
+  // carries no Message-ID of its own, so this is how the same email logged by BCC and by forward is stored once.
+  emailLogKeys: defineTable({
+    orgId: v.id("organizations"),
+    key: v.string(),
+    createdAt: v.number(),
+  }).index("by_orgId_and_key", ["orgId", "key"]),
 
   // Every email sent from a linked account. A row is claimed ("sending") before the
   // call, so the daily cap holds under concurrent sends; the exact text is on the
@@ -5801,4 +5905,28 @@ export default defineSchema({
     object: v.string(),
     canonId: v.string(),
   }).index("by_orgId_and_sfId", ["orgId", "sfId"]),
+
+  // An archive being imported into a workspace (convex/workspaceImport.ts), one per archive digest: the sections done,
+  // so an interrupted import resumes, and what it wrote.
+  workspaceImports: defineTable({
+    orgId: v.id("organizations"),
+    userId: v.id("users"),
+    digest: v.string(),
+    sourceWorkspaceId: v.string(),
+    status: v.union(v.literal("running"), v.literal("done")),
+    replaced: v.array(v.string()),
+    written: v.record(v.string(), v.number()),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  }).index("by_orgId", ["orgId"]),
+  // The import's id map: the id each archived row (or register record) has in this workspace. Ids in the file are never
+  // used as ids here.
+  workspaceImportIds: defineTable({
+    orgId: v.id("organizations"),
+    importId: v.id("workspaceImports"),
+    table: v.string(),
+    oldId: v.string(),
+    newId: v.string(),
+  })
+    .index("by_importId_oldId", ["importId", "oldId"]),
 });

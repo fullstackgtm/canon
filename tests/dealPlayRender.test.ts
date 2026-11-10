@@ -48,7 +48,7 @@ function harness(plan = steps, canEdit = true, extra: Record<string, unknown> = 
     streamId: "deal", recipe: { id: "fsgtm-enterprise-deal", settings: recipes.RECIPES["fsgtm-enterprise-deal"].settings }, canEdit, started: true,
     recipeData: { stages: plays.stages, peopleFields: plays.people.fields, peopleSlugs: plays.people.slugs },
     deal: { companyId: "company", companyName: "Example", amount: 100000, currency: "USD", ownerName: "Owner", closeDate: "2026-12-31" },
-    brief: {}, research: null, keeperCheck: null,
+    brief: {}, research: null, keeperCheck: null, keeperPaused: null,
     keeper: { health: "needs_attention", flags: [{ key: "gap", severity: "medium", text: "Missing champion" }], windowDays: null },
     steps: plan, people: [{ contactId: "person", name: "Buyer", role: "executive", thread: { state: "untouched", touches: 0 } }],
     items: [], others: [], suggested: [], touches: [], pointOfView: { icpId: "icp", icpName: "Platform teams", text: "Routing, not volume." },
@@ -124,6 +124,7 @@ function harness(plan = steps, canEdit = true, extra: Record<string, unknown> = 
       },
     },
     "@/components/records/lookup-field": { recordHref: () => "/buyer" },
+    "@/components/records/crm-note": { CrmRoleNotes: () => null },
     "@/components/records/object-labels": { useObjectLabels: () => () => ({ label: "Person", pluralLabel: "People" }) },
     // The canvas is visual; these tests read the list view it switches with.
     "@/components/flow/flow-canvas": { FlowSwitch: ({ list }: { list: ReactNode }) => list, FlowCanvas: () => null, FlowRows: () => null },

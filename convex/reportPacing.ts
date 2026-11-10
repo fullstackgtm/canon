@@ -8,7 +8,7 @@ import { ConvexError, v } from "convex/values";
 import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { callerClient, requireCaller } from "./records";
-import { listFilter } from "./lib/objects/validators";
+import { listFilter } from "../modules/kernel/reportValidators";
 import type { Id } from "./_generated/dataModel";
 
 export type { PacingResult, PacingSeries } from "./lib/reports/runPacing";

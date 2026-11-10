@@ -14,16 +14,12 @@
  */
 import { cellOf, compileListRequest, listColumns, ListRequestError, matchesFilter, matchesScope, type CompiledFilter, type CompiledScope, type ListColumn, type ListFilter, type ListRow, type OwnerScope, type ProjectedThrough, type Scalar } from "./listSpec.ts";
 import { resolveObjectDef, type FieldDef, type ResolvedObjectDef } from "./registry.ts";
+import { ACTIVITY_OBJECT, MEASURE_FNS, REPORT_BUCKETS, type MeasureFn, type ReportBucket } from "../../../modules/kernel/reportLanguage.ts";
 
 export const GROUP_BY_MAX = 3;
 export const MEASURES_MAX = 5;
 /** Groups (and subtotals) a response carries, in key order; past it the response is `truncated`. Totals always count every row. */
 export const GROUPS_MAX = 500;
-
-export const REPORT_BUCKETS = ["day", "week", "month", "quarter", "year"] as const;
-export type ReportBucket = (typeof REPORT_BUCKETS)[number];
-export const MEASURE_FNS = ["count", "sum", "avg", "min", "max"] as const;
-export type MeasureFn = (typeof MEASURE_FNS)[number];
 
 /** A group key: `field` of the object, or with `via`, of the record its lookup `via` points at. A date groups by `bucket` (month by default). */
 export type ReportGroup = { field: string; via?: string; bucket?: ReportBucket };
@@ -44,12 +40,7 @@ export type AggregateResponse = { groups: AggregateGroup[]; subtotals: Aggregate
 /** A contact's primary company: the register's `accountId`, not a registry field. */
 export const CONTACT_COMPANY_VIA = "accountId";
 
-/**
- * Activities, a report-only object: every note, task, call and meeting as one
- * set, with its `type` (which of the four) and its owner, so a report can count
- * activities by owner and type. Nothing is stored under it.
- */
-export const ACTIVITY_OBJECT = "activity";
+/** The activity report object's own fields (reportLanguage.ts ACTIVITY_OBJECT). */
 export const ACTIVITY_TYPES = ["note", "task", "call", "meeting"] as const;
 export const activityReportDef = (): ResolvedObjectDef => resolveObjectDef({
   apiName: ACTIVITY_OBJECT, label: "Activity", pluralLabel: "Activities", residency: "onDemand", storage: "ledger", titleField: "type",
@@ -89,10 +80,15 @@ function keyKindOf(col: ListColumn, field: FieldDef | undefined): KeyKind | null
   return null;
 }
 
+/** How a field groups (a value, or a bucketed day or instant), or null when it cannot be a group key. */
+export function groupKeyKind(def: ResolvedObjectDef, name: string): KeyKind | null {
+  const col = listColumns(def).get(name);
+  return col ? keyKindOf(col, def.byApiName.get(name)) : null;
+}
+
 /** Whether a field can be a group key or a measure, for builders that offer only what a report accepts. */
 export function groupableField(def: ResolvedObjectDef, name: string): boolean {
-  const col = listColumns(def).get(name);
-  return Boolean(col && keyKindOf(col, def.byApiName.get(name)));
+  return groupKeyKind(def, name) !== null;
 }
 export function measurableField(def: ResolvedObjectDef, name: string): boolean {
   const col = listColumns(def).get(name);
@@ -174,6 +170,14 @@ export function bucketStart(day: string, bucket: ReportBucket): string {
   const date = new Date(Date.UTC(y, m - 1, d));
   date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
   return ymd(date);
+}
+
+/** The first day of the bucket after the one starting on `start`. */
+export function bucketEnd(start: string, bucket: ReportBucket): string {
+  const [y, m, d] = start.split("-").map(Number);
+  const next = bucket === "day" ? new Date(Date.UTC(y, m - 1, d + 1)) : bucket === "week" ? new Date(Date.UTC(y, m - 1, d + 7))
+    : bucket === "month" ? new Date(Date.UTC(y, m, 1)) : bucket === "quarter" ? new Date(Date.UTC(y, m + 2, 1)) : new Date(Date.UTC(y + 1, 0, 1));
+  return ymd(next);
 }
 
 function keyOf(cell: unknown, g: CompiledGroup): Scalar | null {

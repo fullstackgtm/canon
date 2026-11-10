@@ -76,20 +76,21 @@ import { checkSpec, cleanName, REPORTS_MAX } from "./reports";
 import { scopeOwners } from "./lib/reportScope";
 import { checkTiles, cleanDashboardName, DASHBOARDS_MAX, tile as dashboardTile } from "./lib/dashboardRules";
 import { can } from "./lib/capabilities";
-import { reportSpec, type ReportSpec } from "./lib/objects/validators";
+import { reportSpec, type ReportSpec, listFilter } from "../modules/kernel/reportValidators";
 import { aggregateRowsInMemory, bucketStart, compileAggregateRequest, MEASURES_MAX, type AggregateResponse } from "./lib/objects/reportSpec";
 import { joinParts, needsSplit, plainMeasures, plainSpec, splitReport } from "./lib/objects/metricSplit";
 import { ListRequestError } from "./lib/objects/listSpec";
-import { moduleListRow, moduleReportDef, type ModuleDocScope, type ModuleReportField, type ModuleProjection } from "./lib/objects/moduleReport";
+import { moduleListRow, moduleReportDef, type ModuleDocScope, type ModuleProjection } from "./lib/objects/moduleReport";
+import type { ModuleReportField } from "../modules/kernel/reportLanguage";
 import { projectionOf, sameProjection } from "./lib/modules/projection";
-import { aggregateMeasures, CANON_SOURCES, canonReportRequest, canonSourceFields, DEAL_ACCOUNT, EVERY_CANON_SOURCE, grantsSource, isCanonSource, latestByMember, recordObjectOf, reportFields, reportReads, teamAggregate, WEIGHTED_AMOUNT, type AggregateSpec, type CanonReportRequest, type ReportField } from "../modules/kernel/reports.ts";
+import { aggregateMeasures, CANON_SOURCES, canonSourceFields, DEAL_ACCOUNT, EVERY_CANON_SOURCE, grantsSource, isCanonSource, latestByMember, recordObjectOf, reportFields, reportReads, teamAggregate, WEIGHTED_AMOUNT, type AggregateSpec, type ReportField } from "../modules/kernel/reports.ts";
+import { canonReportRequest, type CanonReportRequest } from "./lib/modules/recordReportFields.ts";
 import { everyRecordSource } from "./lib/modules/recordSources";
 import { listedDef } from "./savedViews";
 import { reportsBehind, retryFailed, REPORT_JOB } from "./lib/modules/jobs";
 import { rosterOf, fyStartOf } from "./targets";
 import { fiscalMonth, PACING_COMPARE_MAX } from "./lib/reports/pacing";
 import { runPacing, type PacingResult, type PacingPlan, type PacingSource as RunPacingSource } from "./lib/reports/runPacing";
-import { listFilter } from "./lib/objects/validators";
 import { pickCalls, transcriptOf, type Transcript } from "./lib/modules/transcripts";
 
 import { issueShareLink, planShareLink, shareLinks, changeShareLink, previewSharePage, type IssueSharePlan } from "./lib/modules/visitors";
@@ -98,7 +99,7 @@ import { canonicalJson } from "../modules/kernel/integrity.ts";
 import { sha256 } from "./lib/modules/shares";
 
 const ERRORS_SHOWN = 8;
-/** A module's server bundle: one ESM file, as scripts/module-build.ts writes it. */
+/** A module's server bundle: one ESM file, as the module kit's build (modules/kernel/tools/build.ts) writes it. */
 const BUNDLE_MAX_BYTES = 1024 * 1024;
 /** A replaceSet's docs reach Convex in chunks below its 8,192-element and 8 MiB argument limits. */
 const STAGE_CHUNK = 1000;

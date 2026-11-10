@@ -1,6 +1,6 @@
 "use client";
 
-import type { ViewFilter } from "../../../convex/lib/objects/validators";
+import type { ViewFilter } from "../../../modules/kernel/reportValidators";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";

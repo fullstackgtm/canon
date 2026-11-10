@@ -146,7 +146,7 @@ const relationTools: CanonTool[] = [
     "canon_activities",
     "Log a note, task, call or meeting about one or more records, and read a record's timeline.",
     {
-      log: a(api.activityTargets.logScoped, "{ object: \"note\" | \"task\" | \"call\" | \"meeting\", values: { <field apiName>: value }, targets: [{ object: \"account\" | \"contact\" | \"deal\", id }] } -> the write's result"),
+      log: a(api.activityTargets.logScoped, "{ object: \"note\" | \"task\" | \"call\" | \"meeting\", values: { <field apiName>: value }, targets: [{ object: \"account\" | \"contact\" | \"deal\", id }], idempotencyKey? } -> the write's result; the same idempotencyKey and args return the first result"),
       for_record: a(api.activityTargets.forRecord, "{ object: \"account\" | \"contact\" | \"deal\", id } -> { activities, projectedThrough }"),
       history: a(api.objects.historyScoped, "{ streamId, paginationOpts: { numItems, cursor: string | null } } -> a record's change history, newest first"),
     },

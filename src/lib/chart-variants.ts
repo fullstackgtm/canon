@@ -1,4 +1,5 @@
-import type { ReportChart, ReportSpec } from "../../convex/lib/objects/validators";
+import type { ReportSpec } from "../../modules/kernel/reportValidators";
+import type { ReportChart } from "../../modules/kernel/reportLanguage";
 import { chartFit } from "./chart-fit.ts";
 
 /** A chart as the picker offers it: Canon's chart kind and how it draws (stacked, a line over columns). */

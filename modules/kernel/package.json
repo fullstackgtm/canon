@@ -1,0 +1,53 @@
+{
+  "name": "@fullstackgtm/canon-module-kit",
+  "version": "1.0.0",
+  "description": "Canon's module contract: the types a module's server code uses, and a CLI that checks and builds a module.",
+  "license": "AGPL-3.0-only AND Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fullstackgtm/canon.git",
+    "directory": "modules/kernel"
+  },
+  "type": "module",
+  "sideEffects": [
+    "*.ts"
+  ],
+  "engines": {
+    "node": ">=22.6"
+  },
+  "bin": {
+    "canon-module-kit": "./dist/tools/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "import": "./dist/*.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "LICENSE",
+    "LICENSE-APACHE",
+    "README.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -p tsconfig.build.json",
+    "postpack": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\""
+  },
+  "dependencies": {
+    "esbuild": "0.27.0"
+  },
+  "peerDependencies": {
+    "convex": "^1.31.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "5.9.3"
+  }
+}

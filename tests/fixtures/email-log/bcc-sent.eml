@@ -1,0 +1,40 @@
+Return-Path: <ada@example.com>
+Message-ID: <pilot-1@mail.example.com>
+Date: Mon, 2 Nov 2026 10:15:00 -0800
+From: Ada Lovelace <ada@example.com>
+To: Grace Hopper <grace@example.org>
+Cc: "Turing, Alan" <alan@example.org>, Bob Babbage <bob@example.com>
+Subject: =?UTF-8?Q?Pilot_plan_=E2=80=93_next_steps?=
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mix-1"
+
+--mix-1
+Content-Type: multipart/alternative; boundary="alt-1"
+
+--alt-1
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hi Grace and Alan,
+
+Attached is the pilot plan. Can we start on the 16th =E2=80=93 does that wo=
+rk?
+
+Ada
+
+On Fri, Oct 30, 2026 at 4:02 PM Grace Hopper <grace@example.org> wrote:
+> Send us the plan when it's ready.
+
+--alt-1
+Content-Type: text/html; charset="UTF-8"
+
+<p>Hi Grace and Alan,</p><p>Attached is the pilot plan.</p>
+--alt-1--
+
+--mix-1
+Content-Type: application/pdf; name="pilot-plan.pdf"
+Content-Disposition: attachment; filename="pilot-plan.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4KJVBERi0xLjQgZmljdGlvbmFsIHBpbG90IHBsYW4K
+--mix-1--

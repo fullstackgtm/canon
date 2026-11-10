@@ -1,5 +1,5 @@
-import { icpGeosToIso } from "../icpGeography.ts";
-import { INDUSTRIES, canonIndustry, type IndustryKey } from "../../../services/record-service/src/industries.ts";
+import { icpGeosToIso } from "../../../modules/kernel/icpGeography.ts";
+import { INDUSTRIES, canonIndustry, type IndustryKey } from "../../../modules/kernel/industries.ts";
 
 export const SOURCE_KINDS = ["registry", "directory", "marketplace", "award_list", "license_board", "association"] as const;
 export type SourceKind = typeof SOURCE_KINDS[number];
