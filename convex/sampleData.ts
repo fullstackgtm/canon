@@ -24,7 +24,7 @@ import { clientFor } from "./records";
 import { saveDealValues } from "./canon";
 import { ensureAccount, ensureDeal, ensureUser, seedAcmeDeal, seedNorthwind, upsertAcmeCompanies } from "./devSeed";
 import { SAMPLE_SETS, sampleDataset, withNeeds, type SampleSetKey } from "./lib/sampleDataset";
-import { ACME_DEALS } from "../modules/examples/customer-success/engine/acme.ts";
+import { ACME_DEALS } from "./lib/sampleAcme.ts";
 import type { Id } from "./_generated/dataModel";
 
 const enabled = () => isDevOrLocalDeployment(process.env);

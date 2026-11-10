@@ -2,7 +2,7 @@ import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { principalAccess } from "../../permissions";
 import { canonicalJson } from "../../../modules/kernel/integrity.ts";
-import { arm } from "../../../modules/examples/sequences/engine.ts";
+import { arm } from "../../../modules/kernel/sequences.ts";
 import { BODY_MAX, SUBJECT_MAX, validAddress } from "../email/compose";
 import { senderReader } from "../modules/senders";
 import { suppressionFor } from "../suppressions/store";

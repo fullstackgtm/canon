@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { addScheduleDays, arm, MANUAL_STEPS, plan, type Schedule, type Step } from "../modules/kernel/sequences.ts";
 import {
-  abTest, addScheduleDays, arm, funnel, MANUAL_STEPS, onOutcome, placeDay, plan, skipReasons,
-  type Candidate, type Due, type Outcome, type OutcomeKind, type Room, type Schedule, type Step, type Touch,
+  abTest, funnel, onOutcome, placeDay, skipReasons,
+  type Candidate, type Due, type Outcome, type OutcomeKind, type Room, type Touch,
 } from "../modules/examples/sequences/engine.ts";
 
 // docs/module-plans/sequences.md §12, "Northwind", re-cut 2026-10-18: Avery's two linked Gmail accounts, 10 first

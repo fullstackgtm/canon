@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ACME_DEALS } from "../modules/examples/customer-success/engine/acme.ts";
+import { ACME_DEALS } from "../convex/lib/sampleAcme.ts";
 import { addDays, arrOn, ledger, type Deal } from "../modules/examples/customer-success/engine/contracts.ts";
 import { retention } from "../modules/examples/customer-success/engine/retention.ts";
 import { dailyUsage, GROW_DEFAULTS, usageSignals } from "../modules/examples/customer-success/engine/usage.ts";

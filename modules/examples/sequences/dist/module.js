@@ -44,6 +44,7 @@ function plan(pos, steps, s, now, interval = "schedule_days") {
   const day = interval === "schedule_days" ? addScheduleDays(base, step.delayDays, s) : nextOpenDay(addDays(base, step.delayDays), s);
   return { done: false, stepIndex: pos.stepIndex, day, nextAt: Math.max(zonedMs(day, s.start, s.timeZone), now) };
 }
+
 var MERGE = /\{\{\s*([a-zA-Z][\w.]*)\s*(?:\|\s*default\s+"([^"]*)")?\s*\}\}/g;
 function unresolvedFields(template, fields) {
   const out = [];

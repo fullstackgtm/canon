@@ -14,7 +14,7 @@ import { rescoreOrg } from "./icps";
 import { saveDealAsCaller } from "./objects";
 import { peopleField } from "./researchAgents";
 import { RECIPES, defaultPlays } from "../recipes/index.ts";
-import { ACME_COMPANIES, ACME_DEALS } from "../modules/examples/customer-success/engine/acme.ts";
+import { ACME_COMPANIES, ACME_DEALS } from "./lib/sampleAcme.ts";
 import { checkPackage } from "./recipes";
 import { copyOf } from "./workspaceRecipes";
 import { attributeFor } from "./lib/research/agentLoop";
@@ -1508,7 +1508,7 @@ export async function seedNorthwind(
  * Local stack only: the Customer success module's fixture "Acme Analytics" (docs/module-plans/customer-success.md
  * §12), so its Retention goldens can be checked live (`convex run devSeed:seedCustomerSuccess`). Six companies join the
  * record service, and Dana Ruiz (CSM) and Lee Park (her manager) the demo workspace, with the twelve deals of
- * `modules/examples/customer-success/engine/acme.ts`, each linked to its company and owned by Dana. A re-run writes
+ * `convex/lib/sampleAcme.ts`, each linked to its company and owned by Dana. A re-run writes
  * the same rows again.
  */
 export const seedCustomerSuccess = internalAction({
