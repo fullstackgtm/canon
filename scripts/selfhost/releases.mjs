@@ -20,13 +20,14 @@ const PINNED_SIGNERS = ".canon/release-signers";
 const DATA_CONTRACT = "scripts/selfhost/data-contract.json";
 
 // What a commit says about stored data. A commit from before contracts existed is epoch 0.
-/** @returns {{ epoch: number, minEpoch: number, migrations: { epoch: number, run: string }[] }} */
+/** @returns {{ epoch: number, minEpoch: number, migrations: { epoch: number, run: string }[], bridge?: string }} */
 export function parseContract(text, label = DATA_CONTRACT) {
   if (text === null) return { epoch: 0, minEpoch: 0, migrations: [] };
   const value = JSON.parse(text);
   const whole = (n) => Number.isSafeInteger(n) && n >= 0;
   const valid = whole(value.epoch) && whole(value.minEpoch) && value.minEpoch <= value.epoch && Array.isArray(value.migrations)
-    && value.migrations.every((m) => whole(m.epoch) && m.epoch <= value.epoch && typeof m.run === "string" && m.run);
+    && value.migrations.every((m) => whole(m.epoch) && m.epoch <= value.epoch && typeof m.run === "string" && m.run)
+    && (value.bridge === undefined || /^release\/\d{4}-\d{2}-\d{2}$/.test(value.bridge));
   if (!valid) throw new Error(`Invalid data contract in ${label}`);
   return value;
 }

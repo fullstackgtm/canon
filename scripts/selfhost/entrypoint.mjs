@@ -4,6 +4,7 @@ import { chown, mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/
 import { join } from "node:path";
 import { INTEGRATIONS_AVAILABLE, integrationEnabled, integrationNeeds } from "../../convex/lib/integrationsAvailable.ts";
 import { functionsDigest, mustPush } from "./functions.mjs";
+import { checkDataEpoch, imageContract, recordDataEpoch } from "./dataEpoch.mjs";
 import { newSetupCode, newTokenEncryptionKey, platformSiteUrl, SETUP_CODE_FILE } from "./platform.mjs";
 
 // How the processes in this container reach each other. SITE_URL and its port are the browser's
@@ -120,6 +121,10 @@ async function main() {
   const site = origin(process.env.SITE_URL || platformSiteUrl(process.env) || "http://localhost:3000", "SITE_URL");
   const publicBackend = process.env.CONVEX_PUBLIC_URL ? origin(process.env.CONVEX_PUBLIC_URL, "CONVEX_PUBLIC_URL") : `${site}/convex`;
   const publicActions = process.env.CONVEX_PUBLIC_SITE_URL ? origin(process.env.CONVEX_PUBLIC_SITE_URL, "CONVEX_PUBLIC_SITE_URL") : `${site}/convex-site`;
+  const contract = imageContract();
+  const epoch = checkDataEpoch("/data", contract);
+  if (!epoch.ok) throw new Error(epoch.reason);
+  if (epoch.fresh) recordDataEpoch("/data", contract, contract.epoch);
   const credentials = "/data/credentials";
   await mkdir(credentials, { recursive: true });
   await mkdir("/data/convex", { recursive: true });
@@ -135,6 +140,11 @@ async function main() {
     DISABLE_BEACON: "true", DISABLE_METRICS_ENDPOINT: "true",
     INSTANCE_NAME: "canoncrm-selfhost",
   });
+  // A push loads every module to analyze it (4 s by default) and evaluates the schema under the query and
+  // mutation limit (1 s). On a slow host both ran out: at 0.2 CPU the push failed and the container restarted
+  // 12 times in 17 minutes. With these it was healthy in 7 minutes. An operator's own values win.
+  env.ISOLATE_ANALYZE_USER_TIMEOUT_SECONDS ||= "60";
+  env.DATABASE_UDF_USER_TIMEOUT_SECONDS ||= "30";
   env.INSTANCE_SECRET = await persisted(`${credentials}/instance_secret`, () => randomBytes(32).toString("hex"));
   env.CONVEX_SELF_HOSTED_ADMIN_KEY = await persisted(`${credentials}/admin_key`, () =>
     start("admin key generation", "/convex/generate_admin_key.sh", [], env, "/convex", true).done);
@@ -199,10 +209,12 @@ async function main() {
     await cli(["run", "devSeed:provisionRecords"]);
   }
   // Next fetches the URLs Convex hands back (storage, upload routes), which carry the browser's address; these map them back inside.
-  daemon("Next", process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", port],
-    { ...env, CANON_SETUP_CODE: setupCode, CANON_INTERNAL_CONVEX_URL: BACKEND, CANON_INTERNAL_CONVEX_SITE_URL: BACKEND_SITE });
+  daemon("Next", process.execPath, [".next/standalone/server.js"],
+    { ...env, HOSTNAME: "0.0.0.0", PORT: port, CANON_SETUP_CODE: setupCode, CANON_INTERNAL_CONVEX_URL: BACKEND, CANON_INTERNAL_CONVEX_SITE_URL: BACKEND_SITE });
   await waitFor(`http://127.0.0.1:${port}/api/public/version`);
   await writeFile("/tmp/canoncrm-ready", "ready\n");
+  const pendingMigrations = recordDataEpoch("/data", contract, epoch.epoch);
+  if (pendingMigrations.length) console.log(`This release lists migrations for data epoch ${contract.epoch}: ${pendingMigrations.map((m) => m.run).join(", ")}. The volume stays at epoch ${epoch.epoch} until they run (docs/updating.md).`);
   console.log(`CanonCRM ready at ${site}. Recipe runtime is off unless RECIPE_RUNTIME_URL and RECIPE_RUNTIME_SECRET are configured.`);
   const pending = await start("Convex CLI", process.execPath, ["node_modules/convex/bin/main.js", "run", "localAuth:setupPending", "--env-file", cliEnvFile], env, "/app", true)
     .done.then((out) => out.trim() === "true", () => false);

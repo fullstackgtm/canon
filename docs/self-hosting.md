@@ -386,6 +386,23 @@ your own changes.
 `docker compose down` preserves the volume. `docker compose down -v` deletes
 data and credentials. Use `-v` only to tear down a disposable test installation.
 
+### Keep the data epoch
+
+The volume records the data epoch it was last run with, in `/data/data-epoch`
+(`scripts/selfhost/data-contract.json` says what each release needs). An image
+that can't read the volume's data refuses to start, with a log line naming the
+release to start first. That stops an install that pulls `:latest` from jumping
+past a release whose migration must run before later code. Start the named
+release, let it become healthy, then start the newer image. A volume last run
+by an image from before this check counts as epoch 0.
+
+On a small or shared host, the first boot can take several minutes while the
+backend loads and checks every function. The image gives that 60 seconds
+(`ISOLATE_ANALYZE_USER_TIMEOUT_SECONDS`, 4 by default) and gives each query and
+mutation, the schema check among them, 30 seconds
+(`DATABASE_UDF_USER_TIMEOUT_SECONDS`, 1 by default). Set either to change it.
+Measured at 0.2 CPU, the first boot took 7 minutes.
+
 ## Keep the token encryption key
 
 Canon encrypts every integration credential it stores with `TOKEN_ENCRYPTION_KEY`:
