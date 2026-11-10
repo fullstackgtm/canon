@@ -240,6 +240,7 @@ export const ARCHIVE_TABLES = {
   recordWebhookDeliveries: local(),
   apiIdempotencyKeys: local("a create's answer for its retries, kept a day"),
   automationRules: data("by_orgId_and_status"),
+  automationVersions: data("by_orgId_and_status"),
   automationCursors: local(),
   automationRuns: local("each rule's executions and their leases"),
   agentTurns: child("agents", "agentId", "by_agentId_and_createdAt"),

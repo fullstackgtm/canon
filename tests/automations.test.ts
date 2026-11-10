@@ -6,6 +6,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
 const ORG = "organizations:org";
@@ -14,8 +15,12 @@ const AVERY = "users:avery";
 const MORGAN = "users:morgan";
 
 let signedIn: Record<string, unknown> | null = null;
+/** The OAuth client of an agent calling with the signed-in member's token (/mcp, the canon CLI), or null for the member in person. */
+let agentClient: string | null = null;
 const M = loadConvex(["automations.ts", "objects.ts"], {
-  "lib.ts": (real) => ({ ...real, getCurrentUser: async () => signedIn, requireUser: async () => { if (!signedIn) throw new Error("Not authenticated"); return signedIn; } }),
+  "lib.ts": (real) => ({
+    ...real, getCurrentUser: async () => signedIn, requireUser: async () => { if (!signedIn) throw new Error("Not authenticated"); return signedIn; }, agentClientOf: async () => agentClient,
+  }),
 });
 const automations = M["automations.ts"]!;
 const objects = M["objects.ts"]!;
@@ -30,7 +35,7 @@ function workspace(riley: Record<string, unknown> = {}) {
 
 type W = ReturnType<typeof workspace>;
 const as = async (w: W, id: string) => (signedIn = await w.db.get(id));
-const rule = (w: W, args: Record<string, unknown>) => as(w, RILEY).then(() => automations.create.handler(w.ctx, { conditions: [], ...args }));
+const rule = (w: W, args: Record<string, unknown>) => as(w, RILEY).then(() => automations.propose.handler(w.ctx, { conditions: [], ...args }));
 const write = (w: W, values: Record<string, unknown>, streamId?: string) => objects.write.handler(w.ctx, { object: "lead", values, ...(streamId ? { streamId } : {}) });
 const fanout = (w: W) => automations.fanout.handler(w.ctx, { orgId: ORG });
 const runs = (w: W) => w.db.rows("automationRuns") as Array<Record<string, any>>;
@@ -221,4 +226,93 @@ test("round robin over a weighted routing rule gives each member their weight in
   await drain(w);
   const owners = await Promise.all(made.map(async (m) => (await lead(w, m.streamId)).ownerId));
   assert.deepEqual([owners.filter((o) => o === AVERY).length, owners.filter((o) => o === MORGAN).length], [4, 2]);
+});
+
+// ───────────────────────────── Versions: an agent proposes, a person approves ─────────────────────────────
+
+const TAG = { name: "Tag", object: "lead", trigger: { kind: "created" }, conditions: [], actions: [{ kind: "set_field", field: "leadSource", value: "rule" }] };
+const asAgent = async (w: W, id: string) => {
+  await as(w, id);
+  agentClient = "claude";
+};
+const inPerson = async (w: W, id: string) => {
+  await as(w, id);
+  agentClient = null;
+};
+const versions = (w: W) => w.db.rows("automationVersions") as Array<Record<string, any>>;
+const rules = (w: W) => w.db.rows("automationRules") as Array<Record<string, any>>;
+/** A second admin, Quinn, who approves what Riley's agent writes. */
+const withQuinn = async (w: W) => w.db.insert("users", { orgId: ORG, role: "admin", isActive: true, name: "Quinn", email: "quinn@acme.test" });
+
+test("an agent's proposal waits and does nothing; every decision refuses an agent, even on an admin's token", async () => {
+  const w = workspace();
+  await asAgent(w, RILEY);
+  const proposed = await automations.propose.handler(w.ctx, { ...TAG, note: "Mark leads the rule saw" });
+  assert.equal(proposed.status, "proposed");
+  assert.match(proposed.sentence, /^When a lead is created: set .+ to rule\.$/);
+  assert.deepEqual([rules(w).length, versions(w).map((v) => [v.status, v.author.agent, v.ruleId ?? null])], [0, [["proposed", "claude", null]]]);
+  await inPerson(w, RILEY);
+  const ruleId = (await automations.approve.handler(w.ctx, { versionId: proposed.versionId })).ruleId;
+  // Every public write in convex/automations.ts but propose (stores a proposal) and preview (reads) is a decision.
+  const source = readFileSync(new URL("../convex/automations.ts", import.meta.url), "utf8");
+  const writes = [...source.matchAll(/^export const (\w+) = (?:mutation|action)\(/gm)].map((m) => m[1]).filter((n) => !["propose", "preview"].includes(n));
+  assert.deepEqual(writes.sort(), ["approve", "reject", "remove", "retryRun", "setStatus"]);
+  await asAgent(w, RILEY);
+  const again = await automations.propose.handler(w.ctx, { ...TAG, ruleId, name: "Tag again" });
+  const args: Record<string, Record<string, unknown>> = { approve: { versionId: again.versionId }, reject: { versionId: again.versionId }, remove: { id: ruleId }, retryRun: { runId: "automationRuns:1" }, setStatus: { id: ruleId, status: "paused" } };
+  for (const name of writes) await assert.rejects(automations[name].handler(w.ctx, args[name]), /only a person/, `${name} refuses an agent`);
+  assert.deepEqual([rules(w)[0].status, rules(w)[0].name, versions(w).map((v) => v.status)], ["active", "Tag", ["approved", "proposed"]]);
+  agentClient = null;
+});
+
+test("approving a proposal written against a version no longer in force is refused", async () => {
+  const w = workspace();
+  await inPerson(w, RILEY);
+  const { ruleId } = await automations.propose.handler(w.ctx, TAG);
+  await asAgent(w, RILEY);
+  const stale = await automations.propose.handler(w.ctx, { ...TAG, ruleId, name: "Agent's tag" });
+  await inPerson(w, RILEY);
+  await automations.propose.handler(w.ctx, { ...TAG, ruleId, name: "Riley's tag" });
+  await assert.rejects(automations.approve.handler(w.ctx, { versionId: stale.versionId }), /changed since this was proposed/);
+  assert.deepEqual([rules(w)[0].name, rules(w)[0].version, versions(w).map((v) => [v.version, v.parent, v.status])], ["Riley's tag", 3, [[1, null, "superseded"], [2, 1, "proposed"], [3, 1, "approved"]]]);
+});
+
+test("the admin who approves an agent's rule is who it acts as, with that admin's access, not its author's; a rep can't approve", async () => {
+  const w = workspace();
+  const quinn = await withQuinn(w);
+  await asAgent(w, RILEY);
+  const proposed = await automations.propose.handler(w.ctx, { ...TAG, note: "Tag every new lead" });
+  await inPerson(w, AVERY);
+  await assert.rejects(automations.approve.handler(w.ctx, { versionId: proposed.versionId }));
+  await inPerson(w, quinn);
+  await automations.approve.handler(w.ctx, { versionId: proposed.versionId });
+  assert.deepEqual([rules(w)[0].createdBy, rules(w)[0].actsAs], [RILEY, quinn]);
+  await as(w, RILEY);
+  const seen = await write(w, { lastName: "Okafor" });
+  await fanout(w);
+  await drain(w);
+  assert.match(entries(w, seen.streamId).at(-1)!.source.ref, new RegExp(`^automation:.+:1:user:${quinn}$`));
+  // Quinn becomes a rep who sees only their own leads: Avery's lead is outside the rule's access, though Riley, who wrote it, is an admin.
+  await w.db.patch(quinn, { role: "rep" });
+  await w.db.insert("rolePermissions", { orgId: ORG, role: "rep", rules: [{ object: "lead", visibility: "own", unowned: false }] });
+  await as(w, AVERY);
+  await write(w, { lastName: "Hidden", ownerId: AVERY });
+  await fanout(w);
+  assert.deepEqual(plain(runs(w).map((r) => [r.status, r.reason ?? null])), [["done", null], ["skipped", "Outside the creator's access"]]);
+});
+
+test("a run started under one version does its actions as the admin who approved that version, not a later approver", async () => {
+  const w = workspace();
+  const quinn = await withQuinn(w);
+  await inPerson(w, RILEY);
+  const { ruleId } = await automations.propose.handler(w.ctx, TAG);
+  const a = await write(w, { lastName: "Okafor" });
+  await fanout(w);
+  await asAgent(w, RILEY);
+  const next = await automations.propose.handler(w.ctx, { ...TAG, ruleId, actions: [{ kind: "set_field", field: "leadSource", value: "quinn" }] });
+  await inPerson(w, quinn);
+  await automations.approve.handler(w.ctx, { versionId: next.versionId });
+  await drain(w);
+  assert.equal((await lead(w, a.streamId)).leadSource, "rule");
+  assert.match(entries(w, a.streamId).at(-1)!.source.ref, /:1:user:users:riley$/);
 });

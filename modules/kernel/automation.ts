@@ -80,6 +80,30 @@ export type Step = Infer<typeof stepValidator>;
 /** What a rule is, without its name: the part `describe` reads. */
 export type RuleShape = { object: string; trigger: Trigger; conditions: readonly Condition[]; actions: readonly AutomationAction[] };
 
+/** A rule's whole document: what a version stores, what an agent proposes and what an admin approves. */
+export const ruleDocValidator = v.object({
+  name: v.string(),
+  object: v.string(),
+  trigger: triggerValidator,
+  conditions: v.array(conditionValidator),
+  actions: v.array(actionValidator),
+});
+export type RuleDoc = Infer<typeof ruleDocValidator>;
+
+/**
+ * A version's life: `proposed` waits for an admin; `approved` is the one in force; `superseded` was in force before a
+ * later approval; `rejected` was turned down, with a reason.
+ */
+export const VERSION_STATUSES = ["proposed", "approved", "rejected", "superseded"] as const;
+export type VersionStatus = (typeof VERSION_STATUSES)[number];
+
+/**
+ * Who wrote a version: the member whose session or token sent it, and the agent client that wrote it when an agent
+ * did (an MCP or CLI caller, by its OAuth client). The ledger records the same member as the actor of its writes.
+ */
+export const versionAuthorValidator = v.object({ userId: v.id("users"), agent: v.optional(v.string()) });
+export type VersionAuthor = Infer<typeof versionAuthorValidator>;
+
 // ───────────────────────────── The sentence ─────────────────────────────
 
 type Scalar = string | number | boolean;
@@ -212,4 +236,29 @@ export function describe(rule: RuleShape, names: RuleNames = {}): string {
 export function describeParts(rule: RuleShape, names: RuleNames = {}): { trigger: string; conditions: string[]; actions: string[] } {
   const p = phrases(rule, names);
   return { trigger: p.trigger(rule.trigger), conditions: rule.conditions.map(p.condition), actions: rule.actions.map(p.action) };
+}
+
+/** One part of a rule that a new version changes, each side in the sentence's words (absent: the part is new or gone). */
+export type RuleChange = { part: "name" | "object" | "trigger" | "condition" | "action"; before?: string; after?: string };
+
+/**
+ * What a proposed version changes against the one in force, part by part: the name, the object, the trigger, each
+ * condition and each action in order. Unchanged parts are left out, so an approver reads only what moves.
+ */
+export function ruleChanges(before: RuleDoc | null, after: RuleDoc, names: RuleNames = {}): RuleChange[] {
+  const b = before ? describeParts(before, names) : null;
+  const a = describeParts(after, names);
+  const out: RuleChange[] = [];
+  const pair = (part: RuleChange["part"], x: string | undefined, y: string | undefined) => {
+    if (x !== y) out.push({ part, ...(x !== undefined ? { before: x } : {}), ...(y !== undefined ? { after: y } : {}) });
+  };
+  pair("name", before?.name, after.name);
+  pair("object", before?.object, after.object);
+  pair("trigger", b?.trigger, a.trigger);
+  const conditions = new Set(a.conditions);
+  const had = new Set(b?.conditions ?? []);
+  for (const c of b?.conditions ?? []) if (!conditions.has(c)) pair("condition", c, undefined);
+  for (const c of a.conditions) if (!had.has(c)) pair("condition", undefined, c);
+  for (let i = 0; i < Math.max(a.actions.length, b?.actions.length ?? 0); i++) pair("action", b?.actions[i], a.actions[i]);
+  return out;
 }

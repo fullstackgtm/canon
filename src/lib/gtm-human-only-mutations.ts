@@ -82,13 +82,14 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.outboundEmailPolicy.save": "postal address and recipient caps set the workspace compliance policy; a human admin decides them",
   "api.suppressions.add": "workspace do-not-contact rules record an admin's compliance decision",
   "api.suppressions.lift": "lifting a workspace do-not-contact cause permits outreach again; an admin's call",
-  // CP17: a rule acts as its creator on every future change, with their access, unattended; like a standing grant, an admin's call.
-  "api.automations.create": "an automation rule writes as its admin creator on every future matching change, unattended; an admin builds it, as with standing grants",
-  "api.automations.update": "an automation rule writes as its admin creator on every future matching change, unattended; an admin changes it, as with standing grants",
-  "api.automations.setStatus": "pausing or resuming a rule decides whether it writes as its admin creator; an admin's call",
-  "api.automations.remove": "an automation rule writes as its admin creator; an admin removes it",
-  "api.automations.retryRun": "a retry repeats a rule's write as its admin creator; an admin's call",
-  "api.automations.preview": "a rule's dry run is part of the admin-only builder; it writes nothing, and agents do not build rules",
+  // CP17: a rule acts as the admin who approved it, on every future change, unattended. An agent proposes a rule
+  // (canon_automations propose, by the owner's decision of 2026-11-10); deciding and enabling stay a person's
+  // (convex/automations.ts requirePerson refuses an agent's call, whatever its token).
+  "api.automations.approve": "approving a rule makes it act as the approving admin, with their access, on every future change; agents propose, a person approves",
+  "api.automations.reject": "deciding a proposed rule is an admin's call; agents propose, never decide",
+  "api.automations.setStatus": "pausing or resuming a rule decides whether it writes as the admin it acts as; a person's call",
+  "api.automations.remove": "an automation rule writes as the admin who approved it; a person removes it",
+  "api.automations.retryRun": "a retry repeats a rule's write as the admin it acts as; a person's call",
   // docs/recipes.md R4: an agent proposes recipe settings (canon_customization propose); an admin or manager decides in person.
   "api.recipes.approveProposal": "approving a package settings proposal is the human gate on agent-written methodology; agents propose, never approve",
   "api.recipes.rejectProposal": "deciding a package settings proposal is an admin's call; agents propose, never decide",
