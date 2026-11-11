@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDeeplineClient, deeplineFirst, DeeplineError, type DeeplineEmail } from "../convex/lib/deepline.ts";
+import { createDeeplineClient, DeeplineError } from "../convex/lib/deepline.ts";
 
 const KEY = "dl_live_secret_key_123";
 const person = { fullName: "Ada Lovelace", domain: "acme.example" };
@@ -57,18 +57,4 @@ test("a refused key throws a DeeplineError that carries neither the key nor the 
   assert.ok(err instanceof DeeplineError);
   assert.equal(err.status, 401);
   assert.ok(!err.message.includes(KEY) && !err.message.includes("nope"));
-});
-
-test("Find email order: a Deepline hit skips treg; a miss or a failure runs it", async () => {
-  const hit: DeeplineEmail = { email: "ada@acme.example", status: "valid", runId: "w" };
-  const miss: DeeplineEmail = { email: null, status: "not_found", runId: "w" };
-  const run = async (deepline: (() => Promise<DeeplineEmail>) | null) => {
-    let treg = 0;
-    const out = await deeplineFirst(deepline, async (r) => r.email, async () => { treg += 1; return "treg"; });
-    return { out, treg };
-  };
-  assert.deepEqual(await run(async () => hit), { out: "ada@acme.example", treg: 0 });
-  assert.deepEqual(await run(async () => miss), { out: "treg", treg: 1 });
-  assert.deepEqual(await run(async () => { throw new DeeplineError(500); }), { out: "treg", treg: 1 });
-  assert.deepEqual(await run(null), { out: "treg", treg: 1 });
 });

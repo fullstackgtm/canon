@@ -24,15 +24,13 @@ import { project, type EntrySource, type FoldState, type ProjectedRow } from "..
 import type { FieldValue, ResolvedObjectDef } from "../objects/registry.ts";
 import { save, type SaveResult } from "../objects/write.ts";
 import { automationRefPrefix, type AutomationMark } from "../automations.ts";
-import { groupFields, groupOf, isPersonFact, settleFieldClaims, winningFact, type FieldClaimStore } from "./personHold.ts";
+import { groupFields, groupOf, isPersonFact, winningFact } from "./personHold.ts";
 
 export type DealRow = Readonly<Record<string, unknown>>;
 
 export interface DealStores extends StreamStores {
   getRow(dealId: string): Promise<DealRow | null>;
   patchRow(dealId: string, patch: Record<string, unknown>): Promise<void>;
-  /** What CRMs say about the fields a person holds (lib/canon/personHold.ts). Absent: the hold still applies, and nothing is recorded. */
-  fieldClaims?: FieldClaimStore;
 }
 
 export type DealSource =
@@ -289,14 +287,8 @@ export async function writeDeal(s: DealStores, w: DealWrite): Promise<DealWriteR
       if ("isClosed" in patch && !("closedAt" in patch)) patch.closedAt = patch.isClosed ? row.closedAt ?? w.now : undefined;
       if (Object.keys(patch).length) await s.patchRow(w.dealId, patch);
     }
-    if (s.fieldClaims && result.status !== "invalid" && result.status !== "conflict") {
-      await settleFieldClaims(s.fieldClaims, {
-        orgId: w.orgId, recordId: w.streamId, object: "deal", source, actor, values: incoming, held, now: w.now,
-        current: (field) => projected.values[field] ?? null, def: w.def,
-      });
-    }
     // A history point is what the CRM held then, not what it holds now: no outbound shadow for it. A field a person
-    // holds keeps its disagreement as a claim instead (settleFieldClaims).
+    // holds keeps its disagreement as a claim instead (save records it).
     if ((w.source.kind === "salesforce" || w.source.kind === "hubspot") && !w.source.history) {
       for (const [attribute, providerValue] of incoming) {
         if (held.includes(attribute)) continue;
@@ -327,7 +319,7 @@ async function writeDealFactsOnly(
     .map((o) => (w.evidence !== undefined ? { ...o, evidence: w.evidence } : o));
   const out = await ingestObservations(s.facts, {
     orgId: w.orgId, entityId: w.streamId, sourceKind: source.kind, sourceRefBase: source.ref, actor, observedAt: w.now, observations,
-    ...(w.crmFollows ? { crmFollows: w.crmFollows } : {}),
+    ...(w.crmFollows ? { crmFollows: w.crmFollows } : {}), ...(s.fieldClaims ? { claims: { store: s.fieldClaims, def: w.def } } : {}),
   });
   const diffs = divergences(observations, out.resolved);
   const patch = inColumns(dealPatch(attributes
@@ -343,12 +335,6 @@ async function writeDealFactsOnly(
         providerValue: d.providerValue, canonicalValue: d.canonicalValue, factId: d.factId, at: w.now,
       });
     }
-  }
-  if (s.fieldClaims) {
-    await settleFieldClaims(s.fieldClaims, {
-      orgId: w.orgId, recordId: w.streamId, object: "deal", source, actor, values: new Map(Object.entries(w.values)), held: out.held, now: w.now,
-      current: (field) => out.resolved[field]?.value ?? null, def: w.def,
-    });
   }
   return { result: { status: "deferred", streamId: w.streamId }, resolved: out.resolved, rejected: [], held: out.held };
 }

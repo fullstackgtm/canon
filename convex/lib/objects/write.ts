@@ -11,7 +11,7 @@
 import type { Decider } from "../canon/decider.ts";
 import { AGENT_SOURCES } from "../canon/gate.ts";
 import { claimFieldOf, uniqueIdentityProvider, uniqueValueIdentity } from "../canon/identity.ts";
-import { crmOf, groupOf, heldField, isPersonFact, personHeldFields, winningFact } from "../canon/personHold.ts";
+import { crmOf, groupFields, groupOf, heldField, isPersonFact, personHeldFields, settleFieldClaims, winningFact, type FieldClaimStore } from "../canon/personHold.ts";
 import {
   fold, foldAll, project, SNAPSHOT_SOURCES, watermarkOf, writeRule,
   type Assertion, type Decision, type EntryActor, type EntryBody, type EntrySource, type FoldState, type LedgerEntry, type MergedRecord, type ProjectedRow, type RevertedField, type WritePlan,
@@ -106,6 +106,8 @@ export type SaveContext = {
   acceptedBy?: Decider;
   /** For a CRM's write: the field groups (by lead field) it always wins, which a person's value never holds against (lib/canon/personHold.ts). */
   crmFollows?: (group: string) => boolean;
+  /** Where an update records what a CRM says about the fields a person holds (lib/canon/personHold.ts). Absent: the hold still applies, and nothing is recorded. */
+  fieldClaims?: FieldClaimStore;
 };
 
 export type SaveCommand =
@@ -160,9 +162,12 @@ export async function save(store: ObjectStore, ctx: SaveContext, cmd: SaveComman
   if (cmd.op !== "update" && isAgentSource(ctx)) return invalid("source", "Agent sources may only propose field values");
 
   let assertions: Assertion[] = [];
+  /** The values the update carries, as its source said them: what a CRM's disagreement records. */
+  let carried = new Map<string, FieldValue>();
   if (cmd.op === "update") {
     const gated = coerceAndGate(ctx, cmd.values, "update", cmd.validFrom);
     if (!Array.isArray(gated)) return gated;
+    carried = new Map(gated.map((a) => [a.fieldId, a.value]));
     assertions = await dropAliases(store, ctx, gated, cmd.streamId);
   }
 
@@ -173,7 +178,8 @@ export async function save(store: ObjectStore, ctx: SaveContext, cmd: SaveComman
     return { status: "conflict", streamId: cmd.streamId, version: state.version, expectedVersion: cmd.expectedVersion };
   }
   const unchanged: SaveResult = { status: "unchanged", streamId: cmd.streamId, version: state.version };
-  if (cmd.op === "update") assertions = primaryLists(ctx, project(ctx.def, state).values, assertions, state);
+  const current = cmd.op === "update" ? project(ctx.def, state).values : {};
+  if (cmd.op === "update") assertions = primaryLists(ctx, current, assertions, state);
 
   if (cmd.op === "merge" || cmd.op === "unmerge" || cmd.op === "absorb" || cmd.op === "revert") {
     const status = state.lifecycle.status;
@@ -221,10 +227,20 @@ export async function save(store: ObjectStore, ctx: SaveContext, cmd: SaveComman
     return append(store, ctx, state, { kind: "assert", status: writeRule(state, ctx.source, follow).status, assertions: follow, partial: true }, true, cmd.streamId);
   }
   // A CRM's value for a field a person holds is left out, reassert or not: appending it, even equal, would hand the field to the CRM.
-  const held = personHeld(ctx, state, assertions);
+  const held = heldFields(holdWrite(ctx), assertions.map((a) => a.fieldId), foldWinner(state));
   if (held.length) assertions = assertions.filter((a) => !held.includes(a.fieldId));
-  const holding = (r: SaveResult): SaveResult => (held.length && (r.status === "applied" || r.status === "unchanged") ? { ...r, held } : r);
-  const ruled = withFollowed(reclaim(state, ctx, assertions, { ...writeRule(state, ctx.source, assertions), ...(ctx.acceptedBy ? { status: "accepted" as const } : {}) }), follow);
+  const holding = async (r: SaveResult): Promise<SaveResult> => {
+    if (r.status !== "applied" && r.status !== "unchanged") return r;
+    if (ctx.fieldClaims) {
+      // A held field's value is the one before this write: the write left it out.
+      await settleFieldClaims(ctx.fieldClaims, {
+        orgId: ctx.orgId, recordId: cmd.streamId, object: ctx.def.apiName, source: ctx.source, actor: ctx.actor, values: carried, held, now: ctx.now,
+        current: (field) => current[field] ?? null, def: ctx.def,
+      });
+    }
+    return held.length ? { ...r, held } : r;
+  };
+  const ruled = withFollowed(await reclaim(state, ctx, assertions, { ...writeRule(state, ctx.source, assertions), ...(ctx.acceptedBy ? { status: "accepted" as const } : {}) }), follow);
   const plan = cmd.op === "update" && cmd.reassert ? { ...ruled, append: assertions, confirm: [] } : ruled;
   const taken = await uniqueConflicts(store, ctx, plan.append, cmd.streamId);
   if (taken) return taken;
@@ -257,25 +273,54 @@ function withFollowed(plan: WritePlan, follow: readonly Assertion[]): WritePlan 
   return { ...plan, append: [...plan.append.filter((a) => !ids.has(a.fieldId)), ...follow], confirm: plan.confirm.filter((f) => !ids.has(f)) };
 }
 
-/**
- * A person putting back a value of a held field they set before, after a CRM took the field: the write rule reads it
- * as their own record repeating itself, so it is appended anyway, or the CRM's value would quietly stay.
- */
-function reclaim(state: FoldState, ctx: Pick<SaveContext, "def" | "source">, assertions: readonly Assertion[], plan: WritePlan): WritePlan {
-  if (!isPersonFact({ sourceKind: ctx.source.kind, sourceRef: ctx.source.ref })) return plan;
-  const back = assertions.filter((a) => {
-    if (!heldField(ctx.def.apiName, a.fieldId, ctx.def) || !plan.confirm.includes(a.fieldId)) return false;
-    const winner = winningFact(state.fields[a.fieldId]?.candidates ?? []);
-    return !(winner && isPersonFact(winner) && sameValue(winner.value, a.value));
-  });
+/** A person putting back a value of a held field they set before, after a CRM took the field (reclaims): appended, not confirmed. */
+async function reclaim(state: FoldState, ctx: Pick<SaveContext, "def" | "source" | "actor">, assertions: readonly Assertion[], plan: WritePlan): Promise<WritePlan> {
+  const back: Assertion[] = [];
+  for (const a of assertions) if (plan.confirm.includes(a.fieldId) && (await reclaims(holdWrite(ctx), a.fieldId, a.value, foldWinner(state)))) back.push(a);
   if (!back.length) return plan;
   return { ...plan, append: [...plan.append, ...back], confirm: plan.confirm.filter((f) => !back.some((a) => a.fieldId === f)) };
 }
 
-/** The fields of a CRM's write whose value a person holds: covered by the rule, with a field of their group resolved now to a person's fact (lib/canon/personHold.ts). */
-function personHeld(ctx: Pick<SaveContext, "def" | "source" | "actor" | "crmFollows">, state: FoldState, assertions: readonly Assertion[]): string[] {
-  if (!crmOf(ctx.source, ctx.actor)) return [];
-  return personHeldFields(ctx.def.apiName, assertions.map((a) => a.fieldId), (f) => winningFact(state.fields[f]?.candidates ?? []), ctx.def, ctx.crmFollows);
+/**
+ * A write as the hold against a CRM reads it (lib/canon/personHold.ts). Both ledgers' writers decide holds with the
+ * functions below: `save` on a record's stream, and ingestObservations (lib/canon/ledger.ts) on `facts` for a record
+ * whose stream is not converted yet.
+ */
+export type HoldWrite = {
+  object: string;
+  /** Names a field by its id, for a custom field whose id is not its `custom.<slug>`. */
+  def?: Pick<ResolvedObjectDef, "byFieldId"> | undefined;
+  source: { kind: string; ref: string };
+  actor: { kind: string };
+  /** For a CRM's write: the field groups (by lead field) it always wins. */
+  crmFollows?: ((group: string) => boolean) | undefined;
+};
+/** The fact a field resolves to now, or null. */
+export type HoldWinner = { sourceKind: string; sourceRef: string; value: unknown } | null;
+
+const holdWrite = (ctx: Pick<SaveContext, "def" | "source" | "actor" | "crmFollows">): HoldWrite =>
+  ({ object: ctx.def.apiName, def: ctx.def, source: ctx.source, actor: ctx.actor, crmFollows: ctx.crmFollows });
+const foldWinner = (state: FoldState) => (field: string) => winningFact(state.fields[field]?.candidates ?? []);
+
+/** The fields whose winners heldFields reads for a write of `fields`: their groups' fields, and none for a write that is not a CRM's own. */
+export function holdReads(w: HoldWrite, fields: readonly string[]): string[] {
+  if (!crmOf(w.source, w.actor)) return [];
+  return [...new Set(fields.filter((f) => heldField(w.object, f, w.def)).flatMap((f) => groupFields(w.object, groupOf(w.object, f))))];
+}
+
+/** The fields of a CRM's write that a person holds: covered by the rule, with a field of their group resolved now to a person's fact. None for any other write. */
+export function heldFields(w: HoldWrite, fields: readonly string[], winner: (field: string) => HoldWinner): string[] {
+  return crmOf(w.source, w.actor) ? personHeldFields(w.object, fields, winner, w.def, w.crmFollows) : [];
+}
+
+/**
+ * Whether a person's value of a held field, which the write rule reads as their own record repeating itself, is
+ * written again: a CRM took the field since, and its value would quietly stay. `winner` is read only for a person's write of a held field.
+ */
+export async function reclaims(w: HoldWrite, field: string, value: unknown, winner: (field: string) => HoldWinner | Promise<HoldWinner>): Promise<boolean> {
+  if (!isPersonFact({ sourceKind: w.source.kind, sourceRef: w.source.ref }) || !heldField(w.object, field, w.def)) return false;
+  const won = await winner(field);
+  return !(won && isPersonFact(won) && sameValue(won.value as FieldValue, value as FieldValue));
 }
 
 /** A decision still to apply: its fact is pending, or accepted here and not yet a candidate. */

@@ -3991,6 +3991,19 @@ same count, as the caller sees companies, and the approver applies it row by row
 "Writes to Canon records").
 
 
+## Providers
+
+Preview since 2026-11-10. `@fullstackgtm/canon-module-kit/providers` declares a data or sending provider: its
+capabilities (`email.find`, `linkedin.send` and the rest of `PROVIDER_CAPABILITIES`), the keys it needs by name and
+whether each is the workspace's own or the deployment's, what a call costs the workspace (`free`, `own_account`, or
+credits per call or per hit), its rate limits and who must consent before it runs. `providerProblems` checks one.
+
+Canon's registry (`convex/lib/providers/registry.ts`) declares its providers with it and resolves each capability per
+workspace: the workspace's own key first, then the deployment's, else unavailable with a reason that names the keys
+that would turn it on. A provider that misses or fails passes to the next. Find email is the first capability behind
+it: a connected Deepline account, then Canon's hosted treg waterfall. Every receipt goes through the registry's
+`meter` into `providerCalls`. `tests/providerCensus.test.ts` lists every other provider call site still outside it.
+
 ## System
 
 A transition, op or call with `"system": true` and empty `roles` runs only as

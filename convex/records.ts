@@ -17,11 +17,10 @@ import { canSeeRecord, may, permissionOf, refuseLockedWrite, type Access, type R
 import { scopedRecordClient } from "./lib/scopedRecordClient";
 import { editPartyRecord, foundEmailEdit, isLedgerEditField, writeFoundEmail, type RecordAccountSnapshot, type RecordContactSnapshot, type RecordEditPorts, type RecordPatch } from "./lib/canon/partyLedger";
 import { partyFieldValue as fieldValue } from "./lib/objects/validators";
-import { findVerifiedWorkEmail, type VerifiedEmail, type EmailResult } from "./lib/emailFinder";
 import { findPhoneViaTreg, TREG_PHONE_ENDPOINT } from "./lib/phoneFinder";
 import { TregRefusal } from "./lib/treg";
-import { createDeeplineClient, deeplineFirst, DEEPLINE_EMAIL_ENDPOINT } from "./lib/deepline";
-import { decryptFromStorage } from "./lib/tokenHelpers";
+import { EmailLookupLimit, findWorkEmail, meter, type FoundEmail } from "./lib/providers/emailFind";
+import { EMAIL_LOOKUPS_PER_DAY, ProviderUnavailable } from "./lib/providers/registry";
 import { filterValidator } from "./lib/scopeValidators";
 import { parseQuery } from "../modules/kernel/icpQuery";
 import { accountCriteria } from "./lib/icpCriteria";
@@ -728,20 +727,6 @@ export function contactSnapshotOf(row: ContactRow): RecordContactSnapshot {
 
 // ───────────────────────────── Email on demand ─────────────────────────────
 
-/** Work-email lookups a workspace may run per UTC day (one paid treg/Hunter lookup each, billed only on a hit). */
-export const EMAIL_LOOKUPS_PER_DAY = 100;
-/**
- * getleadsio lookups per UTC day across all workspaces. Free to us, but each
- * hit spends one of treg's own getleadsio credits, so we take a modest share.
- */
-export const GETLEADS_LOOKUPS_PER_DAY = 200;
-/**
- * Paid (Hunter) email hits a workspace gets per UTC month on the flat plan. Each
- * costs up to $0.25, so this bounds the one per-use cost that would otherwise
- * scale without limit (docs/pricing.md). The free getleadsio path is not counted.
- */
-export const PAID_EMAIL_HITS_PER_MONTH = 100;
-
 /** Paid email hits this workspace has used since the start of the UTC month. */
 export const paidEmailHitsThisMonth = internalQuery({
   args: { orgId: v.string() },
@@ -795,11 +780,9 @@ export type FindEmailOutcome =
  * client); the result is written back as email + emailStatus, through the
  * ledger as enrichment under its providerCalls row, accepted by the rep (writeFoundEmail).
  *
- * A workspace that connected its own Deepline account (deepline.ts) runs
- * Deepline's waterfall first. It runs before the daily reservation and the
- * monthly allowance because those bound Canon's treg spend, and Deepline bills
- * the workspace: a Deepline hit uses neither. A miss, a timeout or a Deepline
- * failure falls through to the treg chain unchanged.
+ * The lookup itself runs through the provider registry (lib/providers/emailFind.ts): the workspace's own Deepline
+ * account first when it connected one, which bills the workspace and so spends neither the daily reservation nor the
+ * monthly allowance, then Canon's hosted treg chain on a Deepline miss, timeout or failure.
  */
 export const findEmail = action({
   args: { accountId: v.string(), contactId: v.string() },
@@ -814,75 +797,23 @@ export const findEmail = action({
     // A role that may not write the field neither reads it here nor fills it (CP14).
     refuseLockedWrite(caller.access, "contact", ["email", "emailStatus"]);
     if (contact.email) return { status: "already_has_email", email: contact.email };
-    const day = new Date().toISOString().slice(0, 10);
-    const write = async (email: string | null, provider: EmailResult["provider"], call: Id<"providerCalls">, emailStatus?: string) => {
-      // A found email is enrichment from the call, accepted by the rep who ran it: it fills an empty email and loses to
-      // a CRM's, and an email another contact holds is refused in the ledger and the record service alike.
-      const found = foundEmailEdit(contact.id, day, email, { provider, callId: call });
-      if (emailStatus) found.patch.emailStatus = emailStatus;
-      await writeFoundEmail(await recordEditPorts(ctx, caller, { object: "contact", id: contact.id, ...found }, "edit"), found.patch);
-    };
-    const deeplineKey: string | null = await ctx.runQuery(internal.deepline.apiKey, { orgId: caller.orgId as Id<"organizations"> });
-    return deeplineFirst<FindEmailOutcome>(
-      deeplineKey
-        ? async () => createDeeplineClient({ apiKey: await decryptFromStorage(deeplineKey), fetchImpl: fetch }).findWorkEmail({ fullName: contact.fullName, domain: detail.account.domain })
-        : null,
-      async (r) => {
-        const call = await ctx.runMutation(internal.records.recordProviderCall, {
-          orgId: caller.orgId, provider: "deepline", endpoint: DEEPLINE_EMAIL_ENDPOINT, feature: "find_email",
-          ...(r.runId ? { callId: r.runId } : {}), costMicro: 0, outcome: r.email ? "hit" : "miss",
-        });
-        if (!r.email) return null;
-        await write(r.email, "deepline", call);
-        return { status: "found", email: r.email, paid: false };
-      },
-      () => findEmailViaTreg(ctx, caller, contact, detail.account.domain, write),
-    );
+    let found: FoundEmail;
+    try { found = await findWorkEmail(ctx, { orgId: caller.orgId, fullName: contact.fullName, domain: detail.account.domain }); }
+    catch (error) {
+      if (error instanceof EmailLookupLimit) return { status: "limit_reached", email: null, limit: error.limit, message: error.message };
+      if (error instanceof ProviderUnavailable) throw new ConvexError(error.message);
+      throw error instanceof TregRefusal ? new ConvexError(`Email lookup unavailable: ${error.message}`) : error;
+    }
+    // A provider that filed no receipt of its own answer (treg's waterfall files one per step) is cited by one here.
+    const call = found.call ?? await meter(ctx, { orgId: caller.orgId, provider: "treg", capability: "email.find", endpoint: "guess_and_verify", costMicro: 0, outcome: found.email ? "hit" : "miss" });
+    // A found email is enrichment from the call, accepted by the rep who ran it: it fills an empty email and loses to
+    // a CRM's, and an email another contact holds is refused in the ledger and the record service alike.
+    const edit = foundEmailEdit(contact.id, new Date().toISOString().slice(0, 10), found.email, { provider: found.provider, callId: call });
+    if (found.emailStatus) edit.patch.emailStatus = found.emailStatus;
+    await writeFoundEmail(await recordEditPorts(ctx, caller, { object: "contact", id: contact.id, ...edit }, "edit"), edit.patch);
+    return { status: found.email ? "found" : "not_found", email: found.email, paid: found.paid };
   },
 });
-
-/** Shared CR3 guessing and verification, with the existing finder limits. */
-async function findEmailViaTreg(
-  ctx: ActionCtx,
-  caller: ActionCaller,
-  contact: ContactRow,
-  domain: string,
-  write: (email: string | null, provider: EmailResult["provider"], call: Id<"providerCalls">, emailStatus?: string) => Promise<void>,
-): Promise<FindEmailOutcome> {
-  let result: VerifiedEmail;
-  try { result = await lookupWorkEmail(ctx, { orgId: caller.orgId, fullName: contact.fullName, domain }); }
-  catch (error) {
-    if (error instanceof EmailLookupLimit) return { status: "limit_reached", email: null, limit: error.limit, message: error.message };
-    throw error instanceof TregRefusal ? new ConvexError(`Email lookup unavailable: ${error.message}`) : error;
-  }
-  const call = await ctx.runMutation(internal.records.recordProviderCall, {
-    orgId: caller.orgId, endpoint: "guess_and_verify", feature: "find_email", costMicro: 0,
-    outcome: result.email ? "hit" : "miss",
-  });
-  await write(result.email, result.provider, call, result.emailStatus);
-  return { status: result.email ? "found" : "not_found", email: result.email, paid: Boolean(result.paid) };
-}
-
-class EmailLookupLimit extends Error {
-  constructor(readonly limit: "daily" | "monthly") { super(`${limit === "daily" ? "Daily" : "Monthly"} email lookup limit reached.`); }
-}
-export async function lookupWorkEmail(ctx: ActionCtx, a: { orgId: string; fullName: string; domain: string }): Promise<VerifiedEmail> {
-  const token = process.env.TREG_TOKEN;
-  if (!token) throw new ConvexError("Email lookup is not configured on this deployment.");
-  if (!await ctx.runMutation(internal.records.reserveEmailLookup, { orgId: a.orgId })) throw new EmailLookupLimit("daily");
-  const knownPattern = await ctx.runQuery(internal.emailPatterns.read, { domain: a.domain });
-  return findVerifiedWorkEmail({ ...a, token, meta: { customer: a.orgId, feature: "find_email" }, baseUrl: process.env.TREG_BASE_URL, knownPattern: knownPattern ?? undefined,
-    learn: async (pattern) => { await ctx.runMutation(internal.emailPatterns.learn, { domain: a.domain, pattern }); },
-    allowFreeFinder: () => ctx.runMutation(internal.populateActions.takeDaily, { provider: "getleadsio", cap: GETLEADS_LOOKUPS_PER_DAY }),
-    allowPaidFinder: async () => {
-      if ((await ctx.runQuery(internal.records.paidEmailHitsThisMonth, { orgId: a.orgId })) >= PAID_EMAIL_HITS_PER_MONTH) throw new EmailLookupLimit("monthly");
-      return true;
-    },
-    receipt: async (endpoint, r, hit = r.status === 200) => { await ctx.runMutation(internal.records.recordProviderCall, {
-      orgId: a.orgId, endpoint, feature: "find_email", ...(r.callId ? { callId: r.callId } : {}), costMicro: r.costMicro ?? 0, outcome: hit ? "hit" : "miss",
-    }); },
-  });
-}
 
 // ───────────────────────────── Phone on demand ─────────────────────────────
 

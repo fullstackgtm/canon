@@ -10,8 +10,10 @@ import { DEAL_ATTRIBUTES, type DealAttribute, type EntityType } from "./attribut
 import { decidedByOf, type Decider } from "./decider.ts";
 import { ID } from "./identity.ts";
 import { mayWrite, type OwnershipOverride } from "./gate.ts";
-import { crmOf, groupFields, groupOf, heldField, isPersonFact, personHeldFields } from "./personHold.ts";
+import { settleFieldClaims, type FieldClaimStore } from "./personHold.ts";
 import { AUTO_ACCEPT, resolveAttribute, sameValue, writeDecision, type FactLike, type FactStatus, type FactValue, type Resolution, type SourceKind } from "./policy.ts";
+import { heldFields, holdReads, reclaims, type HoldWrite } from "../objects/write.ts";
+import type { ResolvedObjectDef } from "../objects/registry.ts";
 
 export { DEAL_ATTRIBUTES, type DealAttribute, type EntityType };
 
@@ -163,26 +165,25 @@ export async function ingestObservations(
     patchPlanId?: string;
     /** The person who ran an agent-class source and accepts its facts as they land. */
     acceptedBy?: Decider;
-    /** For a CRM's write: the field groups it always wins (lib/canon/personHold.ts personHeldFields). */
+    /** For a CRM's write: the field groups it always wins (lib/objects/write.ts HoldWrite). */
     crmFollows?: (group: string) => boolean;
+    /** Where what a CRM says about the fields a person holds is recorded, as `save` records it (SaveContext `fieldClaims`). */
+    claims?: { store: FieldClaimStore; def: ResolvedObjectDef };
   },
 ): Promise<IngestResult> {
   const out: IngestResult = { resolved: {}, written: 0, confirmed: 0, factIds: {}, rejected: [], held: [] };
-  const crm = crmOf({ kind: a.sourceKind }, a.actor);
   const object = (a.entityType ?? "opportunity") === "opportunity" ? "deal" : a.entityType!;
   const winnerOf = async (attribute: string) => {
     const facts = await store.factsFor(a.entityId, attribute);
     return facts.find((f) => f._id === resolveAttribute(facts).factId) ?? null;
   };
-  // The same rule as the object ledger's save (lib/objects/write.ts): a CRM leaves a person's value as it is, for each
-  // field of a group a person holds.
-  const held = new Set<string>();
-  if (crm) {
-    const covered = a.observations.map((o) => o.attribute).filter((f) => heldField(object, f));
-    const winners = new Map<string, StoredFact | null>();
-    for (const f of new Set(covered.flatMap((f) => groupFields(object, groupOf(object, f))))) winners.set(f, await winnerOf(f));
-    for (const f of personHeldFields(object, covered, (f) => winners.get(f) ?? null, undefined, a.crmFollows)) held.add(f);
-  }
+  // The object ledger's own rule (lib/objects/write.ts): a CRM leaves a person's value as it is, for each field of a
+  // group a person holds, and a person's value of a held field a CRM took is written again.
+  const write: HoldWrite = { object, source: { kind: a.sourceKind, ref: a.sourceRefBase }, actor: a.actor, crmFollows: a.crmFollows };
+  const attributes = a.observations.map((o) => o.attribute);
+  const winners = new Map<string, StoredFact | null>();
+  for (const f of holdReads(write, attributes)) winners.set(f, await winnerOf(f));
+  const held = new Set(heldFields(write, attributes, (f) => winners.get(f) ?? null));
   for (const o of a.observations) {
     if (!mayWrite(a.sourceKind, o.attribute, a.ownership, a.entityType)) {
       out.rejected.push(o.attribute);
@@ -196,11 +197,7 @@ export async function ingestObservations(
     const sourceRef = `${a.sourceRefBase}:${o.attribute}`;
     const latest = await store.latestBySourceRef(a.orgId, sourceRef);
     let decision = writeDecision(latest, { value: o.value, evidence: o.evidence });
-    // A person putting back their earlier value of a held field after a CRM took it is written again, as save does.
-    if (decision.kind === "confirm" && isPersonFact({ sourceKind: a.sourceKind, sourceRef }) && heldField(object, o.attribute)) {
-      const winner = await winnerOf(o.attribute);
-      if (!(winner && isPersonFact(winner) && sameValue(winner.value, o.value))) decision = { kind: "write" };
-    }
+    if (decision.kind === "confirm" && (await reclaims(write, o.attribute, o.value, winnerOf))) decision = { kind: "write" };
     if (decision.kind === "confirm") {
       await store.confirmFact(decision.factId, a.observedAt);
       out.confirmed++;
@@ -218,6 +215,12 @@ export async function ingestObservations(
     const resolution = resolveAttribute(await store.factsFor(a.entityId, o.attribute));
     await store.upsertFieldState({ entityId: a.entityId, attribute: o.attribute, ...resolution, updatedAt: a.observedAt });
     out.resolved[o.attribute] = resolution;
+  }
+  if (a.claims) {
+    await settleFieldClaims(a.claims.store, {
+      orgId: a.orgId, recordId: a.entityId, object, source: write.source, actor: a.actor, values: new Map(a.observations.map((o) => [o.attribute, o.value])),
+      held: out.held, now: a.observedAt, current: (field) => out.resolved[field]?.value ?? null, def: a.claims.def,
+    });
   }
   return out;
 }

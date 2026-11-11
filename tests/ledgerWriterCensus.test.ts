@@ -79,3 +79,23 @@ test("the facts ledger takes rows only from ingestObservations and the mirror of
   assert.deepEqual(callers(/\bingestObservations\(/g).filter((c) => !c.endsWith("#ingestObservations")), sorted(INGESTS));
   assert.equal(IMPORT_TABLES.facts!.kind, "facts");
 });
+
+/** A person's hold against a CRM: decided once, in lib/objects/write.ts, and run and recorded by the two writers. */
+const DECIDES_HOLDS: Record<string, string> = {
+  "convex/lib/objects/write.ts#heldFields": "which fields of a CRM's write a person holds",
+};
+const RUNS_HOLDS: Record<string, string> = {
+  "convex/lib/objects/write.ts#save": "the object ledger's writer",
+  "convex/lib/objects/write.ts#reclaim": "save's write plan",
+  "convex/lib/canon/ledger.ts#ingestObservations": "the `facts` writer, for a record with no stream yet",
+};
+const RECORDS_CLAIMS: Record<string, string> = {
+  "convex/lib/objects/write.ts#save": "an update to a stream whose caller passes a claim store (lib/canon/streamLedger.ts appendWrite)",
+  "convex/lib/canon/ledger.ts#ingestObservations": "a write to `facts` whose caller passes a claim store",
+};
+
+test("a person's hold against a CRM is decided in lib/objects/write.ts, and the two writers run and record it", () => {
+  assert.deepEqual(callers(/\bpersonHeldFields\(/g), sorted(DECIDES_HOLDS));
+  assert.deepEqual(callers(/\b(heldFields|holdReads|reclaims)\(/g), sorted(RUNS_HOLDS), "run the hold through lib/objects/write.ts's writer, not beside it");
+  assert.deepEqual(callers(/\bsettleFieldClaims\(/g), sorted(RECORDS_CLAIMS), "a CRM's disagreement is recorded by the writer that applied the hold");
+});
