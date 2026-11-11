@@ -19,6 +19,7 @@ const CHECKED = [
   "convex/deals.ts#create", "convex/deals.ts#createAdmitted", // New deal, the API's and MCP's deal create (deals.createScoped)
   "convex/activityTargets.ts#logAsUser", // Log activity, POST /api/v1/activities, canon_activities log
   "convex/records.ts#edit", "convex/records.ts#bulkRegister", // a company's or person's edit, from every surface
+  "convex/accountHierarchy.ts#changeFields", // an approved account hierarchy field fix, as the approver's records.edit
 ];
 
 /** Calls that are not a caller naming values, and why. */

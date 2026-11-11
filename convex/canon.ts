@@ -33,7 +33,7 @@ import type { Decider } from "./lib/canon/decider";
 import { ID, accountExternalIds, contactExternalIds } from "./lib/canon/identity";
 import {
   backfillPage, checkPartyEdit, compareParty, crmAccountValues, crmContactValues, ensurePartyStream, mirrorPartyDecisions, mirrorPartyProposal, PARTY_ATTRIBUTES_MAX, PARTY_CONVERSION_FACTS_MAX,
-  recordEditValues, writeParty, writeRecordEdit, writeRecordLifecycle,
+  recordEditValues, recordHolds as recordHoldsIn, writeParty, writeRecordEdit, writeRecordLifecycle,
   type BackfillOutcome, type PartyLookup, type PartyMismatch, type PartyObject, type PartySeed, type PartySource, type PartyStores, type PartyValues, type PartyWriteResult, type RecordPatch,
 } from "./lib/canon/partyLedger";
 import { mirrorAppended, type MirrorJob } from "./lib/canon/streamLedger";
@@ -887,6 +887,15 @@ export const recordHasStream = internalQuery({
 });
 
 /**
+ * Whether a register row holds `values` now: an approved fix whose write conflicted may have landed already. A
+ * mutation because the party stores are; with no values to register, it writes nothing.
+ */
+export const recordHolds = internalMutation({
+  args: { orgId: v.id("organizations"), object: v.union(v.literal("account"), v.literal("contact")), recordId: v.string(), values: v.record(v.string(), v.union(v.string(), v.null())) },
+  handler: (ctx, args): Promise<boolean> => recordHoldsIn(partyStores(ctx), args),
+});
+
+/**
  * A person's edit of a record-service account or contact (records.edit),
  * appended to its stream. A record worked for the first time is promoted:
  * its stream starts from `snapshot`, the row as it was before the edit. The
@@ -967,11 +976,13 @@ export const saveRecordEdit = internalMutation({
     found: v.optional(v.object({ provider: v.string(), callId: v.id("providerCalls") })),
     /** Values the record must still hold when this writes (a module's approved proposal, CAS): else nothing is written. */
     expect: v.optional(v.record(v.string(), v.union(v.string(), v.null()))),
+    /** Why the person made the edit, kept on each value it writes (an approved account hierarchy fix's quotes). */
+    evidence: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const streamId = args.streamId ? await registerStream(ctx, args.orgId, args.object, args.streamId) : undefined;
     const out = await writeRecordEdit(partyStores(ctx), {
-      ...(args.expect ? { expect: args.expect } : {}),
+      ...(args.expect ? { expect: args.expect } : {}), ...(args.evidence !== undefined ? { evidence: args.evidence } : {}),
       ...(streamId ? { streamId } : {}),
       orgId: args.orgId, object: args.object, recordId: args.recordId, patch: args.patch, userId: args.userId, key: args.idempotencyKey,
       now: Date.now(), ownership: await transactionOwnership(ctx, args.orgId), identitySeed: (entityId) => identitySeed(ctx, entityId as Id<"canonEntities">),

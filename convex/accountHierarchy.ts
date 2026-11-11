@@ -7,9 +7,11 @@ import { dealVisible, principalAccess, unrestrictedUser, workspaceMembers } from
 import type { Access } from "./lib/access";
 import { can, refusal } from "./lib/capabilities";
 import { applyAsUser, changeAs, crmParentsOf, edgesOf } from "./associations";
-import { requireCaller } from "./records";
+import { recordEditPorts, requireCaller } from "./records";
 import type { EdgeResult } from "./lib/objects/associations";
-import type { HierarchyItem, ParentItem } from "../engine/src/accountHierarchy/plan.ts";
+import { EditConflictError, editPartyRecord, isLedgerEditField } from "./lib/canon/partyLedger";
+import type { FieldItem, HierarchyItem, ParentItem } from "../engine/src/accountHierarchy/plan.ts";
+import type { CitationCheck } from "../engine/src/accountHierarchy/research.ts";
 import { checkPolicyInput, resolvePolicy, type HierarchyPolicy } from "../engine/src/accountHierarchy/policy.ts";
 
 /**
@@ -20,9 +22,9 @@ import { checkPolicyInput, resolvePolicy, type HierarchyPolicy } from "../engine
  * Salesforce connected can also scan Salesforce live: Canon's Salesforce import does not bring parent links, creation
  * dates or the custom fields a policy names.
  *
- * Approving a parent move on a Canon scan changes Canon's parent link at once, as the approver (`approveParent`).
- * Every other approval only records the decision: merges, field fixes, and anything on a Salesforce scan, whose ids
- * are Salesforce ids. Nothing in this file or its actions writes to a CRM.
+ * Approving a parent move or a field fix on a Canon scan changes Canon at once, as the approver (`approveParent`,
+ * `approveFields`). Every other approval only records the decision: merges, and anything on a Salesforce scan, whose
+ * ids are Salesforce ids. Nothing in this file or its actions writes to a CRM.
  *
  * A scan reads every account, so every function needs a caller who sees every record and may manage integrations.
  * Decisions also need `cleanup.run`.
@@ -195,7 +197,9 @@ export type ItemDecision = { decision: "approved" | "rejected"; decidedAt: numbe
 
 const PARENT_CHANGED = "The parent changed since this scan. Rescan to review it again.";
 const PARENT_CHANGED_SINCE_MOVE = "The parent changed after this move, so undo would overwrite that change. Rescan to review it again.";
-const APPLIED = "This parent move was applied. Undo it to change the decision.";
+const APPLIED = "This change was applied. Undo it to change the decision.";
+const FIELDS_CHANGED = "The company's fields changed since this scan. Rescan to review it again.";
+const FIELDS_CHANGED_SINCE_FIX = "The fields changed after this fix, so undo would overwrite that change. Edit them on the company page instead.";
 
 /** A proposal item and its decision, for a caller who may decide. */
 async function itemOf(ctx: QueryCtx | MutationCtx, researchId: Id<"hierarchyResearch">, itemKey: string) {
@@ -210,8 +214,8 @@ async function itemOf(ctx: QueryCtx | MutationCtx, researchId: Id<"hierarchyRese
     .query("hierarchyDecisions")
     .withIndex("by_researchId_and_itemKey", (q) => q.eq("researchId", research._id).eq("itemKey", itemKey))
     .unique();
-  // Only a Canon scan's parent moves name Canon record ids; everything else is recorded, never applied.
-  const applies = scan?.provider === "canon" && item.op === "set_parent";
+  // Only a Canon scan names Canon record ids, and only its parent moves and field fixes apply; merges are recorded.
+  const applies = scan?.provider === "canon" && (item.op === "set_parent" || item.op === "set_fields");
   return { user, research, item, existing, applies };
 }
 
@@ -232,15 +236,16 @@ async function currentParent(ctx: QueryCtx, orgId: Id<"organizations">, accountI
 }
 
 /**
- * Records a person's decision on one proposed item. A Canon scan's parent move is approved and undone through
- * `approveParent` and `undoParent`, which change the parent; this records the rest and rejects anything.
+ * Records a person's decision on one proposed item. A Canon scan's parent move and field fix are approved and undone
+ * through `approveParent`/`undoParent` and `approveFields`/`undoFields`, which change Canon; this records the rest and
+ * rejects anything.
  */
 export const decide = mutation({
   args: { researchId: v.id("hierarchyResearch"), itemKey: v.string(), decision: v.union(v.literal("approved"), v.literal("rejected"), v.literal("clear")) },
   handler: async (ctx, args) => {
     const { user, research, existing, applies } = await itemOf(ctx, args.researchId, args.itemKey);
     if (existing?.appliedAt) throw new ConvexError(APPLIED);
-    if (args.decision === "approved" && applies) throw new ConvexError("A parent move is approved by applying it. Reload the page and approve again.");
+    if (args.decision === "approved" && applies) throw new ConvexError("This change is approved by applying it. Reload the page and approve again.");
     if (args.decision === "clear") {
       if (existing) await ctx.db.delete(existing._id);
       return null;
@@ -334,6 +339,111 @@ export const refuseParentMove = internalMutation({
     const row = { decision: "approved" as const, decidedBy: user._id, decidedAt: Date.now(), applyError: args.message.slice(0, 500) };
     if (existing) await ctx.db.patch(existing._id, row);
     else await ctx.db.insert("hierarchyDecisions", { orgId: user.orgId, researchId: research._id, itemKey: args.itemKey, ...row });
+    return null;
+  },
+});
+
+/**
+ * Approve a Canon scan's field fix: the company's fields change now, as the approver's own edit on the company page
+ * (records.edit's path: their role edits companies and the fields, they see the company), so a CRM's next value for
+ * them is held against like any person's edit. The write carries the research's quotes as its evidence, and lands
+ * only while the company still holds the values the scan read (CAS). A refusal stays on the decision.
+ */
+export const approveFields = action({
+  args: itemArgs,
+  handler: (ctx, args): Promise<FixResult> => changeFields(ctx, args, false),
+});
+
+/** Undo an applied field fix: the values the scan read come back, if the fields still hold the fix. */
+export const undoFields = action({
+  args: itemArgs,
+  handler: (ctx, args): Promise<FixResult> => changeFields(ctx, args, true),
+});
+
+export type FixResult = { status: "applied" | "unchanged" } | { status: "invalid"; message: string };
+type FieldFix = Pick<FieldItem, "accountId" | "fields" | "expect"> & { applied: boolean; evidence: string };
+
+/** Why a fix's field can't be written as a person's edit of a Canon company, or null when it can. */
+export function fieldFixProblem(fields: Readonly<Record<string, string>>): string | null {
+  for (const field of Object.keys(fields)) {
+    if (/owner/i.test(field)) return "Owners are never changed here; routing decides them.";
+    if (!isLedgerEditField("account", field)) return `Canon companies have no field "${field}" a person edits, so this fix can't be applied. Make it on the company page.`;
+  }
+  return null;
+}
+
+/** The research's verbatim quotes behind a fix, in the shape research facts keep (lib/research/agentLoop.ts evidenceText). */
+export function fixEvidence(groupName: string, item: Pick<FieldItem, "citations">, checks: readonly CitationCheck[], checkedAt?: string): string {
+  const result = (url: string, quote: string) => checks.find((c) => c.url === url && c.quote === quote)?.result ?? "not checked";
+  const lines = item.citations.map((c) => `"${c.quote}" (${c.url}; ${result(c.url, c.quote).replace("_", " ")}${c.attestedBy ? ` by ${c.attestedBy}` : ""})`);
+  return `${lines.join("\n")}\n\nSource: account hierarchy research for ${groupName}${checkedAt ? `, quotes checked ${checkedAt.slice(0, 10)}` : ""}`.slice(0, 4000);
+}
+
+async function changeFields(ctx: ActionCtx, args: { researchId: Id<"hierarchyResearch">; itemKey: string }, undo: boolean): Promise<FixResult> {
+  const caller = await requireCaller(ctx);
+  const fix: FieldFix = await ctx.runQuery(internal.accountHierarchy.fieldFix, args);
+  const record = (error?: string) => ctx.runMutation(internal.accountHierarchy.recordFieldFix, { ...args, undo, ...(error ? { error } : {}) });
+  if (fix.applied !== undo) {
+    if (undo) await record();
+    return { status: "unchanged" };
+  }
+  const refuse = async (message: string): Promise<FixResult> => {
+    if (!undo) await record(message);
+    return { status: "invalid", message };
+  };
+  const problem = fieldFixProblem(fix.fields);
+  if (problem) return refuse(problem);
+  const patch = undo ? fix.expect : fix.fields;
+  try {
+    await editPartyRecord(await recordEditPorts(ctx, caller, {
+      object: "account", id: fix.accountId, patch, expect: undo ? fix.fields : fix.expect,
+      // A fresh key per attempt: an approval after an undo is a new edit, not a replay of the first.
+      idempotencyKey: `hierarchy:${args.researchId}:${args.itemKey}:${undo ? "undo" : "apply"}:${Date.now()}`,
+      ...(undo ? {} : { evidence: fix.evidence }),
+    }, "edit"));
+  } catch (error) {
+    if (error instanceof EditConflictError) {
+      // Already holding what this would write (an earlier attempt landed, or someone made the same change) counts as done.
+      const held = await ctx.runMutation(internal.canon.recordHolds, { orgId: caller.orgId as Id<"organizations">, object: "account", recordId: fix.accountId, values: patch });
+      if (!held) return refuse(undo ? FIELDS_CHANGED_SINCE_FIX : FIELDS_CHANGED);
+    } else {
+      // A company the approver cannot see, a field their role cannot edit, a value the field refuses.
+      const data: unknown = error instanceof ConvexError ? error.data : null;
+      const message = typeof data === "string" ? data : data && typeof data === "object" && typeof (data as { message?: unknown }).message === "string" ? (data as { message: string }).message : null;
+      if (message === null) throw error;
+      return refuse(message);
+    }
+  }
+  await record();
+  return { status: "applied" };
+}
+
+export const fieldFix = internalQuery({
+  args: itemArgs,
+  handler: async (ctx, args): Promise<FieldFix> => {
+    const { research, item, existing, applies } = await itemOf(ctx, args.researchId, args.itemKey);
+    if (!applies || item.op !== "set_fields") throw new ConvexError("Only a field fix on a scan of Canon's companies changes fields.");
+    const checks = (research.verification as { checks?: CitationCheck[]; checkedAt?: string } | undefined) ?? {};
+    return {
+      accountId: item.accountId, fields: item.fields, expect: item.expect, applied: existing?.appliedAt !== undefined,
+      evidence: fixEvidence(research.groupName, item, checks.checks ?? [], checks.checkedAt),
+    };
+  },
+});
+
+/** A field fix's outcome on its decision: applied, refused (kept with its reason), or undone (the decision deleted). */
+export const recordFieldFix = internalMutation({
+  args: { ...itemArgs, undo: v.boolean(), error: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const { user, research, existing } = await itemOf(ctx, args.researchId, args.itemKey);
+    if (args.undo) {
+      if (existing && !args.error) await ctx.db.delete(existing._id);
+      return null;
+    }
+    const decided = { decision: "approved" as const, decidedBy: user._id, decidedAt: Date.now() };
+    const outcome = args.error ? { applyError: args.error.slice(0, 500) } : { appliedAt: decided.decidedAt };
+    if (existing) await ctx.db.patch(existing._id, { ...decided, appliedAt: undefined, applyError: undefined, ...outcome });
+    else await ctx.db.insert("hierarchyDecisions", { orgId: user.orgId, researchId: research._id, itemKey: args.itemKey, ...decided, ...outcome });
     return null;
   },
 });

@@ -26,7 +26,7 @@ type HistoryEntry = {
   source: { kind: string; ref: string };
   actor: { kind: string; id?: string };
   body:
-    | { kind: "assert"; status: string; assertions: Array<{ fieldId: string; value: CellValue; validFrom?: number }> }
+    | { kind: "assert"; status: string; assertions: Array<{ fieldId: string; value: CellValue; validFrom?: number; evidence?: string }> }
     | { kind: "decide"; decisions: Array<{ fact: { fieldId: string; value: CellValue }; status: string }> }
     /** `absorb` (a merge's survivor) carries `mergeId` and the records it took in. */
     | { kind: "lifecycle"; op: string; into?: string; mergeId?: string; from?: MergedFrom[] }
@@ -154,6 +154,11 @@ function useHistory(streamId: Id<"canonEntities">, scoped: boolean, refresh: unk
   };
 }
 
+/** A person's edit made by approving an account hierarchy fix (convex/accountHierarchy.ts changeFields names its key so). */
+const HIERARCHY_EDIT = /^user:.+:hierarchy:[^:]+:ah:/;
+/** Why an entry was written, when it says (an approved fix's quotes): one save gives every value the same evidence. */
+const evidenceOf = (e: HistoryEntry) => (e.body.kind === "assert" ? e.body.assertions.find((a) => a.evidence)?.evidence : undefined);
+
 export function History({ streamId, fields, team, onUndone, scoped = false, refresh, title = "History" }: { streamId: Id<"canonEntities">; fields: readonly FieldDescription[]; team?: readonly TeamMember[]; onUndone?: () => void; scoped?: boolean; refresh?: unknown; title?: string }) {
   const { results, status, loadMore } = useHistory(streamId, scoped, refresh);
   const entries = results as HistoryEntry[];
@@ -162,7 +167,7 @@ export function History({ streamId, fields, team, onUndone, scoped = false, refr
   // An automation rule's write (convex/automations.ts): its source ref names the rule; the actor is the admin it runs as.
   const ruleOf = (e: HistoryEntry) => /^automation:([^:]+):/.exec(e.source.ref)?.[1];
   const who = (e: HistoryEntry) => (ruleOf(e) ? `Rule "${rules?.find((r) => r.id === ruleOf(e))?.name ?? "deleted rule"}"${e.actor.kind === "user" ? `, as ${team?.find((u) => u._id === e.actor.id)?.name ?? "its creator"}` : ""}`
-    : e.actor.kind === "user" ? team?.find((u) => u._id === e.actor.id)?.name ?? "A teammate"
+    : e.actor.kind === "user" ? `${team?.find((u) => u._id === e.actor.id)?.name ?? "A teammate"}${HIERARCHY_EDIT.test(e.source.ref) ? ", approved in Account hierarchy" : ""}`
     : e.actor.kind === "rule" ? "An auto-accept rule"
     : e.source.ref.startsWith("grant:") ? "An agent's standing grant" : e.source.kind);
   return (
@@ -175,6 +180,7 @@ export function History({ streamId, fields, team, onUndone, scoped = false, refr
           {entries.map((e) => (
             <li key={e.version} className="border-b border-border pb-2 last:border-b-0">
               {describeEntry(e, fields, titles, team).map((line, i) => <div key={i} className={line.startsWith("  ") ? "pl-4 text-xs text-muted-foreground" : undefined}>{line.trim()}</div>)}
+              {evidenceOf(e) && <p className="mt-1 whitespace-pre-line border-l-2 border-border pl-2 text-xs text-muted-foreground">{evidenceOf(e)}</p>}
               {e.body.kind === "lifecycle" && e.body.op === "absorb" && e.body.mergeId && <UndoMerge mergeId={e.body.mergeId} onUndone={onUndone} />}
               <div className="text-xs text-muted-foreground">{who(e)}{e.actor.kind === "user" && e.source.kind !== "user" ? ` via ${SOURCE_LABEL[e.source.kind] ?? e.source.kind}` : ""} · {new Date(e.observedAt).toLocaleString()}{validAsOf(e)} · v{e.version}</div>
             </li>

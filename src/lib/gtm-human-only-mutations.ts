@@ -27,6 +27,8 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.accountHierarchy.decide": "approving a proposed merge, parent move or field fix is a person's decision; an agent never approves its own research",
   "api.accountHierarchy.approveParent": "approving a parent move changes Canon's hierarchy as the approver; the hierarchy page is its only approval, and an agent never approves its own research",
   "api.accountHierarchy.undoParent": "undoing an applied parent move reverses a person's approval; it stays with the person who decides",
+  "api.accountHierarchy.approveFields": "approving a field fix changes the company in Canon as the approver's own edit; the hierarchy page is its only approval, and an agent never approves its own research",
+  "api.accountHierarchy.undoFields": "undoing an applied field fix reverses a person's approval; it stays with the person who decides",
   "api.associations.useCrmParent": "taking a CRM's parent over the one a person set in Canon is that person's call on the record page or the hierarchy page; an agent sets parents with set_parent",
   "api.associations.useCrmCompany": "taking a CRM's company over what a person chose for someone in Canon is that person's call on the record page; an agent links a person's companies with canon_associations",
   "api.dealCommittee.useCrmRole": "taking a CRM's deal role over the one a person set in Canon is that person's call on the deal page; an agent sets deal roles with canon_deal_roles",
