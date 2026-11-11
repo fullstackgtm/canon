@@ -152,8 +152,8 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   suppressions: { kind: "rows", dependsOn: RECORDS },
   suppressionEvents: { kind: "rows", dependsOn: RECORDS },
   dialerDoNotCall: { kind: "rows", dependsOn: RECORDS },
-  // An audit entry names the rule or plan it is about inside its details (automations.ts audit).
-  operationAuditLog: { kind: "rows", dependsOn: [...RECORDS, "automationRules", "routingRules", "sequenceLaunches"] },
+  // An audit entry names the rule, its version or the plan it is about inside its details (automations.ts audit).
+  operationAuditLog: { kind: "rows", dependsOn: [...RECORDS, "automationRules", "automationVersions", "routingRules", "sequenceLaunches"] },
   notifications: { kind: "rows", dependsOn: RECORDS },
   notificationEmail: { kind: "rows", module: { field: "moduleId" }, dependsOn: RECORDS },
   orgOnboardingSteps: { kind: "rows", replace: true, dependsOn: RECORDS },

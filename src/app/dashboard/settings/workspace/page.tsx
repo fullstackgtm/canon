@@ -4,7 +4,7 @@ import { SettingsPage } from "../settings-ui";
 import { WorkspaceForm } from "../workspace-form";
 import { SampleDataSection } from "../sample-data-section";
 import { ExportSection } from "../export-section";
-import { ImportSection } from "../import-section";
+import { ArrivedOffLink, ImportSection } from "../import-section";
 
 export default function WorkspaceSettingsPage() {
   return (
@@ -13,6 +13,7 @@ export default function WorkspaceSettingsPage() {
       <SampleDataSection />
       <ExportSection />
       <ImportSection />
+      <ArrivedOffLink />
     </SettingsPage>
   );
 }

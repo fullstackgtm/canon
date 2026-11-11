@@ -302,10 +302,11 @@ async function buildAgents(w: ReturnType<typeof world>, a: { acme: { id: string;
 async function buildActors(w: ReturnType<typeof world>, a: { dealRow: string; pat: { recordId: string } }, shape: (t: string) => Shape) {
   const { db, A, B, ada, rex } = w;
   const rule = await db.insert("automationRules", { orgId: A, name: "Tag new", object: "account", status: "active", trigger: { kind: "created" }, conditions: [], actions: [], createdBy: ada, activeSince: 1, startSeqs: {}, createdAt: 1, updatedAt: 1 } as never);
-  await db.insert("operationAuditLog", { orgId: A, userId: ada, verb: "do", operation: "automation_rule.create", status: "applied", details: { ruleId: rule, name: "Tag new" }, createdAt: 1 });
   // An agent's proposals: a new version of the rule and a new rule. Neither may act after an import.
   const spec = { name: "Tag new", object: "account", trigger: { kind: "created" }, conditions: [], actions: [] };
-  await db.insert("automationVersions", { orgId: A, ruleId: rule, version: 2, parent: 0, spec, note: "Tag them", author: { userId: ada, agent: "claude" }, status: "proposed", createdAt: 1 });
+  const version = await db.insert("automationVersions", { orgId: A, ruleId: rule, version: 2, parent: 0, spec, note: "Tag them", author: { userId: ada, agent: "claude" }, status: "proposed", createdAt: 1 });
+  // The Automations page's audit entry names the rule and its version.
+  await db.insert("operationAuditLog", { orgId: A, userId: ada, verb: "do", operation: "automation_rule.create", status: "applied", details: { ruleId: rule, versionId: version, name: "Tag new" }, createdAt: 1 });
   await db.insert("automationVersions", { orgId: A, version: 1, parent: null, spec: { ...spec, name: "Another" }, note: "", author: { userId: ada, agent: "claude" }, status: "proposed", createdAt: 1 });
   await db.insert("routingRules", { orgId: A, name: "East pod", method: "round_robin", assignees: [{ userId: rex }], isActive: true, createdAt: 1, updatedAt: 1 });
   // The sequences module is installed on both sides, so its launches are imported.
@@ -970,6 +971,16 @@ test("a hand-built archive whose rules are active, plans approved and launches r
   assert.deepEqual(of(db, "dealPlays", B).map((r) => [Boolean(r.keeperPaused), r.stateDueAt, (r.research as { status: string }).status]), [[true, undefined, "failed"]]);
   assert.deepEqual([...of(db, "dealPlaySteps", B), ...of(db, "conversations", B)].map((r) => r.queuedAt ?? r.extractDueAt ?? null), [null, null, null]);
   assert.deepEqual(plain([of(db, "dialerSettings", B)[0].record, of(db, "recordingPolicy", B)[0].callRecording, ...["hierarchyScans", "hierarchyResearch", "fieldConsolidationRuns"].map((t) => of(db, t, B)[0].status)]), [false, false, "failed", "failed", "failed"]);
+  // The arrival checklist lists each thing still off, once, with its own switch; turning one on through it takes it off the list.
+  const arrivals = async () => plain(await I.arrivals.handler(ctxOf(db, "clerk_ada_b"), {})) as { items: Array<{ table: string; id: string; turnOn: { kind: string; call?: string; args?: Record<string, unknown> } }> };
+  const listed = (await arrivals()).items;
+  assert.deepEqual(listed.map((i) => `${i.table}:${i.turnOn.kind === "call" ? i.turnOn.call : "page"}`).sort(), [
+    "agents:agents.setPaused", "automationRules:automations.setStatus", "dealPlays:page", "dialerSettings:page", "recordingPolicy:page", "researchAgents:page", "routingRules:leadScoring.updateRoutingRule", "sequenceLaunches:page",
+  ]);
+  assert.equal(await I.arrivals.handler(ctxOf(db, "clerk_carl"), {}), null);
+  const rule = listed.find((i) => i.table === "automationRules")!;
+  await Auto.setStatus.handler(ctxOf(db, "clerk_ada_b"), rule.turnOn.args);
+  assert.ok(!(await arrivals()).items.some((i) => i.id === rule.id));
   const dry = report.sections.filter((x) => x.arrives).map((x) => [x.section, x.arrives!.rows]).sort();
   assert.deepEqual(dry, [["agentTurns", 2], ["agents", 1], ["approvalRequests", 2], ["automationRules", 1], ["conversations", 2], ["dealPlaySteps", 1], ["dealPlays", 1], ["dialerSettings", 1], ["fieldConsolidationRuns", 1], ["hierarchyResearch", 1], ["hierarchyScans", 1], ["patchPlans", 4], ["recordingPolicy", 1], ["researchAgents", 1], ["researchRuns", 1], ["routingRules", 1], ["sequenceEnrollments", 1], ["sequenceLaunches", 1]]);
 });
@@ -990,6 +1001,7 @@ test("the census names every cron and route that can act, and every imported tab
   assert.deepEqual(imported.filter((t) => hasSwitch(t) && !IMPORT_TABLES[t].arrive && !INERT[t]), [], "an imported table with a switch, no arrival and no reason it is inert");
   assert.deepEqual(Object.keys(INERT).filter((t) => !imported.includes(t) || IMPORT_TABLES[t].arrive || !hasSwitch(t)), [], "an INERT entry that isn't an imported table with a switch and no arrival");
   assert.deepEqual(imported.filter((t) => IMPORT_TABLES[t].arrive && !switches.has(t)), [], "an arrival the census doesn't check");
+  assert.deepEqual(CENSUS.flatMap((m) => m.imported.filter((s) => !s.checklist).map((s) => `${m.key}:${s.table}`)), [], "an imported switch the arrival checklist neither lists nor names as history");
   for (const m of CENSUS) for (const s of [...m.imported, ...m.here]) {
     const index = ((tables[s.table] as unknown as { indexes: Array<{ indexDescriptor: string; fields: string[] }> }).indexes ?? []).find((i) => i.indexDescriptor === s.index);
     // A switch under a parent is read through the parent's id, and the parent is one of the mechanism's own switches.

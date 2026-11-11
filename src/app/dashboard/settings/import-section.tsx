@@ -1,11 +1,27 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { getErrorMessage } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+
+/** Once this workspace took an import: how many things it brought are still off, and the page that turns them on. */
+export function ArrivedOffLink() {
+  const data = useQuery(api.workspaceImport.arrivals);
+  if (!data?.importedAt) return null;
+  return (
+    <section className="space-y-2 border-t border-border pt-5" aria-label="Arrived off">
+      <h2 className="text-sm font-medium">Arrived off</h2>
+      <p className="text-sm text-muted-foreground">
+        {data.items.length ? `${data.items.length} ${data.items.length === 1 ? "thing" : "things"} the import brought ${data.items.length === 1 ? "is" : "are"} still off.` : "Everything the import brought switched off is on again."}{" "}
+        <Link href="/dashboard/settings/imported" className="text-primary hover:underline">See what arrived off</Link>
+      </p>
+    </section>
+  );
+}
 
 /** Admins only, where import is switched on: an import key for `canon workspace import`, shown once. */
 export function ImportSection() {

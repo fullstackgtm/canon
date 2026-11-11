@@ -70,6 +70,10 @@ The manifest's `notExported` list names every table left out, with its reason.
 
 Import only goes into a new, empty workspace: no records, deals or register rows, and no members but you.
 
+A self-hosted install and a local stack take imports. On canoncrm.com and any other hosted deployment, the operator
+turns import on for the deployment with `CANON_WORKSPACE_IMPORT=on`; until then **Import** doesn't show in
+Settings. Every import runs the dry run first and doesn't start while it refuses anything.
+
 1. Sign in as the admin of the new workspace and open **Settings > Workspace**. Under **Import**, choose **Create
    import key**. Like an export key it is shown once and works for an hour. An export key never imports.
 2. See what the import would do. A dry run writes nothing:
@@ -132,6 +136,15 @@ What arrives switched off:
 Nothing the archive brings sends, writes to a CRM, fires a rule or acts until a person here turns it on. The dry
 run counts the rows of each section that arrive changed, and the import's summary lists every way Canon can send or
 act, with what is connected on this deployment.
+
+After the import, **Settings > Workspace > Arrived off** (`/dashboard/settings/imported`, admins only) lists every
+thing the import brought that is still off: modules, automation and routing rules, agents, AI field refreshes, deal
+play keepers, sequence launches and call recording. Each says what it does and why it arrived off, and turns on
+through its own switch: **Turn on** calls the switch its own page calls, and the rest link to the page that holds the
+switch, where it needs a choice (a refresh cadence, a launch's approval) or runs on your plan (a play's **Check
+now**). Something you turn on leaves the list. The list is built from the census of everything Canon can send or act
+with (`convex/lib/workspaceArchive/actors.ts`), so a new kind of actor appears there as soon as Canon knows how it
+arrives.
 
 - **Automation rules** arrive paused. Turn one on in **Agents > Automations**: it runs on changes made from then on,
   never on the imported history.

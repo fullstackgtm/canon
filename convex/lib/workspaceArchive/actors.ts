@@ -171,12 +171,26 @@ export function arrive(table: string, a: Arrival, row: Row, at: ArrivalAt): Row 
   return out;
 }
 
+/** The app's own switches the arrival checklist calls (src/app/dashboard/settings/imported/page.tsx), each as a person would. */
+export const TURN_ON_CALLS = ["automations.setStatus", "leadScoring.updateRoutingRule", "agents.setPaused"] as const;
+export type TurnOnCall = (typeof TURN_ON_CALLS)[number];
+/** How a person turns on, here, a row that arrived off: the thing's own switch with these arguments, or the page that holds it. */
+export type TurnOn = { kind: "call"; call: TurnOnCall; args: Row } | { kind: "page"; href: string; label: string };
+
+/**
+ * A switch on the arrival checklist (convex/workspaceImport.ts arrivals), the page after an import that lists what
+ * arrived off: `lists` says a row is still off since it arrived, with its `name` and how to `turnOn` it. `history`
+ * says why rows of the switch are never turned back on (a cancelled plan is planned again). Every imported switch has
+ * one (tests/workspaceImport.test.ts), so a new actor reaches the checklist when its census row is written.
+ */
+export type Checklist = { lists: (row: Row) => boolean; name: (row: Row) => string; turnOn: (row: Row) => TurnOn } | { history: string };
+
 /**
  * Where an actor's switch lives: rows of `table` in the workspace, read through `index` (first field `orgId`).
  * `open` says whether one row could act now; absent, any row could. With `parent`, the rows hang under the
  * mechanism's switch on that table, and `index`'s first field is the parent row's id.
  */
-export type Switch = { table: string; index: string; open?: (row: Row) => boolean; parent?: string };
+export type Switch = { table: string; index: string; open?: (row: Row) => boolean; parent?: string; checklist?: Checklist };
 
 export type Mechanism = {
   key: string;
@@ -195,6 +209,14 @@ export type Mechanism = {
 };
 
 const any = (table: string, index = "by_orgId"): Switch => ({ table, index });
+const text = (v: unknown, fallback: string) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 120) : fallback);
+const page = (href: string, label: string) => (): TurnOn => ({ kind: "page", href, label });
+/** A rule arrived paused with the import's reason; a rule a person paused here isn't the checklist's. */
+const ruleOff: Checklist = {
+  lists: (r) => r.status === "paused" && r.pausedReason === IMPORTED_RULE,
+  name: (r) => text(r.name, "Automation rule"),
+  turnOn: (r) => ({ kind: "call", call: "automations.setStatus", args: { id: r._id, status: "active" } }),
+};
 /** Whether a rule row has a step of one of `kinds`, at any depth of its Ifs. */
 const hasStep = (row: Row, ...kinds: string[]): boolean => {
   const walk = (steps: unknown): boolean => Array.isArray(steps) && steps.some((s) => s && typeof s === "object" && (kinds.includes((s as Row).kind as string) || walk((s as Row).then) || walk((s as Row).else)));
@@ -207,8 +229,9 @@ export const CENSUS: readonly Mechanism[] = [
     gate: "convex/lib/sequences/lifecycle.ts:282 (launch active), :279 (enrollment active), :152 (a member approves a paused launch)",
     arrives: "launches paused under a new authorization epoch; enrollments paused; outbox requests are this deployment's and never move",
     imported: [
-      { table: "sequenceLaunches", index: "by_orgId_and_moduleId", open: (r) => r.state === "active" },
-      { table: "sequenceEnrollments", index: "by_orgId_and_moduleId_and_moduleEnrollmentKey", open: (r) => r.state === "pending" || r.state === "active" },
+      { table: "sequenceLaunches", index: "by_orgId_and_moduleId", open: (r) => r.state === "active",
+        checklist: { lists: (r) => r.state === "paused", name: (r) => text(r.moduleSequenceKey, "Sequence"), turnOn: page("/dashboard/m/sequences", "Approve its launch in Sequences") } },
+      { table: "sequenceEnrollments", index: "by_orgId_and_moduleId_and_moduleEnrollmentKey", open: (r) => r.state === "pending" || r.state === "active", checklist: { history: "an enrollment resumes when its launch is approved here" } },
     ],
     here: [any("outboxRequests", "by_orgId_moduleId_projection_collection_projection_key"), any("mailboxSendGrants", "by_orgId_and_ownerId")],
     runs: [],
@@ -225,7 +248,7 @@ export const CENSUS: readonly Mechanism[] = [
     key: "email", does: "send one email from a member's linked mailbox",
     gate: "convex/emailAccounts.ts:146 claimSend (a linked emailAccounts row)",
     arrives: "mailboxes are this deployment's; a send's history needs its mailbox, so it is left out and counted (the email itself moves as the person's email activity)",
-    imported: [{ table: "emailSends", index: "by_orgId_and_contactId", open: (r) => r.state === "sending" || r.state === "unknown" }],
+    imported: [{ table: "emailSends", index: "by_orgId_and_contactId", open: (r) => r.state === "sending" || r.state === "unknown", checklist: { history: "left out: a send's log stays with its mailbox" } }],
     here: [any("emailAccounts")],
     runs: [],
   },
@@ -233,7 +256,10 @@ export const CENSUS: readonly Mechanism[] = [
     key: "linkedin", does: "send LinkedIn invites and messages",
     gate: "convex/linkedinWorker.ts:69 (senders with status ok), :132 (cadence active)",
     arrives: "cadences and enrollments need their sender, which never moves, so each is left out and counted (the touches themselves are on each person's activity)",
-    imported: [{ table: "linkedinCadences", index: "by_orgId", open: (r) => r.status === "active" }, { table: "linkedinEnrollments", index: "by_orgId_and_contactId", open: (r) => !["done", "withdrawn", "stopped", "failed", "replied"].includes(r.state as string) }],
+    imported: [
+      { table: "linkedinCadences", index: "by_orgId", open: (r) => r.status === "active", checklist: { history: "left out: a cadence stays with its sender" } },
+      { table: "linkedinEnrollments", index: "by_orgId_and_contactId", open: (r) => !["done", "withdrawn", "stopped", "failed", "replied"].includes(r.state as string), checklist: { history: "left out with its cadence" } },
+    ],
     here: [any("linkedinAccounts")],
     runs: ["internal.linkedinWorker.tick", "internal.linkedinFeeds.refreshSenders", "internal.linkedinActions.ensureWebhooksDaily", "registerLinkedinRoutes"],
   },
@@ -242,9 +268,11 @@ export const CENSUS: readonly Mechanism[] = [
     gate: "convex/dialer.ts:105 (a number on this deployment's telephony account)",
     arrives: "numbers, credentials and sessions never move; settings and the recording policy arrive with recording off; a call needs its session, so it is left out and counted (the call is on each person's activity, and its recording, transcript and insights come along)",
     imported: [
-      { table: "dialerSettings", index: "by_orgId", open: (r) => r.record === true },
-      { table: "recordingPolicy", index: "by_orgId", open: (r) => r.callRecording === true },
-      { table: "dialerCalls", index: "by_orgId_and_contactId", open: (r) => ["dialing", "ringing", "answered"].includes(r.state as string) },
+      { table: "dialerSettings", index: "by_orgId", open: (r) => r.record === true,
+        checklist: { lists: (r) => r.record === false, name: () => "Dialer call recording", turnOn: page("/dashboard/settings/recording", "Turn it on in Recording settings") } },
+      { table: "recordingPolicy", index: "by_orgId", open: (r) => r.callRecording === true,
+        checklist: { lists: (r) => r.callRecording === false, name: () => "Call recording policy", turnOn: page("/dashboard/settings/recording", "Turn it on in Recording settings") } },
+      { table: "dialerCalls", index: "by_orgId_and_contactId", open: (r) => ["dialing", "ringing", "answered"].includes(r.state as string), checklist: { history: "left out: a call stays with its dialer session" } },
     ],
     here: [any("dialerNumbers")],
     runs: ["internal.dialer.reapExpired", "registerDialerRoutes"],
@@ -262,8 +290,8 @@ export const CENSUS: readonly Mechanism[] = [
     gate: "convex/lib/patchPlanGuards.ts:18 (approved), convex/patchPlans.ts:94 (a connected CRM), convex/moduleGrants.ts:166 (a module grant's apply)",
     arrives: "unapplied plans cancelled with the reason and their approval requests cancelled; applied plans as history; CRM connections and grants never move",
     imported: [
-      { table: "patchPlans", index: "by_orgId", open: (r) => r.status === "approved" || r.applyClaim !== undefined || (UNAPPLIED.has(r.status as string) && r.operation !== PROPOSAL_OP) },
-      { table: "approvalRequests", index: "by_orgId", open: (r) => r.status === "pending" || r.status === "approved" },
+      { table: "patchPlans", index: "by_orgId", open: (r) => r.status === "approved" || r.applyClaim !== undefined || (UNAPPLIED.has(r.status as string) && r.operation !== PROPOSAL_OP), checklist: { history: "an unapplied plan arrived cancelled: plan the change again here" } },
+      { table: "approvalRequests", index: "by_orgId", open: (r) => r.status === "pending" || r.status === "approved", checklist: { history: "cancelled with its plan" } },
     ],
     here: [any("integrations"), any("moduleGrants", "by_orgId_and_moduleId")],
     runs: ["internal.integrationActions.runScheduledSyncs", "internal.salesforceSync.tick", "internal.canon.sweepPartyMirror", "/api/hubspot/callback", "/api/salesforce/callback", "/record-service/changes"],
@@ -272,7 +300,7 @@ export const CENSUS: readonly Mechanism[] = [
     key: "automation", does: "run an automation rule's actions on record changes or on its schedule",
     gate: "convex/automations.ts:701 (active rules), :722 (activeSince and startSeqs), :882 (still active at each step), requirePerson (only a person approves a proposal or turns a rule on)",
     arrives: "paused, with activeSince and startSeqs at the end of the import; turning one on starts both again from that moment",
-    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" }],
+    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active", checklist: ruleOff }],
     here: [],
     runs: ["internal.automations.sweep"],
   },
@@ -280,7 +308,7 @@ export const CENSUS: readonly Mechanism[] = [
     key: "automation-notify", does: "post to a Slack channel or email a member from an automation rule's notify step",
     gate: "convex/automations.ts step (an active rule whose approver is still a member), convex/lib/outbound/gate.ts (a Slack channel mapped here, an active member's address)",
     arrives: "its rule arrives paused; Slack channel mappings never move, so a Slack step is refused until an admin here maps the channel",
-    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" && hasStep(r, "notify_slack", "notify_email") }],
+    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" && hasStep(r, "notify_slack", "notify_email"), checklist: ruleOff }],
     here: [],
     runs: ["internal.automations.sweep"],
   },
@@ -288,7 +316,7 @@ export const CENSUS: readonly Mechanism[] = [
     key: "automation-webhook", does: "send a record to a record webhook from an automation rule's webhook step",
     gate: "convex/automations.ts step (an active rule whose approver is still a member), convex/recordWebhooks.ts claim (an enabled endpoint, the rule's admin still a member)",
     arrives: "its rule arrives paused, and the step with no endpoint: endpoints carry their secret and never move, so an admin here picks one again",
-    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" && hasStep(r, "call_webhook") }],
+    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" && hasStep(r, "call_webhook"), checklist: ruleOff }],
     here: [{ table: "recordWebhookEndpoints", index: "by_orgId", open: (r) => r.enabled === true }],
     runs: ["internal.automations.sweep", "internal.recordWebhooks.sweep"],
   },
@@ -296,7 +324,8 @@ export const CENSUS: readonly Mechanism[] = [
     key: "routing", does: "assign owners from a routing rule's members",
     gate: "convex/automations.ts:806 (the routing rule is on)",
     arrives: "turned off",
-    imported: [{ table: "routingRules", index: "by_orgId", open: (r) => r.isActive === true }],
+    imported: [{ table: "routingRules", index: "by_orgId", open: (r) => r.isActive === true,
+      checklist: { lists: (r) => r.isActive === false, name: (r) => text(r.name, "Routing rule"), turnOn: (r) => ({ kind: "call", call: "leadScoring.updateRoutingRule", args: { ruleId: r._id, isActive: true } }) } }],
     here: [],
     runs: [],
   },
@@ -305,8 +334,9 @@ export const CENSUS: readonly Mechanism[] = [
     gate: "convex/agentTurns.ts:450 startTurn (paused or archived), :319 admit (standing), :261 webhookSecret (a secret made here), convex/lib/agents/grants.ts (standing grants)",
     arrives: "paused with Slack off; turns that hadn't run arrive skipped; grants, webhook secrets and agent sign-ins never move",
     imported: [
-      { table: "agents", index: "by_orgId_and_slug", open: (r) => (!r.pause && r.archivedAt === undefined) || r.slack !== undefined },
-      { table: "agentTurns", index: "by_agentId_and_createdAt", parent: "agents", open: (r) => r.status === "queued" || r.status === "running" },
+      { table: "agents", index: "by_orgId_and_slug", open: (r) => (!r.pause && r.archivedAt === undefined) || r.slack !== undefined,
+        checklist: { lists: (r) => (r.pause as Row | undefined)?.reason === "imported" && r.archivedAt === undefined, name: (r) => text(r.label, "Agent"), turnOn: (r) => ({ kind: "call", call: "agents.setPaused", args: { agent: { agentId: r._id }, paused: false } }) } },
+      { table: "agentTurns", index: "by_agentId_and_createdAt", parent: "agents", open: (r) => r.status === "queued" || r.status === "running", checklist: { history: "a turn that hadn't run never runs" } },
     ],
     here: [{ table: "agentGrants", index: "by_agentId", parent: "agents", open: (r) => r.revokedAt === undefined }, { table: "agentWebhooks", index: "by_agentId", parent: "agents" }],
     runs: ["registerAgentWebhookRoutes", "registerPiRoute"],
@@ -316,8 +346,9 @@ export const CENSUS: readonly Mechanism[] = [
     gate: "convex/researchAgents.ts:1035 (refreshNextAt due), :1043 (its agent may act)",
     arrives: "refresh off; runs that hadn't finished arrive cancelled",
     imported: [
-      { table: "researchAgents", index: "by_orgId_and_slug", open: (r) => r.refreshNextAt !== undefined },
-      { table: "researchRuns", index: "by_orgId_and_createdAt", open: (r) => r.status === "running" },
+      { table: "researchAgents", index: "by_orgId_and_slug", open: (r) => r.refreshNextAt !== undefined,
+        checklist: { lists: (r) => r.refreshHold !== undefined && r.refreshNextAt === undefined, name: (r) => text(r.label, "AI field"), turnOn: page("/dashboard/fields", "Choose its refresh in AI fields") } },
+      { table: "researchRuns", index: "by_orgId_and_createdAt", open: (r) => r.status === "running", checklist: { history: "a run that hadn't finished arrived cancelled: run it again here" } },
     ],
     here: [],
     runs: ["internal.researchAgents.startDueRefreshes"],
@@ -335,8 +366,10 @@ export const CENSUS: readonly Mechanism[] = [
     gate: "convex/dealPlays.ts:849 duePlays and :949 playsOfContact (keeperPaused), convex/dealPlayKeeper.ts:168 tick, convex/dealState.ts:148 runDue (stateDueAt)",
     arrives: "the keeper off until a person runs it on the play; unfinished research failed; LinkedIn steps unqueued (cadences and senders stay with the source)",
     imported: [
-      { table: "dealPlays", index: "by_orgId_and_streamId", open: (r) => !r.keeperPaused || r.stateDueAt !== undefined || [r.research, r.stateRun, r.peopleResearch].some((x) => (x as Row | undefined)?.status === "running") },
-      { table: "dealPlaySteps", index: "by_playId", parent: "dealPlays", open: (r) => r.queuedAt !== undefined },
+      { table: "dealPlays", index: "by_orgId_and_streamId", open: (r) => !r.keeperPaused || r.stateDueAt !== undefined || [r.research, r.stateRun, r.peopleResearch].some((x) => (x as Row | undefined)?.status === "running"),
+        // Check now runs the keeper on the person's own plan, so it is pressed on the deal, where its draft shows.
+        checklist: { lists: (r) => r.keeperPaused !== undefined, name: (r) => text(r.context, "Deal play"), turnOn: (r) => ({ kind: "page", href: `/dashboard/deals/${String(r.dealId)}`, label: "Check now on the deal's play" }) } },
+      { table: "dealPlaySteps", index: "by_playId", parent: "dealPlays", open: (r) => r.queuedAt !== undefined, checklist: { history: "a LinkedIn step arrived planned again" } },
     ],
     here: [],
     runs: ["internal.dealPlayKeeper.tick"],
@@ -346,10 +379,10 @@ export const CENSUS: readonly Mechanism[] = [
     gate: "engine/src/accountHierarchy/policy.ts:61 (every proposal needs approval), convex/accountHierarchy.ts (a person starts each scan, research and decision), convex/fieldConsolidations.ts (a person previews and applies each run, through a connected CRM)",
     arrives: "settings as they were (nothing in them is automatic); unfinished scans, research and consolidation runs arrive failed; parent disagreements stay with the CRM connection, and its next sync finds them again",
     imported: [
-      { table: "hierarchyScans", index: "by_orgId", open: (r) => r.status === "reading" },
-      { table: "hierarchyResearch", index: "by_scanId", parent: "hierarchyScans", open: (r) => r.status === "running" },
-      { table: "fieldConsolidations", index: "by_orgId", open: () => false },
-      { table: "fieldConsolidationRuns", index: "by_consolidationId_and_createdAt", parent: "fieldConsolidations", open: (r) => ["previewing", "ready", "applying", "undoing"].includes(r.status as string) },
+      { table: "hierarchyScans", index: "by_orgId", open: (r) => r.status === "reading", checklist: { history: "a scan that hadn't finished arrived failed: scan again here" } },
+      { table: "hierarchyResearch", index: "by_scanId", parent: "hierarchyScans", open: (r) => r.status === "running", checklist: { history: "research that hadn't finished arrived failed" } },
+      { table: "fieldConsolidations", index: "by_orgId", open: () => false, checklist: { history: "nothing in a consolidation is automatic" } },
+      { table: "fieldConsolidationRuns", index: "by_consolidationId_and_createdAt", parent: "fieldConsolidations", open: (r) => ["previewing", "ready", "applying", "undoing"].includes(r.status as string), checklist: { history: "a run that wasn't applied arrived failed: preview it again here" } },
     ],
     here: [],
     runs: [],
@@ -361,8 +394,10 @@ export const CENSUS: readonly Mechanism[] = [
     // A module that is on runs its schedules, timed transitions and watches on what the import wrote; a hosted AI step
     // still running fills its doc when it finishes.
     imported: [
-      { table: "recipeEnablements", index: "by_orgId_and_point_and_enabled", open: (r) => r.point === "module" && r.enabled === true },
-      { table: "moduleAiRuns", index: "by_orgId_userId_at", open: (r) => r.status === "running" },
+      // Modules are turned on where they are managed: Canon's pages call no module function but contributions (tests/moduleSurfaces.test.ts).
+      { table: "recipeEnablements", index: "by_orgId_and_point_and_enabled", open: (r) => r.point === "module" && r.enabled === true,
+        checklist: { lists: (r) => r.point === "module" && r.enabled === false, name: (r) => text(r.recipeId, "Module"), turnOn: page("/dashboard/customization", "Turn it on in Customization") } },
+      { table: "moduleAiRuns", index: "by_orgId_userId_at", open: (r) => r.status === "running", checklist: { history: "a hosted AI step that hadn't finished arrived failed" } },
     ],
     // What can run here is what is installed here: the import never installs a module.
     here: [{ table: "modulePackages", index: "by_orgId_and_status", open: (r) => r.status === "installed" }],
@@ -372,7 +407,7 @@ export const CENSUS: readonly Mechanism[] = [
     key: "intake", does: "read connected mail, LinkedIn chats, meetings and lead feeds into records",
     gate: "convex/conversationExtract.ts:36 (conversations due), connector links and integrations (this deployment's)",
     arrives: "conversations arrive with extraction off; mailboxes, LinkedIn senders, connector links and integrations never move",
-    imported: [{ table: "conversations", index: "by_orgId", open: (r) => r.extractDueAt !== undefined }],
+    imported: [{ table: "conversations", index: "by_orgId", open: (r) => r.extractDueAt !== undefined, checklist: { history: "reading a thread for facts starts again with its next message" } }],
     here: [any("connectorLinks", "by_orgId_and_connector_and_userId")],
     runs: ["internal.conversationExtract.startDue", "internal.conversations.reconcile", "internal.granolaActions.tick", "internal.expleeActions.tick", "registerEmailLogRoutes", "registerConnectorWebhookRoutes"],
   },

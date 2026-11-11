@@ -407,6 +407,7 @@ export function printImportReport(r: ImportReport, print: (line: string) => void
   if (r.gates) {
     const open = r.gates.filter((g) => g.open);
     print(open.length ? `Able to act after the import: ${open.map((g) => g.key).join(", ")}.` : "Nothing the archive brought can send or act until a person here turns it on.");
+    print("Settings > Workspace > Arrived off lists what arrived off, and turns each on.");
     const connected = r.gates.flatMap((g) => g.here.map((h) => `${h.count} ${h.table}`));
     if (connected.length) print(`Connected on this deployment, so what you turn on can use it: ${connected.join(", ")}.`);
   }
