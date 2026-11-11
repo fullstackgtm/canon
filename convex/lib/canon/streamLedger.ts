@@ -188,6 +188,8 @@ export type StreamWrite = Omit<StreamTarget, "attributes"> & {
   reassert?: true;
   /** The person who ran an agent-class source and accepts its values as they land (SaveContext `acceptedBy`). */
   acceptedBy?: Decider;
+  /** For a CRM's write: the field groups it always wins (SaveContext `crmFollows`). */
+  crmFollows?: (group: string) => boolean;
   /**
    * Mirror into `facts` later (the stores' queueMirror), not in this transaction: a CRM sync's bulk writes. The
    * stream and its hot row are written now; `facts` and `canonFieldState` follow when the queue runs, so `resolved`
@@ -242,7 +244,7 @@ export async function appendWrite(s: StreamStores, w: StreamWrite): Promise<Stre
   if (!parsed.ok) leaveOut(parsed.errors);
   const run = () => save(s.objects, {
     orgId: w.orgId, def: w.def, source: w.source, actor: w.actor, now: w.now, ...(w.evidence !== undefined ? { evidence: w.evidence } : {}),
-    ...(w.mayWrite ? { mayWrite: w.mayWrite } : {}), ...(w.acceptedBy ? { acceptedBy: w.acceptedBy } : {}),
+    ...(w.mayWrite ? { mayWrite: w.mayWrite } : {}), ...(w.acceptedBy ? { acceptedBy: w.acceptedBy } : {}), ...(w.crmFollows ? { crmFollows: w.crmFollows } : {}),
   }, { op: "update", streamId: w.streamId, values, ...(w.validFrom !== undefined ? { validFrom: w.validFrom } : {}), ...(w.partial || rejected.some((e) => e.retryable) ? { partial: true as const } : {}), ...(w.reassert ? { reassert: true as const } : {}) });
   // Each stage (ownership, then unique claims) can refuse different fields; leave each out until the rest lands.
   let result = await run();

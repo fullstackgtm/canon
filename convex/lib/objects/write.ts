@@ -11,7 +11,7 @@
 import type { Decider } from "../canon/decider.ts";
 import { AGENT_SOURCES } from "../canon/gate.ts";
 import { claimFieldOf, uniqueIdentityProvider, uniqueValueIdentity } from "../canon/identity.ts";
-import { crmOf, heldField, isPersonFact, personHeldFields, winningFact } from "../canon/personHold.ts";
+import { crmOf, groupOf, heldField, isPersonFact, personHeldFields, winningFact } from "../canon/personHold.ts";
 import {
   fold, foldAll, project, SNAPSHOT_SOURCES, watermarkOf, writeRule,
   type Assertion, type Decision, type EntryActor, type EntryBody, type EntrySource, type FoldState, type LedgerEntry, type MergedRecord, type ProjectedRow, type RevertedField, type WritePlan,
@@ -104,6 +104,8 @@ export type SaveContext = {
    * its values as they land: its assert is accepted, not proposed.
    */
   acceptedBy?: Decider;
+  /** For a CRM's write: the field groups (by lead field) it always wins, which a person's value never holds against (lib/canon/personHold.ts). */
+  crmFollows?: (group: string) => boolean;
 };
 
 export type SaveCommand =
@@ -211,12 +213,18 @@ export async function save(store: ObjectStore, ctx: SaveContext, cmd: SaveComman
   // A snapshot time orders a source's snapshots of a record. A person's or an agent's validFrom dates a patch, not a snapshot.
   const snapshotAt = cmd.op === "update" && SNAPSHOT_SOURCES.includes(ctx.source.kind) ? cmd.validFrom : undefined;
   const watermark = watermarkOf(state, ctx.source);
-  if (snapshotAt !== undefined && watermark !== undefined && watermark >= snapshotAt) return unchanged;
+  // A field an admin set to always follow this CRM takes its value over a person's, dated now (refollow).
+  const follow = refollow(ctx, state, assertions);
+  if (snapshotAt !== undefined && watermark !== undefined && watermark >= snapshotAt) {
+    // The same snapshot again still takes a followed field a person changed since; an older one changes nothing.
+    if (watermark !== snapshotAt || !follow.length) return unchanged;
+    return append(store, ctx, state, { kind: "assert", status: writeRule(state, ctx.source, follow).status, assertions: follow, partial: true }, true, cmd.streamId);
+  }
   // A CRM's value for a field a person holds is left out, reassert or not: appending it, even equal, would hand the field to the CRM.
   const held = personHeld(ctx, state, assertions);
   if (held.length) assertions = assertions.filter((a) => !held.includes(a.fieldId));
   const holding = (r: SaveResult): SaveResult => (held.length && (r.status === "applied" || r.status === "unchanged") ? { ...r, held } : r);
-  const ruled = reclaim(state, ctx, assertions, { ...writeRule(state, ctx.source, assertions), ...(ctx.acceptedBy ? { status: "accepted" as const } : {}) });
+  const ruled = withFollowed(reclaim(state, ctx, assertions, { ...writeRule(state, ctx.source, assertions), ...(ctx.acceptedBy ? { status: "accepted" as const } : {}) }), follow);
   const plan = cmd.op === "update" && cmd.reassert ? { ...ruled, append: assertions, confirm: [] } : ruled;
   const taken = await uniqueConflicts(store, ctx, plan.append, cmd.streamId);
   if (taken) return taken;
@@ -226,6 +234,27 @@ export async function save(store: ObjectStore, ctx: SaveContext, cmd: SaveComman
     return holding(await append(store, ctx, state, { kind: "confirm", fieldIds: plan.confirm, validFrom: snapshotAt }, true, cmd.streamId));
   }
   return holding(await append(store, ctx, state, { kind: "assert", status: plan.status, assertions: plan.append, ...(cmd.op === "update" && cmd.partial ? { partial: true as const } : {}) }, true, cmd.streamId));
+}
+
+/**
+ * A CRM's values for fields an admin set to always follow it (SaveContext `crmFollows`) where a person's value wins now:
+ * appended even where the CRM said them before, and dated now, not at the CRM's snapshot time, so they win over an edit
+ * made since. Without this, a CRM repeating its value reads as a confirmation and the person's edit stays.
+ */
+function refollow(ctx: Pick<SaveContext, "def" | "source" | "actor" | "crmFollows">, state: FoldState, assertions: readonly Assertion[]): Assertion[] {
+  if (!ctx.crmFollows || !crmOf(ctx.source, ctx.actor)) return [];
+  return assertions.filter((a) => {
+    if (!heldField(ctx.def.apiName, a.fieldId, ctx.def) || !ctx.crmFollows!(groupOf(ctx.def.apiName, a.fieldId))) return false;
+    const winner = winningFact(state.fields[a.fieldId]?.candidates ?? []);
+    return winner !== null && isPersonFact(winner) && !sameValue(winner.value, a.value);
+  }).map(({ validFrom: _snapshot, ...a }) => a);
+}
+
+/** A plan with the followed fields appended, undated, whatever the write rule made of them. */
+function withFollowed(plan: WritePlan, follow: readonly Assertion[]): WritePlan {
+  if (!follow.length) return plan;
+  const ids = new Set(follow.map((a) => a.fieldId));
+  return { ...plan, append: [...plan.append.filter((a) => !ids.has(a.fieldId)), ...follow], confirm: plan.confirm.filter((f) => !ids.has(f)) };
 }
 
 /**
@@ -244,9 +273,9 @@ function reclaim(state: FoldState, ctx: Pick<SaveContext, "def" | "source">, ass
 }
 
 /** The fields of a CRM's write whose value a person holds: covered by the rule, with a field of their group resolved now to a person's fact (lib/canon/personHold.ts). */
-function personHeld(ctx: Pick<SaveContext, "def" | "source" | "actor">, state: FoldState, assertions: readonly Assertion[]): string[] {
+function personHeld(ctx: Pick<SaveContext, "def" | "source" | "actor" | "crmFollows">, state: FoldState, assertions: readonly Assertion[]): string[] {
   if (!crmOf(ctx.source, ctx.actor)) return [];
-  return personHeldFields(ctx.def.apiName, assertions.map((a) => a.fieldId), (f) => winningFact(state.fields[f]?.candidates ?? []), ctx.def);
+  return personHeldFields(ctx.def.apiName, assertions.map((a) => a.fieldId), (f) => winningFact(state.fields[f]?.candidates ?? []), ctx.def, ctx.crmFollows);
 }
 
 /** A decision still to apply: its fact is pending, or accepted here and not yet a candidate. */

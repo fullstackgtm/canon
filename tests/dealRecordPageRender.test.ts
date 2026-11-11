@@ -35,7 +35,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
         : q === "get" ? { object, title: "Example record", complete: true, lifecycle: { status }, values: {}, version: 1 }
         : q === "forOrg" ? { dealPage } : [],
     },
-    "../../../convex/_generated/api": { api: { objects: { describe: "describe", get: "get" }, recipes: { forOrg: "forOrg" }, workspaceRecipes: {}, users: {}, automations: {}, fieldClaims: {} } },
+    "../../../convex/_generated/api": { api: { objects: { describe: "describe", get: "get" }, recipes: { forOrg: "forOrg" }, workspaceRecipes: {}, users: {}, automations: {}, fieldClaims: {}, crmDisagreements: {} } },
     "../../../recipes": recipes,
     "@/components/dashboard": {}, "@/components/ui/dialog": {}, "@/lib/toast": {},
     "@/lib/utils": { cn: (...v: unknown[]) => v.filter(Boolean).join(" ") },
@@ -58,7 +58,8 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     "../modules/module-panels": { ModulePanels: empty },
     "./record-boundary": { RecordBoundary: ({ children }: { children: ReactNode }) => children },
     "./record-context": { RecordLink: ({ children }: { children: ReactNode }) => children },
-    "./crm-note": { CrmFieldNote: empty },
+    "./crm-note": { CrmFieldNote: empty, CRM_NAME: {} },
+    "../../../convex/lib/canon/personHold": { groupOf: (_o: string, f: string) => f },
   };
   const load = (text: string) => {
     const exports: Record<string, unknown> = {};

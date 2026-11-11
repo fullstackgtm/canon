@@ -10,7 +10,7 @@ import {
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireCap, scopeUserToActiveOrg } from "./lib";
-import { crmContactEntity, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDealValues } from "./canon";
+import { crmContactEntity, crmFollowsKey, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDealValues } from "./canon";
 import { shardOf } from "./lib/objects/write";
 import { crmDealValues, type DealValues } from "./lib/canon/dealLedger";
 
@@ -623,6 +623,7 @@ export const unchangedDeals = internalQuery({
     const rows = unchangedRows<"deals">();
     const accountOf = accountResolver(ctx, args.orgId);
     const repOrg = new Map<string, Promise<string | undefined>>();
+    const follows = crmFollowsKey(ctx, args.orgId, "hubspot");
     await Promise.all(args.deals.map(async (deal) => {
       if (deal.extra) return;
       // A rep from another org is the upsert's to skip and count.
@@ -635,7 +636,7 @@ export const unchangedDeals = internalQuery({
         ctx.db.query("deals").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", deal.crmId)).first(),
         deal.accountId ? Promise.resolve(deal.accountId) : accountOf(deal.accountCrmId),
       ]);
-      if (existing && dealUnchanged(existing, deal, dealSyncValue(deal, accountId, now), deal.extra)) rows.add(deal.crmId, existing, now);
+      if (existing && dealUnchanged(existing, deal, dealSyncValue(deal, accountId, now), deal.extra, await follows)) rows.add(deal.crmId, existing, now);
     }));
     return rows.out;
   },
@@ -795,6 +796,8 @@ export const upsertDeals = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const results = { created: 0, updated: 0, skipped: 0 };
+    // The fields this workspace set to always follow HubSpot: part of each deal's fingerprint (lib/hubspotSyncValue.ts dealSyncHash).
+    const follows = await crmFollowsKey(ctx, args.orgId, "hubspot");
     const accountOf = accountResolver(ctx, args.orgId);
     const repOrg = new Map<string, string | undefined>();
 
@@ -821,8 +824,8 @@ export const upsertDeals = internalMutation({
 
       // A deal the sync wrote with these values before writes nothing to its ledger stream; its sync time is stamped
       // at most daily.
-      const syncHash = dealSyncHash(deal, value);
-      if (existing && dealUnchanged(existing, deal, value, deal.extra)) {
+      const syncHash = dealSyncHash(deal, value, follows);
+      if (existing && dealUnchanged(existing, deal, value, deal.extra, follows)) {
         if (now - (existing.lastSyncAt ?? 0) > SYNC_STAMP_MS) await ctx.db.patch(existing._id, { lastSyncAt: now });
         results.updated++;
         continue;

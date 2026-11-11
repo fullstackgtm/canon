@@ -419,6 +419,41 @@ test("using the CRM's values for a whole filter runs as a job, step by step, and
   assert.ok(w.db.rows("deals").every((d: any) => d.name.endsWith("renamed")));
 });
 
+test("a field set to always follow a CRM takes that CRM's value over a person's, with no note; the other CRM is still held", async () => {
+  const w = world();
+  signedIn = await w.db.get("users:admin");
+  await page.setFollow.handler(w.ctx(), { provider: "salesforce", field: "stage", follow: true });
+  await w.crm.salesforceSync("ana", FIRST);
+  await w.write({ stage: "negotiation", name: "Mine" });
+  await w.crm.salesforceSync("ana", NEXT);
+  const d = await w.deal();
+  // The whole stage group follows Salesforce; the name, not set to follow, still holds.
+  assert.deepEqual(plain([d.stage, d.isWon, d.name, w.claims().map((c: string) => c.split(":")[0])]), ["closed_won", true, "Mine", ["name"]]);
+  await w.write({ stage: "negotiation" });
+  await w.crm.hubspot("ana", NEXT);
+  assert.equal((await w.deal()).stage, "negotiation");
+  signedIn = { ...(await w.db.get("users:ben")), role: "manager" };
+  await assert.rejects(page.setFollow.handler(w.ctx(), { provider: "hubspot", field: "name", follow: true }));
+});
+
+test("a followed field takes back what the CRM says on its next sync, though the CRM repeats a value it sent before", async () => {
+  for (const path of PATHS) {
+    const w = world();
+    signedIn = await w.db.get("users:admin");
+    // The import resends one Salesforce snapshot; the syncs resend the same values, which their fingerprint would skip.
+    const same = path === "salesforceImport" ? { ...FIRST, modifiedAt: Date.UTC(2026, 9, 1) } : FIRST;
+    await send(w, path, same);
+    await w.write({ stage: "negotiation", closeDate: "2027-05-01" });
+    await page.setFollow.handler(w.ctx(), { provider: path === "hubspot" ? "hubspot" : "salesforce", field: "stage", follow: true });
+    await send(w, path, same);
+    assert.deepEqual(plain([(await w.deal()).stage, (await w.deal()).closeDate]), ["prospecting", "2027-05-01"], path);
+    // A person's edit after the setting lasts until the next sync too.
+    await w.write({ stage: "proposal" });
+    await send(w, path, same);
+    assert.equal((await w.deal()).stage, "prospecting", path);
+  }
+});
+
 /**
  * Every file that writes field values to the deal and party ledgers, and as whom. An `integration` is a CRM: it writes
  * through the ledger as its CRM record (lib/canon/personHold.ts holds a person's values against it) and never patches

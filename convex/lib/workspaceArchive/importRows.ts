@@ -110,6 +110,7 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   // fact arrives here, and canonFieldState is resolved again from them. A fact names its ledger copy as <stream>@v#i.
   facts: { kind: "facts", dependsOn: RECORDS },
   canonFieldOwnership: { kind: "rows", dependsOn: RECORDS },
+  crmFieldFollows: { kind: "rows", dependsOn: RECORDS },
   canonAutoAcceptRules: { kind: "rows", dependsOn: RECORDS },
   // ICPs and the fit model; `finish` asks for a rescore once they are in. A gate and a register row name ICPs by id.
   icps: { kind: "rows", dependsOn: ["users"] },

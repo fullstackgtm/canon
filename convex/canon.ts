@@ -37,6 +37,7 @@ import {
   type BackfillOutcome, type PartyLookup, type PartyMismatch, type PartyObject, type PartySeed, type PartySource, type PartyStores, type PartyValues, type PartyWriteResult, type RecordPatch,
 } from "./lib/canon/partyLedger";
 import { mirrorAppended, type MirrorJob } from "./lib/canon/streamLedger";
+import { groupOf } from "./lib/canon/personHold";
 import { compareDeal, crmGroupValues, ensureDealStream, isHistoricalSource, mirrorDecisions, mirrorProposal, writeDeal, writeDealLifecycle, type DealMismatch, type DealSource, type DealStores, type DealValues, type DealWriteResult } from "./lib/canon/dealLedger";
 import type { OwnershipOverride } from "./lib/canon/gate";
 import { fieldClaimStore } from "./lib/fieldClaimStore";
@@ -287,11 +288,20 @@ export async function saveDealValues(
     if (known) values = { ...values, stage: known };
   }
   const before = "stage" in values ? await projectedStage(ctx, deal.orgId, entityId) : null;
+  // A CRM's own write (not a person taking its value) always wins the fields an admin set to follow it.
+  const follows = (source.kind === "salesforce" || source.kind === "hubspot") && !source.takenBy ? await transactionFollows(ctx, deal.orgId, source.kind) : null;
   const out = await writeDeal(dealStores(ctx), {
     orgId: deal.orgId, def: await dealDef(ctx, deal.orgId, values.stage), dealId: deal._id, streamId: entityId,
     source, values, now: opts.now ?? Date.now(), ...(opts.evidence !== undefined ? { evidence: opts.evidence } : {}), ...(opts.creates ? { creates: opts.creates } : {}),
     ...(opts.deferMirror ? { deferMirror: opts.deferMirror } : {}), ...(opts.columns ? { columns: opts.columns } : {}),
+    ...(follows?.size ? { crmFollows: (group: string) => follows.has(group) } : {}),
   });
+  // A person's edit of a field that follows the deal's CRM lasts until that CRM's next sync: the deal's fingerprint is
+  // let go, so the next sync writes it even when the CRM changed nothing.
+  if (source.kind === "user" && deal.syncHash && (deal.crmProvider === "salesforce" || deal.crmProvider === "hubspot") && out.result.status !== "invalid") {
+    const followed = await transactionFollows(ctx, deal.orgId, deal.crmProvider);
+    if (Object.keys(values).some((f) => followed.has(groupOf("deal", f)))) await ctx.db.patch(deal._id, { syncHash: undefined });
+  }
   // A stage change wakes event agents listening for it (lib/agents/crmEvents.ts). A dated past value from an import is
   // history, not a move happening now, so it never wakes them.
   if (before && !isHistoricalSource(source) && out.result.status === "applied") await afterDealWrite(ctx, deal, entityId, before, out.result.version);
@@ -1040,6 +1050,26 @@ export const checkRecordEdit = internalQuery({
     return { ...checked, unnamed: await referenceErrors(ctx, { orgId: args.orgId, access, admitted: new Set(args.references.admitted) }, def, args.patch) };
   },
 });
+
+/**
+ * The deal fields the workspace set to always follow `provider`, as a key (sorted, comma-separated; "" for none) that a
+ * sync folds into each deal's fingerprint, so a change to them writes each deal once more.
+ */
+export async function crmFollowsKey(ctx: { db: QueryCtx["db"] }, orgId: Id<"organizations">, provider: "salesforce" | "hubspot"): Promise<string> {
+  const rows = await ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(200);
+  return rows.filter((r) => r.provider === provider).map((r) => r.attribute).sort().join(",");
+}
+
+const followReads = new WeakMap<MutationCtx, Map<string, Promise<Doc<"crmFieldFollows">[]>>>();
+
+/** The deal fields (by group lead) that always follow `provider` in the workspace (crmFieldFollows), read once per transaction. */
+async function transactionFollows(ctx: MutationCtx, orgId: Id<"organizations">, provider: "salesforce" | "hubspot"): Promise<Set<string>> {
+  let reads = followReads.get(ctx);
+  if (!reads) followReads.set(ctx, (reads = new Map()));
+  let read = reads.get(orgId);
+  if (!read) reads.set(orgId, (read = ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(200)));
+  return new Set((await read).filter((r) => r.provider === provider).map((r) => r.attribute));
+}
 
 const ownershipReads = new WeakMap<MutationCtx, Map<string, Promise<OwnershipOverride[]>>>();
 
