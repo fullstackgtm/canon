@@ -45,8 +45,11 @@ export function shapeOf(v: Record<string, unknown>): Shape {
  * - `observations`: appended to each subject's log with this deployment's shard sequence.
  * - `facts`: inserted as they are, then each touched field's state is resolved again from its facts.
  * - `register`: the record service's register, written through its import route.
+ * - `module`: a module's rows, restored into the module installed here with that id (convex/lib/modules/scope.ts
+ *   restoreImportedDocs), or held in moduleHeldRows until it is installed. Held rows export and import again as rows of
+ *   their own section, so moving a workspace through an install without the module keeps them.
  */
-export type ImportKind = "rows" | "self" | "members" | "ledger" | "observations" | "facts" | "register";
+export type ImportKind = "rows" | "self" | "members" | "ledger" | "observations" | "facts" | "register" | "module";
 /**
  * `defer`: fields that name rows of a section imported later (by id inside text, so the order can't put it first),
  * left out of the first pass and filled in once `after` is in.
@@ -71,12 +74,18 @@ export type ImportSpec = {
   labels?: readonly string[];
   /** Fields that name this deployment's connections (`table`), which never move: dropped and counted as cleared. */
   local?: Readonly<Record<string, string>>;
+  /** Fields this install derives again from the row's others (a module doc's index slots): left out of the decoded row. */
+  rebuilt?: readonly string[];
 };
 
 /** Tables whose ids sit inside other tables' strings: the order can't be read off the validators, so it is named. */
 const STREAM_TABLES = ["canonEntities", "register.accounts", "register.contacts", "fakeRecordAccounts", "fakeRecordContacts"] as const;
 /** After every record and its history: a row may name any of them by stream, register or fact id inside text. */
 const RECORDS = ["ledgerEntries", "canonExternalIds", "fakeRecordHistory", "register.field_history"] as const;
+/** A module's rows name members, deals, teams, audiences and records by id, wherever the module's own schema put them. */
+const MODULE_DEPS = [...RECORDS, "deals", "teamGroups", "audiences", "patchPlans"] as const;
+/** A module doc's index slots (s0a..s7d) and a pending upgrade's copy: what this install's version derives again. */
+const MODULE_DOC_DERIVED = [...Array.from({ length: 8 }, (_, i) => ["a", "b", "c", "d"].map((c) => `s${i}${c}`)).flat(), "next"];
 
 export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   users: { kind: "members" },
@@ -128,7 +137,7 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   // Settings over Canon's recipes, scoring's among them. Module switches are module state (`module` below).
   recipeRevisions: { kind: "rows", dependsOn: RECORDS },
   // A template's enablement names the report or dashboard it installed.
-  recipeEnablements: { kind: "rows", dedupe: { index: "by_orgId_and_point_and_recipeId_and_contributionKey", fields: ["point", "recipeId", "contributionKey"] }, module: { field: "recipeId", when: { point: "module" } }, dependsOn: [...RECORDS, "reports", "dashboards", "savedViews", "icps", "automationRules"] },
+  recipeEnablements: { kind: "rows", arrive: ARRIVALS.recipeEnablements, dedupe: { index: "by_orgId_and_point_and_recipeId_and_contributionKey", fields: ["point", "recipeId", "contributionKey"] }, module: { field: "recipeId", when: { point: "module" } }, dependsOn: [...RECORDS, "reports", "dashboards", "savedViews", "icps", "automationRules"] },
   // Lists, reports and dashboards. A built-in one replaces the copy a module installed here; a module's needs that module.
   savedViews: { kind: "rows", dependsOn: RECORDS },
   reports: { kind: "rows", dedupe: { index: "by_orgId_builtIn", fields: ["builtIn"] }, module: { field: "module.moduleId" }, dependsOn: RECORDS },
@@ -254,23 +263,29 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   fieldConsolidationRuns: { kind: "rows", arrive: ARRIVALS.fieldConsolidationRuns, prose: ["sections", "error"], dependsOn: RECORDS },
   fieldConsolidationWrites: { kind: "rows", prose: ["before", "after", "reason", "detail"], dependsOn: RECORDS },
   fieldConsolidationProfiles: { kind: "rows", prose: ["profile", "error"], dependsOn: RECORDS },
+
+  // A module's documents and their history (docs/workspace-export.md, "Module data"). The module's own manifest types
+  // the ids inside a doc, so every id the archive maps is rewritten wherever it stands: a doc's data, its key (made
+  // from its fields, a member's id among them) and its set parent's key. Any other word stays as written.
+  moduleDocs: { kind: "module", module: { field: "moduleId" }, prose: ["key", "parentKey", "data"], rebuilt: MODULE_DOC_DERIVED, dependsOn: MODULE_DEPS },
+  moduleEvents: { kind: "module", module: { field: "moduleId" }, prose: ["key", "args", "reason", "cause", "from", "to", "actor.grant", "actor.visitor"], dependsOn: MODULE_DEPS },
+  moduleAiRuns: { kind: "module", module: { field: "moduleId" }, arrive: ARRIVALS.moduleAiRuns, prose: ["key", "reads", "dropped", "error"], dependsOn: MODULE_DEPS },
+  moduleSnapshots: { kind: "module", module: { field: "moduleId" }, prose: ["snapshot", "audienceId", "source", "ids"], dependsOn: MODULE_DEPS },
+  // Rows an earlier import held for a module the source install didn't have: they are the same rows, held or restored again here.
+  moduleHeldRows: { kind: "module", module: { field: "moduleId" }, prose: ["row"], dependsOn: MODULE_DEPS },
 };
 
 /**
  * The `data` sections this importer leaves for later, each with why. Every exported table is imported or listed
  * here (tests/workspaceImport.test.ts), so the dry run's "not imported yet" lines always say why.
- * - `C`: module documents and module-owned plans (commissions, territories): only for modules installed here.
+ * - `C`: the module package itself and the planning tables (commissions, territories, quota plans).
  * - `files`: rows that are their stored file, which archives don't carry yet.
  * - `rebuilt`: state the import rebuilds or the next sync writes.
  */
 export const DEFERRED: Readonly<Record<string, { group: "C" | "files" | "rebuilt"; why: string }>> = {
 
   modulePackages: { group: "C", why: "module code is never installed from an archive; a module installed here takes its documents" },
-  moduleInterfaceOwners: { group: "C", why: "arrives with the module documents" },
-  moduleDocs: { group: "C", why: "a module's documents, imported only where the module is installed" },
-  moduleEvents: { group: "C", why: "arrives with the module documents" },
-  moduleSnapshots: { group: "C", why: "arrives with the module documents" },
-  moduleAiRuns: { group: "C", why: "arrives with the module documents" },
+  moduleInterfaceOwners: { group: "rebuilt", why: "which installed package owns an interface (ICPs); the modules installed here decide it" },
   commissionPlans: { group: "C", why: "commissions are a module's plans" },
   planRules: { group: "C", why: "commissions are a module's plans" },
   planAssignments: { group: "C", why: "commissions are a module's plans" },
@@ -323,6 +338,9 @@ export function importOrder(shapes: Readonly<Record<string, Shape | undefined>>)
 /** The imported tables `table` must follow: those its validator's ids name (other than itself) and those it names by string. */
 export function dependenciesOf(table: string, shape: Shape | undefined): string[] {
   const refs = new Set<string>(IMPORT_TABLES[table]?.dependsOn ?? []);
+  // A row a module owns in another table comes after the module's own rows: a sequence launch is bound to its
+  // sequence's docs (lib/sequences/bindings.ts), which must be in first.
+  if (IMPORT_TABLES[table]?.module && IMPORT_TABLES[table].kind !== "module") for (const [t, spec] of Object.entries(IMPORT_TABLES)) if (spec.kind === "module") refs.add(t);
   // A deferred field's refs are filled in by its second pass, after the section it waits for.
   const deferred = IMPORT_TABLES[table]?.defer?.fields ?? [];
   const own = shape?.fields ? { ...shape, fields: Object.fromEntries(Object.entries(shape.fields).filter(([k]) => !deferred.includes(k))) } : shape;
@@ -610,7 +628,7 @@ export function decodeRow(table: string, shape: Shape, raw: Record<string, unkno
   const fields: Record<string, unknown> = {};
   const local = IMPORT_TABLES[table]?.local ?? {};
   for (const [k, v] of Object.entries(raw)) {
-    if (SYSTEM.has(k) || opts.omit?.includes(k)) continue;
+    if (SYSTEM.has(k) || opts.omit?.includes(k) || IMPORT_TABLES[table]?.rebuilt?.includes(k)) continue;
     // A connection of the source deployment (a LinkedIn sender) never moves: the field is dropped, and counted.
     if (local[k]) { out.cleared[local[k]] = (out.cleared[local[k]] ?? 0) + 1; continue; }
     fields[k] = v;

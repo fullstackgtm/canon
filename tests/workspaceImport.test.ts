@@ -779,6 +779,72 @@ test("a conversation's text is readable in the copy by exactly whom it was reada
   assert.deepEqual([of(db, "conversations", w.B).find((c) => c._id === copy)!.accountRef, linkedin.accountRef], [`emaillog:${w.adaB}`, foreignLabel(a.sender)]);
 });
 
+const Mods = loadConvex(["modules.ts"])["modules.ts"];
+/** A module fixture whose visits name a deal: its docs name a member (rep), a deal, and, in a summary's key, a member's id. */
+function visitLog(visibility?: "private") {
+  const m = JSON.parse(readFileSync("tests/fixtures/modules/visit-log/module.json", "utf8"));
+  m.collections.visits.schema.value.deal = { fieldType: { type: "ref", to: "deals" }, optional: true };
+  m.ops["visits.create"].fields.push("deal");
+  if (visibility) m.visibility = visibility;
+  return m;
+}
+async function installModule(db: Db, org: string, m: Record<string, any>, kind: "canon" | "development" = "canon") {
+  const text = JSON.stringify(m);
+  for (const p of db.rows("modulePackages").filter((r) => r.orgId === org && r.moduleId === m.id)) db.delete(p._id);
+  await db.insert("modulePackages", { orgId: org, moduleId: m.id, slug: "visit-log", source: { kind, id: "visit-log", ref: m.version, sha: "a".repeat(40) }, version: m.version, manifest: text, manifestHash: createHash("sha256").update(text + kind).digest("hex"), installedAt: 1, status: "installed", epoch: 1 });
+  if (!db.rows("recipeEnablements").some((r) => r.orgId === org && r.recipeId === m.id)) await db.insert("recipeEnablements", { orgId: org, point: "module", recipeId: m.id, contributionKey: "nav", enabled: true, at: 1 });
+}
+
+test("a module's docs move into the module installed here with their ids mapped, and wait held where it isn't until it is installed", async () => {
+  for (const installedInB of [true, false]) {
+    const w = world();
+    const { db, A, B, rex } = w;
+    const m = visitLog(installedInB ? undefined : "private");
+    await installModule(db, A, m);
+    if (installedInB) await installModule(db, B, m);
+    const deal = await db.insert("deals", { orgId: A, name: "Plant", amount: 1, currency: "USD", closeDate: "2026-12-01", dealType: "new_business", revenueType: "one_time", primaryRepId: rex, stage: "Discovery", isClosed: false, isWon: false, createdAt: 1, updatedAt: 1 });
+    const op = (name: string, args: Record<string, unknown>) => Mods.op.handler(ctxOf(db, "clerk_ada"), { module: "visit-log", op: name, ...args });
+    const visit = (await op("visits.create", { data: { title: "Plant tour", rep: rex, deal, amount: 1200 } })) as { key: string };
+    await op("notes.create", { parentKey: visit.key, data: { body: `Met ${rex} on site` } });
+    // A summary is keyed by its rep's id, and its lines sit under that key.
+    await db.insert("moduleDocs", { orgId: A, moduleId: m.id, collection: "summaries", key: rex, data: { rep: rex, visits: 1, done: 0, amount: 1200, asOf: "2026-11-01" }, version: 1, ownerUserId: rex, gens: { summaryLines: 0 }, updatedAt: 1 });
+    await db.insert("moduleDocs", { orgId: A, moduleId: m.id, collection: "summaryLines", key: mint(), parentKey: rex, gen: 0, data: { status: "planned", count: 1 }, version: 1, updatedAt: 1 });
+    await db.insert("moduleAiRuns", { orgId: A, moduleId: m.id, call: "digest", key: visit.key, userId: rex, status: "running", provider: "fake", model: "m", promptVersion: "1", inputChars: 1, reads: [{ name: "visit", ids: [visit.key] }], kept: 0, dropped: [], ms: 1, at: 1 });
+    const { files } = await exportOf(db, "clerk_ada");
+    const report = await importWorkspace(importTransport(db, await importKey(db)), files);
+    assert.deepEqual([...report.refusals, ...report.unmapped], []);
+    const rowsOfA = ["moduleDocs", "moduleEvents", "moduleAiRuns"].reduce((n, t) => n + of(db, t, A).length, 0);
+    if (!installedInB) {
+      assert.equal(report.sections.reduce((n, x) => n + (x.held?.[m.id] ?? 0), 0), rowsOfA);
+      assert.equal(of(db, "moduleHeldRows", B).length, rowsOfA);
+      // A private module's data stays inert in an install that isn't Canon's own, and restores into Canon's.
+      await installModule(db, B, m, "development");
+      assert.deepEqual(plain(await I.restoreHeld.handler(ctxOf(db), { orgId: B, moduleId: m.id, cursor: null })), { restored: 0, held: 0, waiting: `${m.id} is a private module, restored only into Canon's own install of it` });
+      await installModule(db, B, m);
+      await I.restoreHeld.handler(ctxOf(db), { orgId: B, moduleId: m.id, cursor: null });
+      assert.equal(of(db, "moduleHeldRows", B).length, 0);
+    }
+    // The module arrives off, so nothing of it runs on what arrived, until an admin here turns it on.
+    const read = async (clerk: string, view: string, args: Record<string, unknown> = {}) => plain(await Mods.view.handler(ctxOf(db, clerk), { module: "visit-log", view, args }));
+    await assert.rejects(read("clerk_ada_b", "visits.all"), /no module visit-log turned on/);
+    // Turned on as modules.setEnabled leaves it (its activity publication, which that waits on, never runs here).
+    const on = db.rows("recipeEnablements").find((r) => r.orgId === B && r.point === "module" && r.recipeId === m.id)!;
+    assert.equal(on.enabled, false);
+    db.patch(on._id, { enabled: true });
+    const mapped = remapText(idMap(db, { [A]: B }));
+    const bKey = mapped(visit.key) as string;
+    assert.notEqual(mapped(rex), rex);
+    for (const [view, a, b] of [["visits.all", {}, {}], ["notes.forVisit", { visit: visit.key }, { visit: bKey }], ["summaries.one", { rep: rex }, { rep: mapped(rex) }], ["summaryLines.forSummary", { rep: rex }, { rep: mapped(rex) }]] as const) {
+      const inA = await read("clerk_ada", view, a);
+      assert.ok(Array.isArray(inA) ? inA.length === 1 : inA?.data, `${view} reads a doc in A`);
+      assert.deepEqual(differences(await read("clerk_ada_b", view, b), mapped(inA)), [], view);
+    }
+    assert.equal((await read("clerk_ada_b", "visits.all") as Array<{ data: { deal: string } }>)[0].data.deal, mapped(deal));
+    assert.deepEqual(of(db, "moduleAiRuns", B).map((r) => r.status), ["failed"]);
+    assert.equal(of(db, "moduleEvents", B).length, of(db, "moduleEvents", A).length);
+  }
+});
+
 /** The archive with `fn` applied to every row of `section`, its checksum and manifest made to match: a hand-built file. */
 function tamper(files: Map<string, Uint8Array>, section: string, fn: (row: Record<string, any>) => void) {
   const out = new Map(files);

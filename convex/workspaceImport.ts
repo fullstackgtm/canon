@@ -8,7 +8,8 @@
  * ledger is replayed through the object layer's appendHistory, which rebuilds hot rows, unique claims and proposals;
  * edges and deal history are rebuilt from it. Facts arrive as rows and each field's state is resolved again; `finish`
  * asks for a rescore against the imported ICPs. A row that needs what isn't imported, or a module not installed here,
- * is left out and counted. Ids in the file are never ids here: the id map is workspaceImportIds.
+ * is left out and counted. A module's rows go to the module installed here with that id, or wait in moduleHeldRows
+ * until it is installed (`restoreHeld`). Ids in the file are never ids here: the id map is workspaceImportIds.
  *
  * Nothing sends or acts after an import until a person turns it on here: writeRow applies each table's arrival
  * (lib/workspaceArchive/actors.ts) to every row, and `finish` refuses while any switch the archive could bring is open.
@@ -40,6 +41,9 @@ import { resolveAttribute } from "./lib/canon/policy";
 import { invalidateFit } from "./lib/fitInvalidation";
 import { shardHeads } from "./ledgerFeed";
 import { arrive, CENSUS, type ArrivalAt, type Mechanism, type Switch } from "./lib/workspaceArchive/actors";
+import { restoreImportedDocs } from "./lib/modules/scope";
+import { enabledModules, installedModule, isEnabled, manifestOf } from "./lib/modules/packages";
+import { setModuleEnabled } from "./modules";
 
 const KEY_TTL_MS = 60 * 60 * 1000;
 const KEY_RE = /^cwi_[A-Za-z0-9_-]{43}$/;
@@ -50,6 +54,8 @@ const REPLACE_MAX = 500;
 const REFUSALS_SHOWN = 10;
 /** Rows read per switch when proving the gates closed: more than any workspace's rules, plans or launches. */
 const GATE_SCAN = 2000;
+/** Held module rows restored per mutation, as an import page writes. */
+const HELD_BATCH = 100;
 
 /** Import is on for a self-hosted install and a local stack; a hosted deployment turns it on with CANON_WORKSPACE_IMPORT=on. */
 export const importEnabled = () => process.env.CANON_AUTH === "local" || process.env.CANONCRM_LOCAL_STACK === "true" || process.env.CANON_WORKSPACE_IMPORT === "on";
@@ -137,8 +143,10 @@ const parentOf = (table: string) => {
  * endpoint. A rule fires on entries dated after it started, and an endpoint sends every entry after its cursor, which
  * starts at this empty workspace's heads, so either one made here before or during an import would see the archive.
  */
-async function actorsIn(ctx: QueryCtx, orgId: Id<"organizations">): Promise<string[]> {
+async function actorsIn(ctx: QueryCtx, orgId: Id<"organizations">, modules = false): Promise<string[]> {
   const why: string[] = [];
+  // A module that is on runs its schedules and watches on what the import writes. `begin` turns them all off.
+  if (modules) for (const { pkg } of await enabledModules(ctx, orgId)) why.push(`the module ${pkg.moduleId} is on`);
   if (await ctx.db.query("automationRules").withIndex("by_orgId_and_status", (q) => q.eq("orgId", orgId).eq("status", "active")).first()) why.push("it has an active automation rule");
   if ((await ctx.db.query("recordWebhookEndpoints").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(20)).some((e) => e.enabled)) why.push("it has a live record webhook");
   return why;
@@ -222,6 +230,9 @@ export const beginImport = internalMutation({
       if (latest.digest !== args.digest) throw new ConvexError("This workspace already took an import of another archive. Import into a fresh workspace.");
       return { importId: latest._id as string, status: latest.status, progress: latest.written };
     }
+    // Every module here arrives off: one that is on would run its schedules and watches on what the import writes.
+    // Turned off as a person would, so turning one on again later is the module's normal switch.
+    for (const { pkg } of await enabledModules(ctx, orgId)) await setModuleEnabled(ctx, user, { moduleId: pkg.moduleId, enabled: false });
     const why = await notEmpty(ctx, orgId, user._id);
     if (!args.registerEmpty) why.push("its register has rows");
     if (why.length) throw new ConvexError(`Import only goes into a new, empty workspace, and this one isn't: ${why.join("; ")}.`);
@@ -272,7 +283,7 @@ const optionalFields = (s: Shape): Shape => ({ ...s, fields: Object.fromEntries(
  */
 async function writeRow(ctx: MutationCtx, imp: Doc<"workspaceImports">, table: string, row: Record<string, unknown>, oldId: string, replacing?: string): Promise<string> {
   const spec = IMPORT_TABLES[table];
-  if (!spec || spec.kind === "register" || !exported(entryOf(table))) throw new ConvexError(`${table} is not a table an import writes.`);
+  if (!spec || spec.kind === "register" || spec.kind === "module" || !exported(entryOf(table))) throw new ConvexError(`${table} is not a table an import writes.`);
   const scope = scopeFieldOf(table);
   const parent = scope ? null : parentOf(table);
   const parentRow = parent && typeof row[parent.via] === "string" ? await ctx.db.get(row[parent.via] as Id<TableNames>) as Record<string, unknown> | null : null;
@@ -415,7 +426,7 @@ export const importUsers = mutation({
  * this import doesn't write, or to a row it left out) and `module <id>` (a module not installed here). `cleared`
  * counts refs dropped from optional fields, by the table they named (`_storage` for files).
  */
-type PageResult = { written: number; skipped: number; cleared: Record<string, number>; notWritten: Record<string, number>; foreign: number };
+type PageResult = { written: number; skipped: number; cleared: Record<string, number>; notWritten: Record<string, number>; foreign: number; held: Record<string, number> };
 
 /**
  * One page of one section, in the order importPlan gives. `pass: 2` fills in refs to rows of the same table, once the
@@ -429,9 +440,9 @@ export const importPage = mutation({
     if (!spec || spec.kind === "register" || spec.kind === "members" || !exported(entryOf(args.section))) throw new ConvexError(`${args.section} is not a section this import writes.`);
     if (args.rows.length > IMPORT_PAGE_MAX) throw new ConvexError(`Send at most ${IMPORT_PAGE_MAX} rows at a time.`);
     const progressKey = args.pass ? `${args.section}#refs` : args.section;
-    const result: PageResult = { written: 0, skipped: 0, cleared: {}, notWritten: {}, foreign: 0 };
+    const result: PageResult = { written: 0, skipped: 0, cleared: {}, notWritten: {}, foreign: 0, held: {} };
     if (claimPage(imp, progressKey, args.offset, args.rows.length) === "skip") return { ...result, skipped: args.rows.length };
-    const acting = await actorsIn(ctx, orgId);
+    const acting = await actorsIn(ctx, orgId, true);
     if (acting.length) throw new ConvexError(`The import stopped because ${acting.join(" and ")}: imported history must not set it off. Turn it off, then run the import again to resume.`);
     const raws = args.rows.map(parseLine);
     const ids = new Set<string>();
@@ -472,6 +483,19 @@ export const importPage = mutation({
       }
     } else if (spec.kind === "ledger") {
       result.written = await replayLedger(ctx, imp, decoded.map((d) => d.row));
+    } else if (spec.kind === "module") {
+      const rows: Array<{ oldId: string } & ModuleRow> = [];
+      for (const [i, raw] of raws.entries()) {
+        if (map.has(raw._id)) { result.skipped++; continue; }
+        rows.push({ oldId: raw._id, ...(await moduleRowOf(ctx, imp.orgId, args.section, decoded[i].row, raw._creationTime)) });
+      }
+      const placed = await placeModuleRows(ctx, imp.orgId, rows);
+      for (const [i, r] of rows.entries()) {
+        const p = placed[i];
+        await ctx.db.insert("workspaceImportIds", { orgId, importId: imp._id, table: args.section, oldId: r.oldId, newId: p.id });
+        if (p.held) result.held[r.moduleId] = (result.held[r.moduleId] ?? 0) + 1;
+        else result.written++;
+      }
     } else {
       await replaceDefaults(ctx, imp, args.section);
       const resolve = new Map<string, { entityId: string; attribute: string; at: number }>();
@@ -515,6 +539,102 @@ export const importPage = mutation({
     }
     await ctx.db.patch(imp._id, { written: { ...imp.written, [progressKey]: args.offset + raws.length } });
     return result;
+  },
+});
+
+/** One module row as it lands: the module it belongs to, the module table it is a row of, and its fields but those two. */
+type ModuleRow = { moduleId: string; table: Doc<"moduleHeldRows">["table"]; row: Record<string, unknown> };
+const MODULE_TABLES: ReadonlyArray<string> = schema.tables.moduleHeldRows.validator.fields.table.members.map((m) => m.value);
+
+/**
+ * A decoded row of a module section as the module row it carries: a held row of the archive carries the row it held.
+ * It keeps its creation time where its table has one, and arrives switched off as its table's arrival says.
+ */
+async function moduleRowOf(ctx: QueryCtx, orgId: Id<"organizations">, section: string, decoded: Record<string, unknown>, createdAt: unknown): Promise<ModuleRow> {
+  const held = section === "moduleHeldRows";
+  const table = held ? String(decoded.table) : section;
+  if (!MODULE_TABLES.includes(table)) throw new ConvexError(`A held module row can't be a ${table} row.`);
+  const { orgId: _o, moduleId, ...fields } = held ? { ...(decoded.row as Record<string, unknown>), moduleId: decoded.moduleId } : decoded;
+  void _o;
+  let row: Record<string, unknown> = fields;
+  if (shapeOfTable(table).fields?.sourceCreatedAt && row.sourceCreatedAt === undefined && typeof createdAt === "number") row.sourceCreatedAt = createdAt;
+  const arrival = IMPORT_TABLES[table]?.arrive;
+  if (arrival) row = arrive(table, arrival, row, await arrivalAt(ctx, orgId));
+  return { moduleId: String(moduleId), table: table as ModuleRow["table"], row };
+}
+
+/**
+ * The package that takes a module's rows here, or why they wait: it isn't installed, it is mid-upgrade (its new
+ * version restores them when it serves), or a private module's rows meet an install that isn't Canon's own.
+ */
+async function receiverOf(ctx: QueryCtx, orgId: Id<"organizations">, moduleId: string): Promise<Doc<"modulePackages"> | string> {
+  const pkg = await installedModule(ctx, orgId, moduleId);
+  if (!pkg) return `${moduleId} isn't installed here`;
+  if (pkg.pending && !pkg.pending.error) return `${moduleId} is upgrading`;
+  if (manifestOf(pkg).visibility === "private" && pkg.source.kind !== "canon") return `${moduleId} is a private module, restored only into Canon's own install of it`;
+  return pkg;
+}
+
+/**
+ * Module rows into the module installed here (docs and history through its scope, AI receipts and snapshots as they
+ * are), or into moduleHeldRows with why. Returns each row's id here and whether it was held.
+ */
+async function placeModuleRows(ctx: MutationCtx, orgId: Id<"organizations">, rows: ReadonlyArray<ModuleRow>): Promise<Array<{ id: string; held: boolean }>> {
+  const out: Array<{ id: string; held: boolean }> = new Array(rows.length);
+  const receivers = new Map<string, Doc<"modulePackages"> | string>();
+  for (const r of rows) if (!receivers.has(r.moduleId)) receivers.set(r.moduleId, await receiverOf(ctx, orgId, r.moduleId));
+  const hold = async (i: number, why?: string, pkg?: Doc<"modulePackages">) => {
+    const r = rows[i];
+    const id = await ctx.db.insert("moduleHeldRows", { orgId, moduleId: r.moduleId, table: r.table, row: r.row, heldAt: Date.now(), ...(why && pkg ? { problem: { why, epoch: pkg.epoch ?? 1 } } : {}) });
+    out[i] = { id, held: true };
+  };
+  for (const [moduleId, pkg] of receivers) {
+    const mine = rows.flatMap((r, i) => (r.moduleId === moduleId ? [i] : []));
+    if (typeof pkg === "string") { for (const i of mine) await hold(i); continue; }
+    const scoped = mine.filter((i) => rows[i].table !== "moduleAiRuns" && rows[i].table !== "moduleSnapshots");
+    const restored = await restoreImportedDocs(ctx, pkg, scoped.map((i) => rows[i]));
+    for (const [j, i] of scoped.entries()) {
+      const p = restored[j];
+      if ("id" in p) out[i] = { id: p.id, held: false };
+      else await hold(i, p.why, pkg);
+    }
+    for (const i of mine.filter((i) => !scoped.includes(i))) {
+      const r = rows[i];
+      out[i] = { id: await ctx.db.insert(r.table as "moduleAiRuns", { ...(r.row as Omit<Doc<"moduleAiRuns">, "_id" | "_creationTime" | "orgId" | "moduleId">), orgId, moduleId }), held: false };
+    }
+  }
+  return out;
+}
+
+/**
+ * Restore what an import held for a module, once it is installed here (lib/modules/scope.ts startImports schedules
+ * it when a version starts serving). A row that doesn't fit the installed version stays held with why, and is tried
+ * again when another version serves.
+ */
+export const restoreHeld = internalMutation({
+  args: { orgId: v.id("organizations"), moduleId: v.string(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, a) => {
+    const pkg = await receiverOf(ctx, a.orgId, a.moduleId);
+    if (typeof pkg === "string") return { restored: 0, held: 0, waiting: pkg };
+    const page = await ctx.db.query("moduleHeldRows").withIndex("by_orgId_and_moduleId", (q) => q.eq("orgId", a.orgId).eq("moduleId", a.moduleId)).paginate({ numItems: HELD_BATCH, cursor: a.cursor });
+    const epoch = pkg.epoch ?? 1;
+    const due = page.page.filter((h) => h.problem?.epoch !== epoch);
+    const placed = await placeModuleRows(ctx, a.orgId, due.map((h) => ({ moduleId: h.moduleId, table: h.table, row: h.row as Record<string, unknown> })));
+    let restored = 0;
+    for (const [i, h] of due.entries()) {
+      // A row placeModuleRows held again is a new held row with why; this one is done either way.
+      await ctx.db.delete(h._id);
+      if (!placed[i].held) restored++;
+    }
+    if (restored) {
+      // As at import: the module is off while it holds what arrived, and fit is computed from any ICPs among them.
+      const imp = await ctx.db.query("workspaceImports").withIndex("by_orgId", (q) => q.eq("orgId", a.orgId)).order("desc").first();
+      const admin = imp && (await ctx.db.get(imp.userId));
+      if (admin && (await isEnabled(ctx, a.orgId, a.moduleId))) await setModuleEnabled(ctx, admin, { moduleId: a.moduleId, enabled: false });
+      await invalidateFit(ctx, a.orgId);
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.workspaceImport.restoreHeld, { ...a, cursor: page.continueCursor });
+    return { restored, held: due.length - restored, waiting: null };
   },
 });
 

@@ -3510,6 +3510,10 @@ export async function servesNewVersion(ctx: MutationCtx, orgId: Id<"organization
 
 /** Start imports only once the manifest that names them serves. Progress survives later versions. */
 export async function startImports(ctx: MutationCtx, orgId: Id<"organizations">, moduleId: string, m: ModuleManifest) {
+  // Rows a workspace import held for this module, until it was installed here (convex/workspaceImport.ts).
+  if (await ctx.db.query("moduleHeldRows").withIndex("by_orgId_and_moduleId", (q) => q.eq("orgId", orgId).eq("moduleId", moduleId)).first()) {
+    await ctx.scheduler.runAfter(0, internal.workspaceImport.restoreHeld, { orgId, moduleId, cursor: null });
+  }
   const names = importsOf(m);
   if (m.reports || m.dashboards) await ctx.scheduler.runAfter(0, internal.modules.installShipped, { orgId, moduleId });
   if (!names.length) return;
@@ -3699,6 +3703,53 @@ export async function seedDocs(ctx: MutationCtx, scope: ModuleScope, collection:
       if (projectedCollections(scope.manifest).has(collection)) await markDirty(ctx, scope.orgId, scope.moduleId, scope.manifest, REPORT_JOB, `${collection}|${d.key}`);
     }
     return docs.length;
+  });
+}
+
+/**
+ * A module's docs and their history from a workspace import (convex/workspaceImport.ts), ids already this
+ * workspace's, restored as Canon: each doc keeps its version, owner, set place and creation time, takes this
+ * install's index slots and must fit this version's schema; a doc with the same key replaces the one here (a default
+ * the module made). It marks only the report projection and tells no provided-collection consumer (an ICP fill check
+ * would start), so nothing runs on what arrived; the module is off while it takes them (workspaceImport.ts). Returns
+ * per row its id here, or why it stays held.
+ */
+export async function restoreImportedDocs(ctx: MutationCtx, pkg: Doc<"modulePackages">, rows: ReadonlyArray<{ table: string; row: Record<string, unknown> }>): Promise<Array<{ id: string } | { why: string }>> {
+  return withModulePublication(ctx, async () => {
+    const manifest = manifestOf(pkg);
+    const slots: SlotMap = pkg.slots ?? defaultSlots(manifest);
+    const source = moduleSource(pkg);
+    const at = { orgId: pkg.orgId, moduleId: pkg.moduleId };
+    const out: Array<{ id: string } | { why: string }> = [];
+    for (const { table, row } of rows) {
+      const collection = String(row.collection), key = String(row.key);
+      const c = manifest.collections[collection];
+      if (!c) { out.push({ why: `v${pkg.version} has no ${collection} collection` }); continue; }
+      if (table === "moduleEvents") {
+        out.push({ id: await ctx.db.insert("moduleEvents", { ...(row as Omit<Doc<"moduleEvents">, "_id" | "_creationTime">), ...at }) });
+        continue;
+      }
+      if (table !== "moduleDocs") { out.push({ why: `${table} is not a module's docs` }); continue; }
+      const data = row.data as Record<string, unknown>;
+      const problems = valueProblems(data, c.schema, collection, () => true, () => null);
+      if (problems.length) { out.push({ why: `doesn't fit v${pkg.version}: ${problems.slice(0, 3).join("; ")}` }); continue; }
+      const parentKey = typeof row.parentKey === "string" ? row.parentKey : undefined;
+      const gen = typeof row.gen === "number" ? row.gen : undefined;
+      const value: ModuleDocInsert = {
+        ...at, collection, key, data, version: Number(row.version),
+        ...(typeof row.ownerUserId === "string" ? { ownerUserId: row.ownerUserId as Id<"users"> } : {}),
+        ...(parentKey !== undefined ? { parentKey } : {}), ...(gen !== undefined ? { gen } : {}),
+        ...(row.gens ? { gens: row.gens as Record<string, number> } : {}),
+        sourceCreatedAt: Number(row.sourceCreatedAt),
+        ...slotColumns(c, slots[collection] ?? {}, data, parentKey, gen ?? 0), updatedAt: Number(row.updatedAt),
+      };
+      const held = await ctx.db.query("moduleDocs").withIndex("by_orgId_moduleId_collection_key", (q) => q.eq("orgId", pkg.orgId).eq("moduleId", pkg.moduleId).eq("collection", collection).eq("key", key)).unique();
+      if (held) await patchModuleDoc(writeCtx(ctx), source, held._id, value, TRUSTED_MAINTENANCE);
+      const id = held?._id ?? await insertModuleDoc(writeCtx(ctx), source, value, TRUSTED_MAINTENANCE);
+      if (projectedCollections(manifest).has(collection)) await markDirty(ctx, pkg.orgId, pkg.moduleId, manifest, REPORT_JOB, `${collection}|${key}`);
+      out.push({ id });
+    }
+    return out;
   });
 }
 
