@@ -1880,13 +1880,25 @@ export const seedHierarchy = internalMutation({
   },
 });
 
+/** Local stack only: companies with the values given, for an account hierarchy scan to read (`convex run devSeed:seedCompanies`). */
+export const seedCompanies = internalAction({
+  args: { companies: v.array(v.object({ domain: v.string(), name: v.string(), country: v.optional(v.string()), industry: v.optional(v.string()) })) },
+  handler: async (ctx, args): Promise<string[]> => {
+    if (!isDevAuthBypassEnabled()) throw new ConvexError("Demo workspace seeding is disabled");
+    const orgId = await ctx.runMutation(internal.devSeed.devOrgId, {});
+    if (!orgId) throw new ConvexError("Run devSeed:ensureWorkspace first");
+    const saved = await clientFor(ctx).upsertAccounts(orgId, { records: args.companies, source: "dev-seed", idempotencyKey: `dev-companies-${args.companies.map((c) => c.domain).join(",")}` });
+    return saved.ids;
+  },
+});
+
 /**
  * Local stack only: a finished research for one account hierarchy group, with the proposal given. Parent moves come
  * only from live research on a user's ChatGPT plan, which a local stack does not run (`convex run
  * devSeed:seedHierarchyResearch`).
  */
 export const seedHierarchyResearch = internalMutation({
-  args: { groupId: v.id("hierarchyGroups"), groupName: v.string(), rootAccountId: v.string(), research: v.any(), proposal: v.any() },
+  args: { groupId: v.id("hierarchyGroups"), groupName: v.string(), rootAccountId: v.string(), research: v.any(), proposal: v.any(), verification: v.optional(v.any()) },
   handler: async (ctx, args) => {
     if (!isDevAuthBypassEnabled()) throw new ConvexError("Demo workspace seeding is disabled");
     const g = await ctx.db.get(args.groupId);
@@ -1895,7 +1907,7 @@ export const seedHierarchyResearch = internalMutation({
     const now = Date.now();
     return ctx.db.insert("hierarchyResearch", {
       orgId: g.orgId, scanId: g.scanId, groupId: g._id, groupName: args.groupName, rootAccountId: args.rootAccountId, status: "done",
-      startedBy: user._id, startedAt: now, finishedAt: now, model: "seeded locally", research: args.research, verification: { checks: [] }, proposal: args.proposal,
+      startedBy: user._id, startedAt: now, finishedAt: now, model: "seeded locally", research: args.research, verification: args.verification ?? { checks: [] }, proposal: args.proposal,
     });
   },
 });

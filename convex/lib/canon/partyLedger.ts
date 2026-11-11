@@ -539,6 +539,8 @@ export async function writeRecordEdit(
     streamId?: string;
     /** Values the record must still hold, checked in this transaction; else nothing is written and it is a conflict. */
     expect?: Readonly<Record<string, string | null>>;
+    /** Why the person made the edit, kept on each value it writes (an approved research fix's quotes and sources). */
+    evidence?: string;
   },
 ): Promise<PartyWriteResult & { entityId: string }> {
   if (a.streamId) {
@@ -555,7 +557,7 @@ export async function writeRecordEdit(
   }
   // An email the edit sets that names another record (a race past checkPartyEdit) is left out by the save, and the rest still lands.
   const out = await writeParty(s, {
-    orgId: a.orgId, object: a.object, streamId: entityId, now: a.now, values: edit.values,
+    orgId: a.orgId, object: a.object, streamId: entityId, now: a.now, values: edit.values, ...(a.evidence !== undefined ? { evidence: a.evidence } : {}),
     source: { ...(a.found ? { kind: "enrichment" as const, lookup: a.found } : { kind: "user" as const }), userId: a.userId, key: a.key, ...(a.at !== undefined ? { at: a.at } : {}) },
     ...(a.ownership ? { ownership: a.ownership } : {}),
     seed: async () => edit.seed ?? (a.identitySeed ? a.identitySeed(entityId) : null),
@@ -574,6 +576,12 @@ async function holds(s: PartyStores, orgId: string, object: PartyObject, streamI
   const state = (await s.objects.readEntries(streamId, 0, 1)).length ? ((await s.objects.getHotRow(streamId)) ?? (await foldStream(s.objects, streamId))) : null;
   const values: Record<string, unknown> = state ? project(await s.defWith(orgId, object, {}), state).values : { ...(snapshot ?? {}) };
   return Object.entries(expect).every(([field, value]) => (values[field] ?? null) === value);
+}
+
+/** Whether a register row's stream holds `values` now (field to value, null for none): false for a row with no stream. */
+export async function recordHolds(s: PartyStores, a: { orgId: string; object: PartyObject; recordId: string; values: Readonly<Record<string, string | null>> }): Promise<boolean> {
+  const streamId = await s.objects.findByExternalId(a.orgId, a.object === "account" ? ID.recordAccount : ID.recordContact, a.recordId);
+  return streamId !== null && (await holds(s, a.orgId, a.object, streamId, a.values));
 }
 
 /** A register row as a write about it names it: its record id, the row as it is now, and the stream it is linked to, if any. */
@@ -642,6 +650,8 @@ export interface RecordEditPorts {
    * service mid-deploy, or the fake), the row is also sent the ledger's fields.
    */
   register: boolean;
+  /** The edit holds only while the record has the values it expects (`expect`): without the register, the ledger's check runs before the row is written. */
+  conditional?: boolean;
   /** checkPartyEdit for this edit, read before anything is written: the normalized patch, and what the ledger would refuse. */
   check(): Promise<{ patch: RecordPatch; refused: readonly CoerceError[] }>;
   /**
@@ -689,6 +699,13 @@ export async function editPartyRecord(ports: RecordEditPorts): Promise<EditRespo
   if (refused.length) throw new ConvexError(refusal(refused));
   const split = splitRecordPatch(ports.object, patch);
   const ledgerFields = Object.keys(split.ledger).length > 0;
+  if (!ports.register && ports.conditional) {
+    // Without the register the row would take the patch before the ledger checks the condition: check it first.
+    const { rejected, conflict } = await ports.ledger(split.ledger);
+    if (conflict) throw new EditConflictError();
+    if (rejected.length) throw new ConvexError(`Not saved: ${refusal(rejected)}. Resolve that and retry the edit.`);
+    return ports.service(patch);
+  }
   // The record service claims the key for the whole operation first, as before the register: it 404s a missing
   // record and refuses a key reused for a different edit before the ledger is written. It takes only the fields
   // it keeps; without the register (an older service, the fake) it takes the whole patch, as it always did.

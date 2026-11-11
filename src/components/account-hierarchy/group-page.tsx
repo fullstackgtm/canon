@@ -191,7 +191,7 @@ function Proposal({
   const sections: Array<[string, HierarchyItem["op"]]> = [
     ["Merges", "merge"],
     ["Parent moves", "set_parent"],
-    ["Region and country fixes", "set_fields"],
+    ["Field fixes", "set_fields"],
   ];
   const checkOf = (url: string, quote: string) => checks.find((c) => c.url === url && c.quote === quote);
   return (
@@ -201,7 +201,7 @@ function Proposal({
           Researched {finishedAt ? new Date(finishedAt).toLocaleString() : ""} by {model ?? "ChatGPT"}. Only claims whose quote was found on the cited page
           became items.{" "}
           {canon
-            ? "Approving a parent move changes the parent in Canon now, as you; undo puts the previous parent back. Approving a merge or a field fix only records your decision."
+            ? "Approving a parent move or a field fix changes the company in Canon now, as your own edit, so a CRM's next value doesn't replace it; undo puts the previous value back. Approving a merge only records your decision."
             : "This scan read Salesforce, so approving only records your decision: nothing changes in Canon or Salesforce."}{" "}
           Nothing is written to a CRM.
         </p>
@@ -232,8 +232,8 @@ function Proposal({
                             </p>
                           ))}
                       </div>
-                      {canon && it.op === "set_parent" ? (
-                        <ParentDecision researchId={researchId} itemKey={it.key} decision={decisions[it.key]} canDecide={canDecide} />
+                      {canon && it.op !== "merge" ? (
+                        <AppliedDecision kind={it.op === "set_parent" ? "parent" : "fields"} researchId={researchId} itemKey={it.key} decision={decisions[it.key]} canDecide={canDecide} />
                       ) : (
                         <Decision researchId={researchId} itemKey={it.key} decision={decisions[it.key]} canDecide={canDecide} />
                       )}
@@ -313,7 +313,7 @@ function ItemText({ item, nm }: { item: HierarchyItem; nm: (id: string | null) =
 
 const when = (d: ItemDecision) => `${d.decidedBy}, ${new Date(d.appliedAt ?? d.decidedAt).toLocaleString()}`;
 
-/** A decision that is only recorded: merges, field fixes, and every item on a Salesforce scan. */
+/** A decision that is only recorded: merges, and every item on a Salesforce scan. */
 function Decision({ researchId, itemKey, decision, canDecide }: { researchId: Id<"hierarchyResearch">; itemKey: string; decision?: ItemDecision; canDecide: boolean }) {
   const decide = useMutation(api.accountHierarchy.decide);
   const set = (d: "approved" | "rejected" | "clear") => decide({ researchId, itemKey, decision: d }).catch((e) => toast.error(getErrorMessage(e)));
@@ -335,11 +335,15 @@ function Decision({ researchId, itemKey, decision, canDecide }: { researchId: Id
   );
 }
 
-/** A Canon scan's parent move: approving changes the parent in Canon, and undo puts the previous one back. */
-function ParentDecision({ researchId, itemKey, decision, canDecide }: { researchId: Id<"hierarchyResearch">; itemKey: string; decision?: ItemDecision; canDecide: boolean }) {
+/** A Canon scan's parent move or field fix: approving changes the company in Canon, and undo puts the previous value back. */
+function AppliedDecision({ kind, researchId, itemKey, decision, canDecide }: { kind: "parent" | "fields"; researchId: Id<"hierarchyResearch">; itemKey: string; decision?: ItemDecision; canDecide: boolean }) {
   const decide = useMutation(api.accountHierarchy.decide);
-  const approve = useAction(api.accountHierarchy.approveParent);
-  const undo = useAction(api.accountHierarchy.undoParent);
+  const approveParent = useAction(api.accountHierarchy.approveParent);
+  const undoParent = useAction(api.accountHierarchy.undoParent);
+  const approveFields = useAction(api.accountHierarchy.approveFields);
+  const undoFields = useAction(api.accountHierarchy.undoFields);
+  const approve = kind === "parent" ? approveParent : approveFields;
+  const undo = kind === "parent" ? undoParent : undoFields;
   const [busy, setBusy] = useState(false);
   async function run(task: () => Promise<{ status: string; message?: string } | null>) {
     setBusy(true);

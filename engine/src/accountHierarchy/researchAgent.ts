@@ -134,7 +134,7 @@ export function describeAccounts(accounts: CanonicalAccount[], snapshot: Canonic
         `${a.id}: ${a.name}`,
         a.domain ? `website ${a.domain}` : null,
         parent ? `parent ${byId.get(parent)?.name ?? parent}` : "no parent",
-        policy.region ? `country ${accountValue(a, policy.region.countryField) ?? "blank"}` : null,
+        `country ${accountValue(a, countryFieldOf(snapshot, policy)) ?? "blank"}`,
         policy.ultimateParentField && rawString(a, policy.ultimateParentField) ? `enrichment vendor says ultimate parent "${rawString(a, policy.ultimateParentField)}"` : null,
       ];
       return `- ${parts.filter(Boolean).join("; ")}`;
@@ -142,7 +142,12 @@ export function describeAccounts(accounts: CanonicalAccount[], snapshot: Canonic
     .join("\n");
 }
 
-export function researchPrompt(input: { group: string; rootAccount: CanonicalAccount; accountList: string; today: string }): string {
+/** The account field a billing-country fact names: the policy's, else Canon's column or Salesforce's billing country. */
+export function countryFieldOf(snapshot: Pick<CanonicalGtmSnapshot, "provider">, policy: HierarchyPolicy): string {
+  return policy.region?.countryField ?? (snapshot.provider === "canon" ? "country" : "BillingCountry");
+}
+
+export function researchPrompt(input: { group: string; rootAccount: CanonicalAccount; accountList: string; today: string; countryField?: string }): string {
   return `Today is ${input.today}. You are checking a CRM's account hierarchy for the corporate family "${input.group}" (top account: ${input.rootAccount.name}, id ${input.rootAccount.id}).
 
 These CRM accounts may belong to the family, be duplicates of each other, or have left it:
@@ -155,7 +160,7 @@ For each company or brand these accounts represent, find out from the web whethe
 - sale_pending: a sale is announced or reported but has not closed.
 Prefer the parent company's own pages (its list of brands or subsidiaries) and recent news for changes. Check for sales and spin-offs in the last two years: the enrichment vendor data above is often out of date and is a lead, never a source.
 When the sources show an intermediate company (a brand that is itself the parent of other brands in the list), name it as "parent" and add it as an entity, with accountIds [] if the CRM has no account for it.
-Add "facts" only for a billing-country fix the sources clearly support for that specific legal entity (field "BillingCountry", value as a country name). Leave facts empty otherwise.
+Add "facts" only for a billing-country fix the sources clearly support for that specific legal entity (field "${input.countryField ?? "BillingCountry"}", value as a country name). Leave facts empty otherwise.
 
 Citation rules, which a program checks:
 - Every claim needs at least one citation: the URL of a page you read with fetch_page, and a quote copied word for word from the text it returned (a sentence or a phrase of at least a few words).
@@ -319,7 +324,7 @@ export async function researchGroup(input: {
   const read = input.read ?? fetchPage;
   const root = input.snapshot.accounts.find((a) => String(a.id) === input.rootId);
   if (!root) throw new Error(`account ${input.rootId} is not in the snapshot`);
-  const prompt = researchPrompt({ group: input.group, rootAccount: root, accountList: describeAccounts(input.accounts, input.snapshot, input.policy), today });
+  const prompt = researchPrompt({ group: input.group, rootAccount: root, accountList: describeAccounts(input.accounts, input.snapshot, input.policy), today, countryField: countryFieldOf(input.snapshot, input.policy) });
   const conversation: Item[] = [{ type: "message", role: "user", content: [{ type: "input_text", text: prompt }] }];
   const pages: Record<string, string> = {};
   const turns = { n: 0 };

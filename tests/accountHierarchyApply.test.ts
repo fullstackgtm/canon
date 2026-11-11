@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createFakeRecordClient, createMemoryRecordStore } from "../convex/lib/recordClient.ts";
-import { accessOf } from "../convex/lib/access.ts";
+import { accessOf, type ObjectRule } from "../convex/lib/access.ts";
 import type { AccountRow } from "../convex/lib/recordContract.ts";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
@@ -9,21 +9,38 @@ const plain = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const parentItem = (accountId: string, from: string | null, to: string | null) =>
   ({ op: "set_parent", accountId, from, to, why: "researched", citations: [], warn: [], key: `ah:parent:${accountId}:${to}` });
 
-let client = createFakeRecordClient({ store: createMemoryRecordStore() });
-const files = loadConvex(["accountHierarchy.ts", "associations.ts", "hubspotImport.ts"], { "records.ts": (real) => ({ ...real, callerClient: () => client }) });
+const QUOTE = { url: "https://child.test/about", quote: "Child SAS has its head office in Paris" };
+const fieldItem = (fields: Record<string, string>, expect: Record<string, string | null>) =>
+  ({ op: "set_fields", accountId: "child", fields, expect, why: "researched", citations: [QUOTE], warn: [], key: `ah:fields:child:${Object.entries(fields).map(([f, v]) => `${f}=${v}`).join(",")}` });
+const COUNTRY = "ah:fields:child:country=France";
 
-async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: string[] } = {}) {
-  const store = createMemoryRecordStore();
+// The record pages' link changes read through the caller's client (a memory record service); a field fix's edit goes through
+// records.ts's own client, the stand-in record service in Convex tables (convexFakeStore). Both hold the same companies.
+let client = createFakeRecordClient({ store: createMemoryRecordStore() });
+const files = loadConvex(["accountHierarchy.ts", "associations.ts", "hubspotImport.ts", "records.ts", "canon.ts", "hubspot.ts", "objects.ts"], { "records.ts": (real) => ({ ...real, callerClient: () => client }) });
+
+/** Companies in the stand-in record service (records.ts convexFakeStore), each with a country unless `countries` says otherwise. */
+async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: string[]; countries?: Record<string, string>; rules?: ObjectRule[] } = {}) {
   const companies = opts.companies ?? ["top", "old", "child"];
-  await store.putAccounts("org", companies.map((id) => ({ id, name: id, domain: `${id}.test`, fit: 0, status: "new", segmentIds: [], source: "test", version: 1, updatedAt: 1 }) as AccountRow));
+  const rows = companies.map((id) => ({ id, name: id, domain: `${id}.test`, fit: 0, status: "new", segmentIds: [], source: "test", version: 1, updatedAt: 1, ...(opts.countries?.[id] ? { country: opts.countries[id] } : {}) }) as AccountRow);
+  const store = createMemoryRecordStore();
+  await store.putAccounts("org", rows);
   client = createFakeRecordClient({ store });
-  const items = [parentItem("child", "old", "top"), parentItem("top", null, "child"), { op: "merge", survivorId: "top", loserId: "old", fill: {}, why: "dup", moves: "", warn: [], key: "ah:merge:old" }];
+  const items = [
+    parentItem("child", "old", "top"), parentItem("top", null, "child"), { op: "merge", survivorId: "top", loserId: "old", fill: {}, why: "dup", moves: "", warn: [], key: "ah:merge:old" },
+    fieldItem({ country: "France" }, { country: opts.countries?.child ?? null }), fieldItem({ BillingCountry: "France" }, { BillingCountry: null }),
+    fieldItem({ industry: "Luxury goods" }, { industry: "Software" }),
+  ];
   const db = memoryDb({
     organizations: [{ _id: "org", clerkOrgId: "clerk_org" }],
     users: [{ _id: "admin", clerkUserId: "clerk_admin", orgId: "org", role: "admin", isActive: true, name: "Ada" }],
     hierarchyScans: [{ _id: "scan", orgId: "org", provider: opts.provider ?? "canon", status: "done", startedBy: "admin", startedAt: 1 }],
     hierarchyGroups: [{ _id: "group", orgId: "org", scanId: "scan", rank: 0, groupKey: "g", size: 3, shellCount: 0, accounts: companies.map((id) => ({ id, name: id, shell: false })), reasons: [], suggestedRootId: "top" }],
-    hierarchyResearch: [{ _id: "research", orgId: "org", scanId: "scan", groupId: "group", groupName: "Top", rootAccountId: "top", status: "done", startedBy: "admin", startedAt: 1, proposal: { items } }],
+    hierarchyResearch: [{
+      _id: "research", orgId: "org", scanId: "scan", groupId: "group", groupName: "Top", rootAccountId: "top", status: "done", startedBy: "admin", startedAt: 1, proposal: { items },
+      verification: { checkedAt: "2026-11-10T00:00:00Z", checks: [{ ...QUOTE, result: "verified" }] },
+    }],
+    fakeRecordAccounts: rows.map((row) => ({ ws: "org", recordId: row.id, row })),
   });
   const ctx = (): any => ({
     db,
@@ -32,7 +49,8 @@ async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: st
   });
   const call = (ref: unknown, args: any) => {
     const [, file, fn] = String(ref).split(".");
-    if (`${file}.${fn}` === "records.callerContext") return { orgId: "org", userId: "admin", name: "Ada", role: "admin", access: accessOf({ userId: "admin", role: "admin" }) };
+    // A role with rules is a manager: an admin's access ignores rules.
+    if (`${file}.${fn}` === "records.callerContext") return { orgId: "org", userId: "admin", name: "Ada", role: "admin", access: accessOf({ userId: "admin", role: opts.rules ? "manager" : "admin", rules: opts.rules ?? null }) };
     const cp = db.checkpoint();
     return files[`${file}.ts`][fn].handler(ctx(), args).catch((error: unknown) => { db.rollback(cp); throw error; });
   };
@@ -47,8 +65,27 @@ async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: st
   const hubspotParent = (accountId: string, parentId: string) =>
     files["hubspotImport.ts"].writeLinks.handler(ctx(), { orgId: "org", userId: "admin", links: [{ kind: "parent", ref: `hs-${accountId}`, accountId, parentId }] });
   const useCrmParent = (accountId: string, crmRef: string) => files["associations.ts"].useCrmParent.handler(actionCtx, { accountId, crmRef }).then(plain);
+  const fix = (itemKey = COUNTRY) => h.approveFields.handler(actionCtx, { researchId: "research", itemKey }).then(plain);
+  const undoFix = (itemKey = COUNTRY) => h.undoFields.handler(actionCtx, { researchId: "research", itemKey }).then(plain);
+  /** Whether the company holds `values` in Canon (its ledger). */
+  const holds = (values: Record<string, string | null>) => files["canon.ts"].recordHolds.handler(ctx(), { orgId: "org", object: "account", recordId: "child", values });
+  const country = (value: string | null) => holds({ country: value });
+  /** The company's row in the stand-in record service. */
+  const row = async () => plain((await files["records.ts"].fakeGetAccounts.handler(ctx(), { ws: "org", ids: ["child"] }))[0]);
+  const ledger = (): any[] => plain(f.db.rows("ledgerEntries").filter((e: any) => e.body?.kind === "assert"));
+  const edit = (patch: Record<string, unknown>) => files["records.ts"].edit.handler(actionCtx, { object: "account", id: "child", patch, idempotencyKey: `edit:${JSON.stringify(patch)}` });
+  const hubspotIndustry = (industry: string) =>
+    files["hubspot.ts"].upsertAccounts.handler(ctx(), { orgId: "org", accounts: [{ crmId: "hs-child", name: "child", domain: "child.test", industry }] });
+  /** The company as a HubSpot sync first wrote it, its register row linked to that stream, as the projector links it. */
+  const fromHubspot = async (value: string) => {
+    await hubspotIndustry(value);
+    const stream = db.rows("canonExternalIds").find((x) => x.provider === "hubspot:account" && x.externalId === "hs-child")!.entityId;
+    const row = db.rows("fakeRecordAccounts").find((r) => r.recordId === "child")!;
+    await db.patch(row._id, { row: { ...(row.row as object), stream } });
+  };
+  const f = { fromHubspot, db, h, ctx, parentOf, setParent, args, decision, approve, undo, hubspotParent, useCrmParent, fix, undoFix, holds, country, row, ledger, edit, hubspotIndustry };
   await setParent("child", "old");
-  return { db, h, ctx, parentOf, setParent, args, decision, approve, undo, hubspotParent, useCrmParent };
+  return f;
 }
 
 test("approving a Canon parent move links the company under its new parent as the approver, and approving again changes nothing", async () => {
@@ -156,4 +193,72 @@ test("an approved move holds against the next CRM import, whose parent the group
   assert.deepEqual(plain((await f.h.group.handler(f.ctx(), { groupId: "group" })).crmParents), {});
   await f.hubspotParent("child", "top");
   assert.deepEqual(await f.parentOf("child"), ["top"]);
+});
+
+test("approving a field fix sets the company's field as the approver's edit, with the research's quotes as its evidence; approving again writes nothing", async () => {
+  const f = await fixture();
+  assert.deepEqual(await f.fix(), { status: "applied" });
+  assert.equal(await f.country("France"), true);
+  const entry = f.ledger().at(-1);
+  assert.deepEqual(entry.actor, { kind: "user", id: "admin" });
+  assert.match(entry.source.ref, /^user:admin:.+:hierarchy:research:ah:fields:child:country=France:apply:\d+$/);
+  assert.deepEqual(entry.body.assertions.map((a: { fieldId: string; value: unknown }) => [a.fieldId, a.value]), [["country", "France"]]);
+  assert.equal(entry.body.assertions[0].evidence, '"Child SAS has its head office in Paris" (https://child.test/about; verified)\n\nSource: account hierarchy research for Top, quotes checked 2026-11-10');
+  const fact: any = plain(f.db.rows("facts").find((x) => x.attribute === "country" && x.value === "France"));
+  assert.equal(fact.evidence, entry.body.assertions[0].evidence);
+  const d = await f.decision(COUNTRY);
+  assert.equal(d.decidedBy, "Ada");
+  assert.equal(typeof d.appliedAt, "number");
+
+  const entries = f.ledger().length;
+  assert.deepEqual(await f.fix(), { status: "unchanged" });
+  assert.equal(f.ledger().length, entries);
+});
+
+test("an applied fix holds against the next CRM sync, like any person's edit", async () => {
+  const f = await fixture();
+  await f.fromHubspot("Software");
+  assert.deepEqual(await f.fix("ah:fields:child:industry=Luxury goods"), { status: "applied" });
+  await f.hubspotIndustry("Retail");
+  assert.equal(await f.holds({ industry: "Luxury goods" }), true);
+});
+
+test("a fix whose fields changed since the scan, names a field Canon has no edit for, or that the approver's role may not edit, is refused and kept; nothing is written", async () => {
+  const changed = await fixture();
+  await changed.edit({ country: "Spain" });
+  const entries = changed.ledger().length;
+  const result = await changed.fix();
+  assert.equal(result.status, "invalid");
+  assert.equal(await changed.country("Spain"), true);
+  assert.equal((await changed.row()).country, "Spain");
+  assert.equal(changed.ledger().length, entries);
+  assert.equal((await changed.decision(COUNTRY)).applyError, result.message);
+
+  const unknown = await fixture();
+  const billing = await unknown.fix("ah:fields:child:BillingCountry=France");
+  assert.equal(billing.status, "invalid");
+  assert.equal((await unknown.decision("ah:fields:child:BillingCountry=France")).applyError, billing.message);
+
+  const locked = await fixture({ rules: [{ object: "account", fields: [{ apiName: "country", level: "readOnly" }] }] });
+  const before = locked.ledger().length;
+  const refused = await locked.fix();
+  assert.equal(refused.status, "invalid");
+  assert.equal(locked.ledger().length, before);
+  assert.equal((await locked.decision(COUNTRY)).applyError, refused.message);
+});
+
+test("undo puts the scan's value back and clears the decision; once the field changed again, undo is refused", async () => {
+  const f = await fixture({ countries: { child: "Italy" } });
+  await f.fix();
+  await assert.rejects(f.h.decide.handler(f.ctx(), { researchId: "research", itemKey: COUNTRY, decision: "rejected" }));
+  assert.deepEqual(await f.undoFix(), { status: "applied" });
+  assert.equal(await f.country("Italy"), true);
+  assert.equal(await f.decision(COUNTRY), null);
+
+  await f.fix();
+  await f.edit({ country: "Spain" });
+  assert.equal((await f.undoFix()).status, "invalid");
+  assert.equal(await f.country("Spain"), true);
+  assert.equal((await f.row()).country, "Spain");
+  assert.equal(typeof (await f.decision(COUNTRY)).appliedAt, "number");
 });

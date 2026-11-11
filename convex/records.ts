@@ -639,6 +639,8 @@ type RecordEditArgs = {
   found?: { provider: string; callId: Id<"providerCalls"> };
   /** Values the record must still hold when the ledger writes (a module's approved proposal): else EditConflictError. */
   expect?: Record<string, string | null>;
+  /** Why the person made the edit, kept on each value it writes (an approved account hierarchy fix's quotes). */
+  evidence?: string;
 };
 
 /** The record-service contract that keeps one register: rows on the ledger take its values from the projector. */
@@ -682,6 +684,7 @@ export async function recordEditPorts(
   return {
     object: args.object,
     register: client.mode === "http" && atLeastVersion(await client.contractVersion(), REGISTER_CONTRACT),
+    conditional: args.expect !== undefined,
     check: async () => {
       const { unnamed, ...checked } = await ctx.runQuery(internal.canon.checkRecordEdit, { orgId, ...edit, ...(references ? { references } : {}) });
       // Named by field, so the record API answers 422 for it (src/app/api/v1/_lib.ts toV1Error).
@@ -691,7 +694,7 @@ export async function recordEditPorts(
     ledger: async (patch, at) => {
       const out = await ctx.runMutation(internal.canon.saveRecordEdit, {
         orgId, userId: caller.userId as Id<"users">, ...edit, patch, ...(at !== undefined ? { at } : {}), ...(args.found ? { found: args.found } : {}),
-        ...(args.expect ? { expect: args.expect } : {}),
+        ...(args.expect ? { expect: args.expect } : {}), ...(args.evidence !== undefined ? { evidence: args.evidence } : {}),
       });
       return { ...out, deferred: out.status === "deferred", conflict: out.status === "conflict" };
     },
