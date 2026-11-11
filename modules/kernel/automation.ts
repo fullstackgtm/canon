@@ -17,9 +17,22 @@ export const STEPS_MAX = 25;
 /** A rule's write may start another rule's run, down to this depth; an entry written at it starts nothing. */
 export const MAX_DEPTH = 3;
 
-/** Objects a rule can watch and act on in this release: the ones Convex writes whole (companies and people live in the record service). */
-export const AUTOMATION_OBJECTS = ["deal", "lead", "task"] as const;
+/** Objects a rule can watch. Companies and people only from their ledger history: see `reachNote`. */
+export const AUTOMATION_OBJECTS = ["deal", "lead", "task", "account", "contact"] as const;
 export const isAutomationObject = (o: string): boolean => (AUTOMATION_OBJECTS as readonly string[]).includes(o) || o.startsWith("custom_");
+
+/**
+ * Companies and people live in the record service, and reach the ledger only once someone works one in Canon. A rule
+ * on them starts on what the ledger records: an edit or a delete in Canon. It has no "is created" or schedule trigger
+ * and doesn't change their fields (an edit of one goes through the record service, which a rule's step can't reach).
+ */
+export const isRegisterAutomationObject = (o: string): o is "account" | "contact" => o === "account" || o === "contact";
+
+/** What a rule on companies or people sees and doesn't, in words, under its sentence; null for every other object. */
+export function reachNote(object: string, plural: string): string | null {
+  if (!isRegisterAutomationObject(object)) return null;
+  return `It starts on a change made in Canon: an edit by a person, the API or an agent, or a delete. ${plural} Canon adds to your market list, and changes a CRM sync or an import brings, never start it.`;
+}
 
 /**
  * A condition on a date may compare with `{today}`, the workspace's date when the rule checks it ("close date is
@@ -50,6 +63,8 @@ export const conditionValidator = v.object({ field: v.string(), op: v.string(), 
 export const ownerChoiceValidator = v.union(
   v.object({ kind: v.literal("member"), userId: v.id("users") }),
   v.object({ kind: v.literal("record_owner") }),
+  /** The owner of the record's company: a company's own, else the one its company lookup (a deal's or a task's Account) names, as the rule's member sees it. */
+  v.object({ kind: v.literal("company_owner") }),
   v.object({ kind: v.literal("round_robin"), userIds: v.array(v.id("users")) }),
   v.object({ kind: v.literal("team"), teamId: v.id("teamGroups") }),
   v.object({ kind: v.literal("routing_rule"), routingRuleId: v.id("routingRules") }),
@@ -320,6 +335,7 @@ function phrases(rule: RuleShape, names: RuleNames) {
   const OWNERS: { [K in OwnerChoice["kind"]]: (o: Extract<OwnerChoice, { kind: K }>) => string } = {
     member: (o) => member(o.userId),
     record_owner: () => `the ${noun}'s owner`,
+    company_owner: () => (rule.object === "account" ? `the ${noun}'s owner` : `the ${noun}'s company owner`),
     round_robin: (o) => (o.userIds.length ? `the next of ${list(o.userIds.map(member), "and")} in turn` : "the next member in turn (nobody picked yet)"),
     team: (o) => `the next member of the ${names.teams?.find((t) => t.id === o.teamId)?.name ?? "deleted"} team`,
     routing_rule: (o) => `whoever the routing rule ${names.routingRules?.find((r) => r.id === o.routingRuleId)?.name ?? "(deleted)"} picks`,

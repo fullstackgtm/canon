@@ -995,9 +995,11 @@ async function personHolds(ctx: QueryCtx, orgId: Id<"organizations">, object: st
   const state = asState(hot);
   const claims = (await fieldClaimsOf(ctx, orgId, streamId)).filter((c) => standing(state, c, object));
   const winner = (field: string) => winningFact(state.fields[field]?.candidates ?? []);
+  // A field set to always follow a CRM (crmFieldFollows) is the CRM's at its next sync: a person's edit of it is not held.
+  const followed = new Set((await ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(200)).filter((r) => (r.object ?? "deal") === object).map((r) => r.attribute));
   return (attribute: string, value: FactValue): Pick<ResolvedField, "held" | "crm"> => {
     const field = def.byApiName.get(attribute)?.fieldId ?? attribute;
-    if (!heldField(object, field, def) || !groupFields(object, groupOf(object, field)).some((f) => { const w = winner(f); return w !== null && isPersonFact(w); })) return {};
+    if (followed.has(groupOf(object, field)) || !heldField(object, field, def) || !groupFields(object, groupOf(object, field)).some((f) => { const w = winner(f); return w !== null && isPersonFact(w); })) return {};
     const crm = claims.flatMap((c) => {
       const says = claimValues(c);
       const said = says[field];

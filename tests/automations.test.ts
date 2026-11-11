@@ -20,7 +20,7 @@ let agentClient: string | null = null;
 /** The companies the record service holds, as list rows by id, and who each read of one ran as: an If reads a related company through its member's sight. */
 const companies = new Map<string, Record<string, unknown>>();
 const companyReads: Array<{ id: unknown; userIds: string[] }> = [];
-const M = loadConvex(["automations.ts", "objects.ts", "recordWebhooks.ts", "outboundDispatch.ts"], {
+const M = loadConvex(["automations.ts", "objects.ts", "recordWebhooks.ts", "outboundDispatch.ts", "canon.ts"], {
   "lib.ts": (real) => ({
     ...real, getCurrentUser: async () => signedIn, requireUser: async () => { if (!signedIn) throw new Error("Not authenticated"); return signedIn; }, agentClientOf: async () => agentClient,
   }),
@@ -40,6 +40,7 @@ const automations = M["automations.ts"]!;
 const recordWebhooks = M["recordWebhooks.ts"]!;
 const objects = M["objects.ts"]!;
 const dispatch = M["outboundDispatch.ts"]!;
+const canon = M["canon.ts"]!;
 
 function workspace(riley: Record<string, unknown> = {}) {
   const user = (id: string, name: string, role: string) => ({ _id: id, orgId: ORG, role, isActive: true, name, email: `${name}@acme.test` });
@@ -573,4 +574,46 @@ test("a webhook step queues a signed record-webhook delivery of the record, and 
   await w.db.patch(RILEY, { isActive: false });
   assert.equal(await recordWebhooks.claim.handler(w.ctx, { deliveryId: delivery._id }), null);
   assert.deepEqual(plain([(w.db.rows("recordWebhookDeliveries") as Array<Record<string, any>>)[0].status]), ["failed"]);
+});
+
+// ───────────────────────────── Companies and people ─────────────────────────────
+
+/** A person's edit of a company in Canon (records.edit's ledger write): the company's first edit promotes it onto the ledger. */
+const editCompany = (w: W, recordId: string, patch: Record<string, unknown>, key: string) => canon.saveRecordEdit.handler(w.ctx, {
+  orgId: ORG, userId: RILEY, object: "account", recordId, patch, idempotencyKey: key, snapshot: { id: recordId, domain: `${recordId}.test`, name: "Orbit", updatedAt: 1 },
+});
+
+test("a rule on companies runs on a person's edit in Canon, makes the company's task for its owner, and replays; it never starts on creation or a schedule, nor writes a company", async () => {
+  const w = workspace();
+  await inPerson(w, RILEY);
+  const doc = { name: "Working companies", object: "account", trigger: { kind: "updated", field: "status", to: ["working"] }, conditions: [] };
+  const task = { kind: "create_task", subject: "Call {record}", dueInDays: 1, owner: { kind: "company_owner" } };
+  for (const bad of [{ trigger: { kind: "created" } }, { trigger: { kind: "schedule", cadence: "daily", minute: 60 } }, { actions: [{ kind: "set_field", field: "industry", value: "SaaS" }] }]) {
+    await assert.rejects(automations.propose.handler(w.ctx, { ...doc, actions: [task], ...bad }));
+  }
+  const { ruleId } = await automations.propose.handler(w.ctx, { ...doc, actions: [task] });
+  await editCompany(w, "acc_orbit", { status: "working", ownerId: AVERY }, "k1");
+  await editCompany(w, "acc_orbit", { industry: "SaaS" }, "k2");
+  await fanout(w);
+  await drain(w);
+  assert.deepEqual(plain(runs(w).map((r) => [r.object, r.status])), [["account", "done"]]);
+  const made = (w.db.rows("recordRows") as Array<Record<string, any>>).find((r) => r.values.subject === "Call Orbit")!;
+  assert.deepEqual(plain([made.values.accountId, made.values.ownerId]), ["acc_orbit", AVERY]);
+  assert.deepEqual(plain((await automations.runs.handler(w.ctx, { ruleId })).map((r: { recordId: string }) => r.recordId)), ["acc_orbit"]);
+  const replay = await runReplay(actionCtx(w), { orgId: ORG, userId: RILEY, userName: "Riley", ruleId, ...doc, actions: [task] });
+  assert.deepEqual(plain(replay.runs.map((r: { recordId: string }) => r.recordId)), ["acc_orbit"]);
+});
+
+test("the company owner of a task's Account is read as the approver sees the company, and gets the task", async () => {
+  const w = workspace();
+  companies.clear();
+  companyReads.length = 0;
+  companies.set("acc_saas", { id: "acc_saas", object: "account", version: 1, status: "active", title: "Orbit", createdAt: 0, updatedAt: 0, deletedAt: null, values: { ownerId: MORGAN }, stream: null });
+  await inPerson(w, RILEY);
+  await automations.propose.handler(w.ctx, { name: "Company owner", object: "task", trigger: { kind: "created" }, conditions: [], actions: [{ kind: "assign_owner", owner: { kind: "company_owner" } }] });
+  const made = await objects.writeAdmitted.handler(w.ctx, { object: "task", values: { subject: "Call Orbit", accountId: "acc_saas", ownerId: AVERY }, admitted: ["acc_saas"] });
+  await fanout(w);
+  for (const run of runs(w)) await automations.execute.handler(actionCtx(w), { runId: run._id });
+  assert.equal((await lead(w, made.streamId)).ownerId, MORGAN);
+  assert.deepEqual(plain(companyReads), [{ id: "acc_saas", userIds: [RILEY] }]);
 });
