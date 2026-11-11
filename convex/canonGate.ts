@@ -28,7 +28,11 @@ import { getCurrentUser, requireUser } from "./lib";
 import { convexLedgerStore, crmTakenValues, customAttributesOf, factResolution, flushPartyMirror, mirrorDecidedFacts, mirrorGateProposal, normalizeProposal, orgOwnership, saveDealValues, saveParty } from "./canon";
 import { decideFacts, ensureEntity, ingestObservations, type LedgerStore } from "./lib/canon/ledger";
 import { deciderOf } from "./lib/canon/decider";
-import { crmRecordOf } from "./lib/canon/personHold";
+import { claimValues, crmRecordOf, groupFields, groupOf, heldField, isPersonFact, standing, winningFact } from "./lib/canon/personHold";
+import { fieldClaimsOf } from "./lib/fieldClaimStore";
+import { sameValue } from "./lib/canon/policy";
+import { asState, loadDef } from "./objects";
+import type { ResolvedObjectDef } from "./lib/objects/registry";
 import type { DealSource } from "./lib/canon/dealLedger";
 import { CORE_ATTRIBUTES, CUSTOM_ATTRIBUTE, ENTITY_NOUN, ENTITY_TYPES, attributeLabel, isScalarProposalAttribute, type EntityType } from "./lib/canon/attributes";
 import { ID, accountExternalIds, contactExternalIds, normalizeDomain, normalizeEmail } from "./lib/canon/identity";
@@ -930,6 +934,13 @@ export const factsForRecords = internalQuery({
     const object = entityType === "opportunity" ? "deal" : entityType;
     const unhidden = args.attributes.filter((a) => !accesses.some((x) => hiddenFields(x, object).includes(a)));
     const none = (attribute: string): ResolvedField => ({ attribute, value: null, state: known(attribute) ? "empty" : "unknown", winner: null });
+    let def: ResolvedObjectDef | null = null;
+    // A record's holds (lib/canon/personHold.ts), read once per record and only when a field of it is returned.
+    const held = new Map<string, Promise<(attribute: string, value: FactValue) => Pick<ResolvedField, "held" | "crm">>>();
+    const holds = (entity: Doc<"canonEntities">) => {
+      if (!held.has(entity._id)) held.set(entity._id, (async () => personHolds(ctx, args.orgId, object, entity._id, (def ??= await loadDef(ctx, args.orgId, object))))());
+      return held.get(entity._id)!;
+    };
     for (const id of args.ids.slice(0, FACTS_MAX_IDS)) {
       // A deal by its row, as the receipt drawer finds it; a company or person by its record-service id, as a proposal does.
       // Only an entity of the object asked for: a company's id read as a deal must not reach the company's facts.
@@ -948,10 +959,12 @@ export const factsForRecords = internalQuery({
         if (!(await showsFact(ctx, accesses, entity, attribute, admitted))) continue;
         if (!known(attribute)) { fields.push(none(attribute)); if (take) byAttribute[attribute] = []; continue; }
         const { state, facts } = await receipts(ctx, entity._id, attribute, take);
+        const value = oneValue(state?.value ?? null);
         fields.push({
-          attribute, value: oneValue(state?.value ?? null), state: state?.state ?? "empty", winner: state?.factId ?? null,
+          attribute, value, state: state?.state ?? "empty", winner: state?.factId ?? null,
           ...(state?.contestedBy.length ? { contestedBy: state.contestedBy } : {}),
           ...(state?.confirmedAt != null ? { confirmedAt: state.confirmedAt } : {}),
+          ...(await holds(entity))(attribute, value),
         });
         if (take) byAttribute[attribute] = facts.map((f) => ({
           id: f.factId, value: oneValue(f.value), status: f.status, ...moduleSource(f),
@@ -964,6 +977,30 @@ export const factsForRecords = internalQuery({
     return rows;
   },
 });
+
+/**
+ * Whether a person holds each field of a record against a CRM, and what each CRM says instead (lib/canon/personHold.ts):
+ * from the record's stream and the claims its CRM writes left (parentDisagreements, `association: "field"`). A record
+ * with no stream holds nothing.
+ */
+async function personHolds(ctx: QueryCtx, orgId: Id<"organizations">, object: string, streamId: Id<"canonEntities">, def: ResolvedObjectDef) {
+  const hot = await ctx.db.query("recordRows").withIndex("by_orgId_streamId", (q) => q.eq("orgId", orgId).eq("streamId", streamId)).unique();
+  if (!hot) return () => ({});
+  const state = asState(hot);
+  const claims = (await fieldClaimsOf(ctx, orgId, streamId)).filter((c) => standing(state, c, object));
+  const winner = (field: string) => winningFact(state.fields[field]?.candidates ?? []);
+  return (attribute: string, value: FactValue): Pick<ResolvedField, "held" | "crm"> => {
+    const field = def.byApiName.get(attribute)?.fieldId ?? attribute;
+    if (!heldField(object, field, def) || !groupFields(object, groupOf(object, field)).some((f) => { const w = winner(f); return w !== null && isPersonFact(w); })) return {};
+    const crm = claims.flatMap((c) => {
+      const says = claimValues(c);
+      const said = says[field];
+      const one = said === undefined || (said !== null && typeof said === "object") ? null : said;
+      return field in says && !sameValue(one, value) ? [{ provider: c.provider, value: one }] : [];
+    });
+    return { held: true, ...(crm.length ? { crm } : {}) };
+  };
+}
 
 /** Write-gate settings: the ownership grid (defaults + overrides), auto-accept rules, and approval history per cell. */
 export const settings = query({

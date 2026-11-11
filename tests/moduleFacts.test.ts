@@ -27,7 +27,7 @@ let signedIn: Record<string, unknown> | null = null;
 let caller: { orgId: string; userId: string; access: Access } | null = null;
 let records: ReturnType<typeof createFakeRecordClient>;
 const RAE = "users:rae";
-const M = loadConvex(["researchAgents.ts", "canonGate.ts", "canonEntities.ts", "permissions.ts", "lib/modules/canonReads.ts", "lib/modules/recordReadAction.ts", "lib/modules/factProposals.ts", "lib/modules/recordProposals.ts"], {
+const M = loadConvex(["researchAgents.ts", "canonGate.ts", "canonEntities.ts", "canon.ts", "permissions.ts", "lib/modules/canonReads.ts", "lib/modules/recordReadAction.ts", "lib/modules/factProposals.ts", "lib/modules/recordProposals.ts"], {
   "lib.ts": (real) => ({ ...real, getCurrentUser: async () => signedIn, requireUser: async () => signedIn }),
   "records.ts": (real) => ({
     ...real,
@@ -134,6 +134,18 @@ test("a module reads each declared field's value, state and last confirmation, a
     { id: "facts:i2", value: "Software", status: "accepted", source: { kind: "enrichment", actor: "integration:enrichment" }, evidence: "i2 says so", confidence: 0.9, observedAt: 200, validFrom: null, lastConfirmedAt: 900, validTo: null, decidedAt: null },
   ] });
   assert.deepEqual(await read(db, { object: "deals", ids: ["deals:big", "atlas"] }), [{ id: "deals:big", fields: [{ attribute: "stage", value: "negotiation", state: "resolved", winner: "facts:s1", confirmedAt: 50 }] }], "a company's id read as a deal reads nothing");
+});
+
+test("a field a person holds against a CRM reads as held, with what the CRM says instead", async () => {
+  const db = seed([], { facts: [], canonFieldState: [] });
+  const canon = M["canon.ts"] as unknown as { saveDealValues: (...a: unknown[]) => Promise<unknown> };
+  const write = async (source: Record<string, unknown>, stage: string) => canon.saveDealValues({ db, scheduler: { runAfter: async () => null } }, await db.get("deals:big"), source, { stage });
+  await write({ kind: "hubspot", crmId: "D1" }, "prospecting");
+  assert.deepEqual((await read(db, { object: "deals", ids: ["deals:big"] }) as Array<{ fields: Array<{ held?: true }> }>)[0]!.fields[0]!.held, undefined, "a field no person set follows the CRM");
+  await write({ kind: "user", userId: AVERY }, "negotiation");
+  await write({ kind: "hubspot", crmId: "D1" }, "closed_won");
+  const [row] = await read(db, { object: "deals", ids: ["deals:big"] }) as Array<{ fields: Array<Record<string, unknown>> }>;
+  assert.deepEqual([row!.fields[0]!.value, row!.fields[0]!.held, row!.fields[0]!.crm], ["negotiation", true, [{ provider: "hubspot", value: "closed_won" }]]);
 });
 
 test("a company the caller can't see has no row, and a field their role hides has no field", async () => {

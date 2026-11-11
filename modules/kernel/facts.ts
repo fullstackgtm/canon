@@ -44,7 +44,17 @@ export type ResolvedField = {
   contestedBy?: string[];
   /** When the winning fact was last confirmed (ms). */
   confirmedAt?: number;
+  /**
+   * Preview since 2026-11-10. True when a person set or cleared the field in Canon, so a CRM's import or sync leaves it
+   * as it is until someone takes the CRM's value; absent when the field follows the newest value.
+   */
+  held?: true;
+  /** Preview since 2026-11-10. For a held field, what each CRM says it is instead, where that differs from `value`. */
+  crm?: CrmValue[];
 };
+
+/** What a CRM says a field is, where a person's value in Canon holds against it. */
+export type CrmValue = { provider: "salesforce" | "hubspot"; value: FactValue };
 
 export type FactsForRecordsArgs = { object: FactObject; ids: string[]; attributes?: string[]; receipts?: number };
 export type FactsForRecordsRow = { id: string; fields: ResolvedField[]; receipts?: Record<string, FactReceipt[]> };
