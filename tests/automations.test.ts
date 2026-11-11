@@ -680,3 +680,12 @@ test("a webhook rule starts once per signed request on the record it names; unsi
     else process.env.TOKEN_ENCRYPTION_KEY = key;
   }
 });
+
+test("a rule Ask Canon wrote waits as the ask-canon agent's proposal, with its replay, until an admin approves it", async () => {
+  const w = workspace();
+  await inPerson(w, RILEY);
+  const out = await automations.proposeAsked.handler(w.ctx, { doc: { ...TAG, conditions: [] }, note: "A tag for new leads." });
+  assert.match(out.sentence, /^When a lead is created/);
+  assert.deepEqual(plain([rules(w).length, versions(w).map((v) => [v.status, v.author.agent, v.author.userId])]), [0, [["proposed", "ask-canon", RILEY]]]);
+  assert.ok(w.scheduled.some((s) => s.ref === "internal.automations.replayVersion"));
+});
