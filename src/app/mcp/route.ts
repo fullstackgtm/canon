@@ -9,7 +9,9 @@
  * surface, and the rollout checklist.
  *
  * Callers authenticate with a Clerk OAuth access token (MCP clients, `canon
- * login`) or a paired CLI token (headless agents). Canon tools (./_canonTools.ts)
+ * login`) or a paired CLI token (headless agents). A self-hosted install
+ * (CANON_AUTH=local) has no Clerk: it serves /mcp without the flag, to paired
+ * CLI tokens only (`canon login` pairs one). Canon tools (./_canonTools.ts)
  * then run as that user through a short-lived service JWT, so normal role and
  * org checks apply. A connection can do what its user can do in the dashboard.
  */
@@ -28,11 +30,9 @@ const lastRecorded = new Map<string, number>();
 async function buildHandler(): Promise<RouteHandler> {
   // Imported lazily so the module graph (mcp-handler, Clerk server SDK) only
   // loads when the feature is actually enabled.
-  const [{ createMcpHandler, withMcpAuth }, { verifyClerkToken }, { auth }, tools, { canonTools, toolErrorMessage, toolResultText }, jwt, { ConvexHttpClient }, { api }, limits] =
+  const [{ createMcpHandler, withMcpAuth }, tools, { canonTools, toolErrorMessage, toolResultText }, jwt, { ConvexHttpClient }, { api }, limits] =
     await Promise.all([
       import("mcp-handler"),
-      import("@clerk/mcp-tools/next"),
-      import("@clerk/nextjs/server"),
       import("./_tools.ts"),
       import("./_canonTools.ts"),
       import("../../lib/canonServiceJwt.ts"),
@@ -150,6 +150,8 @@ async function buildHandler(): Promise<RouteHandler> {
         await recordConnection(who, "canon-cli-token");
         return { token, clientId: "canon-cli-token", scopes: ["canon"], extra: { ...who } };
       }
+      if (process.env.CANON_AUTH === "local") return undefined;
+      const [{ verifyClerkToken }, { auth }] = await Promise.all([import("@clerk/mcp-tools/next"), import("@clerk/nextjs/server")]);
       const clerkAuth = await auth({ acceptsToken: "oauth_token" });
       const info = verifyClerkToken(clerkAuth, token);
       const userId = (info?.extra as { userId?: string } | undefined)?.userId;
@@ -168,8 +170,7 @@ async function buildHandler(): Promise<RouteHandler> {
 }
 
 async function route(request: Request): Promise<Response> {
-  if (process.env.CANON_AUTH === "local") return new Response(null, { status: 404 });
-  if (process.env.MCP_REMOTE_ENABLED !== "true") {
+  if (process.env.CANON_AUTH !== "local" && process.env.MCP_REMOTE_ENABLED !== "true") {
     return new Response(null, { status: 404 });
   }
   cachedHandler ??= await buildHandler();
