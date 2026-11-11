@@ -52,7 +52,18 @@ export const triggerValidator = v.union(
    * zone: over the records that match the rule's conditions then.
    */
   v.object({ kind: v.literal("schedule"), cadence: v.union(v.literal("daily"), v.literal("weekly")), minute: v.number(), weekday: v.optional(v.number()) }),
+  /** Someone runs it on one record, from its page or an agent's tool: a member who can edit the record. */
+  v.object({ kind: v.literal("manual") }),
+  /**
+   * A signed POST to the rule's own URL names one record: by its id (`match` "id") or by a unique field's value
+   * (`match` that field), the body's `match` key holding it.
+   */
+  v.object({ kind: v.literal("webhook"), match: v.string() }),
 );
+
+/** Triggers that start a rule on one record that something names now, so there is no history to replay: a dry run shows what matches. */
+export const ON_DEMAND = ["manual", "webhook"] as const;
+export const isOnDemand = (t: { kind: string }) => (ON_DEMAND as readonly string[]).includes(t.kind);
 
 export const conditionValidator = v.object({ field: v.string(), op: v.string(), value: v.optional(v.any()) });
 
@@ -371,6 +382,8 @@ function phrases(rule: RuleShape, names: RuleNames) {
       return `When ${what}${from}${to}`;
     },
     schedule: (t) => `${t.cadence === "weekly" ? `Every ${DAYS[t.weekday ?? 1] ?? "week"}` : "Every day"} at ${clock(t.minute)}${names.timezone ? ` (${names.timezone})` : ""}, for each ${noun}`,
+    manual: () => `When someone runs it on ${article(noun)} ${noun}`,
+    webhook: (t) => `When a signed webhook names ${article(noun)} ${noun} by its ${t.match === "id" ? "id" : fieldName(t.match)}`,
   };
   const trigger = (t: Trigger) => (TRIGGERS[t.kind] as (t: Trigger) => string)(t);
 

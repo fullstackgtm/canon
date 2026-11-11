@@ -249,6 +249,7 @@ export const ARCHIVE_TABLES = {
   automationRules: data("by_orgId_and_status"),
   automationVersions: data("by_orgId_and_status"),
   automationCursors: local(),
+  automationWebhookSecrets: secret("webhook signing secrets encrypted with this deployment's key"),
   automationRuns: local("each rule's executions and their leases"),
   agentTurns: child("agents", "agentId", "by_agentId_and_createdAt"),
   agentGrants: secret("a grant's signature is an HMAC under this deployment's key over its own id"),

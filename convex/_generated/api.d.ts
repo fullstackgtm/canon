@@ -177,6 +177,7 @@ import type * as lib_ask_dealContext from "../lib/ask/dealContext.js";
 import type * as lib_ask_tools from "../lib/ask/tools.js";
 import type * as lib_automationOutbound from "../lib/automationOutbound.js";
 import type * as lib_automationWake from "../lib/automationWake.js";
+import type * as lib_automationWebhookRoute from "../lib/automationWebhookRoute.js";
 import type * as lib_automations from "../lib/automations.js";
 import type * as lib_batchWrites from "../lib/batchWrites.js";
 import type * as lib_calendar_events from "../lib/calendar/events.js";
@@ -805,6 +806,7 @@ declare const fullApi: ApiFromModules<{
   "lib/ask/tools": typeof lib_ask_tools;
   "lib/automationOutbound": typeof lib_automationOutbound;
   "lib/automationWake": typeof lib_automationWake;
+  "lib/automationWebhookRoute": typeof lib_automationWebhookRoute;
   "lib/automations": typeof lib_automations;
   "lib/batchWrites": typeof lib_batchWrites;
   "lib/calendar/events": typeof lib_calendar_events;

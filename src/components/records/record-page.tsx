@@ -23,6 +23,7 @@ import { useWorkspaceMoney } from "./money";
 import { DealRelations } from "./related-lists";
 import { DealGaps } from "@/components/crm/deal-gaps";
 import { FieldGroups, Frame, History, SOURCE_LABEL, btn, type InDialog } from "./record-parts";
+import { RunRule } from "./run-rule";
 import { RecordBoundary } from "./record-boundary";
 import { CRM_NAME, CrmFieldNote } from "./crm-note";
 import { groupOf } from "../../../convex/lib/canon/personHold";
@@ -235,7 +236,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
           )}
           {record!.lifecycle.status === "merged" && <p className="mt-1 text-sm text-muted-foreground">Merged into another record.</p>}
         </div>
-        <div className="record-header-actions">{actions}</div>
+        <div className="record-header-actions">{actions}{!deleted && <RunRule object={object} id={streamId} />}</div>
       </div>
     );
   }

@@ -13,7 +13,7 @@ import { getErrorMessage } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
 import { FlowCanvas, chain, type FlowNode } from "@/components/flow/flow-canvas";
 import {
-  TODAY, describe, describeConditions, describeParts, isRegisterAutomationObject, relatedField, ruleChanges, stepAt,
+  TODAY, describe, describeConditions, describeParts, isOnDemand, isRegisterAutomationObject, relatedField, ruleChanges, stepAt,
   type AutomationAction, type Condition, type IfStep, type OwnerChoice, type RuleNames, type RuleShape, type RuleStep, type Trigger,
 } from "../../../../modules/kernel/automation";
 
@@ -91,7 +91,7 @@ function ruleNodes(rule: RuleShape, ws: Workspace): FlowNode[] {
   const parts = describeParts(rule, namesFor(ws, rule.object));
   const text = (s: string) => <p className="line-clamp-3">{s}</p>;
   return chain([
-    { id: "trigger", title: rule.trigger.kind === "schedule" ? "On a schedule" : "When", tone: "active", card: text(parts.trigger), detail: <p>{parts.trigger}</p> },
+    { id: "trigger", title: rule.trigger.kind === "schedule" ? "On a schedule" : rule.trigger.kind === "manual" ? "When run" : rule.trigger.kind === "webhook" ? "On a webhook" : "When", tone: "active", card: text(parts.trigger), detail: <p>{parts.trigger}</p> },
     ...(parts.conditions.length ? [{ id: "conditions", title: "Only if", action: "check", metric: String(parts.conditions.length), tone: "neutral" as const,
       card: text(parts.conditions.join(" and ")), detail: <ul className="list-disc space-y-1 pl-4">{parts.conditions.map((c) => <li key={c}>{c}</li>)}</ul> }] : []),
     ...rule.actions.map((a, i) => ({ id: `action-${i}`, title: ACTION_TITLES[a.kind], action: i === 0 ? "then" : "and then", tone: "planned" as const, card: text(parts.actions[i]), detail: <p>{parts.actions[i]}</p> })),
@@ -221,7 +221,7 @@ function Replay({ args, rule, ws, stored, label }: { args: { versionId: Id<"auto
     try {
       const out = await replay(args);
       if ("wouldRun" in out) setResult(out);
-      else void toast.message("A schedule acts on what matches at each run: use the dry run instead.");
+      else void toast.message("This rule acts on what matches when it runs: use the dry run instead.");
     } catch (cause) {
       void toast.error(getErrorMessage(cause));
     } finally {
@@ -291,7 +291,7 @@ function Proposals({ ws }: { ws: Workspace }) {
             {row.note ? <>: “{row.note}”</> : null}
           </p>
           {row.current && <Changes row={row} ws={ws} />}
-          {row.spec.trigger.kind === "schedule"
+          {row.spec.trigger.kind === "schedule" || isOnDemand(row.spec.trigger)
             ? <DryRun label="Dry run: which records it would act on at its next run" args={{ object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions }} />
             : <Replay args={{ versionId: row.id }} rule={row.spec} ws={ws} stored={row.replay} label="Replay the last two weeks" />}
           {row.stale && <p className="text-xs text-warning">The rule changed since this was written (version {row.current?.version} is in force). Ask for a fresh proposal.</p>}
@@ -350,7 +350,8 @@ function RuleDetail({ rule, ws, onClose }: { rule: Rule; ws: Workspace; onClose:
           {rule.recipe ? <><dt className="text-muted-foreground">From</dt><dd>Customization {rule.recipe.id} v{rule.recipe.version}</dd></> : null}
         </dl>
         <FlowCanvas scenario={{ id: `automation-${rule.id}`, title: rule.name, nodes: ruleNodes(rule, ws) }} height={220} />
-        {rule.trigger.kind === "schedule"
+        {rule.webhook && <WebhookSecret ruleId={rule.id} url={rule.webhook.url} hasSecret={rule.webhook.hasSecret} match={rule.trigger.kind === "webhook" ? rule.trigger.match : "id"} />}
+        {rule.trigger.kind === "schedule" || isOnDemand(rule.trigger)
           ? <DryRun label="Dry run" args={{ object: rule.object, trigger: rule.trigger, conditions: rule.conditions }} />
           : <Replay args={{ ruleId: rule.id }} rule={rule} ws={ws} label="Replay the last two weeks" />}
       </section>
@@ -359,6 +360,40 @@ function RuleDetail({ rule, ws, onClose }: { rule: Rule; ws: Workspace; onClose:
         <h2 className="text-xs font-medium text-muted-foreground">Runs</h2>
         <Runs ruleId={rule.id} ws={ws} object={rule.object} />
       </section>
+    </div>
+  );
+}
+
+/** How a run's start reads when no field change says it. */
+const EVENTS: Record<string, string> = { created: "Created", deleted: "Deleted", manual: "Run on request", webhook: "Webhook" };
+
+/**
+ * A webhook rule's URL and signing secret. The secret shows once, when it is made; making a new one replaces it at
+ * once. Signed as event agents' webhooks are.
+ */
+function WebhookSecret({ ruleId, url, hasSecret, match }: { ruleId: Id<"automationRules">; url: string; hasSecret: boolean; match: string }) {
+  const rotate = useAction(api.automations.rotateWebhookSecret);
+  const [shown, setShown] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function make() {
+    if (hasSecret && !window.confirm("Make a new secret? The old one stops working at once.")) return;
+    setBusy(true);
+    try {
+      setShown((await rotate({ ruleId })).secret);
+    } catch (cause) {
+      void toast.error(getErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-1 border border-border/60 p-2 text-xs" data-testid="automation-webhook">
+      <p>POST a JSON body naming the record, <code className="font-mono">{`{"${match}": "…"}`}</code>, to <code className="break-all font-mono">{url}</code></p>
+      <p className="text-muted-foreground">Sign it: <code className="font-mono">x-canon-timestamp</code> is the Unix time in seconds (within five minutes), and <code className="font-mono">x-canon-signature</code> is <code className="font-mono">v1=</code> and the hex HMAC-SHA256 of <code className="font-mono">{"<timestamp>.<body>"}</code> under the secret. A body with the same <code className="font-mono">id</code>, or the same bytes, starts one run.</p>
+      {shown
+        ? <p data-testid="automation-webhook-secret">Secret, shown this once: <code className="break-all font-mono">{shown}</code></p>
+        : <p className="text-muted-foreground">{hasSecret ? "It has a secret. Canon keeps it encrypted and never shows it again." : "No secret yet, so it takes no request."}</p>}
+      <button type="button" className={btn} disabled={busy} onClick={() => void make()}>{hasSecret || shown ? "Make a new secret" : "Make the signing secret"}</button>
     </div>
   );
 }
@@ -384,7 +419,7 @@ function Runs({ ruleId, ws, object }: { ruleId: Id<"automationRules">; ws: Works
             <tr key={r.id} className="border-t border-border/60 align-top">
               <td className="py-1 pr-3 whitespace-nowrap">{when(r.createdAt)}</td>
               <td className="pr-3">{r.title ? <Link className="underline" href={recordHref(r.object, r.recordId ?? r.streamId)}>{r.title}</Link> : "Hidden record"}</td>
-              <td className="pr-3">{r.change ? `${o?.fields.find((x) => x.apiName === r.change?.field)?.label ?? r.change.field}: ${label(r.change.field, r.change.from)} → ${label(r.change.field, r.change.to)}` : r.event === "schedule" && r.triggeredAt ? `Schedule, ${when(r.triggeredAt)}` : r.event}{r.depth ? ` (from a rule, depth ${r.depth})` : ""}</td>
+              <td className="pr-3">{r.change ? `${o?.fields.find((x) => x.apiName === r.change?.field)?.label ?? r.change.field}: ${label(r.change.field, r.change.from)} → ${label(r.change.field, r.change.to)}` : r.event === "schedule" && r.triggeredAt ? `Schedule, ${when(r.triggeredAt)}` : EVENTS[r.event] ?? r.event}{r.depth ? ` (from a rule, depth ${r.depth})` : ""}</td>
               <td className="pr-3">{r.matched ? "Met" : r.reason ?? "Not met"}</td>
               <td className="pr-3">
                 {r.steps.map((s, i) => (
@@ -642,6 +677,7 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
   const [from, setFrom] = useState<string | Scalar[]>(t0?.kind === "updated" && t0.from?.length ? (t0.from.length > 1 ? t0.from : formText(t0.from[0], triggerField)) : "");
   const [to, setTo] = useState<string | Scalar[]>(t0?.kind === "updated" && t0.to?.length ? (t0.to.length > 1 ? t0.to : formText(t0.to[0], triggerField)) : "");
   const [cadence, setCadence] = useState<"daily" | "weekly">(t0?.kind === "schedule" ? t0.cadence : "daily");
+  const [match, setMatch] = useState(t0?.kind === "webhook" ? t0.match : "id");
   const [weekday, setWeekday] = useState(t0?.kind === "schedule" ? t0.weekday ?? 1 : 1);
   const [time, setTime] = useState(t0?.kind === "schedule" ? clock(t0.minute) : "09:00");
   // A list value (`in`, `hasAny`, `hasAll`) the form can't show is kept as it is until it is replaced.
@@ -656,6 +692,7 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
   const register = isRegisterAutomationObject(object);
   const reset = (next: string) => {
     setObject(next);
+    setMatch("id");
     if (isRegisterAutomationObject(next) && (kind === "created" || kind === "schedule")) setKind("updated");
     setField("");
     setFrom("");
@@ -673,6 +710,7 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
   const trigger: Trigger = kind === "updated"
     ? { kind, ...(field ? { field } : {}), ...(valueList(from).length ? { from: valueList(from) } : {}), ...(valueList(to).length ? { to: valueList(to) } : {}) }
     : kind === "schedule" ? { kind, cadence, minute, ...(cadence === "weekly" ? { weekday } : {}) }
+    : kind === "webhook" ? { kind, match }
     : { kind };
   const conditionList: Condition[] = conditions.filter((c) => c.field).map((c) => ({
     field: c.field, op: c.op, ...(c.op === "empty" || c.op === "notEmpty" ? {} : { value: Array.isArray(c.value) ? c.value : parseValue(fieldOf(c.field), c.value) }),
@@ -712,7 +750,16 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
             { value: "updated", label: "has a field change" },
             { value: "deleted", label: "is deleted" },
             ...(register ? [] : [{ value: "schedule", label: "matches, on a schedule" }]),
+            { value: "manual", label: "is run by someone, from its page" },
+            { value: "webhook", label: "is named by a signed webhook" },
           ]} />
+        {kind === "webhook" && (
+          <>
+            <span className="text-muted-foreground">by its</span>
+            <SelectField aria-label="Webhook names it by" value={match} onValueChange={setMatch}
+              options={(o?.matchable ?? ["id"]).map((m) => ({ value: m, label: m === "id" ? "id" : o?.fields.find((f) => f.apiName === m)?.label ?? m }))} />
+          </>
+        )}
         {kind === "schedule" && (
           <>
             <SelectField aria-label="Cadence" value={cadence} onValueChange={(v) => setCadence(v as "daily" | "weekly")}
@@ -744,7 +791,7 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
       </div>
 
       <div className="space-y-2 text-sm">
-        <div className="text-xs text-muted-foreground">{kind === "schedule" ? "Each time, for every record that matches (at most 500 a run)" : "Only if the record (after the change) matches"}</div>
+        <div className="text-xs text-muted-foreground">{kind === "schedule" ? "Each time, for every record that matches (at most 500 a run)" : kind === "manual" || kind === "webhook" ? "Only if the record matches" : "Only if the record (after the change) matches"}</div>
         {conditions.map((c, i) => (
           <div key={i} className="flex flex-wrap items-center gap-2">
             <SelectField aria-label="Condition field" value={c.field} onValueChange={(v) => setConditions(conditions.map((x, j) => (j === i ? { ...x, field: v, value: "" } : x)))}

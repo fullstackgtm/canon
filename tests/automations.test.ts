@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
+import { signWebhook } from "../convex/lib/agents/webhook.ts";
 
 const ORG = "organizations:org";
 const RILEY = "users:riley";
@@ -270,14 +271,19 @@ test("an agent's proposal waits and does nothing; every decision refuses an agen
   assert.deepEqual([rules(w).length, versions(w).map((v) => [v.status, v.author.agent, v.ruleId ?? null])], [0, [["proposed", "claude", null]]]);
   await inPerson(w, RILEY);
   const ruleId = (await automations.approve.handler(w.ctx, { versionId: proposed.versionId })).ruleId;
-  // Every public write in convex/automations.ts but propose (stores a proposal), preview and replay (read) is a decision.
+  // Every public write in convex/automations.ts but propose (stores a proposal), preview and replay (read) and runOnRecord
+  // (runs an approved rule on a record its member can edit, as the rule's approver) is a decision.
   const source = readFileSync(new URL("../convex/automations.ts", import.meta.url), "utf8");
-  const writes = [...source.matchAll(/^export const (\w+) = (?:mutation|action)\(/gm)].map((m) => m[1]).filter((n) => !["propose", "preview", "replay"].includes(n));
-  assert.deepEqual(writes.sort(), ["approve", "reject", "remove", "retryRun", "setStatus"]);
+  const writes = [...source.matchAll(/^export const (\w+) = (?:mutation|action)\(/gm)].map((m) => m[1]).filter((n) => !["propose", "preview", "replay", "runOnRecord"].includes(n));
+  assert.deepEqual(writes.sort(), ["approve", "reject", "remove", "retryRun", "rotateWebhookSecret", "setStatus"]);
   await asAgent(w, RILEY);
   const again = await automations.propose.handler(w.ctx, { ...TAG, ruleId, name: "Tag again" });
-  const args: Record<string, Record<string, unknown>> = { approve: { versionId: again.versionId }, reject: { versionId: again.versionId }, remove: { id: ruleId }, retryRun: { runId: "automationRuns:1" }, setStatus: { id: ruleId, status: "paused" } };
-  for (const name of writes) await assert.rejects(automations[name].handler(w.ctx, args[name]), /only a person/, `${name} refuses an agent`);
+  const args: Record<string, Record<string, unknown>> = { approve: { versionId: again.versionId }, reject: { versionId: again.versionId }, remove: { id: ruleId }, retryRun: { runId: "automationRuns:1" }, setStatus: { id: ruleId, status: "paused" }, rotateWebhookSecret: { ruleId } };
+  const key = process.env.TOKEN_ENCRYPTION_KEY;
+  process.env.TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+  for (const name of writes) await assert.rejects(automations[name].handler(name === "rotateWebhookSecret" ? actionCtx(w) : w.ctx, args[name]), /only a person/, `${name} refuses an agent`);
+  if (key === undefined) delete process.env.TOKEN_ENCRYPTION_KEY;
+  else process.env.TOKEN_ENCRYPTION_KEY = key;
   assert.deepEqual([rules(w)[0].status, rules(w)[0].name, versions(w).map((v) => v.status)], ["active", "Tag", ["approved", "proposed"]]);
   agentClient = null;
 });
@@ -616,4 +622,61 @@ test("the company owner of a task's Account is read as the approver sees the com
   for (const run of runs(w)) await automations.execute.handler(actionCtx(w), { runId: run._id });
   assert.equal((await lead(w, made.streamId)).ownerId, MORGAN);
   assert.deepEqual(plain(companyReads), [{ id: "acc_saas", userIds: [RILEY] }]);
+});
+
+// ───────────────────────────── On demand: run on a record, or on a signed webhook ─────────────────────────────
+
+test("a manual rule runs on a record someone who can edit it names, as its approver, only when it meets the conditions", async () => {
+  const w = workspace();
+  await rule(w, { name: "Mark", object: "lead", trigger: { kind: "manual" }, conditions: [{ field: "company", op: "eq", value: "Orbit Labs" }], actions: [{ kind: "set_field", field: "leadSource", value: "by hand" }] });
+  await as(w, AVERY);
+  const orbit = await write(w, { lastName: "Okafor", company: "Orbit Labs", ownerId: AVERY });
+  const fjord = await write(w, { lastName: "Lindqvist", company: "Fjord AI", ownerId: AVERY });
+  const [{ _id: ruleId }] = rules(w);
+  await assert.rejects(automations.runOnRecord.handler(w.ctx, { ruleId, id: fjord.streamId }), /conditions/);
+  // Avery, a rep, may start it on her own lead; once reps see only their own leads, not on Morgan's.
+  await asAgent(w, AVERY);
+  await automations.runOnRecord.handler(w.ctx, { ruleId, id: orbit.streamId });
+  await w.db.insert("rolePermissions", { orgId: ORG, role: "rep", rules: [{ object: "lead", visibility: "own", unowned: false }] });
+  await as(w, MORGAN);
+  const morgans = await write(w, { lastName: "Moreau", company: "Orbit Labs", ownerId: MORGAN });
+  await as(w, AVERY);
+  await assert.rejects(automations.runOnRecord.handler(w.ctx, { ruleId, id: morgans.streamId }), /can edit/);
+  await drain(w);
+  assert.deepEqual(plain(runs(w).map((r) => [r.event, r.startedBy, r.actsAs, r.status])), [["manual", AVERY, RILEY, "done"]]);
+  assert.equal((await lead(w, orbit.streamId)).leadSource, "by hand");
+  agentClient = null;
+});
+
+test("a webhook rule starts once per signed request on the record it names; unsigned, stale or unknown requests start nothing; only a person makes its secret", async () => {
+  const w = workspace();
+  const key = process.env.TOKEN_ENCRYPTION_KEY;
+  process.env.TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+  try {
+    await rule(w, { name: "Hook", object: "lead", trigger: { kind: "webhook", match: "id" }, actions: [{ kind: "set_field", field: "leadSource", value: "webhook" }] });
+    const [{ _id: ruleId }] = rules(w);
+    const a = await write(w, { lastName: "Okafor", company: "Orbit Labs" });
+    const handle = automations.handleAutomationWebhook as unknown as (ctx: unknown, ruleId: string, body: string, headers: { timestamp: string | null; signature: string | null }) => Promise<{ status: number; body: unknown }>;
+    const hook = (body: string, headers: { timestamp: string | null; signature: string | null }) => handle(actionCtx(w), ruleId, body, headers);
+    const body = JSON.stringify({ id: a.streamId });
+    const now = String(Math.floor(Date.now() / 1000));
+    assert.equal((await hook(body, { timestamp: now, signature: "v1=00" })).status, 401, "no secret yet takes nothing");
+    await asAgent(w, RILEY);
+    await assert.rejects(automations.rotateWebhookSecret.handler(actionCtx(w), { ruleId }), /only a person/);
+    await inPerson(w, RILEY);
+    const { secret } = await automations.rotateWebhookSecret.handler(actionCtx(w), { ruleId });
+    assert.ok(!JSON.stringify(w.db.rows("automationWebhookSecrets")).includes(secret), "kept encrypted");
+    const signed = async (b: string, ts = now) => ({ timestamp: ts, signature: await signWebhook(secret, ts, b) });
+    assert.equal((await hook(body, { timestamp: now, signature: "v1=00" })).status, 401);
+    assert.equal((await hook(body, await signed(body, String(Number(now) - 3600)))).status, 401, "stale");
+    assert.equal((await hook(JSON.stringify({ id: "nothing" }), await signed(JSON.stringify({ id: "nothing" })))).status, 404);
+    assert.equal((await hook(body, await signed(body))).status, 202);
+    assert.deepEqual(plain(await hook(body, await signed(body))), { status: 200, body: { status: "duplicate" } });
+    await drain(w);
+    assert.deepEqual(plain(runs(w).map((r) => [r.event, r.status])), [["webhook", "done"]]);
+    assert.equal((await lead(w, a.streamId)).leadSource, "webhook");
+  } finally {
+    if (key === undefined) delete process.env.TOKEN_ENCRYPTION_KEY;
+    else process.env.TOKEN_ENCRYPTION_KEY = key;
+  }
 });
