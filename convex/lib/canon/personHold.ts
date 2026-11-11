@@ -4,8 +4,10 @@
  * field back to the CRM. Links follow the same rule in lib/objects/associations.ts (EdgeWriter.crm).
  *
  * The rule is enforced where every write lands: `save` (lib/objects/write.ts) for the object ledger and
- * `ingestObservations` (ledger.ts) for a deal whose stream is not converted yet. It is on only for the fields in
- * PERSON_HELD_FIELDS, and a deal's custom fields.
+ * `ingestObservations` (ledger.ts) for a record whose stream is not converted yet. It is on only for the fields in
+ * PERSON_HELD_FIELDS, and custom fields. A company or person is on the ledger once it is worked (a person edits it, a
+ * CRM sync writes it, an agent proposes about it); a record-service row nobody worked has no ledger values to hold,
+ * and the record service never lets a CRM import change the ledger's columns of a row that is on the ledger.
  *
  * Fields that mean one thing together are one group (FIELD_GROUPS): a person's value for any of them holds them all,
  * the CRM's differing values are recorded once for the group, and taking the CRM's value hands the group back.
@@ -20,22 +22,32 @@ import { CUSTOM_FIELD_API_NAME, type ResolvedObjectDef } from "../objects/regist
 type Names = Pick<ResolvedObjectDef, "byFieldId">;
 
 /**
- * The fields the rule covers, by object: every deal field a CRM syncs, and a deal's custom fields (heldField). The
- * CRM owner (`crmOwnerId`) is the CRM's own id for its owner, not a value a person sets, so it is not held; the Canon
- * owner is `ownerId`. Every other field still follows the newest value.
+ * The fields the rule covers, by object: every deal, company and person field a CRM can write, and custom fields
+ * (heldField). The CRM owner (`crmOwnerId`) is the CRM's own id for its owner, not a value a person sets, so it is not
+ * held; the Canon owner is `ownerId`. Every other field still follows the newest value.
  */
 export const PERSON_HELD_FIELDS: Readonly<Record<string, readonly string[]>> = {
   deal: ["name", "companyId", "ownerId", "amount", "currency", "closeDate", "stage", "forecastCategory", "probability", "isClosed", "isWon", "dealType", "nextStep"],
+  account: ["name", "domain", "industry", "employees", "annualRevenue", "country", "city", "phone", "description", "linkedinUrl", "ownerId", "status"],
+  contact: ["fullName", "title", "email", "additionalEmails", "phone", "additionalPhones", "linkedinUrl", "ownerId", "lifecycleStage", "leadStatus"],
 };
 
 /**
  * Held fields that move together, by object and the group's lead field. A deal's stage sets its forecast category,
  * probability, closed and won (lib/pipelines.ts withStageOutcome), in Canon and in both CRMs, so holding one without
- * the others would mix a person's stage with a CRM's outcome. An amount means nothing in another currency.
+ * the others would mix a person's stage with a CRM's outcome. An amount means nothing in another currency. A person's
+ * emails are one list edited on one row (the primary, then the others: registry PRIMARY_LISTS), and so are their
+ * phones: a CRM's primary held apart from a person's others could name one address twice. A company has no address
+ * block (a CRM syncs its country only) and a person's name is one field (a CRM's first and last name are joined).
  */
 export const FIELD_GROUPS: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
   deal: { stage: ["stage", "forecastCategory", "probability", "isClosed", "isWon"], amount: ["amount", "currency"] },
+  contact: { email: ["email", "additionalEmails"], phone: ["phone", "additionalPhones"] },
 };
+
+/** The objects whose fields a person's value holds against a CRM. */
+export const HELD_OBJECTS = ["deal", "account", "contact"] as const;
+export type HeldObject = (typeof HELD_OBJECTS)[number];
 
 /** A field's group: its lead field, or the field itself when it is in none. */
 export function groupOf(object: string, field: string): string {
@@ -58,13 +70,22 @@ export function crmOf(source: { kind: string }, actor: { kind: string }): CrmPro
  * The CRM record a `facts` fact says its CRM holds now (`salesforce:<id>:<attribute>`), or null: a person's, Canon's
  * or an agent's fact, or a CRM's dated past value (`…:history:…`), which is not what it holds now.
  */
-export function crmRecordOf(f: { sourceKind: string; sourceRef: string; attribute: string }): { provider: CrmProvider; crmId: string } | null {
+export function crmRecordOf(f: { sourceKind: string; sourceRef: string; attribute: string }, object: string = "deal"): { provider: CrmProvider; crmId: string } | null {
   if (f.sourceKind !== "salesforce" && f.sourceKind !== "hubspot") return null;
-  const prefix = `${f.sourceKind}:`;
   const suffix = `:${f.attribute}`;
-  if (!f.sourceRef.startsWith(prefix) || !f.sourceRef.endsWith(suffix) || f.sourceRef.startsWith(`${prefix}history:`)) return null;
-  const crmId = f.sourceRef.slice(prefix.length, -suffix.length);
-  return crmId ? { provider: f.sourceKind, crmId } : null;
+  if (!f.sourceRef.endsWith(suffix)) return null;
+  return crmRecordOfRef(f.sourceKind, f.sourceRef.slice(0, -suffix.length), object);
+}
+
+/**
+ * The CRM record a source ref names: a deal's is `salesforce:<id>`, a company's or person's `salesforce:account:<id>`
+ * (lib/canon/partyLedger.ts partySource). Null for a dated past value (`…:history:…`) or another object's record.
+ */
+export function crmRecordOfRef(provider: CrmProvider, ref: string, object: string = "deal"): { provider: CrmProvider; crmId: string } | null {
+  const prefix = object === "deal" ? `${provider}:` : `${provider}:${object}:`;
+  if (!ref.startsWith(prefix) || ref.startsWith(`${provider}:history:`)) return null;
+  const crmId = ref.slice(prefix.length);
+  return crmId ? { provider, crmId } : null;
 }
 
 /** Whether a fact is a person's: a member's edit, an API or CLI edit with their token, a merge pick. An automation rule writes as `user` from its own source record and is not one. */
@@ -73,7 +94,7 @@ export const isPersonFact = (f: { sourceKind: string; sourceRef: string }) => f.
 /** Whether the rule covers `field` (an id; `def` names it when it may be a custom field's). */
 export function heldField(object: string, field: string, def?: Names): boolean {
   const name = def?.byFieldId.get(field as never)?.apiName ?? field;
-  return (PERSON_HELD_FIELDS[object]?.includes(name) ?? false) || (object === "deal" && CUSTOM_FIELD_API_NAME.test(name));
+  return (PERSON_HELD_FIELDS[object]?.includes(name) ?? false) || ((HELD_OBJECTS as readonly string[]).includes(object) && CUSTOM_FIELD_API_NAME.test(name));
 }
 
 /**
@@ -107,7 +128,14 @@ export function winningFact(candidates: readonly Fact[]): Fact | null {
  * `association: "field"`). For a group, `field` is its lead field and `values` what the CRM says each of the group's
  * fields is (those its write carried); `value` is the lead field's.
  */
-export type FieldClaim = { id: string; recordId: string; field: string; provider: CrmProvider; ref: string; value: FactValue; values?: Readonly<Record<string, FactValue>>; seenAt: number };
+export type FieldClaim = {
+  id: string; recordId: string; field: string; provider: CrmProvider; ref: string; value: FactValue; values?: Readonly<Record<string, FactValue>>; seenAt: number;
+  /** A company's or a person's field; absent for a deal's. */
+  object?: "account" | "contact";
+};
+
+/** The object a claim's record is. */
+export const claimObject = (c: Pick<FieldClaim, "object">): HeldObject => c.object ?? "deal";
 
 /** Whether a person still holds a claim's field or group, and the CRM still says something else about it: the claims the deal page and the admin page show. */
 export function standing(state: FoldState, c: Pick<FieldClaim, "field" | "value" | "values">, object = "deal"): boolean {
@@ -153,7 +181,10 @@ export async function settleFieldClaims(store: FieldClaimStore, a: {
         if (kept) await store.remove(a.orgId, kept.id);
       } else if (!kept || !sameValues(claimValues(kept), says)) {
         const grouped = groupFields(a.object, group).length > 1;
-        await store.put(a.orgId, { recordId: a.recordId, field: group, provider: crm, ref: a.source.ref, value: says[group] ?? null, ...(grouped ? { values: says } : {}), seenAt: a.now }, kept?.id);
+        await store.put(a.orgId, {
+          recordId: a.recordId, field: group, provider: crm, ref: a.source.ref, value: says[group] ?? null, ...(grouped ? { values: says } : {}), seenAt: a.now,
+          ...(a.object === "account" || a.object === "contact" ? { object: a.object } : {}),
+        }, kept?.id);
       }
     }
     return;

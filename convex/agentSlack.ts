@@ -13,7 +13,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
 import { appUrl } from "./lib/operatorConfig";
-import { postToSlack, shouldNotify, slackMessage, webhookUrlProblem, type SlackDelivery } from "./lib/agents/slack";
+import { escapeSlack, postToSlack, shouldNotify, slackMessage, webhookUrlProblem, type SlackDelivery } from "./lib/agents/slack";
 import { withEventDefinition } from "./lib/agents/definitions";
 import { standing } from "./agents";
 import { PAUSE_REASONS, isOwnerCaused } from "./lib/agents/standing";
@@ -206,7 +206,7 @@ export const preparePause = internalMutation({
     if (!agent?.pause || !row?.isActive) return null;
     const origin = appUrl();
     const why = PAUSE_REASONS[agent.pause.reason].message.replace(/^Paused: /, "");
-    const text = `Canon paused the agent ${agent.label}: ${why}. It does nothing until an admin reassigns or resumes it.${origin ? ` ${origin}/dashboard/agents` : ""}`;
+    const text = `Canon paused the agent ${escapeSlack(agent.label)}: ${why}. It does nothing until an admin reassigns or resumes it.${origin ? ` ${origin}/dashboard/agents` : ""}`;
     return { cipher: row.accessToken, text };
   },
 });

@@ -113,7 +113,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const splitTeam = useQuery(api.objects.splitMembers, object === "deal" && record && desc?.fields.some((f) => f.type === "splits") ? { streamId } : "skip");
   const write = useAction(api.objects.writeScoped);
   // What a CRM says about the deal's fields where a person's value held (lib/canon/personHold.ts).
-  const crmClaims = useQuery(api.fieldClaims.forDeal, object === "deal" ? { streamId } : "skip");
+  const crmClaims = useQuery(api.fieldClaims.forRecord, object === "deal" ? { streamId } : "skip");
   // Deal fields an admin set to always follow a CRM: a person's edit there lasts until the CRM's next write.
   const follows = useQuery(api.crmDisagreements.follows, object === "deal" ? {} : "skip");
   const remove = useMutation(api.objects.remove);
@@ -193,7 +193,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
           {f.label}
           {meta?.state === "contested" && <span className="ml-1 text-amber-600" title="Sources disagree on this value">· contested</span>}
           {(() => {
-            const crms = follows?.filter((x) => x.field === groupOf("deal", f.apiName)).map((x) => CRM_NAME[x.provider]) ?? [];
+            const crms = follows?.filter((x) => x.object === "deal" && x.field === groupOf("deal", f.apiName)).map((x) => CRM_NAME[x.provider]) ?? [];
             return crms.length > 0 && <span className="mt-0.5 block normal-case tracking-normal text-[10px]" title="An admin set this field to always follow the CRM">Follows {crms.join(" and ")}: an edit here lasts until its next sync</span>;
           })()}
           {meta?.sourceKind && meta.sourceKind !== "user" && (

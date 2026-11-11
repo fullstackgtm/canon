@@ -1152,10 +1152,14 @@ export default defineSchema({
     attribute: v.optional(v.string()),
     crmValue: v.optional(objectValidators.factValue),
     crmValues: v.optional(v.array(v.object({ attribute: v.string(), value: objectValidators.factValue }))),
+    /** A field's record: a company or a person; absent for a deal, as every field row before them was. */
+    object: v.optional(v.union(v.literal("account"), v.literal("contact"))),
   })
     .index("by_orgId_and_accountId_and_crmRef", ["orgId", "accountId", "crmRef"])
     .index("by_orgId_and_association_and_attribute", ["orgId", "association", "attribute"])
-    .index("by_orgId_and_association_and_provider_and_attribute", ["orgId", "association", "provider", "attribute"]),
+    .index("by_orgId_and_association_and_provider_and_attribute", ["orgId", "association", "provider", "attribute"])
+    .index("by_orgId_and_association_and_object_and_attribute", ["orgId", "association", "object", "attribute"])
+    .index("by_orgId_and_association_and_object_and_provider_and_attribute", ["orgId", "association", "object", "provider", "attribute"]),
   /**
    * An admin using the CRM's values for every disagreement under a filter (convex/crmDisagreements.ts startUseAll),
    * a page per step, as the admin who started it. One runs per workspace at a time; `cursor` is where it is.
@@ -1164,6 +1168,8 @@ export default defineSchema({
     orgId: v.id("organizations"),
     createdBy: v.id("users"),
     provider: v.optional(v.union(v.literal("salesforce"), v.literal("hubspot"))),
+    /** The records it takes: deals, companies or people; absent for all of them. */
+    object: v.optional(v.union(v.literal("deal"), v.literal("account"), v.literal("contact"))),
     field: v.optional(v.string()),
     status: v.union(v.literal("running"), v.literal("done"), v.literal("cancelled"), v.literal("failed")),
     cursor: v.union(v.string(), v.null()),
@@ -1706,6 +1712,12 @@ export default defineSchema({
     crmOwnerId: v.optional(v.string()),
     address: v.optional(v.any()),
     rawData: v.optional(v.any()),
+    /**
+     * The fields the workspace set to always follow this row's CRM when the sync last wrote it (canon.ts
+     * crmFollowsKey); absent for none. Part of what an unchanged sync compares, so changing the setting, or a person
+     * editing a followed field (which clears it), writes the record once more.
+     */
+    followsKey: v.optional(v.string()),
     lastSyncAt: v.number(),
     createdAt: v.number(),
   })
@@ -1726,6 +1738,8 @@ export default defineSchema({
     ownerId: v.optional(v.id("users")),
     crmOwnerId: v.optional(v.string()),
     rawData: v.optional(v.any()),
+    /** As crmAccounts `followsKey`. */
+    followsKey: v.optional(v.string()),
     lastSyncAt: v.number(),
     createdAt: v.number(),
   })
@@ -4703,6 +4717,8 @@ export default defineSchema({
     orgId: v.id("organizations"),
     provider: v.union(v.literal("salesforce"), v.literal("hubspot")),
     attribute: v.string(),
+    /** A company's or a person's field; absent for a deal's, as every row before them was. */
+    object: v.optional(v.union(v.literal("account"), v.literal("contact"))),
     updatedBy: v.id("users"),
     updatedAt: v.number(),
   })

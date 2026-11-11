@@ -205,21 +205,27 @@ const closedStateHeld = (state: FoldState): boolean =>
 
 /**
  * A person taking a CRM record's value takes its whole group (lib/canon/personHold.ts FIELD_GROUPS): the group's
- * other fields as that record last said them, so no field of it stays the person's. The caller authorizes every field
+ * other fields as that record last said them, or as they are when it never said them, so no field of it stays the person's. The caller authorizes every field
  * this returns before writing them.
  */
-export async function crmGroupValues(s: Pick<DealStores, "objects">, streamId: string, ref: string, values: DealValues): Promise<DealValues> {
+export async function crmGroupValues<V extends Readonly<Record<string, unknown>>>(s: Pick<DealStores, "objects">, streamId: string, ref: string, values: V, object = "deal"): Promise<V> {
   const state = await s.objects.getHotRow(streamId);
   if (!state) return values;
   const out: Record<string, unknown> = { ...values };
   for (const field of Object.keys(values)) {
-    for (const f of groupFields("deal", groupOf("deal", field))) {
+    for (const f of groupFields(object, groupOf(object, field))) {
       if (f in out) continue;
       const said = (state.fields[f]?.candidates ?? []).filter((c) => c.sourceRef === ref).sort((a, b) => b.observedAt - a.observedAt)[0];
       if (said) out[f] = said.value;
+      else {
+        // A field of the group this CRM record never said (a person's other emails, which a sync doesn't send) keeps
+        // its value, written as the record's, so no field of the group is left a person's to hold it.
+        const winner = winningFact(state.fields[f]?.candidates ?? []);
+        if (winner && isPersonFact(winner)) out[f] = winner.value;
+      }
     }
   }
-  return out as DealValues;
+  return out as V;
 }
 
 /**

@@ -11,12 +11,14 @@ import { ModulePanels } from "../modules/module-panels";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAction, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { Archive, ExternalLink, Undo2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { RegisterListRow } from "../../../convex/lib/objects/listSpec";
 import type { AccountStatus, GetResponse } from "../../../convex/lib/recordContract";
 import { explainFit, explainGates } from "../../../convex/lib/fitExplain";
+import { groupOf } from "../../../convex/lib/canon/personHold";
 import { LoadingCards, ReadFailure } from "@/components/dashboard";
 import { FitBar, StatusSelect, WhyThisFit } from "@/components/crm/crm-ui";
 import { AccountTimeline, ContactTimeline, ScoreHistory, SignalsStatus, TopSignals, useActivities } from "@/components/crm/signals-ui";
@@ -36,6 +38,7 @@ import { useScopedQuery } from "@/lib/use-scoped-query";
 import { groupFields, offered, sectionActions, type ActionId, type ComponentOf, type Context, type PageSection, type PageSpec } from "../../../recipes";
 import { fieldPatch, hasOwnRow, InlineField, primaryListOf, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
 import { LookupField } from "./lookup-field";
+import { CRM_NAME, CrmFieldNote } from "./crm-note";
 import { MergeWith } from "./merge-dialog";
 import { PageSections, type Renderers } from "./page-sections";
 import { CompanyRelations, ContactRelations } from "./related-lists";
@@ -68,6 +71,8 @@ type Page = {
   object: Party; id: string; desc: ObjectDescription; row: RegisterListRow; deleted: boolean; team: TeamMember[] | undefined; seesSome: boolean;
   ctx: Context; page: PageSpec; refresh: () => Promise<void>; inDialog?: InDialog;
   saveField: (field: FieldDescription, value: CellValue, startedAt?: number) => Promise<boolean>;
+  /** What a CRM says about the record's fields where a person's value held (lib/canon/personHold.ts), and the fields that always follow a CRM. */
+  crm: { claims: FunctionReturnType<typeof api.fieldClaims.forRecord> | undefined; follows: FunctionReturnType<typeof api.crmDisagreements.follows> | undefined };
 };
 
 /** `preview` lays the page out from a recipe draft instead of the recipe in force (the recipe editor's preview). */
@@ -87,6 +92,8 @@ export function RegisterRecordPage({ object, id, inDialog, layout: preview }: { 
   const [generation, setGeneration] = useState(0);
   const [readError, setReadError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const claims = useQuery(api.fieldClaims.forRecord, row?.stream ? { streamId: row.stream as Id<"canonEntities"> } : "skip");
+  const follows = useQuery(api.crmDisagreements.follows, {});
 
   /** The row, live or else from the recycle bin, and whether it was binned. */
   const readRow = useCallback(async (): Promise<{ row: RegisterListRow | null; binned: boolean }> => {
@@ -165,7 +172,7 @@ export function RegisterRecordPage({ object, id, inDialog, layout: preview }: { 
     canEdit: desc.writable && !deleted, canDelete: desc.canDelete, deleted,
     "contact.email": Boolean(emailOf(fields, row.values)), "contact.phone": Boolean(phoneOf(fields, row.values)), "contact.company": Boolean(row.accountId),
   };
-  const page: Page = { object, id, desc, row, deleted, team, seesSome, ctx, page: layout.sections, refresh, inDialog, saveField };
+  const page: Page = { object, id, desc, row, deleted, team, seesSome, ctx, page: layout.sections, refresh, inDialog, saveField, crm: { claims, follows } };
   return (
     <Frame object={object} id={id} plural={desc.pluralLabel} inDialog={inDialog}>
       {readError && <ReadFailure message={readError} retry={() => { setReadError(""); setAttempt((n) => n + 1); }} retained />}
@@ -248,9 +255,13 @@ function partyRenderers(p: Page, title: { aside?: ReactNode; extra?: ReactNode }
       if (!group) return null;
       const edit = offerOf(p, section, "fields", "kernel.editField");
       const readOnly = (f: FieldDescription) => !edit || edit.disabled || desc.readOnlyFields.includes(f.apiName);
+      const followedBy = (f: FieldDescription) => p.crm.follows?.filter((x) => x.object === object && x.field === groupOf(object, f.apiName)).map((x) => CRM_NAME[x.provider]) ?? [];
       const field = (f: FieldDescription) => (
         <div key={f.fieldId} className="grid grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)] items-center gap-3 border-b border-border py-1.5 last:border-b-0 [&>*]:min-w-0 [&>*]:break-words">
-          <dt className="text-xs font-medium text-muted-foreground">{f.label}</dt>
+          <dt className="text-xs font-medium text-muted-foreground">
+            {f.label}
+            {followedBy(f).length > 0 && <span className="mt-0.5 block text-[10px]" title="An admin set this field to always follow the CRM">Follows {followedBy(f).join(" and ")}: an edit here lasts until its next sync</span>}
+          </dt>
           <dd>
             {f.apiName === "updatedAt" ? (
               <span className="block px-2 py-1 text-sm">{new Date(row.updatedAt).toLocaleString()}</span>
@@ -259,6 +270,9 @@ function partyRenderers(p: Page, title: { aside?: ReactNode; extra?: ReactNode }
             ) : (
               <InlineField {...(primaryListOf(object, f, row.values) ?? { field: f, value: row.values[f.fieldId] as CellValue | undefined })} version={row.version} team={team} readOnly={readOnly(f)} onSave={(next, startedAt) => p.saveField(f, next, startedAt)} />
             )}
+            {p.crm.claims?.filter((c) => c.field === f.fieldId).map((c) => (
+              <CrmFieldNote key={c.id} claim={c} canTake={!readOnly(f)} fields={fields} team={team} noun={object === "account" ? "company" : "person"} onUsed={() => void p.refresh()} />
+            ))}
           </dd>
         </div>
       );

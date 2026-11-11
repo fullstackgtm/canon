@@ -589,10 +589,11 @@ export const unchangedAccounts = internalQuery({
   handler: async (ctx, args) => {
     const now = Date.now();
     const rows = unchangedRows<"crmAccounts">();
+    const follows = crmFollowsKey(ctx, args.orgId, "hubspot", "account");
     await Promise.all(args.accounts.map(async (account) => {
       if (account.extra) return;
       const existing = await ctx.db.query("crmAccounts").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", account.crmId)).first();
-      if (existing && accountUnchanged(existing, accountSyncValue(existing, account, now), account.extra)) rows.add(account.crmId, existing, now);
+      if (existing && accountUnchanged(existing, { ...accountSyncValue(existing, account, now), followsKey: (await follows) || undefined }, account.extra)) rows.add(account.crmId, existing, now);
     }));
     return rows.out;
   },
@@ -604,13 +605,14 @@ export const unchangedContacts = internalQuery({
     const now = Date.now();
     const rows = unchangedRows<"crmContacts">();
     const accountOf = accountResolver(ctx, args.orgId);
+    const follows = crmFollowsKey(ctx, args.orgId, "hubspot", "contact");
     await Promise.all(args.contacts.map(async (contact) => {
       if (contact.extra) return;
       const [existing, accountId] = await Promise.all([
         ctx.db.query("crmContacts").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", contact.crmId)).first(),
         contact.accountId ? Promise.resolve(contact.accountId) : accountOf(contact.accountCrmId),
       ]);
-      if (existing && contactUnchanged(existing, contactSyncValue(contact, accountId, now), contact.extra)) rows.add(contact.crmId, existing, now);
+      if (existing && contactUnchanged(existing, { ...contactSyncValue(contact, accountId, now), followsKey: (await follows) || undefined }, contact.extra)) rows.add(contact.crmId, existing, now);
     }));
     return rows.out;
   },
@@ -664,6 +666,8 @@ export const upsertAccounts = internalMutation({
     const accountEntries: Array<{ crmId: string; id: string }> = [];
     let synced = 0;
     let created = 0;
+    // The fields this workspace set to always follow HubSpot: part of what an unchanged company compares (crmAccounts followsKey).
+    const followsKey = (await crmFollowsKey(ctx, args.orgId, "hubspot", "account")) || undefined;
 
     const syncAccount = async (account: (typeof args.accounts)[number]) => {
       const existing = await ctx.db
@@ -672,7 +676,7 @@ export const upsertAccounts = internalMutation({
           q.eq("orgId", args.orgId).eq("crmId", account.crmId),
         )
         .first();
-      const value = accountSyncValue(existing, account, now);
+      const value = { ...accountSyncValue(existing, account, now), followsKey };
 
       // An unchanged company writes nothing to the ledger; its sync time is stamped at most daily (lib/syncUnchanged.ts).
       if (existing && accountUnchanged(existing, value, account.extra)) {
@@ -748,6 +752,7 @@ export const upsertContacts = internalMutation({
     let synced = 0;
     let created = 0;
     const accountOf = accountResolver(ctx, args.orgId);
+    const followsKey = (await crmFollowsKey(ctx, args.orgId, "hubspot", "contact")) || undefined;
 
     const syncContact = async (contact: (typeof args.contacts)[number]) => {
       const existing = await ctx.db
@@ -757,7 +762,7 @@ export const upsertContacts = internalMutation({
         )
         .first();
 
-      const value = contactSyncValue(contact, contact.accountId ?? (await accountOf(contact.accountCrmId)), now);
+      const value = { ...contactSyncValue(contact, contact.accountId ?? (await accountOf(contact.accountCrmId)), now), followsKey };
 
       const written = existing && existing.lastSyncAt !== NOT_WRITTEN;
       if (existing && contactUnchanged(existing, value, contact.extra)) {

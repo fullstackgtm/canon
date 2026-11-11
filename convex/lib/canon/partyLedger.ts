@@ -29,6 +29,7 @@ import {
 } from "./streamLedger.ts";
 import { project, type EntrySource, type FoldState, type ProjectedRow } from "../objects/fold.ts";
 import { coerce, ruleModeFor, type CoerceError, type FieldValue, type ResolvedObjectDef } from "../objects/registry.ts";
+import { settleFieldClaims, type CrmProvider, type FieldClaimStore } from "./personHold.ts";
 import { checkUnique, checkUpdate, foldStream, save, type SaveResult } from "../objects/write.ts";
 import type { EditResponse } from "../recordContract.ts";
 
@@ -55,11 +56,19 @@ export interface PartyStores extends StreamStores {
   defWith(orgId: string, object: PartyObject, values: Readonly<Record<string, unknown>>): Promise<ResolvedObjectDef>;
   /** The org's field-ownership overrides (canonFieldOwnership), read once per transaction; every write of a source's values applies them. */
   ownership(orgId: string): Promise<readonly OwnershipOverride[]>;
+  /** The field groups (by lead field) the workspace set to always follow a CRM for this object (crmFieldFollows). Absent: none. */
+  crmFollows?(orgId: string, provider: CrmProvider, object: PartyObject): Promise<ReadonlySet<string>>;
+  /** What CRMs say about the fields a person holds (lib/canon/personHold.ts). Absent: the hold still applies, and nothing is recorded. */
+  fieldClaims?: FieldClaimStore;
 }
 
 export type PartySource =
-  /** A CRM mirror row; `rawData` carries the provider's last-modified stamp. */
-  | { kind: "salesforce" | "hubspot"; crmId: string; rawData?: unknown }
+  /**
+   * A CRM mirror row; `rawData` carries the provider's last-modified stamp. `takenBy`: a person took this CRM record's
+   * value over the one a person held (lib/canon/personHold.ts): written as the CRM's, by that person, dated now and
+   * reasserted, so the field follows the CRM again.
+   */
+  | { kind: "salesforce" | "hubspot"; crmId: string; rawData?: unknown; takenBy?: string }
   /**
    * A person's write: a patch of the fields it names. `key` names the
    * operation (a records.edit's idempotency key) and `at` is its time, both
@@ -89,9 +98,11 @@ export function partySource(object: PartyObject, source: PartySource, streamId: 
   switch (source.kind) {
     case "salesforce":
     case "hubspot": {
+      const ref = `${source.kind}:${object}:${source.crmId}`;
+      if (source.takenBy) return { source: { kind: source.kind, ref }, actor: { kind: "user", id: source.takenBy } };
       const validFrom = providerModifiedAt(source.rawData);
       return {
-        source: { kind: source.kind, ref: `${source.kind}:${object}:${source.crmId}` }, actor: { kind: "integration", id: source.kind },
+        source: { kind: source.kind, ref }, actor: { kind: "integration", id: source.kind },
         ...(validFrom !== undefined ? { validFrom } : {}),
       };
     }
@@ -270,15 +281,39 @@ export async function ensurePartyStream(s: PartyStores, t: PartyTarget, seed?: (
   return init;
 }
 
-const write = async (s: PartyStores, t: PartyTarget, source: PartySource, values: PartyValues, evidence?: string, ownership?: readonly OwnershipOverride[], partial?: boolean, reassert?: boolean, deferMirror?: boolean) =>
-  appendWrite(s, {
-    orgId: t.orgId, def: await s.defWith(t.orgId, t.object, values), streamId: t.streamId, entityType: t.object, values, now: t.now,
-    ...partySource(t.object, source, t.streamId), ...(evidence !== undefined ? { evidence } : {}),
+/** For a CRM's own write (not a person taking its value): the groups the workspace set to always follow it, or none. */
+async function followsOf(s: PartyStores, orgId: string, object: PartyObject, source: PartySource): Promise<((group: string) => boolean) | undefined> {
+  if ((source.kind !== "salesforce" && source.kind !== "hubspot") || source.takenBy || !s.crmFollows) return undefined;
+  const follows = await s.crmFollows(orgId, source.kind, object);
+  return follows.size ? (group) => follows.has(group) : undefined;
+}
+
+async function write(s: PartyStores, t: PartyTarget, source: PartySource, values: PartyValues, evidence?: string, ownership?: readonly OwnershipOverride[], partial?: boolean, reassert?: boolean, deferMirror?: boolean) {
+  const def = await s.defWith(t.orgId, t.object, values);
+  const crmFollows = await followsOf(s, t.orgId, t.object, source);
+  const from = partySource(t.object, source, t.streamId);
+  const out = await appendWrite(s, {
+    orgId: t.orgId, def, streamId: t.streamId, entityType: t.object, values, now: t.now,
+    ...from, ...(evidence !== undefined ? { evidence } : {}),
     ...(ownership ? { mayWrite: (apiName: string) => mayWrite(source.kind, apiName, ownership, t.object) } : {}),
     ...(partial ? { partial: true as const } : {}),
-    ...(reassert ? { reassert: true as const } : {}),
+    ...(reassert || ("takenBy" in source && source.takenBy) ? { reassert: true as const } : {}),
     ...(deferMirror ? { deferMirror: true as const } : {}),
+    ...(crmFollows ? { crmFollows } : {}),
   });
+  const { result } = out;
+  if (s.fieldClaims && (result.status === "applied" || result.status === "unchanged" || result.status === "proposed")) {
+    const held = result.status === "proposed" ? [] : result.held ?? [];
+    // Canon's values are read only where a person holds a field: a write nobody holds against costs nothing more.
+    const state = held.length ? await s.objects.getHotRow(t.streamId) : null;
+    const current = state ? project(def, state).values : {};
+    await settleFieldClaims(s.fieldClaims, {
+      orgId: t.orgId, recordId: t.streamId, object: t.object, source: from.source, actor: from.actor, values: out.incoming,
+      held, now: t.now, current: (field) => current[field] ?? null, def,
+    });
+  }
+  return out;
+}
 
 export type PartyWriteResult = Omit<StreamWriteResult, "result" | "incoming"> & {
   /**
@@ -371,10 +406,17 @@ async function writePartyFactsOnly(
       .filter((c) => !Array.isArray(c.value) && !taken.some((t) => t.field === def.byFieldId.get(c.fieldId)?.apiName))
       .map((c) => ({ attribute: c.fieldId as string, value: c.value as FactValue, ...(validFrom !== undefined ? { validFrom } : {}), ...(w.evidence !== undefined ? { evidence: w.evidence } : {}) }))
     : [];
+  const crmFollows = await followsOf(s, w.orgId, w.object, w.source);
   const out = await ingestObservations(s.facts, {
     orgId: w.orgId, entityId: w.streamId, entityType: w.object, sourceKind: source.kind, sourceRefBase: source.ref, actor, observedAt: w.now, observations,
-    ownership: w.ownership, ...(acceptedBy ? { acceptedBy } : {}),
+    ownership: w.ownership, ...(acceptedBy ? { acceptedBy } : {}), ...(crmFollows ? { crmFollows } : {}),
   });
+  if (s.fieldClaims) {
+    await settleFieldClaims(s.fieldClaims, {
+      orgId: w.orgId, recordId: w.streamId, object: w.object, source, actor, values: new Map(observations.map((o) => [o.attribute, o.value])), held: out.held,
+      now: w.now, current: (field) => out.resolved[field]?.value ?? null, def,
+    });
+  }
   const denied = out.rejected.map((field) => ({ field, message: `${source.kind} may not write ${field}` }));
   return { result: { status: "deferred", streamId: w.streamId, ...(oversized ? { oversized } : {}) }, resolved: out.resolved, rejected: [...(parsed.ok ? [] : parsed.errors), ...taken, ...denied, ...untracked] };
 }

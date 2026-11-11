@@ -598,9 +598,10 @@ export const unchangedAccounts = internalQuery({
   handler: async (ctx, args) => {
     const now = Date.now();
     const rows = unchangedRows<"crmAccounts">();
+    const follows = crmFollowsKey(ctx, args.orgId, "salesforce", "account");
     await Promise.all(args.accounts.map(async (account) => {
       const existing = await ctx.db.query("crmAccounts").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", account.crmId)).first();
-      if (existing && existing.lastSyncAt !== NOT_WRITTEN && unchangedRow(existing, accountSyncValue(existing, account, now))) rows.add(account.crmId, existing, now);
+      if (existing && existing.lastSyncAt !== NOT_WRITTEN && unchangedRow(existing, { ...accountSyncValue(existing, account, now), followsKey: (await follows) || undefined })) rows.add(account.crmId, existing, now);
     }));
     return rows.out;
   },
@@ -612,12 +613,13 @@ export const unchangedContacts = internalQuery({
     const now = Date.now();
     const rows = unchangedRows<"crmContacts">();
     const accountOf = accountResolver(ctx, args.orgId);
+    const follows = crmFollowsKey(ctx, args.orgId, "salesforce", "contact");
     await Promise.all(args.contacts.map(async (contact) => {
       const [existing, accountId] = await Promise.all([
         ctx.db.query("crmContacts").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", contact.crmId)).first(),
         contact.accountId ? Promise.resolve(contact.accountId) : accountOf(contact.accountCrmId),
       ]);
-      if (existing && existing.lastSyncAt !== NOT_WRITTEN && unchangedRow(existing, contactSyncValue(contact, accountId, now))) rows.add(contact.crmId, existing, now);
+      if (existing && existing.lastSyncAt !== NOT_WRITTEN && unchangedRow(existing, { ...contactSyncValue(contact, accountId, now), followsKey: (await follows) || undefined })) rows.add(contact.crmId, existing, now);
     }));
     return rows.out;
   },
@@ -666,13 +668,15 @@ export const upsertAccounts = internalMutation({
     const now = Date.now();
     let synced = 0;
     let created = 0;
+    // The fields this workspace set to always follow Salesforce: part of what an unchanged account compares (crmAccounts followsKey).
+    const followsKey = (await crmFollowsKey(ctx, args.orgId, "salesforce", "account")) || undefined;
 
     const syncAccount = async (account: (typeof args.accounts)[number]) => {
       const existing = await ctx.db
         .query("crmAccounts")
         .withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", account.crmId))
         .first();
-      const value = accountSyncValue(existing, account, now);
+      const value = { ...accountSyncValue(existing, account, now), followsKey };
 
       // An unchanged account writes nothing to the ledger; its sync time is stamped at most daily (lib/syncUnchanged.ts).
       const written = existing && existing.lastSyncAt !== NOT_WRITTEN;
@@ -772,13 +776,14 @@ export const upsertContacts = internalMutation({
     let synced = 0;
     let created = 0;
     const accountOf = accountResolver(ctx, args.orgId);
+    const followsKey = (await crmFollowsKey(ctx, args.orgId, "salesforce", "contact")) || undefined;
 
     const syncContact = async (contact: (typeof args.contacts)[number]) => {
       const existing = await ctx.db
         .query("crmContacts")
         .withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", contact.crmId))
         .first();
-      const value = contactSyncValue(contact, contact.accountId ?? (await accountOf(contact.accountCrmId)), now);
+      const value = { ...contactSyncValue(contact, contact.accountId ?? (await accountOf(contact.accountCrmId)), now), followsKey };
 
       const written = existing && existing.lastSyncAt !== NOT_WRITTEN;
       if (written && unchangedRow(existing, value)) {

@@ -6,6 +6,7 @@ import { loadConvex, memoryDb } from "./convexHandlers.ts";
 import { ingestObservations, type LedgerStore, type StoredFact } from "../convex/lib/canon/ledger.ts";
 import type { EntryActor, EntrySource } from "../convex/lib/objects/fold.ts";
 import { PERSON_HELD_FIELDS } from "../convex/lib/canon/personHold.ts";
+import { REGISTER_COLUMNS } from "../services/record-service/src/core/objects/listSpec.ts";
 
 /** A clock that moves a second each time it is read, so every write is newer than the last. */
 let clock = Date.UTC(2026, 10, 10);
@@ -374,7 +375,7 @@ test("a Salesforce snapshot already seen leaves the closed date of a stage a per
 /** The admin page (convex/crmDisagreements.ts): its list, a selection, and a job that runs its scheduled steps. */
 const page = files["crmDisagreements.ts"] as any;
 const listed = async (w: ReturnType<typeof world>, filter: Record<string, string> = {}) =>
-  plain((await page.list.handler(w.ctx(), { ...filter, paginationOpts: { numItems: 50, cursor: null } })).page.map((r: any) => `${r.field}:${r.provider}:${r.deal}`).sort());
+  plain((await page.list.handler(w.ctx(), { ...filter, paginationOpts: { numItems: 50, cursor: null } })).page.map((r: any) => `${r.field}:${r.provider}:${r.title}`).sort());
 
 test("the disagreements page lists what each CRM says by field, filters by CRM and field, and shows nothing to a non-admin", async () => {
   const w = world();
@@ -387,6 +388,16 @@ test("the disagreements page lists what each CRM says by field, filters by CRM a
   assert.deepEqual(await listed(w, { provider: "salesforce", field: "stage" }), ["stage:salesforce:Mine"]);
   signedIn = { ...(await w.db.get("users:ben")), role: "manager" };
   assert.deepEqual(await listed(w), []);
+});
+
+test("an amount row carries its currency when Canon and the CRM agree on it", async () => {
+  const w = world();
+  signedIn = await w.db.get("users:admin");
+  await w.crm.salesforceImport("ana", undefined, { amount: 1000, currency: "EUR" });
+  await w.write({ amount: 900 });
+  await w.crm.salesforceImport("ana", undefined, { amount: 1200, currency: "EUR" });
+  const [row] = (await page.list.handler(w.ctx(), { paginationOpts: { numItems: 50, cursor: null } })).page;
+  assert.deepEqual(plain([row.values, row.currency]), [[{ field: "amount", crm: 1200, canon: 900 }], { crm: "EUR", canon: "EUR" }]);
 });
 
 test("using the CRM's values for a selection hands each field back to its CRM", async () => {
@@ -537,4 +548,13 @@ test("every field writer is listed, and no CRM path writes a held column to the 
   }
   // The census sees each CRM path's deal handlers.
   assert.equal(sources.filter(([, t]) => /\nexport const upsertDeals = /.test(t)).length, 3);
+});
+
+// A CRM import into the record service (Salesforce's bulk import, an API upsert) never changes a ledger column of a row
+// on the ledger (services/record-service/src/register.ts LEDGER_OWNED): a company's or person's held field reaches the
+// row only from its stream, where the hold applies.
+test("the record service keeps every held company and person field of a row on the ledger from a CRM import", () => {
+  for (const object of ["account", "contact"] as const) {
+    assert.deepEqual(PERSON_HELD_FIELDS[object]!.filter((f) => !(f in REGISTER_COLUMNS[object])), [], object);
+  }
 });

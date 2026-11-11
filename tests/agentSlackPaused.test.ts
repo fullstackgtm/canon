@@ -73,6 +73,9 @@ test("an agent the system pauses for its owner latches the pause on the event an
   assert.match(text, /Watch/);
   assert.match(text, /deactivated/);
   assert.doesNotMatch(text, /Quinn/);
+  // The label is shown as written, not read as Slack markup that would mention people.
+  await w.db.patch(AGENT, { label: "<!channel> Watch & co" });
+  assert.match((await w.call("agentSlack.ts", "preparePause", w.sends[0] as Record<string, unknown>)).text, /agent &lt;!channel&gt; Watch &amp; co:/);
   // Once a person resumes it, the old pause's notice has nothing to say.
   await w.db.patch(AGENT, { pause: { reason: "paused_by_user", at: pause.at + 1, by: OWNER } });
   assert.equal(await w.call("agentSlack.ts", "preparePause", w.sends[0] as Record<string, unknown>), null);

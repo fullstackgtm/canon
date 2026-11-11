@@ -36,7 +36,8 @@ export function shouldNotify(mode: SlackMode, t: TurnState): boolean {
   return t.hasRoute ? ["added", "already_member", "no_contact"].includes(t.routing?.status ?? "") : true;
 }
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** Text as Slack shows it literally: `<!channel>` or `<@U123>` in it never mentions anyone. */
+export const escapeSlack = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const TRIGGERS: Record<string, string> = { webhook: "webhook", crm_event: "deal stage change", test: "test run" };
 
@@ -62,13 +63,13 @@ export function slackMessage(t: SlackTurn): string {
     : t.status === "skipped" ? `Skipped: ${short(t.skipMessage ?? "no reason recorded", 160)}`
     : `Failed: ${short(t.error ?? "no reason recorded", 160)}`;
   const lines = [
-    `*${esc(short(t.agentLabel, 80))}*: turn ${t.status === "done" ? "finished" : t.status}`,
+    `*${escapeSlack(short(t.agentLabel, 80))}*: turn ${t.status === "done" ? "finished" : t.status}`,
     `Trigger: ${TRIGGERS[t.trigger] ?? t.trigger}`,
-    `Account: ${esc(t.account ? `${t.account.name} (${t.account.domain})` : t.subjectDomain ?? "not resolved")}`,
-    `Outcome: ${esc(outcome)}`,
+    `Account: ${escapeSlack(t.account ? `${t.account.name} (${t.account.domain})` : t.subjectDomain ?? "not resolved")}`,
+    `Outcome: ${escapeSlack(outcome)}`,
   ];
   if (t.routing && (t.routing.status === "added" || t.routing.status === "already_member") && t.audienceName) {
-    lines.push(`Routed to audience: ${esc(t.audienceName)}`);
+    lines.push(`Routed to audience: ${escapeSlack(t.audienceName)}`);
   } else if (t.routing?.status === "error") {
     lines.push("Routing hit an error.");
   }
