@@ -4,12 +4,14 @@ FROM ghcr.io/convex/convex-backend:0cf49cbf8c4b7e22e631ceda9b5111f6cccbcd49@sha2
 FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS node
 
 FROM node AS build
-RUN apt-get update && apt-get install -y --no-install-recommends python3 procps && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends python3 procps binutils && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY services/record-service/package*.json ./services/record-service/
 RUN npm ci --prefix services/record-service --omit=dev --no-audit --no-fund
+COPY services/recipe-runtime/package*.json ./services/recipe-runtime/
+RUN npm ci --prefix services/recipe-runtime --no-audit --no-fund
 COPY . .
 # What the entrypoint compares to decide whether the functions need pushing (scripts/selfhost/functions.mjs).
 RUN find . -name node_modules -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d" " -f1 > .source-sha256
@@ -17,6 +19,13 @@ ARG CANON_AUTH=local
 ENV CANON_AUTH=$CANON_AUTH
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ENV NEXT_TELEMETRY_DISABLED=1 NEXT_PUBLIC_CANON_SELFHOST=true
+# The recipe runtime as the entrypoint runs it (scripts/selfhost/recipe-runtime.capnp): its Worker bundled, and the
+# workerd binary the runtime's lockfile pins, without the rest of Wrangler. Stripping its symbols saves 43 MB.
+RUN mkdir .recipe-runtime && node_modules/.bin/esbuild services/recipe-runtime/src/index.ts --bundle --format=esm --platform=neutral \
+    --main-fields=module,main --external:cloudflare:workers --log-level=warning --outfile=.recipe-runtime/worker.js \
+  && cp scripts/selfhost/recipe-runtime.capnp .recipe-runtime/config.capnp \
+  && cp services/recipe-runtime/node_modules/@cloudflare/workerd-linux-*/bin/workerd .recipe-runtime/workerd && strip .recipe-runtime/workerd \
+  && rm -rf services/recipe-runtime/node_modules
 # The entrypoint runs the standalone server, with the app's own node_modules in place of its traced copy and the
 # static files and public/ it serves linked in.
 RUN npm run build && rm -rf .next/cache .next/standalone/node_modules \

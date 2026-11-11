@@ -221,14 +221,12 @@ to `.env` and run `docker compose up -d`. `0` turns a limit off.
 [Rate limits](record-api.md#rate-limits) explains the defaults.
 
 A module with server code runs its calls in Canon's recipe runtime
-(`services/recipe-runtime`), which this image doesn't start. Until one runs, such a
-module's pages say "Needs RECIPE_RUNTIME_URL and RECIPE_RUNTIME_SECRET". Run the
-runtime yourself: in `services/recipe-runtime`, put `RECIPE_RUNTIME_SECRET=<a long
-random value>` in `.dev.vars` and run `npx wrangler dev --local --ip 0.0.0.0 --port 8790`.
-Then add `RECIPE_RUNTIME_URL` (as the container reaches it, on Docker Desktop
-`http://host.docker.internal:8790`) and the same
-`RECIPE_RUNTIME_SECRET` to `.env` and run `docker compose up -d`. Modules without
-server code need no runtime. To try a module you are building without pushing it,
+(`services/recipe-runtime`). The image starts it for you, inside the container,
+reachable only from Canon itself, with a secret generated on first boot and kept
+in the data volume. Nothing to configure. A call stuck in a loop fails within 15
+seconds, and the container restarts the runtime within about 20 seconds. To run
+the runtime somewhere else, set `RECIPE_RUNTIME_URL` and `RECIPE_RUNTIME_SECRET`
+in `.env`. The container then starts none. To try a module you are building without pushing it,
 choose **A module you're building** on Customization: see
 [Change it and install again](modules.md#change-it-and-install-again).
 
