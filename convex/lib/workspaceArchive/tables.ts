@@ -107,6 +107,7 @@ export const ARCHIVE_TABLES = {
   hierarchyResearch: child("hierarchyScans", "scanId", "by_scanId"),
   hierarchyDecisions: data("by_orgId_and_itemKey"),
   parentDisagreements: data("by_orgId_and_accountId_and_crmRef"),
+  crmDisagreementJobs: local("an admin's job using a CRM's values, and its progress"),
   integrations: secret("CRM OAuth tokens encrypted with this deployment's key"),
   connectorLinks: secret("connector signing secrets encrypted with this deployment's key"),
   connectorFeedGrants: local("grants on connector links, which stay with this deployment"),

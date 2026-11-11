@@ -25,9 +25,11 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
-import { convexLedgerStore, customAttributesOf, factResolution, flushPartyMirror, mirrorDecidedFacts, mirrorGateProposal, normalizeProposal, orgOwnership, saveDealValues, saveParty } from "./canon";
+import { convexLedgerStore, crmTakenValues, customAttributesOf, factResolution, flushPartyMirror, mirrorDecidedFacts, mirrorGateProposal, normalizeProposal, orgOwnership, saveDealValues, saveParty } from "./canon";
 import { decideFacts, ensureEntity, ingestObservations, type LedgerStore } from "./lib/canon/ledger";
 import { deciderOf } from "./lib/canon/decider";
+import { crmRecordOf } from "./lib/canon/personHold";
+import type { DealSource } from "./lib/canon/dealLedger";
 import { CORE_ATTRIBUTES, CUSTOM_ATTRIBUTE, ENTITY_NOUN, ENTITY_TYPES, attributeLabel, isScalarProposalAttribute, type EntityType } from "./lib/canon/attributes";
 import { ID, accountExternalIds, contactExternalIds, normalizeDomain, normalizeEmail } from "./lib/canon/identity";
 import { AGENT_SOURCES, CANON_PROPOSAL_OP, autoAcceptDecision, moduleOfSourceRef, needsVerification, ownershipGrid, type AutoAcceptRule, type OwnershipOverride } from "./lib/canon/gate";
@@ -37,7 +39,7 @@ import { describeActor, type ActorCache } from "./agents";
 import { accessFor, dealVisible, entitySight, principalAccess, querySees, sightAdmits, sightJudge, type PendingSight } from "./permissions";
 import { callerClient, principalClient, requireCaller } from "./records";
 import { admitThenRead, visibleIds } from "./lib/scopedRecordClient";
-import { agentPrincipals, hiddenFields, may, mayWriteField, type Access } from "./lib/access";
+import { agentPrincipals, hiddenFields, may, mayWriteField, refuseLockedWrite, type Access } from "./lib/access";
 import { PROMOTE_MAX, promoteAccounts, promoteContacts } from "./lib/recordPromotion";
 import { FACT_OBJECTS, FACTS_MAX_IDS, FACTS_MAX_RECEIPTS, type FactObject, type FactReceipt, type FactValue, type FactsForRecordsRow, type ResolvedField } from "../modules/kernel/facts.ts";
 
@@ -671,7 +673,16 @@ async function resolveAs(ctx: MutationCtx, factId: Id<"facts">, admitted: Readon
       const dealId = ctx.db.normalizeId("deals", entity.projectionId);
       const deal = dealId ? await ctx.db.get(dealId) : null;
       if (!deal) throw new ConvexError("Fact not found");
-      const out = await saveDealValues(ctx, deal, { kind: "user", userId: user._id }, { [fact.attribute]: fact.value }, { evidence });
+      // A CRM's value is taken as that CRM record's, by the reviewer, so the field follows the CRM again (as
+      // fieldClaims.takeCrmValue does); a person's or Canon's value is the reviewer's, which a CRM leaves as it is
+      // (lib/canon/personHold.ts).
+      const crm = crmRecordOf(fact);
+      const source: DealSource = crm ? { kind: crm.provider, crmId: crm.crmId, takenBy: user._id } : { kind: "user", userId: user._id };
+      // A CRM's value takes its whole group, so the reviewer may edit every field of it, not only the one they picked.
+      const values = crm ? await crmTakenValues(ctx, deal, crm.provider, crm.crmId, { [fact.attribute]: fact.value }) : { [fact.attribute]: fact.value };
+      if (crm) refuseLockedWrite(await accessFor(ctx, user), "deal", Object.keys(values));
+      const out = await saveDealValues(ctx, deal, source, values, { evidence });
+      if (crm && out.result.status === "deferred") throw new ConvexError("This deal's history is still being converted. Try again in a minute.");
       return out.resolved[fact.attribute] ?? (await factResolution(ctx, entity._id, fact.attribute));
     }
     if (entity.entityType === "opportunity") throw new ConvexError("Fact not found");

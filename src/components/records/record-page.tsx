@@ -111,7 +111,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const workspaceMoney = useWorkspaceMoney();
   const splitTeam = useQuery(api.objects.splitMembers, object === "deal" && record && desc?.fields.some((f) => f.type === "splits") ? { streamId } : "skip");
   const write = useAction(api.objects.writeScoped);
-  // What a CRM says about the deal's owner or company where a person's value held (lib/canon/personHold.ts).
+  // What a CRM says about the deal's fields where a person's value held (lib/canon/personHold.ts).
   const crmClaims = useQuery(api.fieldClaims.forDeal, object === "deal" ? { streamId } : "skip");
   const remove = useMutation(api.objects.remove);
   const restore = useMutation(api.objects.restore);
@@ -202,7 +202,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
           ) : (
             <InlineField field={f} value={(f.type === "formula" ? computed[f.fieldId] : record.values[f.fieldId]) as CellValue | undefined} version={record.version} team={f.type === "splits" ? splitTeam : team} money={money} readOnly={!writable || desc.readOnlyFields.includes(f.apiName)} onSave={(next, expected) => saveField(f, next, expected)} />
           )}
-          {crmClaims?.filter((c) => c.field === f.apiName).map((c) => <CrmFieldNote key={c.id} claim={c} canTake={writable && !desc.readOnlyFields.includes(f.apiName)} />)}
+          {crmClaims?.filter((c) => c.field === f.fieldId).map((c) => <CrmFieldNote key={c.id} claim={c} canTake={writable && !desc.readOnlyFields.includes(f.apiName)} fields={fields} team={team} money={money} />)}
         </dd>
       </div>
     );

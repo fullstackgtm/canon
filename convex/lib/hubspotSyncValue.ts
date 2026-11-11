@@ -133,34 +133,42 @@ export function contactSyncValue(contact: Infer<typeof syncContactRow>, accountI
 }
 
 /**
- * What a sync writes to a deal's row, before the ledger projects it. The owner is not among them: it goes through the
- * ledger (canon.ts saveDeal's `owner`), which leaves an owner a person chose as it is (lib/canon/personHold.ts).
+ * What HubSpot says a deal's ledger fields are (convex/canon.ts SYNCED_DEAL_ATTRIBUTES). They reach the row through the
+ * ledger, which leaves a value a person set as it is (lib/canon/personHold.ts); a new row starts from them.
  */
-export function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccounts"> | undefined, now: number) {
+export function dealSyncValues(deal: Infer<typeof syncDealRow>) {
   return {
     name: deal.name,
     amount: deal.amount,
     currency: "USD",
     closeDate: deal.closeDate,
     dealType: deal.dealType,
-    revenueType: deal.revenueType,
     crmOwnerId: deal.crmOwnerId,
-    accountId,
     stage: deal.stage,
     forecastCategory: deal.forecastCategory,
     probability: deal.probability,
+    isClosed: deal.isClosed,
+    isWon: deal.isWon,
+  };
+}
+
+/**
+ * The columns a sync writes to a deal's row itself: its HubSpot link, raw record and sync time. Every field a person
+ * can hold is in dealSyncValues instead, and so is the owner (canon.ts saveDeal's `owner`).
+ */
+export function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccounts"> | undefined, now: number) {
+  return {
+    revenueType: deal.revenueType,
+    accountId,
     crmProvider: PROVIDER,
     crmUrl: `https://app.hubspot.com/contacts/deal/${deal.crmId}`,
     rawData: deal.rawData,
-    isClosed: deal.isClosed,
-    isWon: deal.isWon,
     closedAt: deal.closedAt,
     lastSyncAt: now,
     updatedAt: now,
     ...(deal.createdAt !== undefined ? { createdAt: deal.createdAt } : {}),
   };
 }
-
 
 export function accountUnchanged(existing: Record<string, unknown> | null, value: ReturnType<typeof accountSyncValue>, extra?: unknown): boolean {
   return !!existing && !extra && unchangedRow(existing, value);
@@ -170,10 +178,10 @@ export function contactUnchanged(existing: Record<string, unknown> | null, value
   return !!existing && existing.lastSyncAt !== NOT_WRITTEN && !extra && unchangedRow(existing, value);
 }
 
-/** The fingerprint of what a sync sent for a deal, its owner included: the same as when the owner was one of the row's values. */
-export const dealSyncHash = (deal: Pick<Infer<typeof syncDealRow>, "primaryRepId">, value: ReturnType<typeof dealSyncValue>) =>
-  syncFingerprint({ ...value, primaryRepId: deal.primaryRepId });
+/** The fingerprint of what a sync sent for a deal, its values and owner included: the same as when they were all the row's patch. */
+export const dealSyncHash = (deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>) =>
+  syncFingerprint({ ...value, ...dealSyncValues(deal), primaryRepId: deal.primaryRepId });
 
-export function dealUnchanged(existing: Record<string, unknown> | null, deal: Pick<Infer<typeof syncDealRow>, "primaryRepId">, value: ReturnType<typeof dealSyncValue>, extra?: unknown): boolean {
+export function dealUnchanged(existing: Record<string, unknown> | null, deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>, extra?: unknown): boolean {
   return !!existing && !extra && existing.syncHash === dealSyncHash(deal, value);
 }

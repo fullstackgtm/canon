@@ -85,10 +85,16 @@ export function memoryDb(tables: Record<string, Array<Record<string, unknown>>>)
       first: async () => all()[0] ?? null,
       unique: async () => all()[0] ?? null,
       collect: async () => all(),
+      // As Convex's: a cursor is a position in the index (the last row's), so rows deleted before it move nothing.
       paginate: async ({ numItems, cursor }: { numItems: number; cursor: string | null }) => {
         const list = all();
-        const start = cursor ? Number(cursor) : 0;
-        return { page: list.slice(start, start + numItems), isDone: start + numItems >= list.length, continueCursor: String(start + numItems) };
+        const at = cursor ? (JSON.parse(cursor) as { t: number; id: string }) : null;
+        const found = at ? list.findIndex((r) => r._id === at.id) : -1;
+        const start = !at ? 0 : found >= 0 ? found + 1 : list.findIndex((r) => (desc ? r._creationTime < at.t : r._creationTime > at.t));
+        const rest = start < 0 ? [] : list.slice(start);
+        const page = rest.slice(0, numItems);
+        const last = page.at(-1);
+        return { page, isDone: numItems >= rest.length, continueCursor: last ? JSON.stringify({ t: last._creationTime, id: last._id }) : cursor ?? "" };
       },
       async *[Symbol.asyncIterator]() { yield* all(); },
     };

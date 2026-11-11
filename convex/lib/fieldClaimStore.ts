@@ -12,7 +12,10 @@ const CLAIMS_PER_RECORD_MAX = 50;
 
 export const asFieldClaim = (d: Doc<"parentDisagreements">): FieldClaim | null =>
   d.association === "field" && d.attribute
-    ? { id: d._id, recordId: d.accountId, field: d.attribute, provider: d.provider, ref: d.crmRef, value: (d.crmValue ?? null) as FactValue, seenAt: d.seenAt }
+    ? {
+      id: d._id, recordId: d.accountId, field: d.attribute, provider: d.provider, ref: d.crmRef, value: (d.crmValue ?? null) as FactValue, seenAt: d.seenAt,
+      ...(d.crmValues ? { values: Object.fromEntries(d.crmValues.map((x) => [x.attribute, x.value as FactValue])) } : {}),
+    }
     : null;
 
 /** Every field claim kept for a record. */
@@ -38,6 +41,7 @@ export function fieldClaimStore(ctx: MutationCtx): FieldClaimStore {
       const row = {
         orgId: org(orgId), accountId: c.recordId, provider: c.provider, crmRef: c.ref, crmParentId: null, seenAt: c.seenAt,
         association: "field" as const, attribute: c.field, crmValue: c.value as Doc<"parentDisagreements">["crmValue"],
+        ...(c.values ? { crmValues: Object.entries(c.values).map(([attribute, value]) => ({ attribute, value: value as NonNullable<Doc<"parentDisagreements">["crmValue"]> | null })) } : {}),
       };
       const kept = await of(orgId, c.recordId);
       if (replaces) await ctx.db.replace(replaces as Id<"parentDisagreements">, row);

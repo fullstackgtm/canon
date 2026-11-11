@@ -37,7 +37,7 @@ import {
   type BackfillOutcome, type PartyLookup, type PartyMismatch, type PartyObject, type PartySeed, type PartySource, type PartyStores, type PartyValues, type PartyWriteResult, type RecordPatch,
 } from "./lib/canon/partyLedger";
 import { mirrorAppended, type MirrorJob } from "./lib/canon/streamLedger";
-import { compareDeal, ensureDealStream, isHistoricalSource, mirrorDecisions, mirrorProposal, writeDeal, writeDealLifecycle, type DealMismatch, type DealSource, type DealStores, type DealValues, type DealWriteResult } from "./lib/canon/dealLedger";
+import { compareDeal, crmGroupValues, ensureDealStream, isHistoricalSource, mirrorDecisions, mirrorProposal, writeDeal, writeDealLifecycle, type DealMismatch, type DealSource, type DealStores, type DealValues, type DealWriteResult } from "./lib/canon/dealLedger";
 import type { OwnershipOverride } from "./lib/canon/gate";
 import { fieldClaimStore } from "./lib/fieldClaimStore";
 import { resolveAttribute, type FactValue, type Resolution } from "./lib/canon/policy";
@@ -278,7 +278,7 @@ export async function saveDealValues(
   deal: Doc<"deals">,
   source: DealSource,
   values: DealValues,
-  opts: { now?: number; evidence?: string; creates?: true; deferMirror?: true } = {},
+  opts: { now?: number; evidence?: string; creates?: true; deferMirror?: true; columns?: Record<string, unknown> } = {},
 ): Promise<DealWriteResult & { entityId: string }> {
   const entityId = await dealEntity(ctx, deal, source);
   // A stage a CRM names in its own words ("Closed Won") is the stage Canon already has ("closed_won"), not a second column.
@@ -290,12 +290,21 @@ export async function saveDealValues(
   const out = await writeDeal(dealStores(ctx), {
     orgId: deal.orgId, def: await dealDef(ctx, deal.orgId, values.stage), dealId: deal._id, streamId: entityId,
     source, values, now: opts.now ?? Date.now(), ...(opts.evidence !== undefined ? { evidence: opts.evidence } : {}), ...(opts.creates ? { creates: opts.creates } : {}),
-    ...(opts.deferMirror ? { deferMirror: opts.deferMirror } : {}),
+    ...(opts.deferMirror ? { deferMirror: opts.deferMirror } : {}), ...(opts.columns ? { columns: opts.columns } : {}),
   });
   // A stage change wakes event agents listening for it (lib/agents/crmEvents.ts). A dated past value from an import is
   // history, not a move happening now, so it never wakes them.
   if (before && !isHistoricalSource(source) && out.result.status === "applied") await afterDealWrite(ctx, deal, entityId, before, out.result.version);
   return { ...out, entityId };
+}
+
+/**
+ * The values a person taking `values` from a CRM record writes: those, and the rest of each one's group as that record
+ * last said them (lib/canon/dealLedger.ts crmGroupValues). Authorize every one before writing them.
+ */
+export async function crmTakenValues(ctx: MutationCtx, deal: Doc<"deals">, provider: "salesforce" | "hubspot", crmId: string, values: DealValues): Promise<DealValues> {
+  const entityId = await dealEntity(ctx, deal, { kind: provider, crmId });
+  return crmGroupValues(dealStores(ctx), entityId, `${provider}:${crmId}`, values);
 }
 
 /** Archive or restore a deal as `userId` (see lib/canon/dealLedger.ts writeDealLifecycle). */

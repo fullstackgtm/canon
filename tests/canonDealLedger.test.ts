@@ -222,7 +222,7 @@ test("a newer provider modstamp wins; an older snapshot arriving later changes n
   assert.equal(m.rows.get("deal1")?.stage, "Closed Won");
 });
 
-test("a user override outlives an older provider snapshot, which is shadowed; a newer changed value replaces it", async () => {
+test("a person's value outlives an older provider snapshot and a newer changed one (lib/canon/personHold.ts)", async () => {
   const m = memory();
   const d = await newDeal(m);
   await sync(m, d, { forecastCategory: "commit" }, "2026-09-01T00:00:00Z", Date.parse("2026-09-01T01:00:00Z"));
@@ -231,12 +231,10 @@ test("a user override outlives an older provider snapshot, which is shadowed; a 
   m.rows.get("deal1")!.forecastCategory = "pipeline";
   await sync(m, d, { forecastCategory: "pipeline" }, "2026-09-01T12:00:00Z", Date.parse("2026-09-03T00:00:00Z"));
   assert.equal(m.rows.get("deal1")?.forecastCategory, "best_case");
-  assert.deepEqual(m.shadow.get("forecastCategory"), { providerValue: "pipeline", canonicalValue: "best_case" });
-  // Re-sending the same value later only confirms it, as the facts write rule does; a changed value wins.
-  await sync(m, d, { forecastCategory: "pipeline" }, "2026-09-04T00:00:00Z", Date.parse("2026-09-04T01:00:00Z"));
-  assert.equal(m.rows.get("deal1")?.forecastCategory, "best_case");
+  // A held field's disagreement is a claim (settleFieldClaims), not shadow outbound.
+  assert.equal(m.shadow.get("forecastCategory"), undefined);
   await sync(m, d, { forecastCategory: "omit" }, "2026-09-05T00:00:00Z", Date.parse("2026-09-05T01:00:00Z"));
-  assert.equal(m.rows.get("deal1")?.forecastCategory, "omit");
+  assert.equal(m.rows.get("deal1")?.forecastCategory, "best_case");
 });
 
 test("a CRM's own stage names are registered as options; an unregistered value is left out, not stored", async () => {

@@ -5,6 +5,7 @@ import test from "node:test";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 import { ingestObservations, type LedgerStore, type StoredFact } from "../convex/lib/canon/ledger.ts";
 import type { EntryActor, EntrySource } from "../convex/lib/objects/fold.ts";
+import { PERSON_HELD_FIELDS } from "../convex/lib/canon/personHold.ts";
 
 /** A clock that moves a second each time it is read, so every write is newer than the last. */
 let clock = Date.UTC(2026, 10, 10);
@@ -14,7 +15,11 @@ class TickingDate extends Date {
   }
   static now() { return (clock += 1000); }
 }
-const files = loadConvex(["hubspot.ts", "salesforce.ts", "salesforceImportCanon.ts", "canon.ts", "fieldClaims.ts", "ownership.ts", "objects.ts"], {}, { Date: TickingDate });
+/** The member a public function runs as. */
+let signedIn: unknown = null;
+const files = loadConvex(["hubspot.ts", "salesforce.ts", "salesforceImportCanon.ts", "canon.ts", "fieldClaims.ts", "ownership.ts", "objects.ts", "canonGate.ts", "crmDisagreements.ts"], {
+  "lib.ts": (real) => ({ ...real, getCurrentUser: async () => signedIn, requireUser: async () => signedIn }),
+}, { Date: TickingDate });
 const canon = files["canon.ts"] as any;
 
 /** Values the loaded modules made in their own realm, as plain values for deepEqual. */
@@ -30,14 +35,18 @@ function world() {
   const ctx = (): any => ({ db, scheduler: { runAfter: async () => null } });
   const deal = async () => (await db.query("deals").withIndex("by_orgId_crmId", (q: any) => q.eq("orgId", "org").eq("crmId", "D1")).first())!;
   const id = (n: string | null) => (n ? `users:${n}` : undefined);
-  const synced = (owner: string | null) => ({ crmId: "D1", name: "Big deal", closeDate: "2026-12-01", dealType: "new_business", revenueType: "one_time", isClosed: false, isWon: false, ...(owner ? { primaryRepId: id(owner) } : {}) });
+  /** `values`: what the CRM says beyond its owner (a sync's `closedAt`; the import derives it from the close date). */
+  const synced = (owner: string | null, values: CrmValues = {}) => ({
+    crmId: "D1", name: "Big deal", closeDate: "2026-12-01", dealType: "new_business", revenueType: "one_time", isClosed: false, isWon: false, ...values, ...(owner ? { primaryRepId: id(owner) } : {}),
+  });
   const crm = {
-    hubspot: (owner: string | null) => files["hubspot.ts"].upsertDeals.handler(ctx(), { orgId: "org", deals: [synced(owner)] }),
-    salesforceSync: (owner: string | null) => files["salesforce.ts"].upsertDeals.handler(ctx(), { orgId: "org", instanceUrl: "https://sf.test", deals: [synced(owner)] }),
-    salesforceImport: (owner: string | null, account?: string | null) => files["salesforceImportCanon.ts"].upsertDeals.handler(ctx(), {
+    hubspot: (owner: string | null, values?: CrmValues) => files["hubspot.ts"].upsertDeals.handler(ctx(), { orgId: "org", deals: [synced(owner, values)] }),
+    salesforceSync: (owner: string | null, values?: CrmValues) => files["salesforce.ts"].upsertDeals.handler(ctx(), { orgId: "org", instanceUrl: "https://sf.test", deals: [synced(owner, values)] }),
+    salesforceImport: (owner: string | null, account?: string | null, values: CrmValues = {}) => files["salesforceImportCanon.ts"].upsertDeals.handler(ctx(), {
       orgId: "org", instanceUrl: "https://sf.test", deals: [{
         sfId: "D1", name: "Big deal", currency: "USD", closeDate: "2026-12-01", stage: "prospecting", probability: 0.1, isClosed: false, isWon: false,
-        dealType: "new_business", revenueType: "one_time", ...(owner ? { memberId: id(owner) } : {}), ...(account === null ? {} : { accountSfId: account ?? "001A" }),
+        dealType: "new_business", revenueType: "one_time", ...Object.fromEntries(Object.entries(values).filter(([k]) => k !== "closedAt")),
+        ...(owner ? { memberId: id(owner) } : {}), ...(account === null ? {} : { accountSfId: account ?? "001A" }),
       }],
     }),
   };
@@ -61,7 +70,41 @@ function world() {
   return { db, ctx, deal, crm, write, owner, pageOwner, claims, facts, take, stream };
 }
 type CrmPath = keyof ReturnType<typeof world>["crm"];
+type CrmValues = Record<string, string | number | boolean>;
 const PATHS: CrmPath[] = ["hubspot", "salesforceSync", "salesforceImport"];
+/** Each CRM path with what it says about the deal. */
+const send = (w: ReturnType<typeof world>, path: CrmPath, values: CrmValues, owner = "ana") =>
+  path === "salesforceImport" ? w.crm.salesforceImport(owner, undefined, values) : w.crm[path](owner, values);
+/** A deal's every synced value, as two CRM snapshots say them. */
+const FIRST: CrmValues = { name: "Big deal", amount: 1000, closeDate: "2026-12-01", stage: "prospecting", forecastCategory: "pipeline", probability: 0.1, isClosed: false, isWon: false, dealType: "new_business" };
+const NEXT: CrmValues = { name: "Bigger deal", amount: 2500, closeDate: "2027-01-15", stage: "closed_won", forecastCategory: "closed_won", probability: 1, isClosed: true, isWon: true, dealType: "expansion", closedAt: Date.UTC(2027, 0, 15) };
+const SYNCED = ["name", "amount", "currency", "closeDate", "stage", "forecastCategory", "probability", "isClosed", "isWon", "dealType"] as const;
+const synced = (d: Record<string, unknown>) => Object.fromEntries(SYNCED.map((k) => [k, d[k] ?? null]));
+/** Database writes and ledger entries a call makes. */
+async function cost(w: ReturnType<typeof world>, run: () => Promise<unknown>) {
+  const db = w.db as any;
+  let writes = 0;
+  const real = { patch: db.patch, insert: db.insert, replace: db.replace, delete: db.delete };
+  for (const k of Object.keys(real) as Array<keyof typeof real>) db[k] = (...a: unknown[]) => (writes++, real[k](...a));
+  const entries = db.rows("ledgerEntries").length;
+  try { await run(); } finally { Object.assign(db, real); }
+  return { writes, entries: db.rows("ledgerEntries").length - entries };
+}
+
+// Pinned before the change: a deal no person touched takes every value each CRM sends, and an unchanged re-sync costs nothing.
+test("an untouched deal takes each CRM's values as before, and an unchanged re-sync appends and writes nothing", async () => {
+  for (const path of PATHS) {
+    const w = world();
+    await send(w, path, FIRST);
+    await send(w, path, NEXT);
+    const d = await w.deal();
+    assert.deepEqual(plain(synced(d)), { ...synced(NEXT), currency: "USD" }, path);
+    assert.equal(typeof d.closedAt, "number", path);
+    const again = await cost(w, () => send(w, path, NEXT));
+    assert.equal(again.entries, 0, path);
+    if (path !== "salesforceImport") assert.equal(again.writes, 0, path);
+  }
+});
 
 // Pinned before the change: a deal no person touched follows each CRM path's owner rules exactly as before.
 test("an untouched deal follows each CRM's owner, its unmapped owner and a rep from another workspace as before", async () => {
@@ -261,6 +304,121 @@ test("replaying a workspace's ledger reproduces a CRM that overwrote a person be
   assert.equal(project(def, state!).values.ownerId, "users:cy");
 });
 
+for (const path of PATHS) {
+  test(`${path}: every synced value a person set holds, and the stage and the amount are each noted once`, async () => {
+    const w = world();
+    await send(w, path, FIRST);
+    // A person's stage holds its whole group: the CRM's forecast, probability, closed, won and closed date don't land.
+    await w.write({ name: "Mine", amount: 777, closeDate: "2027-03-01", dealType: "renewal", stage: "negotiation" });
+    await send(w, path, NEXT);
+    const d = await w.deal();
+    assert.deepEqual(plain(synced(d)), { ...synced(FIRST), name: "Mine", amount: 777, closeDate: "2027-03-01", dealType: "renewal", stage: "negotiation", currency: "USD" }, path);
+    assert.equal(d.closedAt, undefined, path);
+    assert.deepEqual(w.claims().map((c: string) => c.split(":")[0]), ["amount", "closeDate", "dealType", "name", "stage"], path);
+    assert.equal((await cost(w, () => send(w, path, NEXT))).entries, 0, path);
+  });
+}
+
+test("using the CRM's stage hands back its whole group, dates the close, and the CRM's next outcome lands", async () => {
+  const w = world();
+  signedIn = await w.db.get("users:admin");
+  await w.crm.salesforceSync("ana", FIRST);
+  await w.write({ stage: "negotiation", forecastCategory: "commit" });
+  await w.crm.salesforceSync("ana", NEXT);
+  const notes = await (files["fieldClaims.ts"] as any).forDeal.handler(w.ctx(), { streamId: await w.stream() });
+  assert.deepEqual(plain(notes.map((n: any) => [n.field, n.values.map((v: any) => v.field)])), [["stage", ["stage", "forecastCategory", "probability", "isClosed", "isWon"]]]);
+  await w.take();
+  const d = await w.deal();
+  assert.deepEqual(plain([d.stage, d.forecastCategory, d.probability, d.isClosed, d.isWon, typeof d.closedAt, w.claims()]), ["closed_won", "closed_won", 1, true, true, "number", []]);
+  await w.crm.salesforceSync("ana", { ...NEXT, stage: "closed_lost", forecastCategory: "closed_lost", isWon: false, probability: 0 });
+  assert.deepEqual(plain([(await w.deal()).stage, (await w.deal()).isWon]), ["closed_lost", false]);
+});
+
+test("settling a contested field on a CRM's value hands it back to that CRM; on a person's, it holds", async () => {
+  for (const pick of ["salesforce", "user"] as const) {
+    const w = world();
+    signedIn = await w.db.get("users:admin");
+    await w.crm.salesforceSync("ana", FIRST);
+    await w.write({ name: "Their name" }, { kind: "salesforce", crmId: "D1" });
+    await w.write({ name: "My name" });
+    const fact = w.db.rows("facts").filter((f: any) => f.attribute === "name" && f.sourceKind === pick).at(-1);
+    await (files["canonGate.ts"] as any).resolveContested.handler(w.ctx(), { factId: fact!._id });
+    await w.crm.salesforceSync("ana", NEXT);
+    assert.equal((await w.deal()).name, pick === "salesforce" ? "Bigger deal" : "My name", pick);
+  }
+});
+
+test("settling on a CRM's stage needs every field of its group to be editable by the reviewer", async () => {
+  const w = world();
+  await w.db.insert("users", { _id: "users:mgr", orgId: "org", name: "mgr", role: "manager", isActive: true });
+  await w.db.insert("rolePermissions", { orgId: "org", role: "manager", rules: [{ object: "deal", fields: [{ apiName: "forecastCategory", level: "readOnly" }] }] });
+  signedIn = await w.db.get("users:mgr");
+  await w.crm.salesforceSync("ana", FIRST);
+  await w.write({ stage: "qualification", forecastCategory: "best_case" }, { kind: "salesforce", crmId: "D1" });
+  await w.write({ stage: "negotiation" });
+  const fact = w.db.rows("facts").filter((f: any) => f.attribute === "stage" && f.sourceKind === "salesforce").at(-1)!;
+  await assert.rejects((files["canonGate.ts"] as any).resolveContested.handler(w.ctx(), { factId: fact._id }), /forecastCategory|Forecast category|read-only/i);
+  assert.equal((await w.deal()).stage, "negotiation");
+});
+
+test("a Salesforce snapshot already seen leaves the closed date of a stage a person holds", async () => {
+  const w = world();
+  const snapshot = () => w.crm.salesforceImport("ana", undefined, { ...NEXT, modifiedAt: Date.UTC(2026, 9, 1) });
+  await snapshot();
+  await w.write({ stage: "negotiation", forecastCategory: "commit", isClosed: false, isWon: false });
+  assert.equal((await w.deal()).closedAt, undefined);
+  await snapshot();
+  assert.deepEqual(plain([(await w.deal()).isClosed, (await w.deal()).closedAt ?? null]), [false, null]);
+});
+
+/** The admin page (convex/crmDisagreements.ts): its list, a selection, and a job that runs its scheduled steps. */
+const page = files["crmDisagreements.ts"] as any;
+const listed = async (w: ReturnType<typeof world>, filter: Record<string, string> = {}) =>
+  plain((await page.list.handler(w.ctx(), { ...filter, paginationOpts: { numItems: 50, cursor: null } })).page.map((r: any) => `${r.field}:${r.provider}:${r.deal}`).sort());
+
+test("the disagreements page lists what each CRM says by field, filters by CRM and field, and shows nothing to a non-admin", async () => {
+  const w = world();
+  signedIn = await w.db.get("users:admin");
+  await w.crm.hubspot("ana", FIRST);
+  await w.write({ name: "Mine", stage: "negotiation" });
+  await w.crm.hubspot("ana", NEXT);
+  await w.crm.salesforceSync("ana", NEXT);
+  assert.deepEqual(await listed(w), ["name:hubspot:Mine", "name:salesforce:Mine", "stage:hubspot:Mine", "stage:salesforce:Mine"]);
+  assert.deepEqual(await listed(w, { provider: "salesforce", field: "stage" }), ["stage:salesforce:Mine"]);
+  signedIn = { ...(await w.db.get("users:ben")), role: "manager" };
+  assert.deepEqual(await listed(w), []);
+});
+
+test("using the CRM's values for a selection hands each field back to its CRM", async () => {
+  const w = world();
+  signedIn = await w.db.get("users:admin");
+  await w.crm.salesforceSync("ana", FIRST);
+  await w.write({ name: "Mine", stage: "negotiation" });
+  await w.crm.salesforceSync("ana", NEXT);
+  const ids = w.db.rows("parentDisagreements").map((d: any) => d._id);
+  const out = await page.useCrmValues.handler(w.ctx(), { ids });
+  const d = await w.deal();
+  assert.deepEqual(plain([out.taken, out.failed, d.name, d.stage, d.isWon, w.claims()]), [2, [], "Bigger deal", "closed_won", true, []]);
+});
+
+test("using the CRM's values for a whole filter runs as a job, step by step, and reports its progress", async () => {
+  const w = world();
+  signedIn = await w.db.get("users:admin");
+  const queued: Array<{ args: unknown }> = [];
+  const ctx = () => ({ ...w.ctx(), scheduler: { runAfter: async (_ms: number, _fn: unknown, args: unknown) => { queued.push({ args }); } } });
+  const deals = (name: (i: number) => string) => Array.from({ length: 25 }, (_, i) => ({ crmId: `J${i}`, name: name(i), closeDate: "2026-12-01", dealType: "new_business", revenueType: "one_time", isClosed: false, isWon: false }));
+  await files["hubspot.ts"].upsertDeals.handler(w.ctx(), { orgId: "org", deals: deals((i) => `Deal ${i}`) });
+  for (const d of w.db.rows("deals")) await canon.saveDealValues(w.ctx(), d, { kind: "user", userId: "users:admin" }, { name: `${d.name} (mine)` });
+  await files["hubspot.ts"].upsertDeals.handler(w.ctx(), { orgId: "org", deals: deals((i) => `Deal ${i} renamed`) });
+  assert.equal(w.claims().length, 25);
+  await page.startUseAll.handler(ctx(), { provider: "hubspot", field: "name" });
+  let steps = 0;
+  while (queued.length) { await page.runJob.handler(ctx(), queued.shift()!.args); steps++; }
+  const { job } = await page.status.handler(w.ctx(), {});
+  assert.deepEqual(plain([steps > 1, job.status, job.taken, job.failed, w.claims().length]), [true, "done", 25, 0, 0]);
+  assert.ok(w.db.rows("deals").every((d: any) => d.name.endsWith("renamed")));
+});
+
 /**
  * Every file that writes field values to the deal and party ledgers, and as whom. An `integration` is a CRM: it writes
  * through the ledger as its CRM record (lib/canon/personHold.ts holds a person's values against it) and never patches
@@ -294,8 +452,12 @@ const FIELD_WRITERS: Record<string, "integration" | "person" | "import" | "canon
   "convex/devPerfSeed.ts": "seed",
   "convex/sampleData.ts": "seed",
 };
-/** The deal columns a person holds that a ledger write projects: only the deal writer patches them. */
-const HELD_COLUMNS = ["primaryRepId", "companyId"];
+/**
+ * The deal columns a person holds that a ledger write projects (lib/canon/personHold.ts): only the deal writer patches
+ * them. The owner and company never reach a row from a CRM path; the rest may start a new deal's row.
+ */
+const HELD_COLUMNS = PERSON_HELD_FIELDS.deal!.map((f) => (f === "ownerId" ? "primaryRepId" : f));
+const NEVER_INSERTED = ["primaryRepId", "companyId"];
 
 /** The text of each call's arguments, from `start` to its closing parenthesis. */
 function callArgs(source: string, start: RegExp): string[] {
@@ -324,10 +486,20 @@ test("every field writer is listed, and no CRM path writes a held column to the 
   for (const dir of ["convex", "modules/kernel", "services/record-service/src"]) walk(join(root, dir));
   assert.deepEqual(found.sort(), Object.keys(FIELD_WRITERS).sort());
   // A CRM path's row values are built in its own file, or for HubSpot in lib/hubspotSyncValue.ts.
-  for (const file of [...Object.keys(FIELD_WRITERS).filter((f) => FIELD_WRITERS[f] === "integration"), "convex/lib/hubspotSyncValue.ts"]) {
-    const source = readFileSync(join(root, file), "utf8");
+  const sources = [...Object.keys(FIELD_WRITERS).filter((f) => FIELD_WRITERS[f] === "integration"), "convex/lib/hubspotSyncValue.ts"].map((file) => [file, readFileSync(join(root, file), "utf8")] as const);
+  for (const [file, source] of sources) {
     // What a CRM path writes to a row: each db write's arguments, and the row values its sync builds (`…SyncValue`).
     const writes = [...callArgs(source, /ctx\.db\.(?:patch|insert|replace)\(/g), ...source.split(/function \w+SyncValue\(/).slice(1).map((t) => t.split("\n}\n")[0]!)];
-    for (const text of writes) for (const column of HELD_COLUMNS) assert.doesNotMatch(text, new RegExp(`\\b${column}\\b`), `${file} writes ${column} to a row: ${text.slice(0, 120)}`);
+    for (const text of writes) for (const column of NEVER_INSERTED) assert.doesNotMatch(text, new RegExp(`\\b${column}\\b`), `${file} writes ${column} to a row: ${text.slice(0, 120)}`);
+    // A deal's handlers patch none of its held columns, and its row builder (`deal…SyncValue`) names none: what the CRM
+    // says about them (`deal…SyncValues`) goes to the ledger, or starts a new row.
+    const dealHandlers = source.split(/\nexport const (?:prepareDeals|upsertDeals) = /).slice(1).map((t) => t.split(/\n(?:export )?(?:const|function|async function) /)[0]!);
+    const dealWrites = [...dealHandlers.flatMap((t) => callArgs(t, /ctx\.db\.(?:patch|replace)\(/g)), ...source.split(/function deal\w*SyncValue\(/).slice(1).map((t) => t.split("\n}\n")[0]!)];
+    for (const text of dealWrites) {
+      assert.doesNotMatch(text, /SyncValues\(/, `${file} patches a deal with the CRM's values: ${text.slice(0, 120)}`);
+      for (const column of HELD_COLUMNS) assert.doesNotMatch(text, new RegExp(`\\b${column}\\b`), `${file} writes ${column} to a deal's row: ${text.slice(0, 120)}`);
+    }
   }
+  // The census sees each CRM path's deal handlers.
+  assert.equal(sources.filter(([, t]) => /\nexport const upsertDeals = /.test(t)).length, 3);
 });

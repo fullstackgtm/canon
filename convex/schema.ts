@@ -1145,13 +1145,34 @@ export default defineSchema({
     crmLabel: v.optional(v.string()),
     /**
      * A field a person holds (lib/canon/personHold.ts), with `association: "field"`: `accountId` is the record's
-     * stream, `attribute` the field, `crmValue` the CRM's value, and `crmParentId` null.
+     * stream, `attribute` the field, `crmValue` the CRM's value, and `crmParentId` null. For fields that move together
+     * (a deal's stage, forecast category, probability, closed and won), `attribute` is the group's lead field and
+     * `crmValues` what the CRM says each field of it is.
      */
     attribute: v.optional(v.string()),
     crmValue: v.optional(objectValidators.factValue),
+    crmValues: v.optional(v.array(v.object({ attribute: v.string(), value: objectValidators.factValue }))),
   })
     .index("by_orgId_and_accountId_and_crmRef", ["orgId", "accountId", "crmRef"])
-    .index("by_orgId_and_association_and_attribute", ["orgId", "association", "attribute"]),
+    .index("by_orgId_and_association_and_attribute", ["orgId", "association", "attribute"])
+    .index("by_orgId_and_association_and_provider_and_attribute", ["orgId", "association", "provider", "attribute"]),
+  /**
+   * An admin using the CRM's values for every disagreement under a filter (convex/crmDisagreements.ts startUseAll),
+   * a page per step, as the admin who started it. One runs per workspace at a time; `cursor` is where it is.
+   */
+  crmDisagreementJobs: defineTable({
+    orgId: v.id("organizations"),
+    createdBy: v.id("users"),
+    provider: v.optional(v.union(v.literal("salesforce"), v.literal("hubspot"))),
+    field: v.optional(v.string()),
+    status: v.union(v.literal("running"), v.literal("done"), v.literal("cancelled"), v.literal("failed")),
+    cursor: v.union(v.string(), v.null()),
+    taken: v.number(),
+    failed: v.number(),
+    lastError: v.optional(v.string()),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+  }).index("by_orgId", ["orgId"]),
   integrations: defineTable({
     orgId: v.id("organizations"),
     provider: v.union(

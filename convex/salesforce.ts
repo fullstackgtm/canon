@@ -10,7 +10,8 @@ import {
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireCap, scopeUserToActiveOrg } from "./lib";
-import { crmAccountEntity, crmContactEntity, dealEntity, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDeal, SYNCED_DEAL_ATTRIBUTES } from "./canon";
+import { crmAccountEntity, crmContactEntity, dealEntity, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDealValues } from "./canon";
+import { crmDealValues } from "./lib/canon/dealLedger";
 import { shardOf } from "./lib/objects/write";
 import { syncPartyBatch } from "./lib/canon/partyLedger";
 import { NOT_WRITTEN, SYNC_STAMP_MS, syncFingerprint, unchangedRow } from "./lib/syncUnchanged";
@@ -531,35 +532,44 @@ function contactSyncValue(contact: Infer<typeof syncContactRow>, accountId: Id<"
 }
 
 /**
- * What a sync writes to a deal's row, before the ledger projects it. The owner is not among them: it goes through the
- * ledger (saveDeal's `ownerId`), which leaves an owner a person chose as it is (lib/canon/personHold.ts).
+ * What Salesforce says a deal's ledger fields are (canon.ts SYNCED_DEAL_ATTRIBUTES). They reach the row through the
+ * ledger, which leaves a value a person set as it is (lib/canon/personHold.ts); a new row starts from them.
  */
-function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccounts"> | undefined, instanceUrl: string, now: number) {
+function dealSyncValues(deal: Infer<typeof syncDealRow>) {
   return {
     name: deal.name,
     amount: deal.amount,
     currency: "USD",
     closeDate: deal.closeDate,
     dealType: deal.dealType,
-    revenueType: deal.revenueType,
     crmOwnerId: deal.crmOwnerId,
-    accountId,
     stage: deal.stage,
     forecastCategory: deal.forecastCategory,
     probability: deal.probability,
+    isClosed: deal.isClosed,
+    isWon: deal.isWon,
+  };
+}
+
+/**
+ * The columns a sync writes to a deal's row itself: its Salesforce link, raw record and sync time. Every field a
+ * person can hold is in dealSyncValues instead, and so is the owner (saveDealValues' `ownerId`).
+ */
+function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccounts"> | undefined, instanceUrl: string, now: number) {
+  return {
+    revenueType: deal.revenueType,
+    accountId,
     crmProvider: PROVIDER,
     crmUrl: `${instanceUrl}/lightning/r/Opportunity/${deal.crmId}/view`,
     rawData: deal.rawData,
-    isClosed: deal.isClosed,
-    isWon: deal.isWon,
     closedAt: deal.closedAt,
     lastSyncAt: now,
     updatedAt: now,
   };
 }
 
-/** The fingerprint of what a sync last sent for a deal, the owner included: the same as before the owner left the row's patch. */
-const dealSyncHash = (deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>) => syncFingerprint({ ...value, primaryRepId: deal.primaryRepId });
+/** The fingerprint of what a sync last sent for a deal, its values and owner included: the same as when they were all the row's patch. */
+const dealSyncHash = (deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>) => syncFingerprint({ ...value, ...dealSyncValues(deal), primaryRepId: deal.primaryRepId });
 
 /** A sync's unchanged rows: their Salesforce ids, and the rows among them whose daily sync time is due. */
 type UnchangedRows<T extends "crmAccounts" | "crmContacts" | "deals"> = { unchanged: string[]; stamp: Array<Id<T>> };
@@ -818,7 +828,8 @@ export const prepareDeals = internalMutation({
         .withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", deal.crmId))
         .first();
       const row = existing ?? (await ctx.db.get(await ctx.db.insert("deals", {
-        orgId: args.orgId, crmId: deal.crmId, ...dealSyncValue(deal, deal.accountId ?? (await accountOf(deal.accountCrmId)), args.instanceUrl, now), lastSyncAt: NOT_WRITTEN, archivedAt: now, createdAt: now,
+        orgId: args.orgId, crmId: deal.crmId, ...dealSyncValue(deal, deal.accountId ?? (await accountOf(deal.accountCrmId)), args.instanceUrl, now), ...dealSyncValues(deal),
+        lastSyncAt: NOT_WRITTEN, archivedAt: now, createdAt: now,
       })));
       const entityId = row && (await dealEntity(ctx, row, { kind: "salesforce", crmId: deal.crmId }));
       shards.push({ crmId: deal.crmId, shard: entityId ? shardOf(entityId) : null });
@@ -866,22 +877,19 @@ export const upsertDeals = internalMutation({
         results.updated++;
         continue;
       }
-      let dealId;
-      if (existing) {
-        // A deal prepareDeals made goes live with its first write.
-        const prepared = existing.lastSyncAt === NOT_WRITTEN;
-        await ctx.db.patch(existing._id, { ...value, syncHash, ...(prepared ? { archivedAt: undefined } : {}) });
-        dealId = existing._id;
-        if (prepared) results.created++;
-        else results.updated++;
-      } else {
-        dealId = await ctx.db.insert("deals", { orgId: args.orgId, crmId: deal.crmId, ...value, createdAt: now, syncHash });
-        results.created++;
-      }
-      // Deal ledger: record what salesforce says; the row ends as the projection.
-      const row = await ctx.db.get(dealId);
+      // A new deal's row starts from what Salesforce says; an existing one's values reach it through the ledger, which
+      // leaves those a person set as they are (lib/canon/personHold.ts), and the sync's own columns ride along. A deal
+      // prepareDeals made goes live with its first write.
+      const prepared = existing?.lastSyncAt === NOT_WRITTEN;
+      const row = existing ?? (await ctx.db.get(await ctx.db.insert("deals", { orgId: args.orgId, crmId: deal.crmId, ...value, ...dealSyncValues(deal), createdAt: now, syncHash })));
+      if (!existing || prepared) results.created++;
+      else results.updated++;
       // The `facts` mirror follows from its queue, off this transaction (convex/canon.ts queuePartyMirror).
-      if (row) await saveDeal(ctx, row, { kind: "salesforce", crmId: deal.crmId, rawData: deal.rawData }, SYNCED_DEAL_ATTRIBUTES, now, { deferMirror: true, owner: deal.primaryRepId ?? null });
+      if (row) {
+        await saveDealValues(ctx, row, { kind: "salesforce", crmId: deal.crmId, rawData: deal.rawData }, { ...crmDealValues(dealSyncValues(deal)), ownerId: deal.primaryRepId ?? null }, {
+          now, deferMirror: true, ...(existing ? { columns: { ...value, syncHash, ...(prepared ? { archivedAt: undefined } : {}) } } : {}),
+        });
+      }
     }
 
     return results;
