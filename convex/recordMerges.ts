@@ -7,7 +7,7 @@
  * service has projected it, so the list the caller reloads is current. Only admins and managers merge.
  */
 import { can, refusal } from "./lib/capabilities";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { action, internalMutation, internalQuery, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -16,7 +16,7 @@ import { accessFor, sightJudge } from "./permissions";
 import { visibleIds } from "./lib/scopedRecordClient";
 import { identitySeed, partyStores, saveDealValues } from "./canon";
 import { edgeStore } from "./associations";
-import { callerClient, clientFor, contactSnapshotOf, recordSnapshotOf, requireCaller } from "./records";
+import { callerClient, clientFor, contactSnapshotOf, recordSnapshotOf, requireCaller, type ActionCaller } from "./records";
 import { lockedFields, may } from "./lib/access";
 import { foldAll, project, type LedgerEntry } from "./lib/objects/fold";
 import { WRITE_FOLD_CAP } from "./lib/objects/write";
@@ -80,15 +80,24 @@ async function asMergeError<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Write a merge in one transaction and keep its undo. Returns the merge's id. */
+/** A merge as its transaction writes it: the parties as the register named them, the picks, and what moves. */
+export const mergeWriteArgs = v.object({
+  orgId: v.id("organizations"), userId: v.id("users"), object, mergeId: v.string(),
+  survivor: party, losers: v.array(party), picks: v.record(v.string(), v.string()),
+  seeds: v.array(v.object({ contactId: v.string(), accountId: v.string() })), activityIds: v.array(v.string()),
+});
+export type MergeWrite = Infer<typeof mergeWriteArgs>;
+
+/** Write a merge in one transaction and keep its undo. */
 export const apply = internalMutation({
-  args: {
-    orgId: v.id("organizations"), userId: v.id("users"), object, mergeId: v.string(),
-    survivor: party, losers: v.array(party), picks: v.record(v.string(), v.string()),
-    seeds: v.array(v.object({ contactId: v.string(), accountId: v.string() })), activityIds: v.array(v.string()),
-  },
+  args: mergeWriteArgs.fields,
   returns: v.null(),
-  handler: async (ctx, a) => asMergeError(async () => {
+  handler: (ctx, a) => writeMerge(ctx, a),
+});
+
+/** A merge in the caller's transaction, so another write can commit with it (an approved account hierarchy merge). */
+export async function writeMerge(ctx: MutationCtx, a: MergeWrite): Promise<null> {
+  return asMergeError(async () => {
     const now = Date.now();
     if (await mergeOf(ctx, a.orgId, a.mergeId)) throw new MergeError("This merge was already made");
     const seed = (entityId: string) => identitySeed(ctx, entityId as Id<"canonEntities">);
@@ -103,8 +112,8 @@ export const apply = internalMutation({
       undo: JSON.stringify(undo), mergedBy: a.userId, mergedAt: now,
     });
     return null;
-  }),
-});
+  });
+}
 
 async function mergeOf(ctx: { db: QueryCtx["db"] }, orgId: Id<"organizations">, mergeId: string): Promise<Doc<"recordMerges"> | null> {
   return ctx.db.query("recordMerges").withIndex("by_orgId_and_mergeId", (q) => q.eq("orgId", orgId).eq("mergeId", mergeId)).unique();
@@ -245,50 +254,60 @@ async function partyOf(client: RecordClient, orgId: string, obj: PartyObject, ro
  */
 export const merge = action({
   args: { object, survivorId: v.string(), loserIds: v.array(v.string()), picks: v.record(v.string(), v.string()) },
-  handler: async (ctx, a): Promise<{ mergeId: string; survivorId: string }> => {
-    const ids = [a.survivorId, ...a.loserIds];
-    checkIds(ids);
-    const caller = await requireCaller(ctx);
-    if (!mayMerge(caller)) throw new ConvexError("Only admins and managers can merge records");
-    // A merge shows and picks every field of every record: not for a role with a hidden or read-only one (CP14).
-    if (lockedFields(caller.access, a.object).length) throw new ConvexError("Merging needs every field visible and editable for your role; ask an admin");
-    // A merge edits the survivor and deletes the others: the caller's role does both and sees every one (CP14).
-    if (!may(caller.access, a.object, "edit") || !may(caller.access, a.object, "delete")) throw new ConvexError("Your role cannot merge these records");
-    const client = callerClient(ctx, caller);
-    const rows = await liveRows(client, caller.orgId, a.object, ids);
-    // The caller's client chose the rows; a stream starts from the whole row (lib/recordPromotion.ts).
-    const parties = await Promise.all(rows.map((r) => partyOf(clientFor(ctx), caller.orgId, a.object, r)));
-    // The people whose company nobody has worked yet: their register company becomes their first edge.
-    const seeds = a.object === "account"
-      ? (await Promise.all(a.loserIds.map((id) => client.listContacts(caller.orgId, { filter: { accountId: id }, limit: PEOPLE_PER_COMPANY }))))
-        .flatMap((page) => page.rows.map((c) => ({ contactId: c.id, accountId: c.accountId })))
-      : rows.flatMap((r) => (r.accountId ? [{ contactId: r.id, accountId: r.accountId }] : []));
-    const lookups = await linkedActivities(client, caller.orgId, { field: a.object === "account" ? "accountId" : "contactId", id: a.loserIds });
-    const mergeId = crypto.randomUUID();
-    await ctx.runMutation(internal.recordMerges.apply, {
-      orgId: caller.orgId as Id<"organizations">, userId: caller.userId as Id<"users">, object: a.object, mergeId,
-      survivor: parties[0], losers: parties.slice(1), picks: a.picks, seeds: seeds.filter((s) => s.accountId), activityIds: lookups.activities.map((x) => x.id),
-    });
-    await settle(ctx, client, caller.orgId);
-    return { mergeId, survivorId: a.survivorId };
-  },
+  handler: async (ctx, a): Promise<{ mergeId: string; survivorId: string }> => mergeAs(ctx, await requireCaller(ctx), a),
 });
+
+/**
+ * A merge as `caller`, with their role's checks and their sight of every record (CP14). `write` commits it:
+ * by default its own transaction (`apply`); an approved account hierarchy merge commits its decision with it.
+ */
+export async function mergeAs(
+  ctx: ActionCtx, caller: ActionCaller, a: { object: PartyObject; survivorId: string; loserIds: readonly string[]; picks: Record<string, string> },
+  write: (merge: MergeWrite) => Promise<unknown> = (merge) => ctx.runMutation(internal.recordMerges.apply, merge),
+): Promise<{ mergeId: string; survivorId: string }> {
+  const ids = [a.survivorId, ...a.loserIds];
+  checkIds(ids);
+  if (!mayMerge(caller)) throw new ConvexError("Only admins and managers can merge records");
+  // A merge shows and picks every field of every record: not for a role with a hidden or read-only one (CP14).
+  if (lockedFields(caller.access, a.object).length) throw new ConvexError("Merging needs every field visible and editable for your role; ask an admin");
+  // A merge edits the survivor and deletes the others: the caller's role does both and sees every one (CP14).
+  if (!may(caller.access, a.object, "edit") || !may(caller.access, a.object, "delete")) throw new ConvexError("Your role cannot merge these records");
+  const client = callerClient(ctx, caller);
+  const rows = await liveRows(client, caller.orgId, a.object, ids);
+  // The caller's client chose the rows; a stream starts from the whole row (lib/recordPromotion.ts).
+  const parties = await Promise.all(rows.map((r) => partyOf(clientFor(ctx), caller.orgId, a.object, r)));
+  // The people whose company nobody has worked yet: their register company becomes their first edge.
+  const seeds = a.object === "account"
+    ? (await Promise.all(a.loserIds.map((id) => client.listContacts(caller.orgId, { filter: { accountId: id }, limit: PEOPLE_PER_COMPANY }))))
+      .flatMap((page) => page.rows.map((c) => ({ contactId: c.id, accountId: c.accountId })))
+    : rows.flatMap((r) => (r.accountId ? [{ contactId: r.id, accountId: r.accountId }] : []));
+  const lookups = await linkedActivities(client, caller.orgId, { field: a.object === "account" ? "accountId" : "contactId", id: a.loserIds });
+  const mergeId = crypto.randomUUID();
+  await write({
+    orgId: caller.orgId as Id<"organizations">, userId: caller.userId as Id<"users">, object: a.object, mergeId,
+    survivor: parties[0], losers: parties.slice(1), picks: a.picks, seeds: seeds.filter((s) => s.accountId), activityIds: lookups.activities.map((x) => x.id),
+  });
+  await settle(ctx, client, caller.orgId);
+  return { mergeId, survivorId: a.survivorId };
+}
 
 /** Undo a merge from its history entry: the merged records, their edges and the survivor's values come back. */
 export const undo = action({
   args: { mergeId: v.string() },
-  handler: async (ctx, a): Promise<{ kept: string[] }> => {
-    const caller = await requireCaller(ctx);
-    if (!mayMerge(caller)) throw new ConvexError("Only admins and managers can undo a merge");
-    if (caller.access.preview) throw new ConvexError(`You are viewing as ${caller.access.preview.asName}: changes are off until you exit the preview`);
-    // Undo restores the losers: only a merge whose survivor the caller sees (CP14).
-    const merge = await ctx.runQuery(internal.recordMerges.survivorOf, { orgId: caller.orgId as Id<"organizations">, mergeId: a.mergeId });
-    if (!merge || !(await visibleIds(callerClient(ctx, caller), caller.orgId, merge.object, [merge.survivorId])).has(merge.survivorId)) throw new ConvexError("Merge not found");
-    const out = await ctx.runMutation(internal.recordMerges.revert, { orgId: caller.orgId as Id<"organizations">, userId: caller.userId as Id<"users">, mergeId: a.mergeId });
-    await settle(ctx, clientFor(ctx), caller.orgId);
-    return { kept: out.kept };
-  },
+  handler: async (ctx, a): Promise<{ kept: string[] }> => undoAs(ctx, await requireCaller(ctx), a.mergeId),
 });
+
+/** Undo a merge as `caller`: an admin or manager who sees its survivor. */
+export async function undoAs(ctx: ActionCtx, caller: ActionCaller, mergeId: string): Promise<{ kept: string[] }> {
+  if (!mayMerge(caller)) throw new ConvexError("Only admins and managers can undo a merge");
+  if (caller.access.preview) throw new ConvexError(`You are viewing as ${caller.access.preview.asName}: changes are off until you exit the preview`);
+  // Undo restores the losers: only a merge whose survivor the caller sees (CP14).
+  const merge = await ctx.runQuery(internal.recordMerges.survivorOf, { orgId: caller.orgId as Id<"organizations">, mergeId });
+  if (!merge || !(await visibleIds(callerClient(ctx, caller), caller.orgId, merge.object, [merge.survivorId])).has(merge.survivorId)) throw new ConvexError("Merge not found");
+  const out = await ctx.runMutation(internal.recordMerges.revert, { orgId: caller.orgId as Id<"organizations">, userId: caller.userId as Id<"users">, mergeId });
+  await settle(ctx, clientFor(ctx), caller.orgId);
+  return { kept: out.kept };
+}
 
 /** A merge as its history entry shows it: who merged what, and whether it was undone. */
 export const get = query({

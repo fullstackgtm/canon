@@ -201,7 +201,7 @@ function Proposal({
           Researched {finishedAt ? new Date(finishedAt).toLocaleString() : ""} by {model ?? "ChatGPT"}. Only claims whose quote was found on the cited page
           became items.{" "}
           {canon
-            ? "Approving a parent move or a field fix changes the company in Canon now, as your own edit, so a CRM's next value doesn't replace it; undo puts the previous value back. Approving a merge only records your decision."
+            ? "Approving changes Canon now, as you. A parent move or a field fix is your own edit, so a CRM's next value doesn't replace it. A merge moves the duplicate's people, deals, links and facts to the company kept. Undo puts things back."
             : "This scan read Salesforce, so approving only records your decision: nothing changes in Canon or Salesforce."}{" "}
           Nothing is written to a CRM.
         </p>
@@ -232,8 +232,8 @@ function Proposal({
                             </p>
                           ))}
                       </div>
-                      {canon && it.op !== "merge" ? (
-                        <AppliedDecision kind={it.op === "set_parent" ? "parent" : "fields"} researchId={researchId} itemKey={it.key} decision={decisions[it.key]} canDecide={canDecide} />
+                      {canon ? (
+                        <AppliedDecision kind={it.op} researchId={researchId} itemKey={it.key} decision={decisions[it.key]} canDecide={canDecide} />
                       ) : (
                         <Decision researchId={researchId} itemKey={it.key} decision={decisions[it.key]} canDecide={canDecide} />
                       )}
@@ -292,7 +292,7 @@ function ItemText({ item, nm }: { item: HierarchyItem; nm: (id: string | null) =
     const fill = Object.entries(item.fill);
     return (
       <p>
-        Merge <b>{nm(item.loserId)}</b> into <b>{nm(item.survivorId)}</b>: {item.why}. Moves {item.moves}.
+        Merge <b>{nm(item.loserId)}</b> into <b>{nm(item.survivorId)}</b>, which is kept: {item.why}. Moves {item.moves}.
         {fill.length > 0 && ` Survivor takes blank fields: ${fill.map(([k, v]) => `${k} = ${v}`).join(", ")}.`}
       </p>
     );
@@ -313,7 +313,7 @@ function ItemText({ item, nm }: { item: HierarchyItem; nm: (id: string | null) =
 
 const when = (d: ItemDecision) => `${d.decidedBy}, ${new Date(d.appliedAt ?? d.decidedAt).toLocaleString()}`;
 
-/** A decision that is only recorded: merges, and every item on a Salesforce scan. */
+/** A decision that is only recorded: every item on a Salesforce scan. */
 function Decision({ researchId, itemKey, decision, canDecide }: { researchId: Id<"hierarchyResearch">; itemKey: string; decision?: ItemDecision; canDecide: boolean }) {
   const decide = useMutation(api.accountHierarchy.decide);
   const set = (d: "approved" | "rejected" | "clear") => decide({ researchId, itemKey, decision: d }).catch((e) => toast.error(getErrorMessage(e)));
@@ -335,15 +335,15 @@ function Decision({ researchId, itemKey, decision, canDecide }: { researchId: Id
   );
 }
 
-/** A Canon scan's parent move or field fix: approving changes the company in Canon, and undo puts the previous value back. */
-function AppliedDecision({ kind, researchId, itemKey, decision, canDecide }: { kind: "parent" | "fields"; researchId: Id<"hierarchyResearch">; itemKey: string; decision?: ItemDecision; canDecide: boolean }) {
+/** A Canon scan's item: approving changes Canon (a parent, fields, or a merge), and undo puts it back. */
+function AppliedDecision({ kind, researchId, itemKey, decision, canDecide }: { kind: HierarchyItem["op"]; researchId: Id<"hierarchyResearch">; itemKey: string; decision?: ItemDecision; canDecide: boolean }) {
   const decide = useMutation(api.accountHierarchy.decide);
-  const approveParent = useAction(api.accountHierarchy.approveParent);
-  const undoParent = useAction(api.accountHierarchy.undoParent);
-  const approveFields = useAction(api.accountHierarchy.approveFields);
-  const undoFields = useAction(api.accountHierarchy.undoFields);
-  const approve = kind === "parent" ? approveParent : approveFields;
-  const undo = kind === "parent" ? undoParent : undoFields;
+  const actions = {
+    set_parent: [useAction(api.accountHierarchy.approveParent), useAction(api.accountHierarchy.undoParent)],
+    set_fields: [useAction(api.accountHierarchy.approveFields), useAction(api.accountHierarchy.undoFields)],
+    merge: [useAction(api.accountHierarchy.approveMerge), useAction(api.accountHierarchy.undoMerge)],
+  } as const;
+  const [approve, undo] = actions[kind];
   const [busy, setBusy] = useState(false);
   async function run(task: () => Promise<{ status: string; message?: string } | null>) {
     setBusy(true);

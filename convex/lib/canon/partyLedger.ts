@@ -578,10 +578,18 @@ async function holds(s: PartyStores, orgId: string, object: PartyObject, streamI
   return Object.entries(expect).every(([field, value]) => (values[field] ?? null) === value);
 }
 
-/** Whether a register row's stream holds `values` now (field to value, null for none): false for a row with no stream. */
-export async function recordHolds(s: PartyStores, a: { orgId: string; object: PartyObject; recordId: string; values: Readonly<Record<string, string | null>> }): Promise<boolean> {
-  const streamId = await s.objects.findByExternalId(a.orgId, a.object === "account" ? ID.recordAccount : ID.recordContact, a.recordId);
-  return streamId !== null && (await holds(s, a.orgId, a.object, streamId, a.values));
+/**
+ * Whether a register row holds `values` now (field to value, null for none): its stream (`streamId`, else the one its
+ * record id names), or the row as it is (`snapshot`) when it has none. False for a row with neither.
+ */
+export async function recordHolds(s: PartyStores, a: {
+  orgId: string; object: PartyObject; recordId: string; values: Readonly<Record<string, string | null>>;
+  streamId?: string; snapshot?: RecordAccountSnapshot | RecordContactSnapshot;
+}): Promise<boolean> {
+  const streamId = a.streamId ?? await s.objects.findByExternalId(a.orgId, a.object === "account" ? ID.recordAccount : ID.recordContact, a.recordId);
+  if (streamId !== null) return holds(s, a.orgId, a.object, streamId, a.values, a.snapshot);
+  const row: Record<string, unknown> = { ...(a.snapshot ?? {}) };
+  return a.snapshot !== undefined && Object.entries(a.values).every(([field, value]) => (row[field] ?? null) === value);
 }
 
 /** A register row as a write about it names it: its record id, the row as it is now, and the stream it is linked to, if any. */
