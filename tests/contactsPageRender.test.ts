@@ -16,7 +16,7 @@ const { outputText } = ts.transpileModule(source, {
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
 });
 const stubs: Record<string, unknown> = {
-  "@/components/integration-gate": { IntegrationGate: ({ children }: { children: ReactNode }) => children },
+  "@/components/integration-gate": { CapabilityGate: ({ children }: { children: ReactNode }) => children },
   "next/link": { default: empty },
   "convex/react": {
     useAction: () => async () => undefined,

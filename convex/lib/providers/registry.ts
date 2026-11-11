@@ -4,12 +4,12 @@
  * workspace's own key first (bring your own key), then the deployment's key, else nothing, with a reason that names
  * the keys that would turn it on. Names only: no value of a key ever passes through here.
  *
- * Email finding runs through it (emailFind.ts). tests/providerCensus.test.ts lists every other provider call site and
- * fails on a new one, or on an email lookup that skips this registry.
+ * Email finding (emailFind.ts) and LinkedIn (linkedin.ts) run through it. tests/providerCensus.test.ts lists every
+ * other provider call site and fails on a new one, or on a call for a capability here that skips this registry.
  *
  * Pure: no database access, no network, no Node-only imports.
  */
-import { PROVIDER_CAPABILITIES, type ProviderCapability, type ProviderDecl, type ProviderKey } from "../../../modules/kernel/providers.ts";
+import { PROVIDER_CAPABILITIES, type ProviderCapability, type ProviderConsent, type ProviderDecl, type ProviderKey, type ProviderLimit } from "../../../modules/kernel/providers.ts";
 import { INTEGRATIONS_AVAILABLE, type IntegrationEnv } from "../integrationsAvailable.ts";
 
 /** Work-email lookups a workspace may run per UTC day (one paid treg/Hunter lookup each, billed only on a hit). */
@@ -40,6 +40,14 @@ export const PROVIDERS = {
     keys: deploymentKeys("treg"),
     cost: "free",
     limits: [{ max: EMAIL_LOOKUPS_PER_DAY, per: "day", counts: "calls" }, { max: PAID_EMAIL_HITS_PER_MONTH, per: "month", counts: "hits" }],
+  },
+  unipile: {
+    id: "unipile",
+    label: "Unipile",
+    capabilities: ["linkedin.send", "linkedin.read"],
+    keys: deploymentKeys("unipile"),
+    cost: "free",
+    consent: [{ by: "member", terms: "Each member links their own LinkedIn account and paces its invites and messages under LinkedIn's limits." }],
   },
 } as const satisfies Record<string, ProviderDecl>;
 
@@ -127,4 +135,36 @@ export class ProviderUnavailable extends Error {
     this.name = "ProviderUnavailable";
     this.capability = resolution.capability;
   }
+}
+
+/** The record actions a capability serves: the app shows each only where a provider can serve it. */
+export const ACTION_CAPABILITIES: Readonly<Record<string, ProviderCapability>> = {
+  "kernel.findEmail": "email.find",
+  "kernel.queueLinkedin": "linkedin.send",
+};
+
+/** The capabilities the registry serves, in contract order. */
+export const SERVED_CAPABILITIES = (Object.keys(PROVIDER_CAPABILITIES) as ProviderCapability[]).filter((c) => serving(c).length);
+
+/** One provider as Settings shows it under a capability: whether its keys are set and where each comes from. Names only. */
+export type ProviderRow = {
+  id: ProviderId; label: string; source: KeySource; ready: boolean; serving: boolean;
+  keys: { name: string; label?: string; source: KeySource; set: boolean }[];
+  cost: ProviderDecl["cost"]; limits: readonly ProviderLimit[]; consent: readonly ProviderConsent[];
+};
+export type CapabilityRow = { capability: ProviderCapability; label: string; ready: boolean; reason: string | null; providers: ProviderRow[] };
+
+/** Every capability the registry serves, with the provider that serves it here and every one that could. */
+export function providerSettings(inputs: ResolutionInputs): CapabilityRow[] {
+  return SERVED_CAPABILITIES.map((capability) => {
+    const resolution = resolveCapability(capability, inputs);
+    const first = resolution.chain[0]?.provider;
+    const providers = serving(capability).map((d): ProviderRow => ({
+      id: d.id as ProviderId, label: d.label, source: sourceOf(d), ready: ready(d, inputs), serving: d.id === first,
+      keys: d.keys.map((k) => ({ ...k, set: k.source === "workspace" ? inputs.workspace.has(d.id) : Boolean(inputs.env[k.name]?.trim()) })),
+      cost: d.cost, limits: d.limits ?? [], consent: d.consent ?? [],
+    }));
+    providers.sort((a, b) => Number(b.source === "workspace") - Number(a.source === "workspace"));
+    return { capability, label: PROVIDER_CAPABILITIES[capability].label, ready: resolution.chain.length > 0, reason: resolution.reason, providers };
+  });
 }

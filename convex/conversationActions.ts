@@ -14,7 +14,7 @@ import { internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { BackfillStep, EmailIntakeAccount, IntakeAccount } from "./conversations";
-import { unipileEnv } from "./linkedinActions";
+import { linkedinClient, unipileEnv } from "./lib/providers/linkedin";
 import { principalClient } from "./records";
 import { isOurSide, teamOf, type Team } from "./lib/calls/suggestions";
 import { intakeMailOf, mailVerdict, type IntakeMail, type MailPerson } from "./lib/conversations/email";
@@ -95,9 +95,9 @@ export const backfillLinkedin = internalAction({
   args: { accountId: v.id("linkedinAccounts") },
   handler: async (ctx, args) => {
     const state: BackfillStep = await ctx.runQuery(internal.conversations.backfillState, args);
-    const env = unipileEnv();
-    if (!state.run || state.channel !== "linkedin" || !env) {
-      await ctx.runMutation(internal.conversations.backfillAdvance, { accountId: args.accountId, since: 0, cursor: null, stop: true, ...(env ? {} : { error: "LinkedIn isn't set up on this deployment." }) });
+    const { client } = linkedinClient("linkedin.read");
+    if (!state.run || state.channel !== "linkedin" || !client) {
+      await ctx.runMutation(internal.conversations.backfillAdvance, { accountId: args.accountId, since: 0, cursor: null, stop: true, ...(client ? {} : { error: "LinkedIn isn't set up on this deployment." }) });
       return;
     }
     const step = { accountId: args.accountId, since: state.since };
@@ -105,7 +105,6 @@ export const backfillLinkedin = internalAction({
       await ctx.runMutation(internal.conversations.backfillAdvance, { ...step, cursor: state.cursor, retryInMs: state.holdUntil - Date.now() });
       return;
     }
-    const client = createUnipileClient(env);
     // What this step read, for the tray: chats with messages since the pass began, and the oldest one's last activity.
     const seen: { read: number; reachedAt?: number } = { read: 0 };
     const saw = (read: boolean, at: number | null) => {

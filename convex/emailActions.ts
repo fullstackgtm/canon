@@ -17,7 +17,8 @@ import type { Id } from "./_generated/dataModel";
 import { bodyHtml, composeProblem } from "./lib/email/compose";
 import { EMAIL_NOTIFY_PATH, EMAIL_STATE_TTL_MS, signEmailState, verifyEmailState } from "./lib/email/state";
 import { createUnipileClient, UnipileError, type UnipileClient } from "./lib/linkedin/unipile";
-import { DSN_SHAPE, convexSiteUrl, isLoopback, siteUrl, unipileEnv } from "./linkedinActions";
+import { convexSiteUrl, isLoopback, siteUrl } from "./linkedinActions";
+import { DSN_SHAPE, unipileEnv } from "./lib/providers/linkedin";
 import { callerClient, principalClient, requireCaller } from "./records";
 
 function clientOrThrow(): { client: UnipileClient; apiKey: string } {

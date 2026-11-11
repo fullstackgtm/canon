@@ -6,7 +6,7 @@
 import { ConvexError } from "convex/values";
 import type { ActionCtx } from "../../_generated/server";
 import { internal } from "../../_generated/api";
-import type { Id } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 import { createDeeplineClient, DeeplineError, DEEPLINE_EMAIL_ENDPOINT } from "../deepline";
 import { findVerifiedWorkEmail, type EmailResult, type VerifiedEmail } from "../emailFinder";
 import { decryptFromStorage } from "../tokenHelpers";
@@ -26,7 +26,7 @@ const FEATURE: Partial<Record<ProviderCapability, string>> = { "email.find": "fi
 
 /** One provider call's receipt. Every metered call is filed through here, as a `providerCalls` row. */
 export async function meter(ctx: ActionCtx, r: {
-  orgId: string; provider: ProviderId; capability: ProviderCapability; endpoint: string; callId?: string | null; costMicro: number; outcome: "hit" | "miss";
+  orgId: string; provider: Extract<ProviderId, Doc<"providerCalls">["provider"]>; capability: ProviderCapability; endpoint: string; callId?: string | null; costMicro: number; outcome: "hit" | "miss";
 }): Promise<Id<"providerCalls">> {
   const feature = FEATURE[r.capability];
   if (!feature) throw new Error(`No usage feature for ${r.capability}`);

@@ -5,7 +5,6 @@
  * the signed state we gave it (convex/http.ts). Canon's Unipile key is read
  * from the environment and goes nowhere but the X-API-KEY header.
  */
-import { integrationEnabled } from "./lib/integrationsAvailable.ts";
 
 import { ConvexError, v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
@@ -16,24 +15,8 @@ import { validTimezone } from "./lib/linkedin/limits";
 import { appUrl } from "./lib/operatorConfig";
 import { RISK_TEXT_VERSION } from "./lib/linkedin/risk";
 import { NOTIFY_PATH, STATE_TTL_MS, WEBHOOK_PATH_PREFIX, signState, verifyState, webhookToken } from "./lib/linkedin/state";
-import { createUnipileClient, UnipileError, type UnipileClient } from "./lib/linkedin/unipile";
-
-/** Canon's Unipile key and host, or null when this deployment has none. */
-export function unipileEnv(): { apiKey: string; dsn: string } | null {
-  const apiKey = process.env.UNIPILE_API_KEY;
-  const dsn = process.env.UNIPILE_DSN;
-  return integrationEnabled("unipile") ? { apiKey: apiKey!, dsn: dsn! } : null;
-}
-
-/** Unipile's DSN is a host and port from its dashboard, e.g. "api8.unipile.com:13851". */
-export const DSN_SHAPE = /^(https?:\/\/)?[a-z0-9-]+(\.[a-z0-9-]+)+(:\d{2,5})?\/?$/i;
-
-function clientOrThrow(): { client: UnipileClient; apiKey: string } {
-  const env = unipileEnv();
-  if (!env) throw new ConvexError("LinkedIn isn't set up on this deployment yet (UNIPILE_API_KEY and UNIPILE_DSN).");
-  if (!DSN_SHAPE.test(env.dsn)) throw new ConvexError("UNIPILE_DSN must be the host and port from Unipile's dashboard, like api8.unipile.com:13851.");
-  return { client: createUnipileClient(env), apiKey: env.apiKey };
-}
+import { UnipileError } from "./lib/linkedin/unipile";
+import { linkedinClient, linkedinClientOrThrow, unipileEnv } from "./lib/providers/linkedin";
 
 // The web app's origin: APP_URL, NEXT_PUBLIC_SITE_URL, or the known app for this deployment (dev.canoncrm.com).
 export const siteUrl = () => appUrl() ?? "http://localhost:3000";
@@ -43,11 +26,11 @@ export const convexSiteUrl = () => (process.env.CONVEX_SITE_URL ?? "").replace(/
 export const startConnect = action({
   args: { acceptRisk: v.literal(true), riskTextVersion: v.string(), timezone: v.string() },
   handler: async (ctx, args): Promise<{ url: string | null }> => {
-    if (!integrationEnabled("unipile")) return { url: null };
+    if (!unipileEnv()) return { url: null };
     const caller: LinkedinCaller | null = await ctx.runQuery(internal.linkedin.caller, {});
     if (!caller) throw new ConvexError("Not authenticated");
     if (args.riskTextVersion !== RISK_TEXT_VERSION) throw new ConvexError("The risk statement changed. Reload the page and read it again.");
-    const { client, apiKey } = clientOrThrow();
+    const { client, apiKey } = linkedinClientOrThrow("linkedin.send");
     const now = Date.now();
     const state = await signState(apiKey, {
       userId: caller.userId,
@@ -81,7 +64,7 @@ export const startConnect = action({
  * account-status webhook is registered.
  */
 export async function finishConnect(ctx: ActionCtx, event: { accountId: string; name: string }): Promise<boolean> {
-  const { client, apiKey } = clientOrThrow();
+  const { client, apiKey } = linkedinClientOrThrow("linkedin.send");
   const state = await verifyState(apiKey, event.name, Date.now());
   if (!state) return false;
   const account = await client.getAccount(event.accountId);
@@ -106,7 +89,7 @@ export async function finishConnect(ctx: ActionCtx, event: { accountId: string; 
 export const ensureWebhooks = internalAction({
   args: {},
   handler: async () => {
-    const { client, apiKey } = clientOrThrow();
+    const { client, apiKey } = linkedinClientOrThrow("linkedin.send");
     // A local stack shares Canon's Unipile account: never point its webhooks at a loopback address.
     if (isLoopback(convexSiteUrl())) return;
     const url = `${convexSiteUrl()}${WEBHOOK_PATH_PREFIX}${await webhookToken(apiKey)}`;
@@ -148,7 +131,7 @@ export const isLoopback = (url: string) => {
 export const removeLoopbackWebhooks = internalAction({
   args: {},
   handler: async (): Promise<{ removed: number; remainingSources: string[] }> => {
-    const { client } = clientOrThrow();
+    const { client } = linkedinClientOrThrow("linkedin.send");
     const all = await client.listWebhooks();
     const local = all.filter((w) => isLoopback(w.url));
     for (const w of local) await client.deleteWebhook(w.id);
@@ -160,8 +143,8 @@ export const removeLoopbackWebhooks = internalAction({
 export const deleteRemote = internalAction({
   args: { unipileAccountId: v.string() },
   handler: async (_ctx, args) => {
-    const env = unipileEnv();
-    if (!env) return;
-    await createUnipileClient(env).deleteAccount(args.unipileAccountId);
+    const { client } = linkedinClient("linkedin.send");
+    if (!client) return;
+    await client.deleteAccount(args.unipileAccountId);
   },
 });

@@ -5,7 +5,8 @@ import { loadConvex, memoryDb } from "./convexHandlers.ts";
 const NOW = Date.parse("2026-10-25T12:00:00Z");
 const DAY = 86_400_000;
 const loaded = loadConvex(["linkedinWorker.ts"], {
-  "linkedinActions.ts": (real) => ({ ...real, convexSiteUrl: () => "http://127.0.0.1:1", unipileEnv: () => null }),
+  "linkedinActions.ts": (real) => ({ ...real, convexSiteUrl: () => "http://127.0.0.1:1" }),
+  "lib/providers/linkedin.ts": (real) => ({ ...real, unipileEnv: () => null, linkedinClient: () => ({ client: null, reason: "LinkedIn is off in tests." }) }),
 }, { Date: class extends Date { static now() { return NOW; } } });
 
 function harness(opts: { activity?: Array<Record<string, unknown>>; lookupsUsed?: number; activeWithinDays?: number } = {}) {

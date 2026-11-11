@@ -426,6 +426,7 @@ import type * as lib_plays_validators from "../lib/plays/validators.js";
 import type * as lib_populationStop from "../lib/populationStop.js";
 import type * as lib_profiler from "../lib/profiler.js";
 import type * as lib_providers_emailFind from "../lib/providers/emailFind.js";
+import type * as lib_providers_linkedin from "../lib/providers/linkedin.js";
 import type * as lib_providers_registry from "../lib/providers/registry.js";
 import type * as lib_quickenrich from "../lib/quickenrich.js";
 import type * as lib_rateLimit from "../lib/rateLimit.js";
@@ -1061,6 +1062,7 @@ declare const fullApi: ApiFromModules<{
   "lib/populationStop": typeof lib_populationStop;
   "lib/profiler": typeof lib_profiler;
   "lib/providers/emailFind": typeof lib_providers_emailFind;
+  "lib/providers/linkedin": typeof lib_providers_linkedin;
   "lib/providers/registry": typeof lib_providers_registry;
   "lib/quickenrich": typeof lib_quickenrich;
   "lib/rateLimit": typeof lib_rateLimit;

@@ -1,6 +1,6 @@
 "use client";
 
-import { IntegrationGate } from "@/components/integration-gate";
+import { CapabilityGate } from "@/components/integration-gate";
 
 import { useObjectLabels } from "@/components/records/object-labels";
 import { CallSuggestions } from "@/components/crm/call-suggestions";
@@ -207,9 +207,9 @@ function ContactsView() {
         <>
           <SelectionBar count={selectedRows.length} summary={`${visibleRows.length} shown · ${rows.length} loaded of ${total} people`} onClear={() => setSelected(new Set())}>
             {selectedRows.length > 0 && (
-              <IntegrationGate feature="treg"><button onClick={() => setBulkOpen(true)} className="border border-border px-2 py-0.5 text-foreground hover:bg-muted">
+              <CapabilityGate capability="email.find"><button onClick={() => setBulkOpen(true)} className="border border-border px-2 py-0.5 text-foreground hover:bg-muted">
                 Find emails ({selectedRows.length})
-              </button></IntegrationGate>
+              </button></CapabilityGate>
             )}
             {visibleRows.length > 0 && <ContactResearchMenu selectedIds={contactQuickTestIds(visibleRows)} quickTest />}
             <ContactResearchMenu selectedIds={selectedRows.map((row) => row.id)} />
@@ -264,13 +264,13 @@ function ContactsView() {
                       ) : c.emailStatus === "not_found" ? (
                         <span className="text-muted-foreground">not found</span>
                       ) : (
-                        <IntegrationGate feature="treg"><button
+                        <CapabilityGate capability="email.find"><button
                           onClick={() => revealEmail(c)}
                           disabled={finding[c.id]}
                           className="border border-border px-2 py-0.5 text-xs font-medium hover:bg-muted disabled:opacity-50"
                         >
                           {finding[c.id] ? "Finding…" : "Find email"}
-                        </button></IntegrationGate>
+                        </button></CapabilityGate>
                       )}
                     </td>
                     <td className="px-3 py-2">{c.linkedinUrl ? <a className="underline" href={c.linkedinUrl} target="_blank" rel="noreferrer">profile</a> : "—"}</td>

@@ -35,6 +35,7 @@ const ADAPTERS = new Set(["convex/lib/emailFinder.ts", "convex/lib/deepline.ts"]
 
 const CENSUS: Record<string, Partial<Record<Entry, readonly Use[]>>> = {
   "convex/lib/providers/emailFind.ts": { deepline: ["email.find"], hostedEmail: ["email.find"], receipt: ["receipt"] },
+  "convex/lib/providers/linkedin.ts": { unipile: ["linkedin.send", "linkedin.read"] },
   "convex/lib/emailFinder.ts": { treg: ["email.find", "email.verify"], hostedEmail: ["email.find"] },
   "convex/deepline.ts": { deepline: ["connect"] },
   "convex/records.ts": { hostedPhone: ["phone.find"], receipt: ["receipt"] },
@@ -52,12 +53,10 @@ const CENSUS: Record<string, Partial<Record<Entry, readonly Use[]>>> = {
   "convex/providerTests.ts": { treg: ["people.search"] },
   "convex/researchAgentActions.ts": { treg: ["web.search"] },
   "convex/tamInvestigationWorker.ts": { treg: ["people.search", "company.enrich"] },
-  "convex/conversationActions.ts": { unipile: ["linkedin.read", "email.read"] },
+  "convex/conversationActions.ts": { unipile: ["email.read"] },
   "convex/emailActions.ts": { unipile: ["email.send"] },
   "convex/lib/outbound/mailboxAdapter.ts": { unipile: ["email.send"] },
   "convex/moduleMeActions.ts": { unipile: ["email.send"] },
-  "convex/linkedinActions.ts": { unipile: ["connect", "linkedin.read"] },
-  "convex/linkedinWorker.ts": { unipile: ["linkedin.send"] },
   "convex/dialerActions.ts": { telnyx: ["phone.call"] },
   "convex/audienceActions.ts": { sequencers: ["sequence.enroll"] },
   "convex/lib/outbound/push.ts": { sequencers: ["sequence.enroll"] },

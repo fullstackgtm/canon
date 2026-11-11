@@ -48,6 +48,7 @@ export function useSettingsSummaries(): Record<SettingsKey, SettingsSummary> {
   const tokens = useQuery(api.cliAuth.list);
   const targets = useQuery(api.targets.get, {});
   const emailLog = useQuery(api.emailLog.mine);
+  const providers = useQuery(api.providers.settings);
   const liveTokens = (tokens ?? []).filter((t) => !t.revokedAt && !t.expired);
 
   const members = users?.filter((u) => u.isActive && !u.isHidden);
@@ -107,6 +108,12 @@ export function useSettingsSummaries(): Record<SettingsKey, SettingsSummary> {
           ],
         }
       : { value: credits === null ? "" : undefined, facts: [] },
+    providers: providers
+      ? {
+          value: `${num(providers.capabilities.filter((c) => c.ready).length)} of ${num(providers.capabilities.length)} ready`,
+          facts: providers.capabilities.map((c): SettingsFact => [c.label, c.providers.find((p) => p.serving)?.label ?? "Bring your own key"]),
+        }
+      : { value: providers === null ? "" : undefined, facts: [] },
     pipelines: pipelines
       ? {
           value: `${plural(pipelines.length, "pipeline")} · ${plural(pipelines.reduce((n, p) => n + p.stages.filter((st) => st.active).length, 0), "stage")}`,
