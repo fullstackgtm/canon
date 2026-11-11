@@ -14,10 +14,11 @@ import { promoteContacts } from "./recordPromotion";
 import type { RecordClient } from "./recordClient";
 import { editPartyRecord } from "./canon/partyLedger";
 import type { Access } from "./access";
-import { paidCallsAllowed, tregCall } from "./treg";
+import { paidCallsAllowed } from "./treg";
 import { MICRO, creditsForCost } from "./creditPacks";
 import { arrivalNote, departureEvidence, departureNote, readJobChange } from "./jobChange";
-import { domainForName } from "./companyenrich";
+import { checkJobChange, enrichCompanyProfile, enrichmentReady, enrichPersonProfile } from "./providers/enrich";
+import { companyDomain } from "./providers/treg";
 import { companyPatch, personPatch, profilePage, readCompany, readRoutedPerson, sameEmployer, type EnrichPatch } from "./enrichProfile";
 
 /** treg's ceiling on one company enrichment: its routed price was $0.0019 (2026-10-13). */
@@ -77,8 +78,7 @@ async function writeAndCharge(
  * enriched and a note on what stopped the rest (the daily cap, the workspace's credits).
  */
 export async function enrichPeople(ctx: ActionCtx, caller: Caller, people: readonly PersonToEnrich[]): Promise<{ enriched: number; note: string | null }> {
-  const token = process.env.TREG_TOKEN;
-  if (!token || !paidCallsAllowed() || !people.length) return { enriched: 0, note: null };
+  if (!enrichmentReady() || !paidCallsAllowed() || !people.length) return { enriched: 0, note: null };
   let enriched = 0;
   let broke = false;
   const queue = [...people];
@@ -89,20 +89,17 @@ export async function enrichPeople(ctx: ActionCtx, caller: Caller, people: reado
     if (await enrichedToday(ctx, "contact", caller.orgId, p.id)) return;
     try {
       // treg tries its providers cheapest first and stops at the first that finds them (Ocean.io, about $0.008).
-      const res = await tregCall({
-        token, endpoint: "treg.people.enrich", maxCostUsd: PERSON_MAX_USD, baseUrl: process.env.TREG_BASE_URL, timeoutMs: 60_000,
-        meta: { customer: caller.orgId, feature: "research_enrich" },
+      const res = await enrichPersonProfile(ctx, {
+        orgId: caller.orgId, maxCostUsd: PERSON_MAX_USD,
         body: { ...(first && rest.length ? { first_name: first, last_name: rest.join(" ") } : {}), domain: p.domain, ...(p.linkedinUrl ? { linkedin_url: p.linkedinUrl } : {}) },
+      }, (r) => {
+        const profile = r.status === 200 ? readRoutedPerson(r.body) : null;
+        // It must be them at this company: found by name, a namesake elsewhere isn't them.
+        return profile && (!!p.linkedinUrl || sameEmployer(profile, p.domain)) ? profile : null;
       });
-      const profile = res.status === 200 ? readRoutedPerson(res.body) : null;
-      // It must be them at this company: found by name, a namesake elsewhere isn't them.
-      const ok = !!profile && (!!p.linkedinUrl || sameEmployer(profile, p.domain));
-      const callId = await ctx.runMutation(internal.records.recordProviderCall, {
-        orgId: caller.orgId, endpoint: "treg.people.enrich", feature: "research_enrich", ...(res.callId ? { callId: res.callId } : {}),
-        costMicro: res.costMicro ?? 0, outcome: ok ? "hit" : "miss",
-      });
-      if (!ok || !profile) return;
-      if (!(await writeAndCharge(ctx, caller, { object: "contact", id: p.id, patch: personPatch(profile, p), provider: "treg", callId, credits: creditsFor(res.costMicro), note: `Profile: ${p.fullName}` }))) {
+      const profile = res.found;
+      if (!profile) return;
+      if (!(await writeAndCharge(ctx, caller, { object: "contact", id: p.id, patch: personPatch(profile, p), provider: "treg", callId: res.call, credits: creditsFor(res.costMicro), note: `Profile: ${p.fullName}` }))) {
         broke = true;
         return;
       }
@@ -121,21 +118,12 @@ export async function enrichPeople(ctx: ActionCtx, caller: Caller, people: reado
 
 /** Enrich the company by its domain. True when its profile was found and written. */
 export async function enrichCompany(ctx: ActionCtx, caller: Caller, c: CompanyToEnrich): Promise<boolean> {
-  const token = process.env.TREG_TOKEN;
-  if (!token || !paidCallsAllowed() || !(await canPay(ctx, caller.orgId, COMPANY_MAX_USD))) return false;
+  if (!enrichmentReady() || !paidCallsAllowed() || !(await canPay(ctx, caller.orgId, COMPANY_MAX_USD))) return false;
   if (await enrichedToday(ctx, "account", caller.orgId, c.id)) return true;
   try {
-    const res = await tregCall({
-      token, endpoint: "treg.companies.enrich", body: { domain: c.domain }, maxCostUsd: COMPANY_MAX_USD,
-      baseUrl: process.env.TREG_BASE_URL, timeoutMs: 30_000, meta: { customer: caller.orgId, feature: "research_enrich" },
-    });
-    const profile = res.status === 200 ? readCompany(res.body) : null;
-    const callId = await ctx.runMutation(internal.records.recordProviderCall, {
-      orgId: caller.orgId, endpoint: "treg.companies.enrich", feature: "research_enrich", ...(res.callId ? { callId: res.callId } : {}),
-      costMicro: res.costMicro ?? 0, outcome: profile ? "hit" : "miss",
-    });
-    if (!profile) return false;
-    return await writeAndCharge(ctx, caller, { object: "account", id: c.id, patch: companyPatch(profile, c), provider: "treg", callId, credits: creditsFor(res.costMicro), note: `Company profile: ${c.domain}` });
+    const res = await enrichCompanyProfile(ctx, { orgId: caller.orgId, domain: c.domain, maxCostUsd: COMPANY_MAX_USD }, (r) => (r.status === 200 ? readCompany(r.body) : null));
+    if (!res.found) return false;
+    return await writeAndCharge(ctx, caller, { object: "account", id: c.id, patch: companyPatch(res.found, c), provider: "treg", callId: res.call, credits: creditsFor(res.costMicro), note: `Company profile: ${c.domain}` });
   } catch (error) {
     console.warn(`enrich: ${c.domain} failed: ${error instanceof Error ? error.message.slice(0, 200) : error}`);
     return false;
@@ -164,8 +152,7 @@ const checkRef = (orgId: string, id: string, at: number) => `jobcheck:${orgId}:$
 export async function checkJobChanges(
   ctx: ActionCtx, caller: Caller, sees: RecordClient, people: readonly PersonToCheck[], employedSlug: string,
 ): Promise<{ departures: Departure[]; note: string | null }> {
-  const token = process.env.TREG_TOKEN;
-  if (!token || !paidCallsAllowed() || !people.length) return { departures: [], note: null };
+  if (!enrichmentReady() || !paidCallsAllowed() || !people.length) return { departures: [], note: null };
   const orgId = caller.orgId as Id<"organizations">;
   const departures: Departure[] = [];
   let broke = false;
@@ -182,15 +169,8 @@ export async function checkJobChanges(
     }
     if ((await ctx.runQuery(internal.credits.balanceOf, { orgId })).spendableMicro < JOB_CHECK_CREDITS * MICRO) { broke = true; return; }
     try {
-      const res = await tregCall({
-        token, endpoint: "leadmagic.x.job-change-detector", maxCostUsd: JOB_CHECK_MAX_USD, baseUrl: process.env.TREG_BASE_URL, timeoutMs: 60_000,
-        meta: { customer: caller.orgId, feature: "job_change" }, body: { profile_url: p.linkedinUrl, company_name: p.company },
-      });
-      const jc = res.status === 200 ? readJobChange(res.body) : null;
-      const callId = await ctx.runMutation(internal.records.recordProviderCall, {
-        orgId: caller.orgId, endpoint: "leadmagic.x.job-change-detector", feature: "job_change", ...(res.callId ? { callId: res.callId } : {}),
-        costMicro: res.costMicro ?? 0, outcome: jc ? "hit" : "miss",
-      });
+      const res = await checkJobChange(ctx, { orgId: caller.orgId, profileUrl: p.linkedinUrl, company: p.company, maxCostUsd: JOB_CHECK_MAX_USD }, (r) => (r.status === 200 ? readJobChange(r.body) : null));
+      const jc = res.found, callId = res.call;
       if (!jc) return;
       const ref = checkRef(caller.orgId, p.id, now);
       if (!(await ctx.runMutation(internal.credits.charge, { orgId, ref, amountMicro: JOB_CHECK_CREDITS * MICRO, note: `Job change check: ${p.fullName}` }))) { broke = true; return; }
@@ -208,7 +188,7 @@ export async function checkJobChanges(
       await editPartyRecord(await recordEditPorts(ctx, caller, {
         object: "contact", id: p.id, patch: { "custom.job_change": note }, idempotencyKey: `${ref}:left`, found: { provider: "leadmagic", callId },
       }, "edit"));
-      const domain = jc.company ? await domainForName({ token, name: jc.company, meta: { customer: caller.orgId, feature: "job_change" }, baseUrl: process.env.TREG_BASE_URL }).catch(() => null) : null;
+      const domain = jc.company ? await companyDomain({ name: jc.company, meta: { customer: caller.orgId, feature: "job_change" }, baseUrl: process.env.TREG_BASE_URL }).catch(() => null) : null;
       let movedTo: string | null = null;
       if (domain && jc.company) {
         const client = clientFor(ctx);

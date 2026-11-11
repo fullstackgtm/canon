@@ -64,7 +64,7 @@ function Capability({ row, canManage }: { row: CapabilityRow; canManage: boolean
               </div>
               <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-xs">
                 <dt className="text-muted-foreground">Key</dt><dd>{keySource(p)}</dd>
-                <dt className="text-muted-foreground">Cost</dt><dd>{costLabel(p.cost, p.label)}</dd>
+                <dt className="text-muted-foreground">Cost</dt><dd>{costLabel(p.cost, p.label)}{p.note ? `. ${p.note}` : ""}</dd>
                 {limits && <><dt className="text-muted-foreground">Limits</dt><dd>{limits}</dd></>}
                 {p.consent.map((consent) => <span key={consent.terms} className="contents"><dt className="text-muted-foreground">Consent</dt><dd>{consent.terms}</dd></span>)}
               </dl>

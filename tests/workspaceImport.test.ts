@@ -869,6 +869,21 @@ test("a module's docs move into the module installed here with their ids mapped,
   }
 });
 
+test("a workspace whose module owns an interface (past the ICP cutover) is refused in the dry run, and begin refuses it the same way", async () => {
+  const w = world();
+  const { db, B } = w;
+  const m = visitLog();
+  await installModule(db, B, m);
+  const pkg = db.rows("modulePackages").find((p) => p.orgId === B)!;
+  await db.insert("moduleInterfaceOwners", { orgId: B, moduleId: m.id, packageId: pkg._id, interfaces: ["icps.v1"], cutover: "icps.legacy.v1", fingerprint: "f", icps: 0, nodes: 0, at: 1 });
+  const key = await importKey(db);
+  const plan = await I.importPlan.handler(ctxOf(db), { key });
+  assert.equal(plan.notEmpty.length, 1);
+  const begin = () => atomic(db, () => I.begin.handler(ctxOf(db), { key, digest: "0".repeat(64), sourceWorkspaceId: w.A, registerRows: 0 }));
+  await assert.rejects(begin(), (e: Error) => e.message.includes(plan.notEmpty[0]));
+  assert.equal(of(db, "workspaceImports", B).length, 0);
+});
+
 test("a stored file of each kind moves with its bytes, its rows name the copy, and the export stops past the size ceiling", async () => {
   const w = world();
   const { db, A, B, ada } = w;

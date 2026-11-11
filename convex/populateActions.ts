@@ -34,14 +34,14 @@ import { freePopulationQuery } from "./lib/modules/freePopulation";
 import { stopPopulation } from "./lib/populationStop";
 import { clientFor } from "./records";
 import { atLeastVersion } from "./lib/recordClient";
-import { leadsToPeople, searchLeads, splitFilters, type LeadsforgeFilters } from "./lib/leadsforge";
-import { QE_PAGE, QE_SPLIT_ABOVE, quickEnrichPage, splitQuickEnrich, type QuickEnrichQuery } from "./lib/quickenrich";
-import { identifyCompanies, IDENTIFY_BATCH } from "./lib/crustdata";
-import { companyNameFor } from "./lib/companyenrich";
+import { leadsToPeople, splitFilters, type LeadsforgeFilters } from "./lib/leadsforge";
+import { QE_PAGE, QE_SPLIT_ABOVE, splitQuickEnrich, type QuickEnrichQuery } from "./lib/quickenrich";
+import { IDENTIFY_BATCH } from "./lib/crustdata";
+import { companyName, identifyNames, leadsPage, peoplePage, tregFor, tregKey } from "./lib/providers/treg";
 import { cacheAnswer, type CachedName } from "./lib/nameCache";
 import { batchKey, nameFromDomain, normDomain, peopleToRecords, type Person } from "./lib/peopleSources";
 import { icpGeosToCountries, segmentFor } from "./lib/researchPipeline";
-import { tregCall, TregRefusal } from "./lib/treg";
+import { TregRefusal } from "./lib/treg";
 import { CALLS_PER_MIN, NO_FREE_ALLOWANCE, nextPause, nextSlot } from "./lib/pacing";
 import { PHASE_LABEL, phasesOf } from "./lib/jobPhases";
 import { acceptable, paidProvider } from "./lib/paidProviders";
@@ -153,7 +153,7 @@ async function taskBody(ctx: ActionCtx, args: TaskArgs): Promise<null> {
       task.kind === "people" ? ctx.runQuery(internal.populateActions.getPacing, { provider }) : null,
       ctx.runQuery(internal.staging.runFor, { jobId: args.jobId }),
     ]);
-    const token = process.env.TREG_TOKEN;
+    const token = tregKey("people.search");
     // The job belongs to the workspace it fills (for a signup population, the org that claimed the session).
     const ws = job?.orgId as string | undefined;
     const base = { jobId: args.jobId, sessionId: args.sessionId, taskId: args.taskId, task, people: 0, children: [] as PopulateTask[] };
@@ -201,7 +201,7 @@ async function taskBody(ctx: ActionCtx, args: TaskArgs): Promise<null> {
         // Named accounts carry no people: write them as they are, guessing a missing name for the name worker.
         ({ queued: queuedNames, added: namesQueued } = await writeNamedAccounts(ctx, ws, args.jobId, task.accounts, Boolean(staged)));
       } else if (task.source === "leadsforge") {
-        const page = await searchLeads({ token, filters: task.query, meta, baseUrl });
+        const page = await leadsPage({ filters: task.query, meta, baseUrl });
         people = leadsToPeople(page.leads);
         const split = page.saturated ? splitFilters(task.query) : null;
         for (const query of split ?? []) children.push({ kind: "people", source: "leadsforge", query });
@@ -229,8 +229,8 @@ async function taskBody(ctx: ActionCtx, args: TaskArgs): Promise<null> {
         }
         let charged = 0;
         try {
-          const res = await tregCall({
-            token, endpoint: paid.endpoint, body: paid.body(task.market, task.persona, paid.pageSize, task.cursor),
+          const res = await tregFor("people.search", {
+            endpoint: paid.endpoint, body: paid.body(task.market, task.persona, paid.pageSize, task.cursor),
             meta: { customer: ws, feature: "paid_run" }, maxCostUsd: paid.usdPerRecord * paid.pageSize * 1.33, baseUrl,
           });
           if (res.status >= 400) throw new TregRefusal(res.status, "provider_error", `${paid.label} answered ${res.status}`, res.callId);
@@ -261,7 +261,7 @@ async function taskBody(ctx: ActionCtx, args: TaskArgs): Promise<null> {
           return null;
         }
         await sleepUntil(slot);
-        const page = await quickEnrichPage({ token, query: task.query, cursor: task.cursor, meta, countryName: isoToCountry, baseUrl });
+        const page = await peoplePage({ query: task.query, cursor: task.cursor, meta, countryName: isoToCountry, baseUrl });
         people = page.people;
         // A big query's first page: split it so the slices page in parallel, instead of one long cursor chain.
         const split = !task.cursor && (page.total ?? 0) > QE_SPLIT_ABOVE ? splitQuickEnrich(task.query) : null;
@@ -630,7 +630,7 @@ const NAMES_MAX_CRASHES = 5;
 
 async function nameWorker(ctx: ActionCtx, args: { sessionId?: Id<"researchSessions">; jobId: Id<"backgroundJobs">; crashes?: number; workerId?: string }) {
   {
-    const token = process.env.TREG_TOKEN;
+    const token = tregKey("company.enrich");
     const ws = (await ctx.runQuery(internal.populateActions.getJob, { jobId: args.jobId }))?.orgId as string | undefined;
     let resolved = 0;
     const done = (abandon = false) =>
@@ -776,7 +776,7 @@ async function nameWorker(ctx: ActionCtx, args: { sessionId?: Id<"researchSessio
       await Promise.all([
         attempt(NAMES_PROVIDER, toCrust, async () => {
           await sleepUntil(crustSlot);
-          const m = await identifyCompanies({ token, domains: toCrust.map((b) => b.domain), meta, baseUrl, timeoutMs: NAME_CALL_TIMEOUT_MS });
+          const m = await identifyNames({ domains: toCrust.map((b) => b.domain), meta, baseUrl, timeoutMs: NAME_CALL_TIMEOUT_MS });
           return { names: [...m].map(([domain, c]) => ({ domain, ...c })), processed: toCrust };
         }),
         attempt("companyenrich", toCe, async () => {
@@ -788,7 +788,7 @@ async function nameWorker(ctx: ActionCtx, args: { sessionId?: Id<"researchSessio
             await sleepUntil(ceSlot + i * ceInterval);
             let name: string | null;
             try {
-              name = await companyNameFor({ token, domain: toCe[i].domain, meta, baseUrl, timeoutMs: NAME_CALL_TIMEOUT_MS });
+              name = await companyName({ domain: toCe[i].domain, meta, baseUrl, timeoutMs: NAME_CALL_TIMEOUT_MS });
             } catch (error) {
               // A refusal ends this resolver's pass, keeping what it already found.
               if (error instanceof TregRefusal) {

@@ -23,8 +23,8 @@ import {
   coverageReport, distinctiveName, fillPlan, indexMatch, namesAgree, normalizeDomain, planFills, READ_PROPERTIES, rootDomainCandidates, sourceValues,
   type Fill, type GapReason, type HubspotCompany, type Match, type PropertyOption,
 } from "./lib/enrich/freeFill";
-import { IDENTIFY_BATCH, identifyCompanyDetails } from "./lib/crustdata";
-import { domainForName } from "./lib/companyenrich";
+import { IDENTIFY_BATCH } from "./lib/crustdata";
+import { companyDomain, identifyDetails, tregKey } from "./lib/providers/treg";
 import { TregRefusal } from "./lib/treg";
 import type { SharedCompanyDetail } from "./lib/recordContract";
 import type { IndexLookup } from "./enrichFreeFillRuns";
@@ -162,8 +162,7 @@ async function resolveMatches(ctx: ActionCtx, orgId: Id<"organizations">, compan
     else matches.set(c.id, m);
   }
 
-  const token = process.env.TREG_TOKEN;
-  if (!token) return { matches, gaps, lookup };
+  if (!tregKey("company.enrich")) return { matches, gaps, lookup };
   const meta = { customer: String(orgId), feature: "free_fill" };
   const deadline = Math.min(until, Date.now() + PROVIDER_BUDGET_MS);
   const timeoutMs = () => Math.max(1000, Math.min(60_000, deadline - Date.now()));
@@ -173,7 +172,7 @@ async function resolveMatches(ctx: ActionCtx, orgId: Id<"organizations">, compan
   const missingDomains = [...new Set(missing.map(domainOf).filter((d): d is string => Boolean(d)))];
   const crust = new Map<string, SharedCompanyDetail>();
   for (let i = 0; i < missingDomains.length && Date.now() < deadline; i += IDENTIFY_BATCH) {
-    const found = await patiently(deadline, () => identifyCompanyDetails({ token, domains: missingDomains.slice(i, i + IDENTIFY_BATCH), meta, timeoutMs: timeoutMs() }));
+    const found = await patiently(deadline, () => identifyDetails({ domains: missingDomains.slice(i, i + IDENTIFY_BATCH), meta, timeoutMs: timeoutMs() }));
     for (const [d, row] of found ?? []) crust.set(d, row);
   }
   for (const c of missing) {
@@ -190,7 +189,7 @@ async function resolveMatches(ctx: ActionCtx, orgId: Id<"organizations">, compan
   const resolved = new Map<string, string>();
   await pool(nameless, 5, async (c) => {
     if (Date.now() >= deadline) return;
-    const d = await patiently(deadline, () => domainForName({ token, name: c.properties.name!, meta, timeoutMs: timeoutMs() }));
+    const d = await patiently(deadline, () => companyDomain({ name: c.properties.name!, meta, timeoutMs: timeoutMs() }));
     if (d) resolved.set(c.id, d);
   });
   if (resolved.size) {

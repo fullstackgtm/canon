@@ -8,7 +8,7 @@ import { publicHttpGet } from "../engine/src/publicHttp.ts";
 import { websiteText, websiteMeta } from "../modules/kernel/websiteSources.ts";
 import { marketSampleRequest } from "../modules/kernel/freePopulation.ts";
 import { freePopulationQuery } from "./lib/modules/freePopulation";
-import { quickEnrichPage } from "./lib/quickenrich";
+import { peoplePage, tregKey } from "./lib/providers/treg";
 import { icpGeosToCountries } from "../modules/kernel/icpGeography";
 import { TregRefusal } from "./lib/treg";
 import { websiteSources } from "../engine/src/icpDerive.ts";
@@ -104,7 +104,7 @@ export const search = internalAction({
 });
 
 export type SampleSize = { accounts: number; capped: boolean };
-export async function sampleMarkets(queries: string[], options: { token?: string; paused: boolean; page: (query: string) => ReturnType<typeof quickEnrichPage> }): Promise<Array<SampleSize | undefined>> {
+export async function sampleMarkets(queries: string[], options: { token?: string; paused: boolean; page: (query: string) => ReturnType<typeof peoplePage> }): Promise<Array<SampleSize | undefined>> {
   const checked = marketSampleRequest({ queries });
   const out: Array<SampleSize | undefined> = checked.map(() => undefined);
   if (!options.token || options.paused) return out;
@@ -121,11 +121,11 @@ export const sample = internalAction({
   args: { queries: v.array(v.string()), orgId: v.id("organizations"), userId: v.id("users"), module: v.string() },
   handler: async (ctx: ActionCtx, a): Promise<Array<Record<string, unknown>>> => {
     const fake = fakeModel();
-    const token = fake ? "explicit-fake-transport" : process.env.TREG_TOKEN;
+    const token = fake ? "explicit-fake-transport" : tregKey("people.search") ?? undefined;
     const pacing = fake || !token ? null : await ctx.runQuery(internal.populateActions.getPacing, { provider: "quickenrich" });
     const sizes = await sampleMarkets(a.queries, { token, paused: !!pacing && pacing.pausedUntil > Date.now(), page: async (query) => {
       if (fake) return { people: [], next: null, total: 0, rateRemaining: null };
-      return quickEnrichPage({ token: token!, query: freePopulationQuery(query), meta: { customer: a.orgId, feature: "module_market_sample", userId: a.userId }, baseUrl: process.env.TREG_BASE_URL, countryName: (iso) => icpGeosToCountries([iso.toLowerCase()])[0] });
+      return peoplePage({ query: freePopulationQuery(query), meta: { customer: a.orgId, feature: "module_market_sample", userId: a.userId }, baseUrl: process.env.TREG_BASE_URL, countryName: (iso) => icpGeosToCountries([iso.toLowerCase()])[0] });
     } });
     return sizes.map((size, i) => ({ id: a.queries[i], ...(size ? { size } : {}), transport: fake ? "fake" : "quickenrich" }));
   },

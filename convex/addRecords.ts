@@ -21,7 +21,7 @@ import type { Id } from "./_generated/dataModel";
 import { getCurrentUser } from "./lib";
 import { startPopulation, type PopulateTask } from "./populateActions";
 import type { Icp } from "../engine/src/icp";
-import { quickEnrichPage } from "./lib/quickenrich";
+import { peoplePage, tregKey } from "./lib/providers/treg";
 import { icpGeosToCountries } from "./lib/researchPipeline";
 import { normDomain } from "./lib/peopleSources";
 import { TregRefusal } from "./lib/treg";
@@ -80,24 +80,23 @@ export const scope = internalQuery({
   },
 });
 
-async function requireFill(ctx: ActionCtx): Promise<{ orgId: Id<"organizations">; token: string }> {
+async function requireFill(ctx: ActionCtx): Promise<{ orgId: Id<"organizations"> }> {
   const { orgId, running } = await ctx.runQuery(internal.addRecords.scope, {});
-  const token = process.env.TREG_TOKEN;
-  if (!token) throw new ConvexError("Data sources are not configured on this deployment (TREG_TOKEN is missing).");
+  if (!tregKey("people.search")) throw new ConvexError("Data sources are not configured on this deployment (TREG_TOKEN is missing).");
   if (running >= MAX_RUNNING) throw new ConvexError(`${running} fills are already running. Wait for one to finish, then try again.`);
-  return { orgId, token };
+  return { orgId };
 }
 
 /** About how many people one source finds for the market, with a few of them. Free; nothing is written. */
 export const previewMarket = action({
   args: { market: marketValidator, persona: personaValidator, exclude: v.optional(icpExcludeValidator) },
   handler: async (ctx, args): Promise<{ total: number | null; sample: Array<{ name: string; title: string | null; company: string }> }> => {
-    const { orgId, token } = await requireFill(ctx);
+    const { orgId } = await requireFill(ctx);
     if (!marketIsNarrow(args.market)) throw new ConvexError("Pick at least one industry, company size or country.");
     const { quickenrich } = marketQueries(args.market, args.persona, args.exclude);
     try {
       const countryName = (iso: string) => icpGeosToCountries([iso.toLowerCase()])[0];
-      const page = await quickEnrichPage({ token, query: quickenrich, meta: { customer: orgId, feature: "add_records_preview" }, countryName, baseUrl: process.env.TREG_BASE_URL });
+      const page = await peoplePage({ query: quickenrich, meta: { customer: orgId, feature: "add_records_preview" }, countryName, baseUrl: process.env.TREG_BASE_URL });
       return {
         total: page.total,
         sample: page.people.slice(0, 5).map((p) => ({ name: p.fullName, title: p.title ?? null, company: p.company.name ?? p.company.domain })),

@@ -19,8 +19,9 @@ export function RunRule({ object, id }: { object: string; id: string }) {
   if (!rules?.length) return null;
   async function go(ruleId: Id<"automationRules">, name: string) {
     try {
-      await run({ ruleId, id });
-      void toast.success(`${name} is running. Its run is on the Automations page.`);
+      const out = await run({ ruleId, id });
+      if ("refused" in out) void toast.error(out.refused);
+      else void toast.success(`${name} is running. Its run is on the Automations page.`);
     } catch (cause) {
       void toast.error(getErrorMessage(cause));
     }

@@ -1721,16 +1721,17 @@ async function recordNamed(ctx: MutationCtx, orgId: Id<"organizations">, def: Re
 }
 
 /**
- * Start a run of an on-demand rule on one record, as its approver: refused when the approver left (the rule pauses),
- * can't see the record, or the record doesn't meet the rule's conditions.
+ * Start a run of an on-demand rule on one record, as its approver. When the approver left, the rule pauses and the
+ * refusal is returned, not thrown, so the pause commits. It throws when the approver can't see the record or the
+ * record doesn't meet the rule's conditions.
  */
 async function startOnDemand(
   ctx: MutationCtx, rule: Doc<"automationRules">, streamId: Id<"canonEntities">, extra: { startedBy?: Id<"users">; eventKey?: string },
-): Promise<Id<"automationRuns">> {
+): Promise<{ runId: Id<"automationRuns"> } | { refused: string }> {
   const p = await principalOf(ctx, rule);
   if (!p) {
     await pause(ctx, rule, CREATOR_GONE);
-    throw new ConvexError(CREATOR_GONE);
+    return { refused: CREATOR_GONE };
   }
   if (!(await recordVisibleTo(ctx, p.access, rule.orgId, streamId))) throw new ConvexError(`${p.user.name}, who this rule acts as, can't see this record`);
   const def = await loadDef(ctx, rule.orgId, rule.object);
@@ -1745,7 +1746,7 @@ async function startOnDemand(
     ...(rule.version !== undefined ? { version: rule.version } : {}), actsAs: actsAsOf(rule), ...extra,
   });
   await ctx.scheduler.runAfter(0, internal.automations.execute, { runId });
-  return runId;
+  return { runId };
 }
 
 /**
@@ -1769,9 +1770,10 @@ export const runOnRecord = mutation({
       throw new ConvexError(CANT_RUN);
     }
     const agent = await agentClientOf(ctx);
-    const runId = await startOnDemand(ctx, rule, streamId, { startedBy: user._id });
-    await audit(ctx, user, "automation_rule.run", { ruleId: rule._id, runId, streamId, ...(agent ? { agent } : {}) });
-    return { runId };
+    const started = await startOnDemand(ctx, rule, streamId, { startedBy: user._id });
+    if ("refused" in started) return started;
+    await audit(ctx, user, "automation_rule.run", { ruleId: rule._id, runId: started.runId, streamId, ...(agent ? { agent } : {}) });
+    return started;
   },
 });
 
@@ -1845,7 +1847,8 @@ export const receiveWebhook = internalMutation({
     if (streamId && p && !(await recordVisibleTo(ctx, p.access, rule.orgId, streamId))) return { status: "refused", error: "No record matches", code: 404 };
     if (!streamId) return { status: "refused", error: "No record matches", code: 404 };
     try {
-      return { status: "started", runId: await startOnDemand(ctx, rule, streamId, { eventKey: args.eventKey }) };
+      const started = await startOnDemand(ctx, rule, streamId, { eventKey: args.eventKey });
+      return "refused" in started ? { status: "refused", error: started.refused, code: 422 } : { status: "started", runId: started.runId };
     } catch (cause) {
       return { status: "refused", error: messageOf(cause), code: 422 };
     }

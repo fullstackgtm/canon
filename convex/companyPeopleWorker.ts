@@ -10,10 +10,11 @@ import { DEFAULT_BUYER_TITLES, findCompanyPeople, signedReviewReplies, type Clas
 import { webPersonNameKey } from "./lib/tam/webPeople";
 import { normDomain } from "./lib/peopleSources";
 import { companyRootDomain } from "./lib/tam/siteExtract";
-import { quickEnrichPage } from "./lib/quickenrich";
 import { icpTitles } from "./lib/quickenrich";
+import { meter } from "./lib/providers/meter";
+import { peoplePage, tregFor, tregKey } from "./lib/providers/treg";
 import { specToIcp } from "./lib/addRecords";
-import { paidCallsAllowed, tregCall } from "./lib/treg";
+import { paidCallsAllowed } from "./lib/treg";
 import { forcedToolCall } from "../engine/src/llm";
 import { DEFAULT_ICP_DERIVATION_MODEL, OPENROUTER_API_BASE } from "../engine/src/icpDerive";
 
@@ -34,7 +35,7 @@ export const run = internalAction({
       const client = callerClient(ctx, caller);
       const detail = await client.get(run.orgId, run.accountId);
       if (!detail || companyRootDomain(detail.account.domain) !== run.domain) throw new Error("Company changed or is unavailable.");
-      const token = process.env.TREG_TOKEN;
+      const token = tregKey("people.search");
       const apiKey = process.env.OPENROUTER_API_KEY;
       const meta = { customer: run.orgId, feature: "company_people" };
       const titles = icp ? icpTitles(specToIcp(icp.spec.market, icp.spec.persona)) : DEFAULT_BUYER_TITLES;
@@ -45,8 +46,8 @@ export const run = internalAction({
       } : undefined;
       const paid = async (endpoint: string, body: unknown, maxCostUsd: number) => {
         if (!paidCallsAllowed() || !token) throw new Error("Paid data calls unavailable.");
-        const r = await tregCall({ token, endpoint, body, meta, maxCostUsd, timeoutMs: 30_000, baseUrl: process.env.TREG_BASE_URL,
-          onResponse: async (receipt) => { await ctx.runMutation(internal.records.recordProviderCall, { orgId: run.orgId, endpoint, feature: "company_people", ...(receipt.callId ? { callId: receipt.callId } : {}), costMicro: receipt.costMicro ?? 0, outcome: receipt.status === 200 ? "hit" : "miss" }); },
+        const r = await tregFor("people.search", { endpoint, body, meta, maxCostUsd, timeoutMs: 30_000, baseUrl: process.env.TREG_BASE_URL,
+          onResponse: async (receipt) => { await meter(ctx, { orgId: run.orgId, provider: "treg", capability: "people.search", feature: "company_people", endpoint, callId: receipt.callId, costMicro: receipt.costMicro ?? 0, outcome: receipt.status === 200 ? "hit" : "miss" }); },
         });
         if (r.status !== 200) throw new Error("Source unavailable.");
         return r.body;
@@ -56,7 +57,7 @@ export const run = internalAction({
         if (source === "linkedin_titles" || source === "linkedin_any") {
           if (!token) throw new Error("People search is not configured.");
           if (source === "linkedin_titles" && !titles.length) return [];
-          const page = await quickEnrichPage({ token, query: { company_url: { include: [run.domain], exclude: [] }, ...(source === "linkedin_titles" ? { title: { include: titles, exclude: [] } } : {}) }, meta, countryName: () => undefined, baseUrl: process.env.TREG_BASE_URL });
+          const page = await peoplePage({ query: { company_url: { include: [run.domain], exclude: [] }, ...(source === "linkedin_titles" ? { title: { include: titles, exclude: [] } } : {}) }, meta, countryName: () => undefined, baseUrl: process.env.TREG_BASE_URL });
           return page.people.filter((p) => normDomain(p.company.domain) === run.domain).slice(0, 25).map((p) => ({ fullName: p.fullName, ...(p.title ? { title: p.title } : {}), ...(p.headline ? { headline: p.headline } : {}), ...(p.linkedinUrl ? { linkedinUrl: p.linkedinUrl } : {}), url: p.linkedinUrl ?? `https://${run.domain}` }));
         }
         if (source === "website_staff") return facts?.staff ?? [];

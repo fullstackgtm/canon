@@ -44,6 +44,12 @@ export type ProviderLimit = { max: number; per: "minute" | "day" | "month"; coun
 /** Who agrees before a call runs: an admin for the workspace, or each member for their own account. */
 export type ProviderConsent = { by: "admin" | "member"; terms: string };
 
+/**
+ * What one capability of a provider costs and how often it may run, where that differs from the provider's own
+ * `cost` and `limits`. `note` says in a sentence what the cost depends on.
+ */
+export type ProviderTerms = { cost?: ProviderCost; limits?: readonly ProviderLimit[]; note?: string };
+
 export type ProviderDecl = {
   /** Lowercase, as `deepline`. */
   id: string;
@@ -53,6 +59,8 @@ export type ProviderDecl = {
   cost: ProviderCost;
   limits?: readonly ProviderLimit[];
   consent?: readonly ProviderConsent[];
+  /** Per capability, where its cost or limits differ from the provider's. */
+  terms?: Partial<Record<ProviderCapability, ProviderTerms>>;
 };
 
 const ID = /^[a-z][a-z0-9_]{0,31}$/;
@@ -69,8 +77,19 @@ export function providerProblems(decl: ProviderDecl): string[] {
   if (!decl.keys.length) out.push("keys is empty: a provider that needs no key is not a provider");
   decl.keys.forEach((k, i) => { if (!KEY.test(k.name)) out.push(`keys[${i}].name must be an uppercase name, as API_KEY`); });
   if (new Set(decl.keys.map((k) => k.name)).size !== decl.keys.length) out.push("keys repeats a name");
-  if (typeof decl.cost === "object" && !(Number.isFinite(decl.cost.credits) && decl.cost.credits > 0)) out.push("cost.credits must be above 0; a call that costs nothing is free");
-  decl.limits?.forEach((l, i) => { if (!(Number.isSafeInteger(l.max) && l.max > 0)) out.push(`limits[${i}].max must be a whole number above 0`); });
+  const costProblems = (cost: ProviderCost | undefined, at: string) => {
+    if (typeof cost === "object" && !(Number.isFinite(cost.credits) && cost.credits > 0)) out.push(`${at}cost.credits must be above 0; a call that costs nothing is free`);
+  };
+  const limitProblems = (limits: readonly ProviderLimit[] | undefined, at: string) =>
+    limits?.forEach((l, i) => { if (!(Number.isSafeInteger(l.max) && l.max > 0)) out.push(`${at}limits[${i}].max must be a whole number above 0`); });
+  costProblems(decl.cost, "");
+  limitProblems(decl.limits, "");
+  for (const [c, t] of Object.entries(decl.terms ?? {})) {
+    if (!decl.capabilities.includes(c as ProviderCapability)) out.push(`terms.${c} names a capability the provider doesn't declare`);
+    costProblems(t?.cost, `terms.${c}.`);
+    limitProblems(t?.limits, `terms.${c}.`);
+    if (t?.note !== undefined && !t.note.trim()) out.push(`terms.${c}.note is empty`);
+  }
   decl.consent?.forEach((c, i) => { if (!c.terms.trim()) out.push(`consent[${i}].terms is empty`); });
   return out;
 }

@@ -648,6 +648,23 @@ test("a manual rule runs on a record someone who can edit it names, as its appro
   agentClient = null;
 });
 
+test("a manual run refused because the approver left keeps the pause it wrote, so the rule leaves the Run a rule menu", async () => {
+  const w = workspace();
+  await rule(w, { name: "Mark", object: "lead", trigger: { kind: "manual" }, actions: [{ kind: "set_field", field: "leadSource", value: "by hand" }] });
+  await as(w, AVERY);
+  const orbit = await write(w, { lastName: "Okafor", company: "Orbit Labs", ownerId: AVERY });
+  const [{ _id: ruleId }] = rules(w);
+  await w.db.patch(RILEY, { isActive: false });
+  // As Convex runs it: a mutation that throws writes nothing.
+  const cp = w.db.checkpoint();
+  const out = await automations.runOnRecord.handler(w.ctx, { ruleId, id: orbit.streamId }).catch((e: Error) => (w.db.rollback(cp), e));
+  assert.ok(!(out instanceof Error), "refused without throwing");
+  assert.match(String(out.refused), /no longer in this workspace/);
+  assert.equal(rules(w)[0].status, "paused");
+  assert.deepEqual(plain(await automations.manualRules.handler(w.ctx, { object: "lead" })), []);
+  assert.equal(runs(w).length, 0);
+});
+
 test("a webhook rule starts once per signed request on the record it names; unsigned, stale or unknown requests start nothing; only a person makes its secret", async () => {
   const w = workspace();
   const key = process.env.TOKEN_ENCRYPTION_KEY;
