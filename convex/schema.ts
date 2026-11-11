@@ -640,6 +640,19 @@ export default defineSchema({
     .index("by_orgId_userId_at", ["orgId", "userId", "at"])
     .index("by_orgId_moduleId_key_at", ["orgId", "moduleId", "key", "at"]),
 
+  // A module's rows a workspace import brought while that module wasn't installed here (docs/workspace-export.md,
+  // "Module data"): its docs, history, AI receipts and snapshots, ids already this workspace's. No module reads them.
+  // Installing the module restores them (convex/workspaceImport.ts restoreHeld); `problem` is why one didn't fit the
+  // version installed, at its `epoch`.
+  moduleHeldRows: defineTable({
+    orgId: v.id("organizations"),
+    moduleId: v.string(),
+    table: v.union(v.literal("moduleDocs"), v.literal("moduleEvents"), v.literal("moduleAiRuns"), v.literal("moduleSnapshots")),
+    row: v.any(),
+    heldAt: v.number(),
+    problem: v.optional(v.object({ why: v.string(), epoch: v.number() })),
+  }).index("by_orgId_and_moduleId", ["orgId", "moduleId"]),
+
   // A module's standing grant (convex/moduleGrants.ts, docs/modules.md "Standing grants"): an admin's approval, made in
   // advance, for one module to make one grantable proposal (modules/kernel/proposals.ts) without asking, until it
   // expires. `signature` is HMAC-SHA256 over the exact terms; one that doesn't verify, has expired or was revoked

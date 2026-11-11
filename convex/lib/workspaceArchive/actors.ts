@@ -146,6 +146,16 @@ export const ARRIVALS: Readonly<Record<string, Arrival>> = {
     fields: ["status", "error"],
     apply: (row) => (row.status === "running" ? { ...row, status: "failed", error: IMPORTED_RUN } : row),
   },
+  recipeEnablements: {
+    why: "a module arrives off: every module here is turned off when the import begins, and the archive's \"on\" doesn't carry over",
+    fields: ["enabled"],
+    apply: (row) => (row.point === "module" ? { ...row, enabled: false } : row),
+  },
+  moduleAiRuns: {
+    why: "a hosted AI step that hadn't finished arrives failed; the others are receipts",
+    fields: ["status", "error"],
+    apply: (row) => (row.status === "running" ? { ...row, status: "failed", error: IMPORTED_RUN } : row),
+  },
   approvalRequests: {
     why: "an open or granted approval arrives cancelled with its plan",
     fields: ["status", "reason"],
@@ -347,8 +357,13 @@ export const CENSUS: readonly Mechanism[] = [
   {
     key: "module", does: "run module jobs, schedules, effects and visitor links",
     gate: "convex/moduleJobs.ts:857 (installed packages); a module's jobs are this deployment's (read only through lib/modules/jobs.ts)",
-    arrives: "module code is never installed from an archive and jobs never move",
-    imported: [],
+    arrives: "module code is never installed from an archive and jobs never move; every module here is turned off when the import begins (workspaceImport.ts beginImport), so no schedule, timed transition or watch runs on what it writes; a module's docs restore only into the module installed here, or wait held until it is, and a module that takes held docs later is turned off again",
+    // A module that is on runs its schedules, timed transitions and watches on what the import wrote; a hosted AI step
+    // still running fills its doc when it finishes.
+    imported: [
+      { table: "recipeEnablements", index: "by_orgId_and_point_and_enabled", open: (r) => r.point === "module" && r.enabled === true },
+      { table: "moduleAiRuns", index: "by_orgId_userId_at", open: (r) => r.status === "running" },
+    ],
     // What can run here is what is installed here: the import never installs a module.
     here: [{ table: "modulePackages", index: "by_orgId_and_status", open: (r) => r.status === "installed" }],
     runs: ["internal.moduleJobs.sweep", "internal.moduleDefaults.sweep", "internal.audienceImport.sweep", "internal.visits.notifyExpiring", "registerModuleUploadRoute"],
@@ -419,7 +434,6 @@ export const INERT: Readonly<Record<string, string>> = {
   marketRuns: "a finished map run",
   playbooks: "a playbook's state",
   canonAutoAcceptRules: "auto-accepts facts as they arrive; a fact arrives already decided",
-  recipeEnablements: "which templates and modules are on: a module's needs that module installed here",
   researchTraces: "how a finished record's research went",
   linkedinCadences: "rows arrive only with their sender, which never moves",
   linkedinEnrollments: "rows arrive only with their sender, which never moves",

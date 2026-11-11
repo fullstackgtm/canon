@@ -104,6 +104,24 @@ What arrives:
 - Automation and routing rules, patch plans with their operations and approvals, and a sequence module's launches
   and enrollments (when that module is installed here). Each arrives switched off; see below.
 
+Module data:
+
+- A module's documents, their history, its AI step receipts and its snapshots go to the module installed here with
+  the same id. Ids inside them are rewritten like everything else: the members, deals, teams and records a doc names,
+  and the members inside a doc's key. Each doc keeps its version, owner and creation time, and must fit the version
+  installed here.
+- Every module in this workspace is turned off when the import begins, and the source's "on" doesn't carry over, so
+  no module's schedules, timed steps or watches run on what the import writes. Turn each on in **Customization**
+  when you're ready. Restoring docs tells nothing else either: an imported ICP doesn't start a fill.
+- Rows of a module that isn't installed here are held, counted per module in the dry run and the summary, and no
+  page reads them. Installing the module restores them, and turns it off again if it was on. A doc that doesn't fit
+  the installed version stays held and is tried again when another version is installed.
+- A private module (one Canon doesn't publish) restores only into Canon's own install of it. On a self-hosted
+  install its data stays held and inert. Held rows are in the next export, so moving the workspace on to an install
+  that has the module brings them back.
+- Signed module grants and share links stay behind: they are signed with the source deployment's keys. Grant them
+  again here.
+
 What arrives switched off:
 
 Nothing the archive brings sends, writes to a CRM, fires a rule or acts until a person here turns it on. The dry
@@ -154,9 +172,9 @@ act, with what is connected on this deployment.
 
 What doesn't, for now:
 
-- The dry run lists every section that isn't imported yet, with why: module documents, commissions and territories
-  (only for modules installed here), installed recipe packages, and what a CRM sync rebuilds (CRM mirror scores and
-  what a connected CRM says about a company's parent).
+- The dry run lists every section that isn't imported yet, with why: the module packages themselves (a module is
+  installed here, never from an archive), commissions and territories, installed recipe packages, and what a CRM
+  sync rebuilds (CRM mirror scores and what a connected CRM says about a company's parent).
 - A row that needs something not imported is left out and counted, such as an audience member an agent added. The
   dry run says how many, per section, and why.
 - Files and attachments: references to them are cleared and counted per section, and a row that is only its file

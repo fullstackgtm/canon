@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { decodeRow, DEFERRED, IMPORT_TABLES, moduleOf, registerIdOf, SKIPPED, type RemapEnv, type Shape, type Unmapped } from "../convex/lib/workspaceArchive/importRows.ts";
 import { arrive } from "../convex/lib/workspaceArchive/actors.ts";
+import { refsIn, type ObjectValidator } from "../modules/kernel/schema.ts";
 import { verifyArchive, type Manifest } from "./workspaceArchive.ts";
 
 /** Rows per import page: the Convex importer's limit (convex/workspaceImport.ts IMPORT_PAGE_MAX). */
@@ -54,7 +55,7 @@ export type ImportTransport = {
   finish(args: { expected: Record<string, number> }): Promise<{ finishedAt: number; gates: Gate[] }>;
 };
 
-type PageResult = { written: number; skipped: number; cleared: Record<string, number>; notWritten: Record<string, number>; foreign: number };
+type PageResult = { written: number; skipped: number; cleared: Record<string, number>; notWritten: Record<string, number>; foreign: number; held?: Record<string, number> };
 
 /**
  * One archive section in the report. An imported one says what it leaves out: `notWritten` rows by why (a ref to
@@ -64,6 +65,8 @@ type PageResult = { written: number; skipped: number; cleared: Record<string, nu
 export type SectionReport = {
   section: string; rows: number; status: "import" | "not imported yet" | "empty";
   why?: string; notWritten?: Record<string, number>; cleared?: Record<string, number>;
+  /** A module's rows held, by module, until that module is installed here. */
+  held?: Record<string, number>;
   /** Rows that arrive switched off (actors.ts ARRIVALS), and how. */
   arrives?: { rows: number; why: string };
 };
@@ -102,6 +105,30 @@ function userIdsIn(value: unknown, out: Set<string>, key = "", parent: Record<st
     const o = value as Record<string, unknown>;
     if (o.$ref === "users" && typeof o.id === "string") out.add(o.id);
     else for (const [k, v] of Object.entries(o)) userIdsIn(v, out, k, o);
+  }
+}
+
+/**
+ * The members a module's docs name, by the source's own manifests (the archive's modulePackages): a doc's data types
+ * its ids, so only the module's schema says which are members.
+ */
+function moduleMemberIds(files: Map<string, Uint8Array>, manifest: Manifest, out: Set<string>) {
+  const schemas = new Map<string, Record<string, { schema: ObjectValidator }>>();
+  for (const line of sectionLines(files, manifest, "modulePackages")) {
+    const pkg = JSON.parse(line) as { moduleId?: string; manifest?: string };
+    try { schemas.set(String(pkg.moduleId), (JSON.parse(String(pkg.manifest)) as { collections: Record<string, { schema: ObjectValidator }> }).collections); } catch { /* an unreadable manifest names no members */ }
+  }
+  const scan = (moduleId: unknown, doc: Record<string, unknown>) => {
+    const schema = schemas.get(String(moduleId))?.[String(doc.collection)]?.schema;
+    if (schema && doc.data && typeof doc.data === "object") for (const r of refsIn(doc.data, schema)) if (r.ref.to === "users") out.add(r.id);
+  };
+  for (const [section, s] of Object.entries(manifest.sections)) {
+    if (IMPORT_TABLES[section]?.kind !== "module" || !s.count) continue;
+    for (const line of sectionLines(files, manifest, section)) {
+      const row = JSON.parse(line) as Record<string, unknown>;
+      const inner = row.row && typeof row.row === "object" ? (row.row as Record<string, unknown>) : row;
+      if (typeof inner.collection === "string" && "data" in inner && "version" in inner) scan(row.moduleId, inner);
+    }
   }
 }
 
@@ -145,6 +172,7 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
       userIdsIn(row, referenced);
     }
   }
+  moduleMemberIds(files, manifest, referenced);
   const formerIds = [...referenced].filter((id) => !users.some((u) => u._id === id));
   for (const id of formerIds) sim.set(id, `former:${id}`);
 
@@ -154,13 +182,13 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
   const indexOf = new Map(sections.map((s, i) => [s.section, i]));
   const installed = new Set(plan.installedModules);
   const unmapped: Unmapped[] = [];
-  const outcome = new Map<string, { notWritten: Record<string, number>; cleared: Record<string, number>; arrives: number }>();
+  const outcome = new Map<string, { notWritten: Record<string, number>; cleared: Record<string, number>; held: Record<string, number>; arrives: number }>();
   let foreign = 0;
   for (const [i, { section, lines }] of sections.entries()) {
     current = i;
     waitsFor = indexOf.get(plan.secondPass[section]?.after ?? "") ?? -1;
     const shape: Shape = section.startsWith("register.") ? { kind: "any" } : plan.shapes[section];
-    const counts = { notWritten: {} as Record<string, number>, cleared: {} as Record<string, number>, arrives: 0 };
+    const counts = { notWritten: {} as Record<string, number>, cleared: {} as Record<string, number>, held: {} as Record<string, number>, arrives: 0 };
     outcome.set(section, counts);
     const arrival = IMPORT_TABLES[section].arrive;
     for (const line of lines) {
@@ -173,6 +201,8 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
       foreign += d.foreign;
       // As Convex does: a row left out maps to SKIPPED, so the rows that need it are left out after it.
       const owner = moduleOf(section, raw);
+      // A module's own rows wait for the module; another table's row a module owns is left out without it.
+      if (owner && !installed.has(owner) && IMPORT_TABLES[section].kind === "module") { counts.held[owner] = (counts.held[owner] ?? 0) + 1; continue; }
       const why = owner && !installed.has(owner) ? `module ${owner}` : d.needs ? `needs ${d.needs}` : null;
       if (why) {
         counts.notWritten[why] = (counts.notWritten[why] ?? 0) + 1;
@@ -189,7 +219,7 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
       if (!s.count) return { section, rows: 0, status: "empty" };
       if (!imported.has(section)) return { section, rows: s.count, status: "not imported yet", why: DEFERRED[section]?.why ?? "a later Canon imports it" };
       const arrival = IMPORT_TABLES[section]?.arrive, arrives = outcome.get(section)?.arrives ?? 0;
-      return { section, rows: s.count, status: "import", notWritten: nonEmpty(outcome.get(section)?.notWritten), cleared: nonEmpty(outcome.get(section)?.cleared), ...(arrival && arrives ? { arrives: { rows: arrives, why: arrival.why } } : {}) };
+      return { section, rows: s.count, status: "import", notWritten: nonEmpty(outcome.get(section)?.notWritten), cleared: nonEmpty(outcome.get(section)?.cleared), held: nonEmpty(outcome.get(section)?.held), ...(arrival && arrives ? { arrives: { rows: arrives, why: arrival.why } } : {}) };
     }),
     users: users.map((u) => {
       const email = String(u.email ?? "").toLowerCase();
@@ -268,15 +298,15 @@ export async function importWorkspace(t: ImportTransport, files: Map<string, Uin
       const sectionStarted = Date.now();
       expected[section] = lines.length;
       const register = section.startsWith("register.");
-      const counts = { notWritten: {} as Record<string, number>, cleared: {} as Record<string, number> };
+      const counts = { notWritten: {} as Record<string, number>, cleared: {} as Record<string, number>, held: {} as Record<string, number> };
       for (const p of pages(lines, register ? REGISTER_PAGE : PAGE_ROWS, register ? 4_000_000 : PAGE_BYTES)) {
         if (register) { await t.register({ section, offset: p.offset, rows: p.rows }); continue; }
         const r = await t.page({ section, offset: p.offset, rows: p.rows });
-        for (const k of ["notWritten", "cleared"] as const) for (const [why, n] of Object.entries(r[k] ?? {})) counts[k][why] = (counts[k][why] ?? 0) + n;
+        for (const k of ["notWritten", "cleared", "held"] as const) for (const [why, n] of Object.entries(r[k] ?? {})) counts[k][why] = (counts[k][why] ?? 0) + n;
       }
       // What this run's pages left out; on a resumed run, pages already in report nothing and the dry run's counts stand.
       const entry = report.sections.find((x) => x.section === section);
-      if (entry && (Object.keys(counts.notWritten).length || Object.keys(counts.cleared).length)) Object.assign(entry, { notWritten: counts.notWritten, cleared: counts.cleared });
+      if (entry && Object.values(counts).some((c) => Object.keys(c).length)) Object.assign(entry, { notWritten: counts.notWritten, cleared: counts.cleared, held: counts.held });
       await secondPasses(section);
       log(`  ${section}: ${lines.length} rows, ${((Date.now() - sectionStarted) / 1000).toFixed(1)} s`);
     }
@@ -332,6 +362,10 @@ export function printImportReport(r: ImportReport, print: (line: string) => void
     const cleared = Object.entries(s.cleared ?? {});
     if (cleared.length) print(`  ${s.section}: cleared ${cleared.map(([t, n]) => `${n} ${t === "_storage" ? "file" : t} reference${n === 1 ? "" : "s"}`).join(", ")}`);
   }
+  const held = new Map<string, number>();
+  for (const s of r.sections) for (const [module, n] of Object.entries(s.held ?? {})) held.set(module, (held.get(module) ?? 0) + n);
+  if (held.size) print(`Held until its module is installed here${r.dryRun ? "" : " (installing it restores them)"}:`);
+  for (const [module, n] of held) print(`  ${module.padEnd(width)}  ${String(n).padStart(8)}  module rows`);
   const notYet = r.sections.filter((s) => s.status === "not imported yet");
   if (notYet.length) print(`Not imported yet (${notYet.reduce((n, s) => n + s.rows, 0)} rows in ${notYet.length} sections):`);
   for (const s of notYet) print(`  ${s.section.padEnd(width)}  ${String(s.rows).padStart(8)}  ${s.why}`);

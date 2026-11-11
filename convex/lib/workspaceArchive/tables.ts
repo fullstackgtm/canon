@@ -80,6 +80,8 @@ export const ARCHIVE_TABLES = {
   moduleSnapshots: data("by_orgId_moduleId_snapshot_page"),
   moduleCursors: local(),
   moduleAiRuns: data("by_orgId_userId_at"),
+  // A module's rows an import held until the module is installed here: the workspace's data, so they move again.
+  moduleHeldRows: data("by_orgId_and_moduleId"),
   moduleGrants: secret("a grant's signature is an HMAC under this deployment's key over its own id"),
   moduleGrantUses: secret("each use's digest binds it to its grant's signature"),
   notifications: data("by_orgId_userId_at"),
