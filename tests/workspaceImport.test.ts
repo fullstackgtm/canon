@@ -71,11 +71,31 @@ function world() {
   return { db, A, B, C, ada, rex, adaB };
 }
 
+/** Convex file storage for an in-memory deployment: bytes by id, and the metadata ctx.db.system answers. `size` fakes a big file. */
+const storages = new WeakMap<object, ReturnType<typeof makeStorage>>();
+function makeStorage() {
+  const blobs = new Map<string, { bytes: Uint8Array; contentType: string; at: number; size?: number }>();
+  const meta = async (id: string) => { const b = blobs.get(id); return b ? { _id: id, _creationTime: b.at, size: b.size ?? b.bytes.length, sha256: createHash("sha256").update(b.bytes).digest("base64"), contentType: b.contentType } : null; };
+  return {
+    blobs, meta,
+    put: (bytes: Uint8Array, contentType = "application/octet-stream", size?: number) => { const id = mint(); blobs.set(id, { bytes, contentType, at: Date.now(), size }); return id; },
+    ctx: {
+      getUrl: async (id: string) => (blobs.has(id) ? `mem:${id}` : null),
+      store: async (blob: Blob) => { const id = mint(); blobs.set(id, { bytes: new Uint8Array(await blob.arrayBuffer()), contentType: blob.type, at: Date.now() }); return id; },
+      delete: async (id: string) => void blobs.delete(id),
+    },
+  };
+}
+const storageOf = (db: Db) => {
+  if (!storages.has(db)) { const s = makeStorage(); storages.set(db, s); (db as unknown as { system: unknown }).system = { get: s.meta }; }
+  return storages.get(db)!;
+};
+
 const identity = (clerk: string) => ({ tokenIdentifier: clerk, subject: clerk, issuer: "https://clerk.example" });
 const handlers: Record<string, Record<string, { handler: (ctx: any, args: any) => Promise<any> }>> = { workspaceImport: I, workspaceTransfer: T, dealHistory: M["dealHistory.ts"] };
 function ctxOf(db: Db, clerk: string | null = null): any {
   const ctx: any = {
-    db, auth: { getUserIdentity: async () => (clerk ? identity(clerk) : null) }, scheduler: { runAfter: async () => null },
+    db, auth: { getUserIdentity: async () => (clerk ? identity(clerk) : null) }, scheduler: { runAfter: async () => null }, storage: storageOf(db).ctx,
   };
   const run = (ref: unknown, args: unknown) => {
     const [, mod, fn] = String(ref).split(".");
@@ -360,6 +380,8 @@ function exportTransport(db: Db, key: string): Transport {
     page: (args) => T.exportPage.handler(ctx, { key, ...args }),
     registerInfo: () => T.exportRegisterInfo.handler(ctx, { key }),
     register: (args) => T.exportRegister.handler(ctx, { key, ...args }),
+    files: (args) => T.exportFiles.handler(ctx, { key, ...args }),
+    download: async (url) => storageOf(db).blobs.get(url.slice(4))!.bytes,
   };
 }
 
@@ -378,6 +400,7 @@ function importTransport(db: Db, key: string, fail?: { at: number }): ImportTran
     page: (a) => tx(() => I.importPage.handler(ctx, { key, ...a })),
     register: (a) => tx(() => I.importRegister.handler(ctx, { key, ...a })),
     finish: (a) => tx(() => I.finish.handler(ctx, { key, ...a })),
+    importFile: (a) => tx(() => I.importFile.handler(ctx, { key, ...a, bytes: new Uint8Array(a.bytes).buffer })),
   };
 }
 
@@ -843,6 +866,54 @@ test("a module's docs move into the module installed here with their ids mapped,
     assert.deepEqual(of(db, "moduleAiRuns", B).map((r) => r.status), ["failed"]);
     assert.equal(of(db, "moduleEvents", B).length, of(db, "moduleEvents", A).length);
   }
+});
+
+test("a stored file of each kind moves with its bytes, its rows name the copy, and the export stops past the size ceiling", async () => {
+  const w = world();
+  const { db, A, B, ada } = w;
+  const store = storageOf(db);
+  const shape = (t: string) => shapeOf(tables[t].validator as Record<string, unknown>);
+  const row = (t: string, ids: Record<string, string>, extra: Record<string, unknown>) => db.insert(t, { ...(synthesize(shape(t), { organizations: A, users: ada, ...ids }) as Record<string, unknown>), ...extra });
+  const m = visitLog();
+  m.collections.visits.schema.value.photo = { fieldType: { type: "file" }, optional: true };
+  // Installed only in A: B holds the visit, and its photo's file still arrives.
+  await installModule(db, A, m);
+  // A module upload in a visit's photo, a hierarchy scan's snapshot and its research's pages, and a consolidation's CSV.
+  const bytes = { photo: Buffer.from("PNG photo bytes"), snapshot: Buffer.from('{"accounts":[]}'), pages: Buffer.from("page text"), csv: Buffer.from("id,value\n1,a\n") };
+  const photo = await db.insert("moduleFiles", { orgId: A, moduleId: m.id, storageId: store.put(bytes.photo, "image/png"), name: "front.png", type: "image/png", bytes: bytes.photo.length, uploadedBy: ada, attachedTo: { collection: "visits", key: "v1" }, at: 1 });
+  await db.insert("moduleDocs", { orgId: A, moduleId: m.id, collection: "visits", key: "v1", data: { title: "Plant tour", rep: ada, status: "planned", photo }, version: 1, ownerUserId: ada, updatedAt: 1 });
+  const scan = await row("hierarchyScans", {}, { status: "done", snapshot: store.put(bytes.snapshot, "application/json") });
+  const group = await row("hierarchyGroups", { hierarchyScans: scan }, {});
+  await row("hierarchyResearch", { hierarchyScans: scan, hierarchyGroups: group }, { status: "done", pages: store.put(bytes.pages, "text/plain") });
+  const consolidation = await row("fieldConsolidations", {}, {});
+  await row("fieldConsolidationRuns", { fieldConsolidations: consolidation }, { status: "applied", csv: store.put(bytes.csv, "text/csv") });
+  // A module's bundle is code: a private one must never leave, so no bundle goes into an archive.
+  const pkg = db.rows("modulePackages").find((p) => p.orgId === A)!;
+  db.patch(pkg._id, { bundleHash: "h", bundleStorageId: store.put(Buffer.from("export default {}"), "text/javascript") });
+  const { files, manifest } = await exportOf(db, "clerk_ada");
+  assert.equal(Object.keys(manifest.files ?? {}).length, 4);
+  const report = await importWorkspace(importTransport(db, await importKey(db)), files);
+  assert.deepEqual([...report.refusals, ...report.unmapped, report.files.count], [4]);
+  const bytesOf = async (id: unknown) => Buffer.from(store.blobs.get(String(id))!.bytes).toString();
+  const one = (t: string) => of(db, t, B)[0];
+  const fileB = one("moduleFiles");
+  assert.deepEqual(await Promise.all([fileB.storageId, one("hierarchyScans").snapshot, one("hierarchyResearch").pages, one("fieldConsolidationRuns").csv].map(bytesOf)), [bytes.photo, bytes.snapshot, bytes.pages, bytes.csv].map(String));
+  assert.deepEqual(plain([fileB.name, fileB.uploadedBy, fileB.attachedTo]), ["front.png", w.adaB, { collection: "visits", key: "v1" }]);
+  // The held visit names the copied file, so its photo opens once the module is installed in B.
+  assert.equal((of(db, "moduleHeldRows", B).find((h) => (h.row as { collection?: string }).collection === "visits")!.row as { data: { photo: string } }).data.photo, fileB._id);
+  // A file is stored from the bytes sent with it, so no caller names a storage id: bytes that aren't the archive's are
+  // refused, and sending a file again keeps the first copy.
+  const fresh = world();
+  const k = await importKey(fresh.db);
+  await atomic(fresh.db, () => I.begin.handler(ctxOf(fresh.db), { key: k, digest: "0".repeat(64), sourceWorkspaceId: fresh.A, registerRows: 0 }));
+  const send = (text: string) => I.importFile.handler(ctxOf(fresh.db), { key: k, oldId: "x", sha256: createHash("sha256").update("the archive's").digest("hex"), contentType: "text/plain", bytes: new Uint8Array(Buffer.from(text)).buffer });
+  await assert.rejects(send("something else"), /isn't the archive's/);
+  const first = plain(await send("the archive's"));
+  assert.deepEqual([plain(await send("the archive's")), storageOf(fresh.db).blobs.size], [first, 1]);
+  // A file over the ceiling stops the export before any file is written.
+  store.put(Buffer.from("x"), "video/mp4", 20 * 1024 * 1024);
+  await db.patch(fileB._id, { storageId: [...store.blobs.keys()].at(-1) });
+  await assert.rejects(exportOf(db, "clerk_ada_b"), /too big for one archive/);
 });
 
 /** The archive with `fn` applied to every row of `section`, its checksum and manifest made to match: a hand-built file. */

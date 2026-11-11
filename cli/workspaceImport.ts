@@ -53,6 +53,8 @@ export type ImportTransport = {
   page(args: { section: string; offset: number; rows: string[]; pass?: 2 }): Promise<PageResult>;
   register(args: { section: string; offset: number; rows: string[] }): Promise<{ written: number; skipped: number; foreign: number }>;
   finish(args: { expected: Record<string, number> }): Promise<{ finishedAt: number; gates: Gate[] }>;
+  /** Send one of the archive's files to be stored here (convex/workspaceImport.ts importFile); one already in is kept. */
+  importFile(args: { oldId: string; sha256: string; contentType: string; bytes: Uint8Array }): Promise<{ storageId: string }>;
 };
 
 type PageResult = { written: number; skipped: number; cleared: Record<string, number>; notWritten: Record<string, number>; foreign: number; held?: Record<string, number> };
@@ -76,6 +78,8 @@ export type ImportReport = {
   workspace: ImportPlan["workspace"];
   sections: SectionReport[];
   users: Array<{ email: string; name: string; role: string; as: Mapping["as"] }>;
+  /** The archive's stored files the rows it writes name: uploaded before the sections. */
+  files: { count: number; bytes: number };
   formerMembers: number;
   foreignLabels: number;
   refusals: string[];
@@ -132,6 +136,16 @@ function moduleMemberIds(files: Map<string, Uint8Array>, manifest: Manifest, out
   }
 }
 
+/** The stored files a raw archive row names that the archive carries. */
+function storageIdsIn(value: unknown, carried: Record<string, unknown>, out: Set<string>) {
+  if (Array.isArray(value)) value.forEach((v) => storageIdsIn(v, carried, out));
+  else if (value && typeof value === "object") {
+    const ref = value as { $ref?: unknown; id?: unknown };
+    if (ref.$ref === "_storage" && typeof ref.id === "string") { if (ref.id in carried) out.add(ref.id); }
+    else for (const v of Object.values(value)) storageIdsIn(v, carried, out);
+  }
+}
+
 /** The sections this archive needs written, in the destination's order, with their rows. */
 function sectionsToImport(files: Map<string, Uint8Array>, manifest: Manifest, plan: ImportPlan) {
   return plan.order.filter((s) => s !== "users" && (manifest.sections[s]?.count ?? 0) > 0).map((s) => ({ section: s, lines: sectionLines(files, manifest, s) }));
@@ -175,10 +189,13 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
   moduleMemberIds(files, manifest, referenced);
   const formerIds = [...referenced].filter((id) => !users.some((u) => u._id === id));
   for (const id of formerIds) sim.set(id, `former:${id}`);
+  for (const id of Object.keys(manifest.files ?? {})) sim.set(id, `file:${id}`);
+  // The archive's files that a row it writes names: only those are uploaded (a dialer call's recording stays behind with its call).
+  const needed = new Set<string>();
 
   let current = -1, waitsFor = -1;
   const visible = (id: string) => { const i = at.get(id); return i === undefined || i <= current || i === waitsFor; };
-  const env: RemapEnv = { orgId: plan.workspace.id, map: (id) => (visible(id) ? sim.get(id) : undefined), imported: (t) => t in IMPORT_TABLES || t === "organizations" };
+  const env: RemapEnv = { orgId: plan.workspace.id, map: (id) => (visible(id) ? sim.get(id) : undefined), imported: (t) => t in IMPORT_TABLES || t === "organizations" || t === "_storage" };
   const indexOf = new Map(sections.map((s, i) => [s.section, i]));
   const installed = new Set(plan.installedModules);
   const unmapped: Unmapped[] = [];
@@ -201,13 +218,18 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
       foreign += d.foreign;
       // As Convex does: a row left out maps to SKIPPED, so the rows that need it are left out after it.
       const owner = moduleOf(section, raw);
-      // A module's own rows wait for the module; another table's row a module owns is left out without it.
-      if (owner && !installed.has(owner) && IMPORT_TABLES[section].kind === "module") { counts.held[owner] = (counts.held[owner] ?? 0) + 1; continue; }
-      const why = owner && !installed.has(owner) ? `module ${owner}` : d.needs ? `needs ${d.needs}` : null;
+      // A module's own rows wait for the module (its files go in regardless); another table's row a module owns is left
+      // out without it.
+      const moduleRow = IMPORT_TABLES[section].kind === "module";
+      if (owner && !installed.has(owner) && moduleRow && !IMPORT_TABLES[section].live) { counts.held[owner] = (counts.held[owner] ?? 0) + 1; continue; }
+      const why = owner && !installed.has(owner) && !moduleRow ? `module ${owner}` : d.needs ? `needs ${d.needs}` : null;
       if (why) {
         counts.notWritten[why] = (counts.notWritten[why] ?? 0) + 1;
         if (typeof raw._id === "string") sim.set(raw._id, SKIPPED);
-      } else if (arrival && JSON.stringify(arrive(section, arrival, d.row, { now: 0, heads: {} })) !== JSON.stringify(d.row)) counts.arrives++;
+      } else {
+        storageIdsIn(raw, manifest.files ?? {}, needed);
+        if (arrival && JSON.stringify(arrive(section, arrival, d.row, { now: 0, heads: {} })) !== JSON.stringify(d.row)) counts.arrives++;
+      }
     }
   }
   const imported = new Set(sections.map((s) => s.section).concat("users"));
@@ -226,6 +248,7 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
       const you = email === plan.importedBy.email.toLowerCase();
       return { email, name: String(u.name ?? ""), role: you ? "admin" : u.role === "admin" ? "rep" : String(u.role ?? "rep"), as: you ? "you" : "placeholder" };
     }),
+    files: { count: needed.size, bytes: [...needed].reduce((n, id) => n + manifest.files![id].bytes, 0) },
     formerMembers: formerIds.length,
     foreignLabels: foreign,
     refusals,
@@ -233,7 +256,7 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
     gates: null,
     seconds: 0,
   };
-  return { manifest, report, users: users.map((u) => JSON.stringify(u)), formerIds, sections };
+  return { manifest, report, users: users.map((u) => JSON.stringify(u)), formerIds, sections, files: [...needed] };
 }
 
 export const digestOf = (files: Map<string, Uint8Array>) => createHash("sha256").update(files.get("manifest.json") ?? new Uint8Array()).digest("hex");
@@ -280,6 +303,12 @@ export async function importWorkspace(t: ImportTransport, files: Map<string, Uin
       mapping.push(...(await t.users({ offset: p.offset, rows, formerIds })).mapping);
     }
     for (const p of pages(planned.users, USERS_PAGE)) await t.users({ offset: p.offset, rows: p.rows, formerIds: [], pass: 2 });
+    // Files before the sections, so a row's file reference maps to the file stored here. One already in is kept.
+    for (const id of planned.files) {
+      const f = manifest.files![id];
+      await t.importFile({ oldId: id, sha256: f.sha256, contentType: f.contentType, bytes: files.get(f.file)! });
+    }
+    if (planned.files.length) log(`  files: ${planned.files.length}, ${(report.files.bytes / 1024 / 1024).toFixed(1)} MiB`);
     expected.users = userLines.length;
     expected["users#refs"] = planned.users.length;
     if (mapping.length) report.users = mapping.map((m) => ({ email: m.email, name: m.name, role: m.role, as: m.as }));
@@ -345,6 +374,7 @@ export function httpImportTransport(base: string, key: string, fetchImpl: typeof
     page: (args) => call({ op: "page", ...args }) as Promise<PageResult>,
     register: (args) => call({ op: "register", ...args }) as Promise<{ written: number; skipped: number; foreign: number }>,
     finish: (args) => call({ op: "finish", ...args }) as Promise<{ finishedAt: number; gates: Gate[] }>,
+    importFile: ({ bytes, ...args }) => call({ op: "importFile", ...args, base64: Buffer.from(bytes).toString("base64") }) as Promise<{ storageId: string }>,
   };
 }
 
@@ -369,7 +399,8 @@ export function printImportReport(r: ImportReport, print: (line: string) => void
   const notYet = r.sections.filter((s) => s.status === "not imported yet");
   if (notYet.length) print(`Not imported yet (${notYet.reduce((n, s) => n + s.rows, 0)} rows in ${notYet.length} sections):`);
   for (const s of notYet) print(`  ${s.section.padEnd(width)}  ${String(s.rows).padStart(8)}  ${s.why}`);
-  if (r.sections.some((s) => s.cleared?._storage)) print("Files aren't in archives yet: their references are cleared, and a row that is only its file is left out.");
+  if (r.files.count) print(`Files: ${r.files.count}, ${(r.files.bytes / 1024 / 1024).toFixed(1)} MiB${r.dryRun ? " to upload" : " uploaded"}.`);
+  if (r.sections.some((s) => s.cleared?._storage)) print("A file the archive doesn't carry is cleared from the row that named it, and a row that is only its file is left out.");
   const arriving = r.sections.filter((s) => s.arrives);
   if (arriving.length) print(`Arrives switched off${r.dryRun ? "" : " (turn each on here when you're ready)"}:`);
   for (const s of arriving) print(`  ${s.section.padEnd(width)}  ${String(s.arrives!.rows).padStart(8)}  ${s.arrives!.why}`);

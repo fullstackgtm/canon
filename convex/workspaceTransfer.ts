@@ -27,6 +27,7 @@ const PAGE_MAX = 512;
 const PARENTS_MAX = 50;
 const PER_PARENT_MAX = 100;
 const BATCH_BYTES = 4_000_000;
+const FILE_ROWS_MAX = 100;
 
 async function sha256Hex(text: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -226,6 +227,45 @@ export const exportPage = query({
     const opts = { omit: entry.omit, pick: entry.pick };
     const lines = rows.map((row) => encodeRow(validatorOf(args.section), row, resolve, stats, opts));
     return { count: rows.length, rows: lines, ids: rows.map((r) => r._id), cursor, pending, rest, stats };
+  },
+});
+
+/** The stored files whose ids a value holds where `shape` declares `v.id("_storage")`. */
+function storageIdsIn(shape: ValidatorShape, value: unknown, out: Set<string>) {
+  if (value === undefined || value === null) return;
+  if (shape.kind === "id" && (shape as { tableName: string }).tableName === "_storage" && typeof value === "string") out.add(value);
+  else if (shape.kind === "union") for (const m of (shape as { members: ValidatorShape[] }).members) storageIdsIn(m, value, out);
+  else if (shape.kind === "array" && Array.isArray(value)) for (const v of value) storageIdsIn((shape as { element: ValidatorShape }).element, v, out);
+  else if (shape.kind === "object" && typeof value === "object") for (const [k, f] of Object.entries((shape as { fields: Record<string, ValidatorShape> }).fields)) storageIdsIn(f, (value as Record<string, unknown>)[k], out);
+}
+
+/**
+ * The stored files of rows an archive holds: each file's size, type, checksum and a download link, for the CLI to
+ * read and write into the archive (files/<id>). Only a file a row of this workspace names is answered, so no caller
+ * can read any other: the rows are named by section and id, and their file ids are read from the rows themselves.
+ * Code (a module's or recipe's bundle, `codeFiles`) is never answered: a private module's bundle never leaves.
+ */
+export const exportFiles = query({
+  args: { key: v.string(), rows: v.array(v.object({ section: v.string(), id: v.string() })) },
+  handler: async (ctx, args) => {
+    const { orgId } = await exportCaller(ctx, args.key);
+    if (args.rows.length > FILE_ROWS_MAX) throw new ConvexError(`Ask for at most ${FILE_ROWS_MAX} rows' files at a time.`);
+    const files = [];
+    for (const r of args.rows) {
+      const entry = entryOf(r.section);
+      if (!exported(entry) || !(await inWorkspace(ctx, orgId, r.section, r.id))) throw new ConvexError(`${r.id} is not a ${r.section} row of this workspace.`);
+      if (entry.codeFiles) continue;
+      const row = await ctx.db.get(ctx.db.normalizeId(r.section as TableNames, r.id)!);
+      const ids = new Set<string>();
+      storageIdsIn(validatorOf(r.section), row, ids);
+      for (const id of ids) {
+        const meta = await ctx.db.system.get(id as Id<"_storage">);
+        const url = meta && (await ctx.storage.getUrl(meta._id));
+        // A row can outlive its file (deleted from storage): the import clears that reference, as it does for any file it lacks.
+        if (meta && url) files.push({ id, bytes: meta.size, contentType: meta.contentType ?? "application/octet-stream", url });
+      }
+    }
+    return { files };
   },
 });
 

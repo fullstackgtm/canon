@@ -100,6 +100,9 @@ function transport(db: ReturnType<typeof memoryDb>, key: string): Transport {
     page: (args) => T.exportPage.handler(ctx, { key, ...args }),
     registerInfo: () => T.exportRegisterInfo.handler(ctx, { key }),
     register: (args) => T.exportRegister.handler(ctx, { key, ...args }),
+    // These workspaces hold no stored files (tests/workspaceImport.test.ts moves them).
+    files: async () => ({ files: [] }),
+    download: async () => new Uint8Array(),
   };
 }
 

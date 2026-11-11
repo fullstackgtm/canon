@@ -1,6 +1,7 @@
 /**
- * A workspace archive (docs/self-hosting.md, "Export a workspace"): a tar holding `manifest.json` and
- * `sections/<name>/<n>.ndjson.gz` parts of about 8 MB of NDJSON each. `exportWorkspace` reads a deployment through
+ * A workspace archive (docs/self-hosting.md, "Export a workspace"): a tar holding `manifest.json`,
+ * `sections/<name>/<n>.ndjson.gz` parts of about 8 MB of NDJSON each, and `files/<storage id>`, the bytes of every
+ * stored file the rows name (at most FILE_MAX_BYTES each and FILES_MAX_BYTES in all). `exportWorkspace` reads a deployment through
  * its export route and writes one; `readArchive` and `verifyArchive` check one against its manifest, and the import
  * will read archives with them.
  *
@@ -12,9 +13,19 @@ import { gunzipSync, gzipSync } from "node:zlib";
 
 export const FORMAT_VERSION = 1;
 const PART_BYTES = 8 * 1024 * 1024;
+/**
+ * The most file bytes one archive carries, and one file. `canon workspace import` reads an archive into memory, and
+ * sends each file to the importing deployment in one Convex action call, whose arguments are at most 16 MiB (the
+ * file goes as base64). A module field takes 10 MB unless it says more (modules/kernel/schema.ts). Past either
+ * limit, the export stops and says which files.
+ */
+export const FILES_MAX_BYTES = 1024 * 1024 * 1024;
+export const FILE_MAX_BYTES = 10 * 1024 * 1024;
 
 export type Part = { file: string; sha256: string; rows: number };
 export type SectionManifest = { count: number; parts: Part[]; storageRefs: number; embeddedIds: Record<string, number> };
+/** A stored file the archive carries, at `files/<its source storage id>`. */
+export type FileEntry = { file: string; sha256: string; bytes: number; contentType: string };
 export type Manifest = {
   formatVersion: number;
   source: { kind: "selfhost" | "hosted"; appCommit: string | null; dataEpoch: number; minEpoch: number; recordContract: string | null };
@@ -22,6 +33,8 @@ export type Manifest = {
   exportedAt: string;
   exportedBy: string;
   sections: Record<string, SectionManifest>;
+  /** The stored files rows name, by their storage id in the source. Absent in archives from before files moved. */
+  files?: Record<string, FileEntry>;
   notExported: { table: string; class: string; why?: string; count?: number; atLeast?: number }[];
   notes: string[];
 };
@@ -41,6 +54,9 @@ export type Transport = {
   page(args: { section: string; cursor?: string | null; numItems?: number; parents?: string[]; parentId?: string; countOnly?: boolean }): Promise<PageResult>;
   registerInfo(): Promise<RegisterInfo>;
   register(args: { section: string; after?: string; limit?: number }): Promise<{ count: number; rows: string[]; next: string | null; stats: Stats }>;
+  /** The stored files of these rows, each with a download link (convex/workspaceTransfer.ts exportFiles). */
+  files(args: { rows: Array<{ section: string; id: string }> }): Promise<{ files: Array<{ id: string; bytes: number; contentType: string; url: string }> }>;
+  download(url: string): Promise<Uint8Array>;
 };
 
 /** Where archive files go, in order. */
@@ -115,7 +131,39 @@ export function httpTransport(base: string, key: string, fetchImpl: typeof fetch
     page: (args) => call({ op: "page", ...args }) as Promise<PageResult>,
     registerInfo: () => call({ op: "registerInfo" }) as Promise<RegisterInfo>,
     register: (args) => call({ op: "register", ...args }) as Promise<{ count: number; rows: string[]; next: string | null; stats: Stats }>,
+    files: (args) => call({ op: "files", ...args }) as Promise<{ files: Array<{ id: string; bytes: number; contentType: string; url: string }> }>,
+    download: async (url) => {
+      const response = await fetchImpl(url);
+      if (!response.ok) throw new Error(`Downloading a stored file failed: HTTP ${response.status}`);
+      return new Uint8Array(await response.arrayBuffer());
+    },
   };
+}
+
+const mib = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+
+/**
+ * Every stored file the exported rows name, into `files/<id>`: asked for by row, so the deployment answers only files
+ * of this workspace, then read one at a time. Stops before writing any when a file or the sum is over the ceiling.
+ */
+async function exportFiles(t: Transport, sink: Sink, rows: Array<{ section: string; id: string }>): Promise<Record<string, FileEntry>> {
+  const found = new Map<string, { bytes: number; contentType: string; url: string }>();
+  for (let i = 0; i < rows.length; i += 100) for (const f of (await t.files({ rows: rows.slice(i, i + 100) })).files) found.set(f.id, f);
+  const total = [...found.values()].reduce((n, f) => n + f.bytes, 0);
+  const big = [...found].filter(([, f]) => f.bytes > FILE_MAX_BYTES);
+  if (big.length || total > FILES_MAX_BYTES) {
+    const largest = [...found].sort(([, a], [, b]) => b.bytes - a.bytes).slice(0, 5).map(([id, f]) => `${id} (${mib(f.bytes)})`);
+    throw new ExportRefused(`This workspace's files are too big for one archive: ${found.size} files, ${mib(total)} in all${big.length ? `, ${big.length} over ${mib(FILE_MAX_BYTES)} each` : ""}. An archive carries at most ${mib(FILES_MAX_BYTES)} of files and ${mib(FILE_MAX_BYTES)} per file. The largest: ${largest.join(", ")}.`);
+  }
+  const out: Record<string, FileEntry> = {};
+  for (const [id, f] of found) {
+    const bytes = await t.download(f.url);
+    if (bytes.length !== f.bytes) throw new Error(`Stored file ${id} came back ${bytes.length} bytes, not ${f.bytes}. Run the export again.`);
+    const file = `files/${id}`;
+    sink.add(file, bytes);
+    out[id] = { file, sha256: sha256(bytes), bytes: bytes.length, contentType: f.contentType };
+  }
+  return out;
 }
 
 /** Every row of every section, in parent-first order; parents' ids are kept only for sections read through them. */
@@ -159,8 +207,13 @@ export async function exportWorkspace(t: Transport, sink: Sink, now = new Date()
   const info = await t.registerInfo();
   const writers = new Map<string, SectionWriter>();
   const writer = (name: string) => writers.get(name) ?? (writers.set(name, new SectionWriter(name, sink)), writers.get(name)!);
-  await eachSection(t, plan, (section, page) => writer(section).add(page.rows ?? [], page.stats), false);
-  const notes = ["Files and attachments are not in this archive yet; each section's storageRefs counts the stored files its rows reference."];
+  // Rows that name a stored file, whose bytes go into the archive after the sections.
+  const withFiles: Array<{ section: string; id: string }> = [];
+  await eachSection(t, plan, (section, page) => {
+    writer(section).add(page.rows ?? [], page.stats);
+    (page.rows ?? []).forEach((line, i) => { if (line.includes('"$ref":"_storage"') && page.ids?.[i]) withFiles.push({ section, id: page.ids[i] }); });
+  }, false);
+  const notes = ["Stored files are in files/<id>; each section's storageRefs counts the files its rows name."];
   if (info.mode === "service") {
     for (const section of plan.registerSections) {
       let after: string | undefined;
@@ -174,6 +227,7 @@ export async function exportWorkspace(t: Transport, sink: Sink, now = new Date()
     notes.push("This deployment keeps its register in Convex (no record service): it is in the fakeRecordAccounts, fakeRecordContacts and fakeRecordHistory sections.");
   }
   for (const w of writers.values()) w.flush();
+  const files = await exportFiles(t, sink, withFiles);
   const sections: Record<string, SectionManifest> = {};
   for (const name of [...plan.sections.map((s) => s.name), ...(info.mode === "service" ? plan.registerSections : [])]) sections[name] = writer(name).manifest;
   const manifest: Manifest = {
@@ -183,6 +237,7 @@ export async function exportWorkspace(t: Transport, sink: Sink, now = new Date()
     exportedAt: now.toISOString(),
     exportedBy: plan.exportedBy,
     sections,
+    files,
     notExported: plan.notExported,
     notes,
   };
@@ -290,6 +345,12 @@ export function verifyArchive(files: Map<string, Uint8Array>, live?: Record<stri
       if (check.live !== s.count) problems.push(`the deployment has ${check.live} now`);
     }
     checks.push(check);
+  }
+  for (const [id, f] of Object.entries(manifest.files ?? {})) {
+    listed.add(f.file);
+    const bytes = files.get(f.file);
+    const problems = f.file !== `files/${id}` ? ["not where the manifest's file id says"] : !bytes ? ["missing"] : sha256(bytes) !== f.sha256 ? ["checksum differs"] : [];
+    if (problems.length) checks.push({ section: f.file, manifest: 1, archive: bytes ? 1 : 0, problems });
   }
   for (const name of files.keys()) if (!listed.has(name)) checks.push({ section: name, manifest: 0, archive: 0, problems: ["a file the manifest does not list"] });
   if (live) for (const section of Object.keys(live)) if (!(section in manifest.sections)) checks.push({ section, manifest: 0, archive: 0, live: live[section], problems: ["a section the deployment has and the archive lacks"] });

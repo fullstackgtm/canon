@@ -21,6 +21,7 @@ const Body = z.discriminatedUnion("op", [
     parents: z.array(z.string().max(64)).max(50).optional(), parentId: z.string().max(64).optional(), countOnly: z.boolean().optional(),
   }),
   z.object({ op: z.literal("register"), section: z.enum(["register.accounts", "register.contacts", "register.field_history"]), after: z.string().max(200).optional(), limit: z.number().int().min(1).max(2000).optional() }),
+  z.object({ op: z.literal("files"), rows: z.array(z.object({ section: z.string().max(100), id: z.string().max(64) })).max(100) }),
 ]);
 
 const withoutOp = <T extends { op: string }>(body: T): Omit<T, "op"> => Object.fromEntries(Object.entries(body).filter(([k]) => k !== "op")) as Omit<T, "op">;
@@ -44,6 +45,8 @@ export async function POST(request: Request): Promise<Response> {
       result = await convex.action(api.workspaceTransfer.exportRegisterInfo, { key });
     } else if (body.op === "page") {
       result = await convex.query(api.workspaceTransfer.exportPage, { key, ...withoutOp(body) });
+    } else if (body.op === "files") {
+      result = await convex.query(api.workspaceTransfer.exportFiles, { key, rows: body.rows });
     } else {
       result = await convex.action(api.workspaceTransfer.exportRegister, { key, ...withoutOp(body) });
     }

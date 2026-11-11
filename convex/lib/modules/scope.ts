@@ -3754,6 +3754,24 @@ export async function restoreImportedDocs(ctx: MutationCtx, pkg: Doc<"modulePack
 }
 
 /**
+ * Files people put in a module's docs, from a workspace import (convex/workspaceImport.ts), their bytes already stored
+ * here. Written whether or not the module is installed: a file is read only through a doc that holds it, and the
+ * docs (restored or held) name these rows' ids. An upload that never finished has no file and stays behind.
+ */
+export async function restoreImportedFiles(ctx: MutationCtx, orgId: Id<"organizations">, moduleId: string, rows: ReadonlyArray<Record<string, unknown>>): Promise<Array<{ id: string } | { why: string }>> {
+  const out: Array<{ id: string } | { why: string }> = [];
+  for (const r of rows) {
+    if (typeof r.storageId !== "string") { out.push({ why: "an upload that never finished" }); continue; }
+    out.push({ id: await ctx.db.insert("moduleFiles", {
+      orgId, moduleId, storageId: r.storageId as Id<"_storage">, name: String(r.name), type: String(r.type), bytes: Number(r.bytes),
+      ...(typeof r.uploadedBy === "string" ? { uploadedBy: r.uploadedBy as Id<"users"> } : {}),
+      ...(r.attachedTo ? { attachedTo: r.attachedTo as { collection: string; key: string } } : {}), at: Number(r.at),
+    }) });
+  }
+  return out;
+}
+
+/**
  * A local stack's synthetic docs removed again (modules.devUnseedDocs): up to `max` top-level docs of `collection`
  * whose key starts with `prefix`, each also removed from the record service's copy. No op or audit row, as seeding.
  */
