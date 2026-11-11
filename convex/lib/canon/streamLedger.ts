@@ -21,6 +21,7 @@ import { AUTO_ACCEPT, resolveAttribute, sameValue, type FactValue, type FieldSta
 import { factIdOf, type Decision, type EntryActor, type EntrySource, type Fact, type FoldState, type LedgerEntry, type ProjectedRow } from "../objects/fold.ts";
 import { coerce, ruleModeFor, type CoerceError, type FieldValue, type ResolvedObjectDef } from "../objects/registry.ts";
 import { appendHistory, checkUnique, save, type ObjectStore, type SaveResult } from "../objects/write.ts";
+import type { FieldClaimStore } from "./personHold.ts";
 
 export interface StreamStores {
   facts: LedgerStore;
@@ -39,6 +40,8 @@ export interface StreamStores {
    * runner calls mirrorAppended with the job, in its own transaction.
    */
   queueMirror?: (job: MirrorJob) => Promise<void>;
+  /** What CRMs say about the fields a person holds, recorded by the writes (SaveContext `fieldClaims`). Absent: the hold still applies, and nothing is recorded. */
+  fieldClaims?: FieldClaimStore;
 }
 
 /** A record's stream and the `facts` it is converted from. */
@@ -245,6 +248,7 @@ export async function appendWrite(s: StreamStores, w: StreamWrite): Promise<Stre
   const run = () => save(s.objects, {
     orgId: w.orgId, def: w.def, source: w.source, actor: w.actor, now: w.now, ...(w.evidence !== undefined ? { evidence: w.evidence } : {}),
     ...(w.mayWrite ? { mayWrite: w.mayWrite } : {}), ...(w.acceptedBy ? { acceptedBy: w.acceptedBy } : {}), ...(w.crmFollows ? { crmFollows: w.crmFollows } : {}),
+    ...(s.fieldClaims ? { fieldClaims: s.fieldClaims } : {}),
   }, { op: "update", streamId: w.streamId, values, ...(w.validFrom !== undefined ? { validFrom: w.validFrom } : {}), ...(w.partial || rejected.some((e) => e.retryable) ? { partial: true as const } : {}), ...(w.reassert ? { reassert: true as const } : {}) });
   // Each stage (ownership, then unique claims) can refuse different fields; leave each out until the rest lands.
   let result = await run();

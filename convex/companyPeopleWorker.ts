@@ -4,7 +4,8 @@ import { v } from "convex/values";
 import { z } from "zod";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { callerClient, lookupWorkEmail } from "./records";
+import { callerClient } from "./records";
+import { findWorkEmail } from "./lib/providers/emailFind";
 import { DEFAULT_BUYER_TITLES, findCompanyPeople, signedReviewReplies, type Classification, type PeopleSource } from "./lib/tam/companyPeople";
 import { webPersonNameKey } from "./lib/tam/webPeople";
 import { normDomain } from "./lib/peopleSources";
@@ -80,7 +81,11 @@ export const run = internalAction({
         paid: paidCallsAllowed(), address, context: { companyType: icp?.description ?? detail.account.industry ?? "Company", whatYouSell: icp?.offer ?? "Business services", buyerTitles: [...titles, ...(icp?.spec.persona.titles ?? [])], departments: icp?.spec.persona.departments ?? [] },
         find, model, suppressed: (name) => ctx.runQuery(internal.companyPeople.suppressed, { domain: run.domain, name }),
         existing: (person) => detail.contacts.some((c) => webPersonNameKey(c.fullName) === webPersonNameKey(person.fullName) || Boolean(person.linkedinUrl && c.linkedinUrl === person.linkedinUrl)),
-        email: (person) => lookupWorkEmail(ctx, { orgId: run.orgId, fullName: person.fullName, domain: run.domain }),
+        // The hosted path only: its verifier's verdicts decide which found people are sendable.
+        email: async (person) => {
+          const found = await findWorkEmail(ctx, { orgId: run.orgId, fullName: person.fullName, domain: run.domain, sources: ["deployment"] });
+          return { email: found.email, emailStatus: found.emailStatus ?? "not_checked" };
+        },
         keep: async (person) => {
           const current = await ctx.runQuery(internal.companyPeople.inputs, { runId });
           if (!current || Date.now() - startedAt > 7 * 60_000 || await ctx.runQuery(internal.companyPeople.suppressed, { domain: run.domain, name: person.fullName })) return null;

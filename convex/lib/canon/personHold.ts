@@ -3,8 +3,9 @@
  * overwritten by a later Salesforce or HubSpot write. The CRM's differing value is recorded, and taking it hands the
  * field back to the CRM. Links follow the same rule in lib/objects/associations.ts (EdgeWriter.crm).
  *
- * The rule is enforced where every write lands: `save` (lib/objects/write.ts) for the object ledger and
- * `ingestObservations` (ledger.ts) for a record whose stream is not converted yet. It is on only for the fields in
+ * The rule is decided in lib/objects/write.ts (heldFields, reclaims) and enforced by the two writers every write lands
+ * in: `save` for the object ledger and `ingestObservations` (ledger.ts) for a record whose stream is not converted yet.
+ * Each records what a CRM says about a held field (settleFieldClaims) when its caller passes a claim store. It is on only for the fields in
  * PERSON_HELD_FIELDS, and custom fields. A company or person is on the ledger once it is worked (a person edits it, a
  * CRM sync writes it, an agent proposes about it); a record-service row nobody worked has no ledger values to hold,
  * and the record service never lets a CRM import change the ledger's columns of a row that is on the ledger.

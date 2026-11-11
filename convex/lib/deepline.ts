@@ -2,7 +2,7 @@
  * Deepline adapter: the workspace's own Deepline account (bring your own key;
  * Deepline bills that account, Canon charges nothing). Find email runs
  * Deepline's prebuilt name-and-domain email waterfall first when a workspace
- * has connected it (records.findEmail).
+ * has connected it (providers/emailFind.ts).
  *
  * `fetchImpl` is required, so nothing reaches the network unless a caller hands
  * it one: tests pass a fake, and only the Convex action passes `fetch`. The key
@@ -159,29 +159,4 @@ export function createDeeplineClient(opts: {
       return { ...found, runId, ...(credits === undefined ? {} : { costCredits: credits }) };
     },
   };
-}
-
-/**
- * Find email's order with a workspace's Deepline connected: Deepline first,
- * and on a miss or any Deepline failure the rest of the chain, unchanged. A
- * Deepline failure is never the rep's problem while treg can still answer.
- */
-export async function deeplineFirst<T>(
-  deepline: (() => Promise<DeeplineEmail>) | null,
-  onDeepline: (result: DeeplineEmail) => Promise<T | null>,
-  rest: () => Promise<T>,
-): Promise<T> {
-  if (deepline) {
-    let result: DeeplineEmail | null = null;
-    try {
-      result = await deepline();
-    } catch (err) {
-      console.warn(`Deepline email lookup failed: ${err instanceof Error ? err.message.slice(0, 160) : "unknown error"}`);
-    }
-    if (result) {
-      const done = await onDeepline(result);
-      if (done !== null) return done;
-    }
-  }
-  return rest();
 }

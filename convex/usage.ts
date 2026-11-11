@@ -1,7 +1,7 @@
 import { query } from "./_generated/server";
 import { can } from "./lib/capabilities";
 import { getCurrentUser } from "./lib";
-import { EMAIL_LOOKUPS_PER_DAY, PAID_EMAIL_HITS_PER_MONTH } from "./records";
+import { EMAIL_LOOKUPS_PER_DAY, PAID_EMAIL_HITS_PER_MONTH } from "./lib/providers/registry";
 import { categorizeProviderCalls, isPaidEmailHit, utcMonthWindow } from "./lib/usage";
 
 /** This UTC month's metered work for the caller's workspace. Admins and managers only. */
