@@ -17,10 +17,12 @@ import { canSeeRecord, may, permissionOf, refuseLockedWrite, type Access, type R
 import { scopedRecordClient } from "./lib/scopedRecordClient";
 import { editPartyRecord, foundEmailEdit, isLedgerEditField, writeFoundEmail, type RecordAccountSnapshot, type RecordContactSnapshot, type RecordEditPorts, type RecordPatch } from "./lib/canon/partyLedger";
 import { partyFieldValue as fieldValue } from "./lib/objects/validators";
-import { findPhoneViaTreg, TREG_PHONE_ENDPOINT } from "./lib/phoneFinder";
+import { TREG_PHONE_ENDPOINT } from "./lib/phoneFinder";
 import { TregRefusal } from "./lib/treg";
-import { EmailLookupLimit, findWorkEmail, meter, type FoundEmail } from "./lib/providers/emailFind";
-import { EMAIL_LOOKUPS_PER_DAY, ProviderUnavailable } from "./lib/providers/registry";
+import { EmailLookupLimit, findWorkEmail, type FoundEmail } from "./lib/providers/emailFind";
+import { findPhone as findPhoneOn } from "./lib/providers/phoneFind";
+import { meter, resolveFor } from "./lib/providers/meter";
+import { EMAIL_LOOKUPS_PER_DAY, PAID_PHONE_HITS_PER_MONTH, PHONE_LOOKUPS_PER_DAY, ProviderUnavailable } from "./lib/providers/registry";
 import { filterValidator } from "./lib/scopeValidators";
 import { parseQuery } from "../modules/kernel/icpQuery";
 import { accountCriteria } from "./lib/icpCriteria";
@@ -817,11 +819,6 @@ export const findEmail = action({
 
 // ───────────────────────────── Phone on demand ─────────────────────────────
 
-/** Phone lookups a workspace may run per UTC day. */
-export const PHONE_LOOKUPS_PER_DAY = 50;
-/** Paid phone hits a workspace gets per UTC month (each up to PHONE_LOOKUP_MAX_COST_USD; misses are free). */
-export const PAID_PHONE_HITS_PER_MONTH = 50;
-
 /** This workspace's phone lookups today and paid phone hits this month, from its providerCalls. */
 export const phoneLookupUsage = internalQuery({
   args: { orgId: v.string() },
@@ -844,10 +841,10 @@ export type FindPhoneOutcome =
   | { status: "limit_reached"; phone: null; limit: "daily" | "monthly"; message: string };
 
 /**
- * Find a contact's phone when a rep asks for it, through treg's routed phone
- * finder (billed only on a hit). The contact and its employer domain are read
- * from the caller's workspace; a found number is written to the contact's
- * stream as enrichment the rep accepted, under its providerCalls row.
+ * Find a contact's phone when a rep asks for it, through the provider registry (lib/providers/phoneFind.ts): treg's
+ * routed phone finder on the deployment's key, billed only on a hit. The contact and its employer domain are read
+ * from the caller's workspace; a found number is written to the contact's stream as enrichment the rep accepted,
+ * under its providerCalls row.
  */
 export const findPhone = action({
   args: { accountId: v.string(), contactId: v.string() },
@@ -862,8 +859,8 @@ export const findPhone = action({
     // A role that may not write the field neither reads it here nor fills it (CP14).
     refuseLockedWrite(caller.access, "contact", ["phone"]);
     if (contact.phone) return { status: "already_has_phone", phone: contact.phone };
-    const tregToken = process.env.TREG_TOKEN;
-    if (!tregToken) throw new ConvexError("Phone lookup is not configured on this deployment.");
+    const resolution = await resolveFor(ctx, caller.orgId, "phone.find");
+    if (!resolution.chain.length) throw new ConvexError("Phone lookup is not configured on this deployment.");
     const usage = await ctx.runQuery(internal.records.phoneLookupUsage, { orgId: caller.orgId });
     if (usage.today >= PHONE_LOOKUPS_PER_DAY) {
       return { status: "limit_reached", phone: null, limit: "daily", message: `Daily phone lookup limit (${PHONE_LOOKUPS_PER_DAY}) reached. Try again tomorrow.` };
@@ -874,27 +871,18 @@ export const findPhone = action({
     const day = new Date().toISOString().slice(0, 10);
     let result;
     try {
-      result = await findPhoneViaTreg({
-        token: tregToken,
+      result = await findPhoneOn(ctx, resolution, {
+        orgId: caller.orgId,
         fullName: contact.fullName,
         domain: detail.account.domain,
         ...(contact.linkedinUrl ? { linkedinUrl: contact.linkedinUrl } : {}),
         ...(contact.email ? { email: contact.email } : {}),
-        meta: { customer: caller.orgId, feature: "find_phone" },
         idempotencyKey: `find-phone:${caller.orgId}:${contact.id}:${day}`,
-        baseUrl: process.env.TREG_BASE_URL,
       });
     } catch (err) {
       throw err instanceof TregRefusal ? new ConvexError(`Phone lookup unavailable: ${err.message}`) : err;
     }
-    const call = await ctx.runMutation(internal.records.recordProviderCall, {
-      orgId: caller.orgId,
-      endpoint: TREG_PHONE_ENDPOINT,
-      feature: "find_phone",
-      ...(result.callId ? { callId: result.callId } : {}),
-      costMicro: result.costMicro,
-      outcome: result.phone ? "hit" : "miss",
-    });
+    const call = result.call;
     if (result.phone) {
       // Enrichment the rep accepted: it fills the empty phone and loses to a CRM's.
       const edit = { patch: { phone: result.phone }, idempotencyKey: `find-phone:${contact.id}:${day}:${result.phone}` };

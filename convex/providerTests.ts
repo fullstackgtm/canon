@@ -15,7 +15,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser } from "./lib";
 import { clientFor } from "./records";
-import { paidCallsAllowed, tregCall, TregRefusal } from "./lib/treg";
+import { paidCallsAllowed, TregRefusal } from "./lib/treg";
+import { tregFor, tregKey } from "./lib/providers/treg";
 import { acceptable, onTarget, PAID_PROVIDERS, paidProvider, TEST_SIZE, type PaidPerson } from "./lib/paidProviders";
 import { creditsPerRecord, minCapCredits } from "./lib/creditPacks";
 
@@ -133,15 +134,14 @@ export const finish = internalMutation({
 export const run = action({
   args: { provider: v.string(), market: marketValidator, persona: personaValidator },
   handler: async (ctx, args): Promise<{ testId: Id<"providerTests"> }> => {
-    const token = process.env.TREG_TOKEN;
-    if (!token) throw new ConvexError("Data sources are not configured on this deployment (TREG_TOKEN is missing).");
+    if (!tregKey("people.search")) throw new ConvexError("Data sources are not configured on this deployment (TREG_TOKEN is missing).");
     if (!paidCallsAllowed()) throw new ConvexError("Paid sources are switched off on this deployment, so tests can't run here.");
     const provider = paidProvider(args.provider)!;
     const { testId, orgId } = await ctx.runMutation(internal.providerTests.reserve, args);
     let costMicro: number | undefined;
     try {
-      const res = await tregCall({
-        token, endpoint: provider.endpoint, body: provider.body(args.market, args.persona, TEST_SIZE),
+      const res = await tregFor("people.search", {
+        endpoint: provider.endpoint, body: provider.body(args.market, args.persona, TEST_SIZE),
         meta: { customer: orgId, feature: "provider_test" }, maxCostUsd: testCapUsd(provider.usdPerRecord), baseUrl: process.env.TREG_BASE_URL,
       });
       costMicro = res.costMicro ?? undefined;

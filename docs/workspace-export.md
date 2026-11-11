@@ -68,7 +68,8 @@ The manifest's `notExported` list names every table left out, with its reason.
 
 ## Import an archive
 
-Import only goes into a new, empty workspace: no records, deals or register rows, and no members but you.
+Import only goes into a new, empty workspace: no records, deals or register rows, no members but you, and no
+module that owns its ICPs (a workspace past the ICP cutover).
 
 A self-hosted install and a local stack take imports. On canoncrm.com and any other hosted deployment, the operator
 turns import on for the deployment with `CANON_WORKSPACE_IMPORT=on`; until then **Import** doesn't show in

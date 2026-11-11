@@ -6,34 +6,15 @@
 import { ConvexError } from "convex/values";
 import type { ActionCtx } from "../../_generated/server";
 import { internal } from "../../_generated/api";
-import type { Doc, Id } from "../../_generated/dataModel";
+import type { Id } from "../../_generated/dataModel";
 import { createDeeplineClient, DeeplineError, DEEPLINE_EMAIL_ENDPOINT } from "../deepline";
 import { findVerifiedWorkEmail, type EmailResult, type VerifiedEmail } from "../emailFinder";
 import { decryptFromStorage } from "../tokenHelpers";
-import type { ProviderCapability } from "../../../modules/kernel/providers.ts";
-import { PAID_EMAIL_HITS_PER_MONTH, resolveCapability, runChain, type KeySource, type ProviderId, type Resolution } from "./registry";
+import { PAID_EMAIL_HITS_PER_MONTH, runChain, type KeySource } from "./registry";
+import { meter, resolveFor } from "./meter";
 
 /** getleadsio lookups per UTC day across all workspaces. Free to us, but each hit spends one of treg's own getleadsio credits. */
 export const GETLEADS_LOOKUPS_PER_DAY = 200;
-
-/** Which providers serve `capability` in `orgId`'s workspace now. */
-export async function resolveFor(ctx: ActionCtx, orgId: string, capability: ProviderCapability, opts: { sources?: readonly KeySource[] } = {}): Promise<Resolution> {
-  const workspace: string[] = await ctx.runQuery(internal.providers.workspaceKeys, { orgId: orgId as Id<"organizations"> });
-  return resolveCapability(capability, { workspace: new Set(workspace), env: process.env }, opts);
-}
-
-const FEATURE: Partial<Record<ProviderCapability, string>> = { "email.find": "find_email" };
-
-/** One provider call's receipt. Every metered call is filed through here, as a `providerCalls` row. */
-export async function meter(ctx: ActionCtx, r: {
-  orgId: string; provider: Extract<ProviderId, Doc<"providerCalls">["provider"]>; capability: ProviderCapability; endpoint: string; callId?: string | null; costMicro: number; outcome: "hit" | "miss";
-}): Promise<Id<"providerCalls">> {
-  const feature = FEATURE[r.capability];
-  if (!feature) throw new Error(`No usage feature for ${r.capability}`);
-  return ctx.runMutation(internal.records.recordProviderCall, {
-    orgId: r.orgId, provider: r.provider, endpoint: r.endpoint, feature, costMicro: r.costMicro, outcome: r.outcome, ...(r.callId ? { callId: r.callId } : {}),
-  });
-}
 
 /** What a lookup found. `call` is the receipt that carries the answer, when the provider filed one; `paid` marks a Hunter hit. */
 export type FoundEmail = { email: string | null; emailStatus?: VerifiedEmail["emailStatus"]; provider: EmailResult["provider"]; paid: boolean; call: Id<"providerCalls"> | null };

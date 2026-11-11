@@ -168,6 +168,9 @@ async function notEmpty(ctx: QueryCtx, orgId: Id<"organizations">, userId: Id<"u
   const members = await ctx.db.query("users").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(5);
   const joined = (await ctx.db.query("orgMemberships").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(5)).filter((m) => m.isActive && m.userId !== userId);
   if (members.some((m) => m._id !== userId) || joined.length) why.push("it has members other than you");
+  // `begin` turns every module off, and a module that owns a Canon interface (the ICPs module after its cutover) can't be.
+  const owner = await ctx.db.query("moduleInterfaceOwners").withIndex("by_orgId_and_moduleId", (q) => q.eq("orgId", orgId)).first();
+  if (owner) why.push(`the module ${owner.moduleId} owns its ICPs (the ICP cutover ran here) and can't be turned off; import into a workspace where it hasn't`);
   return [...why, ...(await actorsIn(ctx, orgId))];
 }
 
@@ -231,12 +234,12 @@ export const beginImport = internalMutation({
       if (latest.digest !== args.digest) throw new ConvexError("This workspace already took an import of another archive. Import into a fresh workspace.");
       return { importId: latest._id as string, status: latest.status, progress: latest.written };
     }
-    // Every module here arrives off: one that is on would run its schedules and watches on what the import writes.
-    // Turned off as a person would, so turning one on again later is the module's normal switch.
-    for (const { pkg } of await enabledModules(ctx, orgId)) await setModuleEnabled(ctx, user, { moduleId: pkg.moduleId, enabled: false });
     const why = await notEmpty(ctx, orgId, user._id);
     if (!args.registerEmpty) why.push("its register has rows");
     if (why.length) throw new ConvexError(`Import only goes into a new, empty workspace, and this one isn't: ${why.join("; ")}.`);
+    // Every module here arrives off: one that is on would run its schedules and watches on what the import writes.
+    // Turned off as a person would, so turning one on again later is the module's normal switch.
+    for (const { pkg } of await enabledModules(ctx, orgId)) await setModuleEnabled(ctx, user, { moduleId: pkg.moduleId, enabled: false });
     const importId = await ctx.db.insert("workspaceImports", {
       orgId, userId: user._id, digest: args.digest, sourceWorkspaceId: args.sourceWorkspaceId, status: "running", replaced: [], written: {}, startedAt: Date.now(),
     });

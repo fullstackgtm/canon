@@ -16,8 +16,7 @@ import { may, type Access } from "./lib/access";
 import { peopleOfCompany, rowsById } from "./associations";
 import { coreName, GAP_PEOPLE_MAX, namesMatch, planGaps, sourceMatches, type GapProposal } from "./lib/deals/gaps";
 import { isOurSide, nameFromDomain, teamOf } from "./lib/calls/suggestions";
-import { domainForName } from "./lib/companyenrich";
-import { quickEnrichPage } from "./lib/quickenrich";
+import { companyDomain, peoplePage, tregKey } from "./lib/providers/treg";
 import { LIST_LIMIT_MAX } from "./lib/objects/listSpec";
 
 /** Conversations and meetings about one deal that its proposals read. */
@@ -150,15 +149,14 @@ export const search = action({
   handler: async (ctx, args): Promise<{ added: number; message: string }> => {
     const { caller, orgId, deal } = await visibleDeal(ctx, args.streamId);
     if (!may(caller.access, args.kind, "create")) throw new ConvexError(`Your role cannot create ${args.kind === "account" ? "company" : "person"} records`);
-    const token = process.env.TREG_TOKEN;
-    if (!token) throw new ConvexError("Search is not configured on this deployment (TREG_TOKEN is missing)");
+    if (!tregKey("people.search")) throw new ConvexError("Search is not configured on this deployment (TREG_TOKEN is missing)");
     const meta = { customer: orgId, feature: "deal_gaps" };
     const baseUrl = process.env.TREG_BASE_URL;
     const name = coreName(deal.name);
     const proposals: GapProposal[] = [];
     if (args.kind === "account") {
       if (deal.companyId) return { added: 0, message: "This deal has a company" };
-      const domain = await domainForName({ token, name, meta, baseUrl, timeoutMs: 20_000 });
+      const domain = await companyDomain({ name, meta, baseUrl, timeoutMs: 20_000 });
       if (!domain) return { added: 0, message: `No company named “${name}” found. Add its website on the deal instead.` };
       const known = (await byField(principalClient(ctx, orgId, [deal.ownerAccess as Access]), orgId, "account", "domain", [domain])).get(domain);
       proposals.push({
@@ -169,7 +167,7 @@ export const search = action({
       const domain = await ctx.runQuery(internal.dealGaps.companyDomainOf, { orgId, streamId: args.streamId })
         ?? (deal.companyId ? str((await rowsById(principalClient(ctx, orgId, [deal.ownerAccess as Access]), orgId, "account", [deal.companyId])).get(deal.companyId)?.values.domain) : null);
       if (!domain) return { added: 0, message: "Find the deal's company first: people are searched at its website" };
-      const page = await quickEnrichPage({ token, query: { company_url: { include: [domain], exclude: [] } }, meta, baseUrl, countryName: () => undefined });
+      const page = await peoplePage({ query: { company_url: { include: [domain], exclude: [] } }, meta, baseUrl, countryName: () => undefined });
       for (const p of page.people.slice(0, GAP_PEOPLE_MAX)) {
         if (!p.linkedinUrl) continue;
         proposals.push({

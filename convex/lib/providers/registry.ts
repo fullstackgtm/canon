@@ -4,8 +4,9 @@
  * workspace's own key first (bring your own key), then the deployment's key, else nothing, with a reason that names
  * the keys that would turn it on. Names only: no value of a key ever passes through here.
  *
- * Email finding (emailFind.ts) and LinkedIn (linkedin.ts) run through it. tests/providerCensus.test.ts lists every
- * other provider call site and fails on a new one, or on a call for a capability here that skips this registry.
+ * Email finding (emailFind.ts), phone finding (phoneFind.ts), research enrichment (enrich.ts), Canon's other treg
+ * people searches and company lookups (treg.ts) and LinkedIn (linkedin.ts) run through it. tests/providerCensus.test.ts
+ * lists every other provider call site and fails on a new one, or on a call for a capability here that skips it.
  *
  * Pure: no database access, no network, no Node-only imports.
  */
@@ -20,6 +21,10 @@ export const EMAIL_LOOKUPS_PER_DAY = 100;
  * not counted.
  */
 export const PAID_EMAIL_HITS_PER_MONTH = 100;
+/** Phone lookups a workspace may run per UTC day. */
+export const PHONE_LOOKUPS_PER_DAY = 50;
+/** Paid phone hits a workspace gets per UTC month (each up to PHONE_LOOKUP_MAX_COST_USD; misses are free). */
+export const PAID_PHONE_HITS_PER_MONTH = 50;
 
 const deploymentKeys = (feature: keyof typeof INTEGRATIONS_AVAILABLE): ProviderKey[] =>
   INTEGRATIONS_AVAILABLE[feature].keys.map((name) => ({ name, source: "deployment" }));
@@ -36,10 +41,16 @@ export const PROVIDERS = {
   treg: {
     id: "treg",
     label: "Canon data (treg)",
-    capabilities: ["email.find"],
+    capabilities: ["email.find", "phone.find", "person.enrich", "company.enrich", "people.search"],
     keys: deploymentKeys("treg"),
     cost: "free",
-    limits: [{ max: EMAIL_LOOKUPS_PER_DAY, per: "day", counts: "calls" }, { max: PAID_EMAIL_HITS_PER_MONTH, per: "month", counts: "hits" }],
+    terms: {
+      "email.find": { limits: [{ max: EMAIL_LOOKUPS_PER_DAY, per: "day", counts: "calls" }, { max: PAID_EMAIL_HITS_PER_MONTH, per: "month", counts: "hits" }] },
+      "phone.find": { limits: [{ max: PHONE_LOOKUPS_PER_DAY, per: "day", counts: "calls" }, { max: PAID_PHONE_HITS_PER_MONTH, per: "month", counts: "hits" }] },
+      "person.enrich": { cost: { credits: 8, per: "hit" }, note: "A profile found costs 1 to 3 credits, by what it cost Canon; a job change check costs 8." },
+      "company.enrich": { cost: { credits: 1, per: "hit" }, note: "A company profile Research finds costs 1 credit; a company's name or domain is looked up free." },
+      "people.search": { note: "Free, except a paid source, which costs credits for each person it keeps at its catalog price." },
+    },
   },
   unipile: {
     id: "unipile",
@@ -150,7 +161,7 @@ export const SERVED_CAPABILITIES = (Object.keys(PROVIDER_CAPABILITIES) as Provid
 export type ProviderRow = {
   id: ProviderId; label: string; source: KeySource; ready: boolean; serving: boolean;
   keys: { name: string; label?: string; source: KeySource; set: boolean }[];
-  cost: ProviderDecl["cost"]; limits: readonly ProviderLimit[]; consent: readonly ProviderConsent[];
+  cost: ProviderDecl["cost"]; limits: readonly ProviderLimit[]; note: string | null; consent: readonly ProviderConsent[];
 };
 export type CapabilityRow = { capability: ProviderCapability; label: string; ready: boolean; reason: string | null; providers: ProviderRow[] };
 
@@ -162,7 +173,7 @@ export function providerSettings(inputs: ResolutionInputs): CapabilityRow[] {
     const providers = serving(capability).map((d): ProviderRow => ({
       id: d.id as ProviderId, label: d.label, source: sourceOf(d), ready: ready(d, inputs), serving: d.id === first,
       keys: d.keys.map((k) => ({ ...k, set: k.source === "workspace" ? inputs.workspace.has(d.id) : Boolean(inputs.env[k.name]?.trim()) })),
-      cost: d.cost, limits: d.limits ?? [], consent: d.consent ?? [],
+      cost: d.terms?.[capability]?.cost ?? d.cost, limits: d.terms?.[capability]?.limits ?? d.limits ?? [], note: d.terms?.[capability]?.note ?? null, consent: d.consent ?? [],
     }));
     providers.sort((a, b) => Number(b.source === "workspace") - Number(a.source === "workspace"));
     return { capability, label: PROVIDER_CAPABILITIES[capability].label, ready: resolution.chain.length > 0, reason: resolution.reason, providers };

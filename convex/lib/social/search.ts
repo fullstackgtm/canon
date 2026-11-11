@@ -1,7 +1,7 @@
 "use node";
 
 import { publicHttpGet } from "../../../engine/src/publicHttp.ts";
-import { domainForName } from "../companyenrich";
+import { companyDomain } from "../providers/treg";
 import { discoverBoard } from "../signals/boards";
 import { paidCallsAllowed, tregCall, TregRefusal, type TregReceipt } from "../treg";
 import { socialSearchRequest, SOCIAL_MAX_USD, SOCIAL_TEXT_MAX, type SocialRow, type SocialSearch, type SocialSource } from "../../../modules/kernel/social.ts";
@@ -71,8 +71,8 @@ export async function searchSocial(raw: Record<string, unknown>, opts: { fake: b
 async function companyJobs(request: SocialSearch, fetchImpl: typeof fetch, opts: { fake: boolean; token?: string; orgId: string; fetchImpl?: typeof fetch }): Promise<SocialRow[]> {
   const name = request.query.trim();
   const isDomain = /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(name);
-  const domain = isDomain ? name.toLowerCase() : opts.fake ? "acme.test" : opts.token ? await domainForName({
-    token: opts.token, name, meta: { customer: opts.orgId, feature: "pull" }, baseUrl: process.env.TREG_BASE_URL, fetchImpl: opts.fetchImpl,
+  const domain = isDomain ? name.toLowerCase() : opts.fake ? "acme.test" : opts.token ? await companyDomain({
+    name, meta: { customer: opts.orgId, feature: "pull" }, baseUrl: process.env.TREG_BASE_URL, fetchImpl: opts.fetchImpl,
   }) : null;
   if (!domain) throw new Error("Could not resolve that company name. Supply its company domain to search job boards.");
   if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(domain)) throw new Error("Company jobs need a company domain or name.");

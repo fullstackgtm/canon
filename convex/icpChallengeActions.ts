@@ -10,7 +10,8 @@ import { clientFor } from "./records";
 import { resolveLlm } from "./lib/llmResolver";
 import { fetchPage } from "./researchAgentActions";
 import { icpToLeadsforge, type LeadsforgeFilters } from "./lib/leadsforge";
-import { quickEnrichPage, type QuickEnrichQuery } from "./lib/quickenrich";
+import type { QuickEnrichQuery } from "./lib/quickenrich";
+import { peoplePage, tregKey } from "./lib/providers/treg";
 import { icpGeosToCountries } from "./lib/researchPipeline";
 import { TregRefusal } from "./lib/treg";
 import { challengeIcp, proposalQuickEnrich } from "./lib/tam/challengeIcp";
@@ -79,15 +80,15 @@ async function estimateSizes(
   orgId: string,
   queries: QuickEnrichQuery[],
 ): Promise<Array<{ accounts: number; capped: boolean } | undefined>> {
-  const token = process.env.TREG_TOKEN;
+  const ready = tregKey("people.search");
   const out: Array<{ accounts: number; capped: boolean } | undefined> = queries.map(() => undefined);
-  if (!token) return out;
+  if (!ready) return out;
   const pacing = await ctx.runQuery(internal.populateActions.getPacing, { provider: "quickenrich" });
   if (pacing && pacing.pausedUntil > Date.now()) return out;
   for (let i = 0; i < queries.length; i++) {
     try {
-      const page = await quickEnrichPage({
-        token, query: queries[i], meta: { customer: orgId, feature: "icp_challenge" }, baseUrl: process.env.TREG_BASE_URL,
+      const page = await peoplePage({
+        query: queries[i], meta: { customer: orgId, feature: "icp_challenge" }, baseUrl: process.env.TREG_BASE_URL,
         countryName: (iso) => icpGeosToCountries([iso.toLowerCase()])[0],
       });
       out[i] = { accounts: new Set(page.people.map((p) => p.company.domain)).size, capped: page.next !== null || (page.total ?? 0) > page.people.length };

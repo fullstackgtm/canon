@@ -11,7 +11,7 @@ import { deriveWebsiteIcp, websiteText, websiteSources, DEFAULT_ICP_DERIVATION_M
 import { publicHttpGet } from "../engine/src/publicHttp.ts";
 import { createMemoryRecordStore, recordClient } from "./lib/recordClient";
 import { icpGeosToCountries, ResearchFailure, runResearchPipeline, type ResearchStatus } from "./lib/researchPipeline";
-import { quickEnrichTam } from "./lib/quickenrich";
+import { peopleTam, tregKey } from "./lib/providers/treg";
 import { jevAsk } from "./lib/segments/jev";
 import { paidCallsAllowed } from "./lib/treg";
 import { marketSegments } from "./lib/segments/marketSegments";
@@ -69,7 +69,7 @@ export const run = internalAction({
     if (!session || session.status === "ready" || session.status === "failed") return null;
     const apiKey = process.env.OPENROUTER_API_KEY;
     const jevKey = process.env.JEV_API_KEY;
-    const tregToken = process.env.TREG_TOKEN;
+    const tregToken = tregKey("people.search");
     const fetchPage = memoFetcher(ctx, `research:${args.sessionId}`, "onboarding_research");
     // Shared PDL search needs no workspace store; the fake reads the fixture.
     const client = recordClient({ store: createMemoryRecordStore() });
@@ -95,8 +95,8 @@ export const run = internalAction({
         // The free source is QuickEnrich (Leadsforge is paid now); the pipeline
         // falls back to the PDL index if it fails.
         searchTam: tregToken
-          ? (icp) => quickEnrichTam({
-              token: tregToken, icp, meta: { customer: "anonymous", feature: "tam_preview" }, baseUrl: process.env.TREG_BASE_URL,
+          ? (icp) => peopleTam({
+              icp, meta: { customer: "anonymous", feature: "tam_preview" }, baseUrl: process.env.TREG_BASE_URL,
               countryName: (iso) => icpGeosToCountries([iso.toLowerCase()])[0],
             })
           : undefined,
