@@ -134,7 +134,7 @@ test("CRM and import facts are accepted on ingest; other sources are proposed", 
   assert.equal(r.resolved.closeDate.value, "2026-12-01", "a proposed fact does not change the canonical value");
 });
 
-test("a user override survives an unchanged re-sync: the row is re-projected and the diff shadowed", async () => {
+test("a user override survives a re-sync, unchanged or changed: the row is re-projected and its stage group held", async () => {
   const m = memoryStore();
   const { entityId } = await syncOnce(m, {}, 1000);
   await ingestObservations(m.store, {
@@ -146,10 +146,9 @@ test("a user override survives an unchanged re-sync: the row is re-projected and
   const diffs = divergences(again.observations, again.result.resolved);
   assert.deepEqual(diffs.map((d) => [d.attribute, d.providerValue, d.canonicalValue]), [["forecastCategory", "commit", "best_case"]]);
   assert.deepEqual(dealPatch(diffs), { forecastCategory: "best_case" });
-  // If the rep then changes it in Salesforce, the newer CRM fact wins.
+  // A rep changing it in Salesforce leaves the person's value, which holds with its stage group (lib/canon/personHold.ts).
   const changed = await syncOnce(m, { forecastCategory: "pipeline" }, 4000);
-  assert.equal(changed.result.resolved.forecastCategory.value, "pipeline");
-  assert.equal(divergences(changed.observations, changed.result.resolved).length, 0);
+  assert.deepEqual([changed.result.resolved.forecastCategory.value, changed.result.held], ["best_case", ["stage", "forecastCategory", "probability", "isClosed", "isWon"]]);
 });
 
 test("projection never clears a required deal column", () => {

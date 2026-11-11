@@ -20,11 +20,11 @@ import type { Decider } from "./decider.ts";
 import { dealObservations, dealPatch, divergences, ingestObservations, providerModifiedAt, type FactActor, type StoredFact } from "./ledger.ts";
 import { resolveAttribute, sameValue, type FactValue, type FieldState, type Resolution } from "./policy.ts";
 import { appendWrite, compareFieldStates, decideInStream, ensureStream, mirrorProposalToStream, type FieldStateLike, type StreamInit, type StreamStores } from "./streamLedger.ts";
-import { project, type EntrySource, type ProjectedRow } from "../objects/fold.ts";
+import { project, type EntrySource, type FoldState, type ProjectedRow } from "../objects/fold.ts";
 import type { FieldValue, ResolvedObjectDef } from "../objects/registry.ts";
 import { save, type SaveResult } from "../objects/write.ts";
 import { automationRefPrefix, type AutomationMark } from "../automations.ts";
-import { settleFieldClaims, type FieldClaimStore } from "./personHold.ts";
+import { groupFields, groupOf, isPersonFact, settleFieldClaims, winningFact, type FieldClaimStore } from "./personHold.ts";
 
 export type DealRow = Readonly<Record<string, unknown>>;
 
@@ -67,6 +67,10 @@ const inColumns = (patch: Record<string, unknown>): Record<string, unknown> => O
 type DealRowField = (typeof DEAL_ROW_FIELDS)[number];
 
 export type DealValues = Partial<Record<DealRowField, FactValue>>;
+
+/** A CRM's values as the ledger takes them: a field it leaves out (undefined) says the field is empty. */
+export const crmDealValues = (values: Readonly<Record<string, unknown>>): DealValues =>
+  Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v ?? null])) as DealValues;
 
 /** One source record per CRM record, per user and deal, or per imported deal: the `facts` sourceRef without its attribute. */
 function ledgerSource(source: DealSource, dealId: string, row: DealRow | null): { source: EntrySource; actor: FactActor; validFrom?: number } {
@@ -165,6 +169,11 @@ export type DealWrite = {
   creates?: true;
   /** Mirror into `facts` from the stores' queue, after this transaction (StreamWrite `deferMirror`): a CRM sync's bulk writes. */
   deferMirror?: true;
+  /**
+   * Columns of the deals row the writer sets beside the ledger's values (a CRM sync's URL, raw data and sync time),
+   * patched with the projection in one write. A `closedAt` follows the closed state: left out when a person holds it.
+   */
+  columns?: Record<string, unknown>;
 };
 
 export type DealWriteResult = {
@@ -177,6 +186,39 @@ export type DealWriteResult = {
   /** Fields a person holds that this CRM write left as they are (lib/canon/personHold.ts). Not an error. */
   held: string[];
 };
+
+/** The row columns a write sets: a CRM's `closedAt` only where its closed state lands, not where a person holds it. */
+const columnsOf = (w: DealWrite, closedHeld: boolean): Record<string, unknown> => {
+  if (!w.columns || !closedHeld) return w.columns ?? {};
+  const { closedAt: _held, ...rest } = w.columns;
+  return rest;
+};
+
+/**
+ * Whether a person holds a deal's closed state now (its stage group, lib/canon/personHold.ts), whatever this write
+ * appended: a snapshot already seen appends nothing and computes no holds, yet must not move the closed date either.
+ */
+const closedStateHeld = (state: FoldState): boolean =>
+  groupFields("deal", groupOf("deal", "isClosed")).some((f) => { const w = winningFact(state.fields[f]?.candidates ?? []); return w !== null && isPersonFact(w); });
+
+/**
+ * A person taking a CRM record's value takes its whole group (lib/canon/personHold.ts FIELD_GROUPS): the group's
+ * other fields as that record last said them, so no field of it stays the person's. The caller authorizes every field
+ * this returns before writing them.
+ */
+export async function crmGroupValues(s: Pick<DealStores, "objects">, streamId: string, ref: string, values: DealValues): Promise<DealValues> {
+  const state = await s.objects.getHotRow(streamId);
+  if (!state) return values;
+  const out: Record<string, unknown> = { ...values };
+  for (const field of Object.keys(values)) {
+    for (const f of groupFields("deal", groupOf("deal", field))) {
+      if (f in out) continue;
+      const said = (state.fields[f]?.candidates ?? []).filter((c) => c.sourceRef === ref).sort((a, b) => b.observedAt - a.observedAt)[0];
+      if (said) out[f] = said.value;
+    }
+  }
+  return out as DealValues;
+}
 
 /**
  * A user edit, provider sync, owner write-back or import of a deal. Appends
@@ -216,10 +258,11 @@ export async function writeDeal(s: DealStores, w: DealWrite): Promise<DealWriteR
     });
   }
 
+  const taken = "takenBy" in w.source && Boolean(w.source.takenBy);
   const { result, resolved, rejected, incoming } = await appendWrite(s, {
     orgId: w.orgId, def: w.def, streamId: w.streamId, entityType: "opportunity", source, actor, values: w.values, now: w.now,
     ...(validFrom !== undefined ? { validFrom } : {}), ...(w.evidence !== undefined ? { evidence: w.evidence } : {}),
-    ...(w.deferMirror ? { deferMirror: true as const } : {}), ...("takenBy" in w.source && w.source.takenBy ? { reassert: true as const } : {}),
+    ...(w.deferMirror ? { deferMirror: true as const } : {}), ...(taken ? { reassert: true as const } : {}),
   });
 
   const held = result.status === "applied" || result.status === "unchanged" ? result.held ?? [] : [];
@@ -232,17 +275,23 @@ export async function writeDeal(s: DealStores, w: DealWrite): Promise<DealWriteR
       // incoming value: a CRM's that a person holds, or a snapshot already seen, leaves the projection as it was.
       const owner = projected.values.ownerId ?? null;
       if ("ownerId" in w.values && projected.meta.ownerId?.factId && !sameValue(rowValue(row, "ownerId"), owner)) patch.primaryRepId = owner ?? undefined;
+      Object.assign(patch, columnsOf(w, closedStateHeld(state)));
+      // A closed state that changes with no closed date from the writer (a person taking a CRM's stage) is dated now,
+      // as a person's own edit is (deals.ts saveDealEdit); reopened, it has none.
+      if ("isClosed" in patch && !("closedAt" in patch)) patch.closedAt = patch.isClosed ? row.closedAt ?? w.now : undefined;
       if (Object.keys(patch).length) await s.patchRow(w.dealId, patch);
     }
     if (s.fieldClaims && result.status !== "invalid" && result.status !== "conflict") {
       await settleFieldClaims(s.fieldClaims, {
         orgId: w.orgId, recordId: w.streamId, object: "deal", source, actor, values: incoming, held, now: w.now,
-        current: (field) => projected.values[field] ?? null,
+        current: (field) => projected.values[field] ?? null, def: w.def,
       });
     }
-    // A history point is what the CRM held then, not what it holds now: no outbound shadow for it.
+    // A history point is what the CRM held then, not what it holds now: no outbound shadow for it. A field a person
+    // holds keeps its disagreement as a claim instead (settleFieldClaims).
     if ((w.source.kind === "salesforce" || w.source.kind === "hubspot") && !w.source.history) {
       for (const [attribute, providerValue] of incoming) {
+        if (held.includes(attribute)) continue;
         const canonicalValue = projected.values[attribute] ?? null;
         if (!projected.meta[attribute]?.factId || sameValue(canonicalValue, providerValue)) continue;
         const factId = resolveAttribute(await s.facts.factsFor(w.streamId, attribute)).factId;
@@ -252,7 +301,7 @@ export async function writeDeal(s: DealStores, w: DealWrite): Promise<DealWriteR
         });
       }
     }
-  }
+  } else if (row && w.columns) await s.patchRow(w.dealId, columnsOf(w, held.includes("isClosed")));
   return { result, resolved, rejected, held };
 }
 
@@ -276,9 +325,10 @@ async function writeDealFactsOnly(
     .map((attribute) => ({ attribute, r: out.resolved[attribute] }))
     .filter(({ attribute, r }) => r && r.factId !== null && !sameValue(rowValue(row, attribute) as FactValue, r.value))
     .map(({ attribute, r }) => ({ attribute, canonicalValue: r.value }))));
+  Object.assign(patch, columnsOf(w, out.held.includes("isClosed")));
   if (Object.keys(patch).length) await s.patchRow(w.dealId, patch);
   if (w.source.kind === "salesforce" || w.source.kind === "hubspot") {
-    for (const d of diffs) {
+    for (const d of diffs.filter((d) => !out.held.includes(d.attribute))) {
       await s.facts.recordShadowOutbound({
         orgId: w.orgId, entityId: w.streamId, provider: w.source.kind, attribute: d.attribute,
         providerValue: d.providerValue, canonicalValue: d.canonicalValue, factId: d.factId, at: w.now,
@@ -288,7 +338,7 @@ async function writeDealFactsOnly(
   if (s.fieldClaims) {
     await settleFieldClaims(s.fieldClaims, {
       orgId: w.orgId, recordId: w.streamId, object: "deal", source, actor, values: new Map(Object.entries(w.values)), held: out.held, now: w.now,
-      current: (field) => out.resolved[field]?.value ?? null,
+      current: (field) => out.resolved[field]?.value ?? null, def: w.def,
     });
   }
   return { result: { status: "deferred", streamId: w.streamId }, resolved: out.resolved, rejected: [], held: out.held };

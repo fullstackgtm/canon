@@ -5,7 +5,10 @@ import { useAction, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";
+import type { FunctionReturnType } from "convex/server";
 import { LookupLink } from "./lookup-field";
+import { formatValue, type CellValue, type FieldDescription, type TeamMember } from "./fields";
+import type { Money } from "./money";
 
 export const CRM_NAME: Record<"salesforce" | "hubspot", string> = { salesforce: "Salesforce", hubspot: "HubSpot" };
 
@@ -87,18 +90,46 @@ export function CrmRoleNotes({ roles, roleLabel, personLink, onUsed }: {
 
 const FIELD_NOUN: Record<string, string> = { ownerId: "owner", companyId: "company" };
 
-/** What a CRM says a deal's owner or company is, where the one a person chose in Canon held (fieldClaims.forDeal). */
-export function CrmFieldNote({ claim, canTake }: {
-  claim: { id: string; field: string; provider: "salesforce" | "hubspot"; value: unknown; label: string | null };
+type ClaimView = FunctionReturnType<typeof api.fieldClaims.forDeal>[number];
+
+/**
+ * What a CRM says a deal field is, where the value a person chose in Canon held (fieldClaims.forDeal). Fields that move
+ * together read as one note under the group's lead field: "Salesforce says the stage is Negotiation (forecast category
+ * Commit, open)."
+ */
+export function CrmFieldNote({ claim, canTake, fields, team, money }: {
+  claim: ClaimView;
   canTake: boolean;
+  /** The deal's fields, to name and format the CRM's values as the page shows them. */
+  fields: readonly FieldDescription[];
+  team?: readonly TeamMember[];
+  money?: Money;
 }) {
   const take = useMutation(api.fieldClaims.useCrmValue);
   const crm = CRM_NAME[claim.provider];
-  const noun = FIELD_NOUN[claim.field] ?? claim.field;
-  const value = typeof claim.value !== "string" ? null
-    : claim.field === "companyId" ? <LookupLink object="account" id={claim.value} className="underline hover:text-foreground" />
-    : claim.label ?? "a former member";
-  const says = value ? <>{crm} says the {noun} is {value}.</> : <>{crm} has no {noun} for this deal.</>;
+  const fieldOf = (id: string) => fields.find((f) => f.fieldId === id);
+  const noun = FIELD_NOUN[claim.field] ?? fieldOf(claim.field)?.label.toLowerCase() ?? claim.field;
+  // An amount reads in the currency the CRM gives with it.
+  const currency = claim.values.find((v) => v.field === "currency")?.value;
+  const inMoney = money && typeof currency === "string" && currency ? { ...money, currency } : money;
+  const shown = (id: string, value: unknown): ReactNode => {
+    if (id === "ownerId") return typeof value === "string" ? claim.label ?? "a former member" : null;
+    if (id === "companyId") return typeof value === "string" ? <LookupLink object="account" id={value} className="underline hover:text-foreground" /> : null;
+    const field = fieldOf(id);
+    const text = field ? formatValue(field, value as CellValue, team, inMoney) : value === null || value === undefined ? "" : String(value);
+    return text || null;
+  };
+  // A group's other fields: a checkbox as its own word ("closed", "not won"), the rest as "forecast category Commit".
+  const rest = claim.values.filter((v) => v.field !== claim.field).map((v) => {
+    const field = fieldOf(v.field);
+    const label = field?.label.toLowerCase() ?? v.field;
+    if (field?.type === "checkbox") return v.value === true ? label : `not ${label}`;
+    const text = shown(v.field, v.value);
+    return text === null ? `no ${label}` : <>{label} {text}</>;
+  });
+  const value = shown(claim.field, claim.value);
+  const also = rest.length ? <> ({rest.map((r, i) => <span key={i}>{i ? ", " : ""}{r}</span>)})</> : null;
+  const says = value !== null ? <>{crm} says the {noun} is {value}{also}.</> : <>{crm} has no {noun} for this deal{also}.</>;
   if (!canTake) return <p className="mt-1 whitespace-normal text-xs text-muted-foreground">{says}</p>;
   return (
     <CrmNote action={`Use ${crm}'s ${noun}`} take={() => take({ id: claim.id })} done={`The ${noun} now follows ${crm}`}>

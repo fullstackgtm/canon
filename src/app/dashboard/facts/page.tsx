@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getErrorMessage } from "@/lib/utils";
 import { useScopedQuery } from "@/lib/use-scoped-query";
 import { attributeLabel, factValueText } from "@/components/crm/fact-format";
+import { CrmDisagreementsTab } from "./crm-disagreements";
 
 type EntityType = "opportunity" | "account" | "contact";
 const OBJECT_OF: Record<EntityType, string> = { opportunity: "deal", account: "account", contact: "contact" };
@@ -283,12 +284,15 @@ function GateTab() {
 export default function FactReviewPage() {
   // A reviewer who sees only some companies or people reads the queue through its action twin (CP14); a decision reads it again.
   const [decided, setDecided] = useState(0);
-  const focus = useSearchParams().get("fact");
+  const params = useSearchParams();
+  const focus = params.get("fact");
   const queue = useScopedQuery(api.canonGate.reviewQueue, api.canonGate.reviewQueueScoped, {}, decided);
   const onDecided = () => setDecided((n) => n + 1);
-  const [tab, setTab] = useState("proposed");
+  const [tab, setTab] = useState(params.get("tab") ?? "proposed");
   const [receipt, setReceipt] = useState<Receipt>(null);
   const counts = useMemo(() => ({ proposed: queue?.proposed.length ?? 0, contested: queue?.contested.length ?? 0 }), [queue]);
+  // What CRMs say about deal fields people hold: an admin's, as the write gate is (convex/crmDisagreements.ts).
+  const crm = useQuery(api.crmDisagreements.status, {});
   return (
     <Tabs value={tab} onValueChange={setTab}>
       <ViewFrame title="Review" description="Compare proposed changes with current values and their evidence." actions={[
@@ -297,6 +301,7 @@ export default function FactReviewPage() {
             <TabsTrigger value="proposed">Proposed ({counts.proposed})</TabsTrigger>
             <TabsTrigger value="contested">Contested ({counts.contested})</TabsTrigger>
             <TabsTrigger value="gate">Write gate</TabsTrigger>
+            {crm?.canManage && <TabsTrigger value="crm">CRM disagreements</TabsTrigger>}
           </TabsList>}>
       {queue === undefined ? <LoadingRows /> : !queue ? null : (
         <div>
@@ -304,6 +309,7 @@ export default function FactReviewPage() {
           <TabsContent value="proposed" className="mt-4"><ProposedTab rows={queue.proposed} focus={focus} canReview={queue.canReview} onReceipt={setReceipt} onDecided={onDecided} /></TabsContent>
           <TabsContent value="contested" className="mt-4"><ContestedTab rows={queue.contested} canReview={queue.canReview} onReceipt={setReceipt} onDecided={onDecided} /></TabsContent>
           <TabsContent value="gate" className="mt-4"><GateTab /></TabsContent>
+          {crm?.canManage && <TabsContent value="crm" className="mt-4"><CrmDisagreementsTab /></TabsContent>}
         </div>
       )}
       <ReceiptDrawer target={receipt} onClose={() => setReceipt(null)} />

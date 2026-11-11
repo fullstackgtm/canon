@@ -219,11 +219,12 @@ export const upsertDeals = internalMutation({
       const source = { kind: "salesforce" as const, crmId: d.sfId, ...(d.modifiedAt ? { rawData: { SystemModstamp: d.modifiedAt } } : {}) };
       const existing = await ctx.db.query("deals").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", d.sfId)).first();
       let deal: Doc<"deals"> | null;
+      // An existing deal's columns ride along with its values' write (lib/canon/dealLedger.ts writeDeal `columns`), so a
+      // closed date follows the closed state a person may hold. A deal a sync prepared and never wrote is archived until
+      // written (lib/syncUnchanged.ts NOT_WRITTEN): this write makes it live.
+      const prepared = existing && existing.lastSyncAt === NOT_WRITTEN && existing.archivedAt !== undefined;
       if (existing) {
-        // A deal a sync prepared and never wrote is archived until written (lib/syncUnchanged.ts NOT_WRITTEN): this write makes it live.
-        const prepared = existing.lastSyncAt === NOT_WRITTEN && existing.archivedAt !== undefined;
-        await ctx.db.patch(existing._id, { ...columns, ...(prepared ? { archivedAt: undefined } : {}) });
-        deal = await ctx.db.get(existing._id);
+        deal = existing;
       } else {
         const dealId = await ctx.db.insert("deals", {
           orgId: args.orgId, crmId: d.sfId, name: d.name, amount: d.amount, currency: d.currency, closeDate: d.closeDate, dealType: d.dealType,
@@ -242,7 +243,9 @@ export const upsertDeals = internalMutation({
         }
       };
       if (!existing) await history(true);
-      const saved = await saveDealValues(ctx, deal, source, values, { now, ...(existing || d.history?.length ? {} : { creates: true as const }) });
+      const saved = await saveDealValues(ctx, deal, source, values, {
+        now, ...(existing || d.history?.length ? {} : { creates: true as const }), ...(existing ? { columns: { ...columns, ...(prepared ? { archivedAt: undefined } : {}) } } : {}),
+      });
       if (existing) await history(false);
       if (saved.result.status === "invalid") {
         out.rejected.push({ index, reason: saved.result.errors.map((e) => e.message).join("; ").slice(0, 300) });

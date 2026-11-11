@@ -10,13 +10,13 @@ import {
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireCap, scopeUserToActiveOrg } from "./lib";
-import { crmContactEntity, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDeal, saveDealValues, SYNCED_DEAL_ATTRIBUTES } from "./canon";
+import { crmContactEntity, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDealValues } from "./canon";
 import { shardOf } from "./lib/objects/write";
-import type { DealValues } from "./lib/canon/dealLedger";
+import { crmDealValues, type DealValues } from "./lib/canon/dealLedger";
 
 import { syncPartyBatch } from "./lib/canon/partyLedger";
 import { NOT_WRITTEN, SYNC_STAMP_MS } from "./lib/syncUnchanged";
-import { syncAccountRow, syncContactRow, syncDealRow, accountSyncValue, contactSyncValue, dealSyncHash, dealSyncValue, accountUnchanged, contactUnchanged, dealUnchanged } from "./lib/hubspotSyncValue";
+import { syncAccountRow, syncContactRow, syncDealRow, accountSyncValue, contactSyncValue, dealSyncHash, dealSyncValue, dealSyncValues, accountUnchanged, contactUnchanged, dealUnchanged } from "./lib/hubspotSyncValue";
 import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
 
 const PROVIDER = "hubspot";
@@ -827,25 +827,17 @@ export const upsertDeals = internalMutation({
         results.updated++;
         continue;
       }
-      let dealId;
-      if (existing) {
-        await ctx.db.patch(existing._id, { ...value, syncHash });
-        dealId = existing._id;
-        results.updated++;
-      } else {
-        dealId = await ctx.db.insert("deals", {
-          orgId: args.orgId,
-          crmId: deal.crmId,
-          createdAt: now,
-          ...value,
-          syncHash,
-        });
-        results.created++;
-      }
-      // Deal ledger: record what hubspot says; the row ends as the projection.
-      const row = await ctx.db.get(dealId);
+      // A new deal's row starts from what HubSpot says; an existing one's values reach it through the ledger, which
+      // leaves those a person set as they are (lib/canon/personHold.ts), and the sync's own columns ride along.
+      const row = existing ?? (await ctx.db.get(await ctx.db.insert("deals", { orgId: args.orgId, crmId: deal.crmId, createdAt: now, ...value, ...dealSyncValues(deal), syncHash })));
+      if (existing) results.updated++;
+      else results.created++;
       // The `facts` mirror follows from its queue, off this transaction (convex/canon.ts queuePartyMirror).
-      if (row) await saveDeal(ctx, row, { kind: "hubspot", crmId: deal.crmId, rawData: deal.rawData }, SYNCED_DEAL_ATTRIBUTES, now, { deferMirror: true, owner: deal.primaryRepId ?? null });
+      if (row) {
+        await saveDealValues(ctx, row, { kind: "hubspot", crmId: deal.crmId, rawData: deal.rawData }, { ...crmDealValues(dealSyncValues(deal)), ownerId: deal.primaryRepId ?? null }, {
+          now, deferMirror: true, ...(existing ? { columns: { ...value, syncHash } } : {}),
+        });
+      }
       // Custom values carry no snapshot time, so the snapshot just written cannot refuse them (canon.ts saveCrmContact).
       if (row && deal.extra && Object.keys(deal.extra).length) await saveDealValues(ctx, row, { kind: "hubspot", crmId: deal.crmId }, deal.extra as DealValues, { now, deferMirror: true });
     }

@@ -11,7 +11,7 @@
 import type { Decider } from "../canon/decider.ts";
 import { AGENT_SOURCES } from "../canon/gate.ts";
 import { claimFieldOf, uniqueIdentityProvider, uniqueValueIdentity } from "../canon/identity.ts";
-import { crmOf, heldField, isPersonFact, winningFact } from "../canon/personHold.ts";
+import { crmOf, heldField, isPersonFact, personHeldFields, winningFact } from "../canon/personHold.ts";
 import {
   fold, foldAll, project, SNAPSHOT_SOURCES, watermarkOf, writeRule,
   type Assertion, type Decision, type EntryActor, type EntryBody, type EntrySource, type FoldState, type LedgerEntry, type MergedRecord, type ProjectedRow, type RevertedField, type WritePlan,
@@ -235,7 +235,7 @@ export async function save(store: ObjectStore, ctx: SaveContext, cmd: SaveComman
 function reclaim(state: FoldState, ctx: Pick<SaveContext, "def" | "source">, assertions: readonly Assertion[], plan: WritePlan): WritePlan {
   if (!isPersonFact({ sourceKind: ctx.source.kind, sourceRef: ctx.source.ref })) return plan;
   const back = assertions.filter((a) => {
-    if (!heldField(ctx.def.apiName, a.fieldId) || !plan.confirm.includes(a.fieldId)) return false;
+    if (!heldField(ctx.def.apiName, a.fieldId, ctx.def) || !plan.confirm.includes(a.fieldId)) return false;
     const winner = winningFact(state.fields[a.fieldId]?.candidates ?? []);
     return !(winner && isPersonFact(winner) && sameValue(winner.value, a.value));
   });
@@ -243,14 +243,10 @@ function reclaim(state: FoldState, ctx: Pick<SaveContext, "def" | "source">, ass
   return { ...plan, append: [...plan.append, ...back], confirm: plan.confirm.filter((f) => !back.some((a) => a.fieldId === f)) };
 }
 
-/** The fields of a CRM's write whose value a person holds: covered by the rule, and resolved now to a person's fact (lib/canon/personHold.ts). */
+/** The fields of a CRM's write whose value a person holds: covered by the rule, with a field of their group resolved now to a person's fact (lib/canon/personHold.ts). */
 function personHeld(ctx: Pick<SaveContext, "def" | "source" | "actor">, state: FoldState, assertions: readonly Assertion[]): string[] {
   if (!crmOf(ctx.source, ctx.actor)) return [];
-  return assertions.filter((a) => {
-    if (!heldField(ctx.def.apiName, a.fieldId)) return false;
-    const winner = winningFact(state.fields[a.fieldId]?.candidates ?? []);
-    return winner !== null && isPersonFact(winner);
-  }).map((a) => a.fieldId);
+  return personHeldFields(ctx.def.apiName, assertions.map((a) => a.fieldId), (f) => winningFact(state.fields[f]?.candidates ?? []), ctx.def);
 }
 
 /** A decision still to apply: its fact is pending, or accepted here and not yet a candidate. */
