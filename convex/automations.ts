@@ -57,6 +57,8 @@ import { coerce, type FieldValue, type ResolvedObjectDef } from "./lib/objects/r
 import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { archivedObjectNames } from "./lib/objects/orgDefs";
 import { ID, normalizeDomain, normalizeEmail } from "./lib/canon/identity";
+import { ASK_AGENT } from "./lib/automationAgent";
+import { recipeAgentStandIn } from "./lib/recipeAgentStandIn";
 import { uniqueClaimKeys, uniqueClaimProvider } from "./lib/objects/write";
 import { encryptForStorage, decryptFromStorage } from "./lib/tokenHelpers";
 import { sealedV } from "./lib/sealed";
@@ -389,6 +391,20 @@ export const propose = mutation({
   },
 });
 
+/**
+ * Store a rule Ask Canon wrote for the signed-in admin (convex/automationAgent.ts) as a proposal from the agent
+ * "ask-canon", with its replay: it waits for an admin to approve it like any agent's, even the one who asked.
+ */
+export const proposeAsked = internalMutation({
+  args: { ruleId: v.optional(v.id("automationRules")), doc: v.object(ruleArgs), note: v.string() },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const row = await proposeVersion(ctx, admin, args.doc, { ruleId: args.ruleId, note: args.note, agent: ASK_AGENT });
+    if (row.spec.trigger.kind !== "schedule" && !isOnDemand(row.spec.trigger)) await ctx.scheduler.runAfter(0, internal.automations.replayVersion, { versionId: row._id });
+    return { versionId: row._id, sentence: describe(row.spec, await namesFor(ctx, admin.orgId, row.spec.object)) };
+  },
+});
+
 export const approve = mutation({
   args: { versionId: v.id("automationVersions") },
   handler: async (ctx, args) => {
@@ -659,6 +675,8 @@ export const workspace = query({
       // Where a notify or webhook step may send: the Slack channels an admin mapped, the record webhooks an admin registered.
       slackChannels: (await ctx.db.query("outboundTargets").withIndex("by_orgId_and_channel_and_name", (q) => q.eq("orgId", orgId).eq("channel", "slack")).take(20)).map((t) => t.name),
       webhooks: await webhooksOf(ctx, orgId),
+      // Ask Canon answers with a stand-in on a local stack, so a local check never spends a real plan (convex/automationAgent.ts).
+      askStandIn: recipeAgentStandIn(),
     };
   },
 });

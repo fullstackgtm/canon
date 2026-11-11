@@ -9,6 +9,9 @@
  * surface); hosted agents, CLI tokens and agent tokens never reach these.
  */
 export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
+  // convex/automationAgent.ts: Ask Canon is a model on the person's own ChatGPT plan for someone without an agent; an
+  // agent writes its own rule and proposes it through canon_automations check and propose.
+  "api.automationAgent.ask": "a person's request run on their own ChatGPT plan; an agent proposes rules itself with canon_automations",
   // docs/org-agents.md: agents never create or modify standing write grants.
   "api.agentGrants.create": "standing write grants are an admin's approval; agents never grant themselves writes",
   "api.agentGrants.revoke": "standing write grants are an admin's approval; agents never modify them",

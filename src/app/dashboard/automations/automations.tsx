@@ -150,6 +150,7 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
   if (open) return <RuleDetail rule={open} ws={ws} onClose={() => onSelect(null)} />;
   return (
     <div className="max-w-5xl space-y-4">
+      <AskCanon standIn={ws.askStandIn} />
       <Proposals ws={ws} />
       {creating && <Builder ws={ws} onDone={() => onSelect(null)} />}
       {rules.length === 0 && !creating && (
@@ -175,6 +176,65 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
         </ul>
       )}
     </div>
+  );
+}
+
+type Asked = FunctionReturnType<typeof api.automationAgent.ask>;
+
+/**
+ * Ask Canon to write a rule: the request goes to a model on the person's own ChatGPT plan (a stand-in on a local
+ * stack), Canon checks what it writes, and a rule that passes waits under "Waiting for approval" like any agent's.
+ */
+function AskCanon({ standIn }: { standIn: boolean }) {
+  const ask = useAction(api.automationAgent.ask);
+  const chatgpt = useQuery(api.chatgptAuth.status);
+  const [request, setRequest] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [answer, setAnswer] = useState<Asked | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const onPlan = chatgpt?.status === "connected";
+  if (chatgpt === undefined) return null;
+  async function go() {
+    const text = request.trim();
+    if (!text) return;
+    setBusy(true);
+    setError(null);
+    setAnswer(null);
+    try {
+      const out = await ask({ request: text });
+      setAnswer(out);
+      if (out.ok) setRequest("");
+    } catch (cause) {
+      setError(getErrorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="space-y-2 border border-border bg-card p-4" aria-label="Ask Canon" data-testid="automation-ask">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium">Ask Canon to write a rule</h2>
+        <span className="text-xs text-muted-foreground">
+          {standIn ? "Stand-in model on this local stack" : onPlan ? `On your ChatGPT plan${chatgpt?.status === "connected" && chatgpt.email ? ` (${chatgpt.email})` : ""}, no credits` : "Needs your ChatGPT plan"}
+        </span>
+      </div>
+      {!standIn && !onPlan ? (
+        <p className="text-sm text-muted-foreground" data-testid="automation-ask-no-plan">
+          Ask Canon writes rules on your own ChatGPT plan, and you haven&apos;t connected one. <Link className="text-primary underline" href="/dashboard/integrations">Connect ChatGPT in Integrations</Link>, then ask here.
+        </p>
+      ) : (
+        <>
+          <textarea aria-label="What the rule should do" className={`${input} min-h-16 w-full`} value={request} maxLength={2000} onChange={(e) => setRequest(e.target.value)}
+            placeholder="When a deal moves to Proposal, give its account owner a task to send the security review" />
+          <button type="button" className="bg-primary px-3 py-1 text-xs text-primary-foreground disabled:opacity-40" disabled={busy || !request.trim()} onClick={() => void go()}>{busy ? "Writing a rule…" : "Ask"}</button>
+        </>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {answer?.ok && (
+        <p className="text-sm" data-testid="automation-ask-result">Proposed: {answer.sentence} <span className="text-xs text-muted-foreground">{answer.summary} It waits below for an admin to approve it.</span></p>
+      )}
+      {answer && !answer.ok && <p className="text-xs text-destructive">Canon couldn&apos;t take what the model wrote after {answer.attempts} tries: {answer.problem}</p>}
+    </section>
   );
 }
 

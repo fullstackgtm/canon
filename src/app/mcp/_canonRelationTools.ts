@@ -10,6 +10,7 @@
 import { api } from "../../../convex/_generated/api.js";
 import type { CanonTool } from "./_canonTools.ts";
 import { a, groupTool, m, q } from "./_canonJobTools.ts";
+import { AUTOMATION_DOC } from "../../../modules/kernel/automation.ts";
 
 const customizationTool = groupTool(
   "canon_customization",
@@ -33,7 +34,6 @@ const customizationTool = groupTool(
   },
 );
 
-const AUTOMATION_DOC = "name, object: deal | lead | task | account | contact | custom_<name> (a rule on companies or people starts only on an edit or a delete made in Canon: no created or schedule trigger, and no set_field or assign_owner; check's note says what it sees), trigger: { kind: created | deleted } | { kind: updated, field?, from?: [value], to?: [value] } | { kind: schedule, cadence: daily | weekly, minute (0 to 1439 past local midnight), weekday? (0 Sunday to 6, weekly) } | { kind: manual } (someone runs it on one record: run_on_record, or the record page) | { kind: webhook, match: id | <a unique field> } (a signed POST to the rule's own URL names one record by that key in its body; a person makes its secret on the Automations page), conditions: [{ field, op: eq | neq | in | contains | startsWith | gt | gte | lt | lte | hasAny | hasAll | empty | notEmpty, value? (\"{today}\" on a date) }] (up to 10), actions: [{ kind: set_field, field, value } | { kind: create_task, subject (\"{record}\" is the record's name), dueInDays (0 to 365), owner } | { kind: assign_owner, owner } | { kind: notify_slack, channel (a Slack channel name an admin mapped in Settings > Outbound), message } | { kind: notify_email, to: { kind: member, userId } | { kind: record_owner } (members only, never a contact), subject, message } (in a message, {record} is the record's name and {<field>} a field's value, as the rule's admin sees the record) | { kind: call_webhook, endpointId (a record webhook an admin registered) } | { kind: wait, days (1 to 365) } | { kind: wait, until (a date or date-time field of the record; an empty or past date doesn't wait) } | { kind: if, conditions (1 to 10, as above; a related record's field as <lookup>.<field>, e.g. companyId.industry, read as the rule's member sees it), then: [steps], else?: [steps] } (an if holds one more if, which holds only actions)] (1 to 10 in a row, at most 25 steps in all, in order); owner: { kind: member, userId } | { kind: record_owner } (tasks only) | { kind: company_owner } (the owner of the record's company: a company's own, or the one a deal's or task's Account names, as the rule's admin sees it) | { kind: round_robin, userIds } | { kind: team, teamId } | { kind: routing_rule, routingRuleId }; money in cents";
 
 const automationsTool = groupTool(
   "canon_automations",
