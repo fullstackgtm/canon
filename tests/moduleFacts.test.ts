@@ -146,6 +146,9 @@ test("a field a person holds against a CRM reads as held, with what the CRM says
   await write({ kind: "hubspot", crmId: "D1" }, "closed_won");
   const [row] = await read(db, { object: "deals", ids: ["deals:big"] }) as Array<{ fields: Array<Record<string, unknown>> }>;
   assert.deepEqual([row!.fields[0]!.value, row!.fields[0]!.held, row!.fields[0]!.crm], ["negotiation", true, [{ provider: "hubspot", value: "closed_won" }]]);
+  await db.insert("crmFieldFollows", { orgId: ORG, provider: "hubspot", attribute: "stage", updatedBy: AVERY, updatedAt: 1 });
+  const [followed] = await read(db, { object: "deals", ids: ["deals:big"] }) as Array<{ fields: Array<Record<string, unknown>> }>;
+  assert.equal(followed!.fields[0]!.held, undefined, "a field set to always follow a CRM is the CRM's at its next sync, not held");
 });
 
 test("a company the caller can't see has no row, and a field their role hides has no field", async () => {

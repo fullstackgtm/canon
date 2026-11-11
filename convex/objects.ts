@@ -12,7 +12,7 @@ import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser } from "./lib";
 import { accessFor, entitySight, recordVisible, requireWriteAccess, roleIn, sightJudge, workspaceMembers } from "./permissions";
 import { admitThenRead } from "./lib/scopedRecordClient";
-import { hiddenFields, may, refuseLockedWrite, withoutHidden, type Access, type RecordOp } from "./lib/access";
+import { canSeeRecord, hiddenFields, may, refuseLockedWrite, withoutHidden, type Access, type RecordOp } from "./lib/access";
 import { orgObjectDefs, scheduleNudge, shardHeads } from "./ledgerFeed";
 import { scheduleDealHistory } from "./dealHistory";
 import { scheduleWebhookFanout } from "./recordWebhooks";
@@ -642,8 +642,20 @@ export async function requireWritable(
   if (record && !(await recordVisible(ctx, access, record))) throw new ConvexError("Record not found");
 }
 
-/** Whether `access` sees a record by its stream (an automation rule's principal, convex/automations.ts): missing reads as not seen. */
+/**
+ * Whether `access` sees a record by its stream (an automation rule's principal, convex/automations.ts): missing reads as
+ * not seen. A worked company or person is judged by its owner on the ledger, which is theirs alone and which the record
+ * service takes from it: the same owner scope a list pushes down.
+ */
 export async function recordVisibleTo(ctx: QueryCtx, access: Access, orgId: Id<"organizations">, streamId: Id<"canonEntities">): Promise<boolean> {
+  const entity = await ctx.db.get(streamId);
+  if (entity && (entity.entityType === "account" || entity.entityType === "contact")) {
+    if (entity.orgId !== orgId) return false;
+    const sight = await entitySight(ctx, [access], entity);
+    if ("seen" in sight) return sight.seen;
+    const hot = await ctx.db.query("recordRows").withIndex("by_orgId_streamId", (q) => q.eq("orgId", orgId).eq("streamId", streamId)).unique();
+    return hot !== null && canSeeRecord(access, entity.entityType, true, fromStored<Record<string, unknown>>(hot.values).ownerId ?? null);
+  }
   const record = await view(ctx, orgId, streamId, GET_FOLD_CAP, new Map());
   return record !== null && (await recordVisible(ctx, access, record));
 }

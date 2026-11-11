@@ -67,6 +67,7 @@ test("every trigger, condition operator, owner choice and action the rule shape 
   const owners: Record<string, OwnerChoice> = {
     member: { kind: "member", userId: "users:avery" as never },
     record_owner: { kind: "record_owner" },
+    company_owner: { kind: "company_owner" },
     round_robin: { kind: "round_robin", userIds: ["users:avery", "users:morgan"] as never },
     team: { kind: "team", teamId: "teamGroups:ent" as never },
     routing_rule: { kind: "routing_rule", routingRuleId: "routingRules:emea" as never },

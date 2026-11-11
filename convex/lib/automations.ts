@@ -22,7 +22,7 @@ import type { FieldValue, ResolvedObjectDef } from "./objects/registry.ts";
 import { localTime } from "./linkedin/limits.ts";
 
 import {
-  CONDITIONS_MAX, MAX_DEPTH, TODAY, WAIT_DAYS_MAX, relatedField,
+  CONDITIONS_MAX, MAX_DEPTH, TODAY, WAIT_DAYS_MAX, isRegisterAutomationObject, relatedField,
   type AutomationAction, type Branch, type Condition, type IfStep, type LeafAction, type RuleStep, type ScheduleTrigger, type Step, type Trigger,
 } from "../../modules/kernel/automation.ts";
 
@@ -179,8 +179,23 @@ export function pathThrough(steps: readonly RuleStep[], holds: (s: IfStep) => bo
 
 // ───────────────────────────── Actions ─────────────────────────────
 
+/**
+ * The lookup a record names its company by, for "the company owner": a deal's or a task's Account, or a custom
+ * object's first lookup to companies. A company is its own (`self`); null when the object has none (a person, a lead).
+ */
+export function companyField(def: ResolvedObjectDef): string | "self" | null {
+  if (def.apiName === "account") return "self";
+  const f = def.fields.find((x) => x.type === "lookup" && "lookupTo" in x && x.lookupTo === "account" && !x.system && x.archivedAt === undefined && x.apiName !== "convertedAccountId");
+  return f?.apiName ?? null;
+}
+
 /** Why an action cannot run on this object, or null. */
 export function actionProblem(def: ResolvedObjectDef, a: LeafAction): string | null {
+  if ((a.kind === "set_field" || a.kind === "assign_owner") && isRegisterAutomationObject(def.apiName)) {
+    return `A rule doesn't change ${def.pluralLabel.toLowerCase()} yet: it can create a task, wait, notify or call a webhook`;
+  }
+  const owner = a.kind === "create_task" || a.kind === "assign_owner" ? a.owner : null;
+  if (owner?.kind === "company_owner" && !companyField(def)) return `${def.pluralLabel} have no company to take an owner from`;
   if (a.kind === "notify_slack") {
     if (!SLACK_NAME.test(a.channel.replace(/^#/, "").toLowerCase())) return "Name the Slack channel as Settings > Outbound maps it";
     return messageProblem(a.message);

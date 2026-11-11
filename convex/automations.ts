@@ -56,13 +56,14 @@ import { SHARDS } from "./lib/objects/write";
 import { coerce, type FieldValue, type ResolvedObjectDef } from "./lib/objects/registry";
 import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { archivedObjectNames } from "./lib/objects/orgDefs";
+import { ID } from "./lib/canon/identity";
 import {
-  SLOT_CAP, actionProblem, branchSteps, conditionsMet, conditionsProblem, dueDate, entryOrigin, ifHolds, initialSteps, mayTrigger, nextInTurn, nextSlot, pathThrough,
+  SLOT_CAP, actionProblem, branchSteps, companyField, conditionsMet, conditionsProblem, dueDate, entryOrigin, ifHolds, initialSteps, mayTrigger, nextInTurn, nextSlot, pathThrough,
   relatedOf, relatedVias, resolveConditions, resumeAt, rowOf, scheduleProblem, triggerFires, weightedCycle, type AutomationMark, type Related,
 } from "./lib/automations";
 import {
   ACTIONS_MAX, AUTOMATION_OBJECTS, CONDITIONS_MAX, MAX_DEPTH, RULES_MAX, STEPS_MAX, actionValidator, replaySummaryValidator, conditionValidator, describe, describeConditions,
-  isAutomationObject, stepAt, triggerValidator, walkSteps,
+  isAutomationObject, isRegisterAutomationObject, reachNote, stepAt, triggerValidator, walkSteps,
   type AutomationAction, type Branch, type Condition, type IfStep, type LeafAction, type OwnerChoice, type RuleNames, type RuleStep, type Step, type Trigger,
 } from "../modules/kernel/automation";
 
@@ -179,6 +180,12 @@ async function checkRule(ctx: QueryCtx, orgId: Id<"organizations">, input: RuleI
   if (isCustomObjectName(input.object) && (await archivedObjectNames(ctx, orgId)).has(input.object)) throw new ConvexError("That object is archived");
   const def = await loadDef(ctx, orgId, input.object);
   const t = input.trigger;
+  if (isRegisterAutomationObject(def.apiName) && (t.kind === "created" || t.kind === "schedule")) {
+    const plural = def.pluralLabel.toLowerCase();
+    throw new ConvexError(t.kind === "created"
+      ? `Canon doesn't record ${plural} being added, so a rule on ${plural} starts when one is changed or deleted`
+      : `A schedule doesn't run on ${plural}: a rule on ${plural} starts when one is changed or deleted`);
+  }
   if (t.kind === "updated" && t.field) {
     const f = def.byApiName.get(t.field);
     if (!f || f.system) throw new ConvexError(`${def.label} has no field ${t.field}`);
@@ -506,10 +513,26 @@ async function seenRuns(ctx: QueryCtx, access: Access, runs: ReadonlyArray<{ str
   for (const run of runs) {
     const id = ctx.db.normalizeId("canonEntities", run.streamId);
     const entity = id ? await ctx.db.get(id) : null;
-    const sight = entity ? await entitySight(ctx, [access], entity) : { seen: false };
-    if ("seen" in sight && sight.seen) out.push(run);
+    if (entity && (await seesRecord(ctx, access, entity))) out.push({ ...run, recordId: isRegisterAutomationObject(entity.entityType) ? await registerIdOf(ctx, entity._id) : null });
   }
   return out;
+}
+
+/** Whether `access` sees a record: as entitySight says, and a company or person the record service would decide by its owner on the ledger. */
+async function seesRecord(ctx: QueryCtx, access: Access, entity: Doc<"canonEntities">): Promise<boolean> {
+  const sight = await entitySight(ctx, [access], entity);
+  return "seen" in sight ? sight.seen : recordVisibleTo(ctx, access, entity.orgId, entity._id);
+}
+
+/** A company's or person's record-service id (`acc_…`, `con_…`), which its page and a task's Account or Person field name it by; null for any other record. */
+async function registerIdOf(ctx: QueryCtx, streamId: Id<"canonEntities"> | string): Promise<string | null> {
+  const id = ctx.db.normalizeId("canonEntities", streamId);
+  const entity = id ? await ctx.db.get(id) : null;
+  if (!entity || !isRegisterAutomationObject(entity.entityType)) return null;
+  if (entity.projectionTable === "recordAccounts" || entity.projectionTable === "recordContacts") return entity.projectionId;
+  const provider = entity.entityType === "account" ? ID.recordAccount : ID.recordContact;
+  const ext = (await ctx.db.query("canonExternalIds").withIndex("by_entityId", (q) => q.eq("entityId", entity._id)).take(20)).find((e) => e.provider === provider);
+  return ext?.externalId ?? null;
 }
 
 /** A version as the proposals list and an agent read it: the document, who wrote it and why, its replay, and how it was decided. */
@@ -564,13 +587,14 @@ export const get = query({
  */
 export const check = query({
   args: { ruleId: v.optional(v.id("automationRules")), ...ruleArgs },
-  handler: async (ctx, { ruleId, ...doc }): Promise<{ ok: true; sentence: string } | { ok: false; problem: string } | null> => {
+  handler: async (ctx, { ruleId, ...doc }): Promise<{ ok: true; sentence: string; note?: string } | { ok: false; problem: string } | null> => {
     const admin = await adminReader(ctx);
     if (!admin) return null;
     try {
       if (ruleId) await ownRule(ctx, admin.user.orgId, ruleId);
       const spec = await checkRule(ctx, admin.user.orgId, doc);
-      return { ok: true, sentence: describe(spec, await namesFor(ctx, admin.user.orgId, spec.object)) };
+      const note = reachNote(spec.object, (await loadDef(ctx, admin.user.orgId, spec.object)).pluralLabel);
+      return { ok: true, sentence: describe(spec, await namesFor(ctx, admin.user.orgId, spec.object)), ...(note ? { note } : {}) };
     } catch (cause) {
       return { ok: false, problem: cause instanceof ConvexError ? String(cause.data) : cause instanceof Error ? cause.message : "Invalid rule" };
     }
@@ -610,6 +634,8 @@ export const workspace = query({
         })),
         // The records its lookups point at, whose fields an If's conditions can read.
         relations: await relationsOf(ctx, orgId, def),
+        // Whether a task or owner can go to the record's company owner, and what a rule on it sees.
+        companyOwner: companyField(def) !== null, reach: reachNote(def.apiName, def.pluralLabel),
       });
     }
     const teams = await ctx.db.query("teamGroups").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(100);
@@ -636,8 +662,10 @@ export const runs = query({
     const rule = admin ? await ctx.db.get(args.ruleId) : null;
     if (!admin || !rule || rule.orgId !== admin.user.orgId) return [];
     const rows = await ctx.db.query("automationRuns").withIndex("by_ruleId_and_createdAt", (q) => q.eq("ruleId", rule._id)).order("desc").take(RUNS_SHOWN);
+    const linked = new Map<string, string | null>();
+    for (const r of rows) if (isRegisterAutomationObject(r.object) && !linked.has(r.streamId)) linked.set(r.streamId, await registerIdOf(ctx, r.streamId));
     return rows.map((r) => ({
-      id: r._id, streamId: r.streamId, object: r.object, title: r.title, event: r.event, change: r.change ?? null, matched: r.matched,
+      id: r._id, streamId: r.streamId, recordId: linked.get(r.streamId) ?? null, object: r.object, title: r.title, event: r.event, change: r.change ?? null, matched: r.matched,
       status: r.status, reason: r.reason ?? null, depth: r.depth, steps: r.steps, resumeAt: r.resumeAt ?? null, version: r.version ?? null, createdAt: r.createdAt, finishedAt: r.finishedAt ?? null, triggeredAt: r.triggeredAt ?? null,
     }));
   },
@@ -761,9 +789,8 @@ async function judge(
   const sees = await access();
   if (!sees) return { kind: "gone" };
   const entity = await ctx.db.get(row.streamId);
-  const sight = entity ? await entitySight(ctx, [sees], entity) : { seen: false };
   // A record the rule's member cannot see does not run it (CP14). The run says so, without the record's name.
-  if (!("seen" in sight) || !sight.seen) return { kind: "skipped", reason: OUTSIDE };
+  if (!entity || !(await seesRecord(ctx, sees, entity))) return { kind: "skipped", reason: OUTSIDE };
   const change = rule.trigger.kind === "updated" && fired.to !== undefined ? { change: { field: rule.trigger.field ?? "", from: stored(fired.from ?? null), to: stored(fired.to) } } : {};
   return { kind: "run", matched: conditionsMet(def, after, rule.conditions, now, await r.tz()), title: after.title.slice(0, 200), ...change, row: after };
 }
@@ -857,17 +884,17 @@ async function recordOwner(ctx: QueryCtx, run: Doc<"automationRuns">): Promise<s
 }
 
 /** Who an owner choice names for this run. Round robin takes the next active member in turn and moves the rotation in the same transaction. */
-async function resolveOwner(ctx: MutationCtx, rule: Doc<"automationRules">, run: Doc<"automationRuns">, choice: OwnerChoice, ref: string): Promise<Id<"users">> {
+async function resolveOwner(ctx: MutationCtx, rule: Doc<"automationRules">, run: Doc<"automationRuns">, choice: OwnerChoice, ref: string, companyOwner: string | null = null): Promise<Id<"users">> {
   const orgId = rule.orgId;
   const nameOf = async (id: Id<"users">) => (await ctx.db.get(id))?.name ?? "That member";
   if (choice.kind === "member") {
     if (!(await activeMember(ctx, orgId, choice.userId))) throw new ConvexError(`${await nameOf(choice.userId)} is no longer a member of this workspace`);
     return choice.userId;
   }
-  if (choice.kind === "record_owner") {
-    const owner = await recordOwner(ctx, run);
+  if (choice.kind === "record_owner" || choice.kind === "company_owner") {
+    const owner = choice.kind === "record_owner" ? await recordOwner(ctx, run) : companyOwner;
     const id = owner ? ctx.db.normalizeId("users", owner) : null;
-    if (!id || !(await activeMember(ctx, orgId, id))) throw new ConvexError("The record has no owner who is a member");
+    if (!id || !(await activeMember(ctx, orgId, id))) throw new ConvexError(choice.kind === "record_owner" ? "The record has no owner who is a member" : "The record's company has no owner who is a member");
     return id;
   }
   let pool: Id<"users">[];
@@ -914,7 +941,9 @@ async function writeRecord(ctx: MutationCtx, p: Principal, run: Doc<"automationR
 
 const TARGETS: ReadonlySet<string> = new Set(["deal", "lead"]);
 
-async function perform(ctx: MutationCtx, p: Principal, rule: Doc<"automationRules">, run: Doc<"automationRuns">, a: Exclude<LeafAction, { kind: "wait" }>, ref: string): Promise<{ detail: string; streamId?: string }> {
+async function perform(
+  ctx: MutationCtx, p: Principal, rule: Doc<"automationRules">, run: Doc<"automationRuns">, a: Exclude<LeafAction, { kind: "wait" }>, ref: string, companyOwner: string | null,
+): Promise<{ detail: string; streamId?: string }> {
   const mark: AutomationMark = { ruleId: rule._id, depth: run.depth + 1 };
   // The record must still be one the creator sees now, whatever the action (a retry can come long after the trigger).
   if (!(await recordVisibleTo(ctx, p.access, rule.orgId, run.streamId))) throw new ConvexError("Record not found");
@@ -933,14 +962,16 @@ async function perform(ctx: MutationCtx, p: Principal, rule: Doc<"automationRule
   }
   if (a.kind === "set_field") return { detail: `${await writeRecord(ctx, p, run, { [a.field]: a.value }, mark)}: ${a.field}` };
   if (a.kind === "assign_owner") {
-    const owner = await resolveOwner(ctx, rule, run, a.owner, ref);
+    const owner = await resolveOwner(ctx, rule, run, a.owner, ref, companyOwner);
     const said = await writeRecord(ctx, p, run, { ownerId: owner }, mark);
     return { detail: `${said === "Saved" ? "Owner set to" : "Owner already"} ${(await ctx.db.get(owner))?.name ?? owner}` };
   }
-  const owner = await resolveOwner(ctx, rule, run, a.owner, ref);
+  const owner = await resolveOwner(ctx, rule, run, a.owner, ref, companyOwner);
+  // A company's or person's task names it by its record-service id, as its page lists tasks by.
+  const party = isRegisterAutomationObject(run.object) ? await registerIdOf(ctx, run.streamId) : null;
   const values: Record<string, FieldValue> = {
     subject: a.subject.replaceAll("{record}", run.title || "the record").slice(0, 500), dueDate: dueDate(Date.now(), a.dueInDays), ownerId: owner, status: "not_started",
-    ...(run.object === "deal" ? { dealId: run.streamId } : {}),
+    ...(run.object === "deal" ? { dealId: run.streamId } : {}), ...(party ? { [run.object === "account" ? "accountId" : "contactId"]: party } : {}),
   };
   await requireWritable(ctx, p.user, p.access, "task", "create", undefined, values);
   const made = await saveAsCaller(ctx, p.user, "task", { op: "create", values }, { automation: mark });
@@ -1016,6 +1047,32 @@ async function readRelated(ctx: ActionCtx, l: Lookups): Promise<RelatedRows> {
     rows.push({ via: item.via, row: page?.rows[0] ? JSON.stringify(page.rows[0]) : null });
   }
   return { ref: l.ref, rows };
+}
+
+/**
+ * The owner of the run's record's company, for a step that gives a task or the record to the company owner: a
+ * company's own owner, else the owner of the company its company lookup names, read through the rule's member's
+ * scoped client (as an If reads a related record), so a company they can't see has no owner. Without the company's
+ * row it asks for it first. Null when the step gives nothing to the company owner.
+ */
+async function companyOwnerFor(
+  ctx: QueryCtx, p: Principal, rule: Doc<"automationRules">, run: Doc<"automationRuns">, a: LeafAction, ref: string, related: RelatedRows | undefined,
+): Promise<{ owner: string | null } | { lookups: Lookups } | null> {
+  const choice = a.kind === "create_task" || a.kind === "assign_owner" ? a.owner : null;
+  if (choice?.kind !== "company_owner") return null;
+  const def = await loadDef(ctx, rule.orgId, run.object);
+  const via = companyField(def);
+  if (via === "self") return { owner: await recordOwner(ctx, run) };
+  if (!via) throw new ConvexError(`${def.pluralLabel} have no company to take an owner from`);
+  if (related?.ref === ref) {
+    const row = related.rows.find((r) => r.via === via)?.row;
+    const owner = row ? (JSON.parse(row) as ListRow).values[(await loadDef(ctx, rule.orgId, "account")).byApiName.get("ownerId")?.fieldId ?? "ownerId"] : null;
+    return { owner: typeof owner === "string" ? owner : null };
+  }
+  if (!(await recordVisibleTo(ctx, p.access, rule.orgId, run.streamId))) throw new ConvexError("Record not found");
+  const id = (await recordNow(ctx, def, p.access, run.streamId, run.object)).values[def.byApiName.get(via)!.fieldId];
+  if (typeof id !== "string" || !id) return { owner: null };
+  return { lookups: { ref, orgId: rule.orgId, access: p.access, items: [{ via, object: "account", id }] } };
 }
 
 // ───────────────────────────── Waits ─────────────────────────────
@@ -1110,7 +1167,9 @@ export const step = internalMutation({
         return { done: true };
       }
     } else {
-      const out = await perform(ctx, p, rule, run, action, ref);
+      const company = await companyOwnerFor(ctx, p, rule, run, action, ref, args.related);
+      if (company && "lookups" in company) return { done: false, lookups: company.lookups };
+      const out = await perform(ctx, p, rule, run, action, ref, company?.owner ?? null);
       steps = run.steps.map((s, i): Step => (i === index ? { ...s, status: "done", attempts: s.attempts + 1, detail: out.detail.slice(0, ERROR_MAX), at: now, ...(out.streamId ? { streamId: out.streamId } : {}) } : s));
     }
     const last = !steps.some((s) => s.status === "pending");
@@ -1298,7 +1357,10 @@ export const preview = action({
     const caller = await requireCaller(ctx, { read: true });
     const job = await ctx.runQuery(internal.automations.previewJob, args);
     if (!job) throw new ConvexError("Only admins manage automation rules");
-    const page = await callerClient(ctx, caller).listObjects(job.orgId, args.object, { filter: job.filter as ListFilter[], sort: { field: "createdAt", dir: "asc" }, limit: PREVIEW_ROWS });
+    const client = callerClient(ctx, caller);
+    const req = { filter: job.filter as ListFilter[], sort: { field: "createdAt", dir: "asc" as const }, limit: PREVIEW_ROWS };
+    // A company or person is listed from the register, by its record-service id, which its page takes.
+    const page = isRegisterObject(args.object) ? await client.listRegister(job.orgId, args.object, req) : await client.listObjects(job.orgId, args.object, req);
     return { total: page.total, rows: page.rows.map((r) => ({ streamId: r.id, title: r.title })), nextSlotAt: job.nextSlotAt, capped: page.total > SLOT_CAP };
   },
 });
@@ -1329,10 +1391,10 @@ type ReplayReason = keyof typeof REPLAY_REASONS;
 
 const replayDoc = { object: v.string(), trigger: triggerValidator, conditions: v.array(conditionValidator) };
 type Path = Array<{ ref: string; took: Branch }>;
-type ReplayRun = { streamId: string; at: number; title: string; change?: Change; path?: Path };
+type ReplayRun = { streamId: string; at: number; title: string; change?: Change; path?: Path; recordId?: string };
 /** A run a replay found, with what its Ifs read: the record right after the change (JSON) and the related records it looks up. */
 type FoundRun = ReplayRun & { row?: string; lookups?: Lookups["items"] };
-type ReplayPageOut = { runs: FoundRun[]; skipped: Array<{ reason: ReplayReason; at: number }>; scanned: number; through: number | null; cursor: string | null; done: boolean; access: Access };
+type ReplayPageOut = { runs: FoundRun[]; skipped: Array<{ reason: ReplayReason; at: number }>; scanned: number; through: number | null; cursor: string | null; done: boolean; access: Access; plural: string };
 
 /**
  * One page of a replay: the object's entries from `since` on, each judged as the fan-out judges it, as `userId` sees
@@ -1353,8 +1415,8 @@ export const replayPage = internalQuery({
     const page = await ctx.db.query("ledgerEntries")
       .withIndex("by_orgId_object_observedAt", (q) => q.eq("orgId", args.orgId).eq("object", args.object).gte("observedAt", args.since))
       .paginate({ numItems: REPLAY_PAGE, cursor: args.cursor });
-    const out: ReplayPageOut = { runs: [], skipped: [], scanned: 0, through: null, cursor: page.isDone ? null : page.continueCursor, done: page.isDone, access: accesses[0] };
     const def = await r.defOf(args.object);
+    const out: ReplayPageOut = { runs: [], skipped: [], scanned: 0, through: null, cursor: page.isDone ? null : page.continueCursor, done: page.isDone, access: accesses[0], plural: def.pluralLabel };
     for (const row of page.page) {
       if (r.folded >= budget) return { ...out, cursor: null, done: false };
       out.scanned++;
@@ -1377,7 +1439,8 @@ export const replayPage = internalQuery({
         const ifs = args.ifConditions && out.runs.length < REPLAY_LISTED
           ? { row: JSON.stringify({ ...verdict.row, values: withoutHidden(accesses[0], args.object, verdict.row.values) }), lookups: await lookupsOf(ctx, args.orgId, def, verdict.row, args.ifConditions) }
           : {};
-        out.runs.push({ streamId: row.streamId, at: row.observedAt, title: verdict.title, ...(verdict.change ? { change: verdict.change } : {}), ...ifs });
+        const recordId = isRegisterAutomationObject(args.object) ? await registerIdOf(ctx, row.streamId) : null;
+        out.runs.push({ streamId: row.streamId, at: row.observedAt, title: verdict.title, ...(verdict.change ? { change: verdict.change } : {}), ...(recordId ? { recordId } : {}), ...ifs });
       }
     }
     return out;
@@ -1446,6 +1509,7 @@ export async function runReplay(ctx: ActionCtx, job: ReplayJob, foldBudget?: num
   const reasons = new Map<ReplayReason, number>();
   const ifConditions = ifConditionsOf(job.actions ?? []);
   let access: Access | null = null;
+  let plural = job.object;
   let cursor: string | null = null;
   let scanned = 0;
   let through: number | null = null;
@@ -1457,6 +1521,7 @@ export async function runReplay(ctx: ActionCtx, job: ReplayJob, foldBudget?: num
     });
     if (!page) throw new ConvexError(`${job.userName} is no longer a member of this workspace`);
     access = page.access;
+    plural = page.plural;
     runs.push(...page.runs);
     for (const sk of page.skipped) reasons.set(sk.reason, (reasons.get(sk.reason) ?? 0) + 1);
     scanned += page.scanned;
@@ -1470,6 +1535,8 @@ export async function runReplay(ctx: ActionCtx, job: ReplayJob, foldBudget?: num
   }
   const listed: ReplayRun[] = runs.slice(0, REPLAY_LISTED).map(({ row: _row, lookups: _lookups, ...run }) => run);
   const notes = replayNotes(job);
+  const reach = reachNote(job.object, plural);
+  if (reach) notes.push(`${reach} Only ${plural.toLowerCase()} someone has worked in Canon have changes to replay.`);
   const traced = runs.slice(0, REPLAY_LISTED).filter((r) => r.row !== undefined);
   if (job.actions && traced.length && access) {
     // The related records each If reads, read once each, now, as the replay's member sees them.

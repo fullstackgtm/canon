@@ -13,7 +13,7 @@ import { getErrorMessage } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
 import { FlowCanvas, chain, type FlowNode } from "@/components/flow/flow-canvas";
 import {
-  TODAY, describe, describeConditions, describeParts, relatedField, ruleChanges, stepAt,
+  TODAY, describe, describeConditions, describeParts, isRegisterAutomationObject, relatedField, ruleChanges, stepAt,
   type AutomationAction, type Condition, type IfStep, type OwnerChoice, type RuleNames, type RuleShape, type RuleStep, type Trigger,
 } from "../../../../modules/kernel/automation";
 
@@ -79,6 +79,12 @@ function pathText(path: ReadonlyArray<{ ref: string; took: "then" | "else" }>, r
   }).join("; ");
 }
 export const sentence = (rule: RuleShape, ws: Workspace) => describe(rule, namesFor(ws, rule.object));
+
+/** What a rule on companies or people sees and doesn't, under its sentence. */
+function Reach({ object, ws }: { object: string; ws: Workspace }) {
+  const note = ws.objects.find((x) => x.apiName === object)?.reach;
+  return note ? <span className="mt-1 block text-xs text-muted-foreground" data-testid="automation-reach">{note}</span> : null;
+}
 
 /** A rule as a flow: its trigger, the conditions a record must meet (one node), then each action in order, in the sentence's words. */
 function ruleNodes(rule: RuleShape, ws: Workspace): FlowNode[] {
@@ -159,6 +165,7 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
                   <StatusBadge status={r.status} label={r.status === "active" ? "Active" : "Paused"} />
                 </span>
                 <span className="mt-1 block text-sm">{sentence(r, ws)}</span>
+                <Reach object={r.object} ws={ws} />
                 <span className="mt-1 block text-xs text-muted-foreground">
                   Acts as {r.actsAs} · {lastRunText(r)}{r.nextSlotAt ? ` · next run ${when(r.nextSlotAt)}` : ""}{r.recipe ? ` · from ${r.recipe.id} v${r.recipe.version}` : ""}
                 </span>
@@ -172,7 +179,7 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
 }
 
 type ProposalRow = NonNullable<FunctionReturnType<typeof api.automations.proposals>>["open"][number];
-type ReplayShown = { wouldRun: number; runs: Array<{ streamId: string; at: number; title: string; path?: Array<{ ref: string; took: "then" | "else" }> }>; skipped: Array<{ reason: string; count: number }>; partial: boolean; through: number | null; since: number; notes: string[] };
+type ReplayShown = { wouldRun: number; runs: Array<{ streamId: string; recordId?: string | null; at: number; title: string; path?: Array<{ ref: string; took: "then" | "else" }> }>; skipped: Array<{ reason: string; count: number }>; partial: boolean; through: number | null; since: number; notes: string[] };
 const day = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 /** A replay's summary: how often the rule would have run over the last two weeks and on what, what it would have skipped and why. */
@@ -190,7 +197,7 @@ function ReplaySummary({ replay, rule, ws }: { replay: ReplayShown; rule: RuleSh
         <ul className="space-y-0.5">
           {replay.runs.map((r) => (
             <li key={`${r.streamId}-${r.at}`}>
-              <span className="text-muted-foreground tabular-nums">{day(r.at)}</span> <Link className="underline" href={recordHref(object, r.streamId)}>{r.title || "Untitled"}</Link>
+              <span className="text-muted-foreground tabular-nums">{day(r.at)}</span> <Link className="underline" href={recordHref(object, r.recordId ?? r.streamId)}>{r.title || "Untitled"}</Link>
               {r.path?.length ? <span className="text-muted-foreground" data-testid="automation-replay-path"> · {pathText(r.path, rule, ws)}</span> : null}
             </li>
           ))}
@@ -278,7 +285,7 @@ function Proposals({ ws }: { ws: Workspace }) {
             <h3 className="font-medium">{row.spec.name} <span className="text-xs font-normal text-muted-foreground">{!row.current ? "new rule" : row.current.name === row.spec.name ? `version ${row.version}` : `version ${row.version} of ${row.current.name}`}</span></h3>
             <StatusBadge status="pending" label="Proposed" />
           </div>
-          <p className="text-sm">{sentence(row.spec, ws)}</p>
+          <div><p className="text-sm">{sentence(row.spec, ws)}</p><Reach object={row.spec.object} ws={ws} /></div>
           <p className="text-xs text-muted-foreground">
             {row.author.agent ? `Written by ${row.author.agent} for ${row.author.name}` : `Written by ${row.author.name}`}, {when(row.createdAt)}
             {row.note ? <>: “{row.note}”</> : null}
@@ -332,7 +339,7 @@ function RuleDetail({ rule, ws, onClose }: { rule: Rule; ws: Workspace; onClose:
             <button type="button" disabled={busy} className={btn} onClick={() => { if (window.confirm("Delete this rule?")) void run(async () => { await remove({ id: rule.id }); onClose(); }); }}>Delete</button>
           </div>
         </div>
-        <p className="text-sm">{sentence(rule, ws)}</p>
+        <div><p className="text-sm">{sentence(rule, ws)}</p><Reach object={rule.object} ws={ws} /></div>
         <dl className="grid gap-x-4 gap-y-1 text-xs sm:grid-cols-[max-content_1fr]">
           <dt className="text-muted-foreground">Status</dt><dd>{rule.status === "active" ? "Active" : rule.pausedReason ?? "Paused"}</dd>
           <dt className="text-muted-foreground">Acts as</dt><dd>{rule.actsAs}, with their access as it is when the rule runs</dd>
@@ -376,7 +383,7 @@ function Runs({ ruleId, ws, object }: { ruleId: Id<"automationRules">; ws: Works
           {rows.map((r) => (
             <tr key={r.id} className="border-t border-border/60 align-top">
               <td className="py-1 pr-3 whitespace-nowrap">{when(r.createdAt)}</td>
-              <td className="pr-3">{r.title ? <Link className="underline" href={recordHref(r.object, r.streamId)}>{r.title}</Link> : "Hidden record"}</td>
+              <td className="pr-3">{r.title ? <Link className="underline" href={recordHref(r.object, r.recordId ?? r.streamId)}>{r.title}</Link> : "Hidden record"}</td>
               <td className="pr-3">{r.change ? `${o?.fields.find((x) => x.apiName === r.change?.field)?.label ?? r.change.field}: ${label(r.change.field, r.change.from)} → ${label(r.change.field, r.change.to)}` : r.event === "schedule" && r.triggeredAt ? `Schedule, ${when(r.triggeredAt)}` : r.event}{r.depth ? ` (from a rule, depth ${r.depth})` : ""}</td>
               <td className="pr-3">{r.matched ? "Met" : r.reason ?? "Not met"}</td>
               <td className="pr-3">
@@ -431,7 +438,7 @@ function ValueInput({ field, value, onChange, label }: { field: FieldInfo | unde
   return <input aria-label={label} className={`${input} min-w-0`} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Value" />;
 }
 
-function OwnerPicker({ owner, onChange, ws, allowRecordOwner }: { owner: Owner; onChange: (o: Owner) => void; ws: Workspace; allowRecordOwner: boolean }) {
+function OwnerPicker({ owner, onChange, ws, allowRecordOwner, companyOwner }: { owner: Owner; onChange: (o: Owner) => void; ws: Workspace; allowRecordOwner: boolean; companyOwner: boolean }) {
   const first = ws.members[0]?.id;
   return (
     <span className="flex flex-wrap items-center gap-2">
@@ -439,12 +446,14 @@ function OwnerPicker({ owner, onChange, ws, allowRecordOwner }: { owner: Owner; 
         const k = v as Owner["kind"];
         if (k === "member" && first) onChange({ kind: "member", userId: first });
         if (k === "record_owner") onChange({ kind: "record_owner" });
+        if (k === "company_owner") onChange({ kind: "company_owner" });
         if (k === "round_robin") onChange({ kind: "round_robin", userIds: [] });
         if (k === "team" && ws.teams[0]) onChange({ kind: "team", teamId: ws.teams[0].id });
         if (k === "routing_rule" && ws.routingRules[0]) onChange({ kind: "routing_rule", routingRuleId: ws.routingRules[0].id });
       }}
         options={[
           ...(allowRecordOwner ? [{ value: "record_owner", label: "The record’s owner" }] : []),
+          ...(companyOwner ? [{ value: "company_owner", label: "The company’s owner" }] : []),
           { value: "member", label: "A member" },
           { value: "round_robin", label: "Round robin over members" },
           ...(ws.teams.length > 0 ? [{ value: "team", label: "Round robin over a team" }] : []),
@@ -509,6 +518,8 @@ function StepList({ steps, onChange, ws, o, depth }: { steps: readonly RuleStep[
   const editable = (o?.fields ?? []).filter((f) => f.apiName !== "ownerId" && f.type !== "formula");
   const dates = (o?.fields ?? []).filter((f) => f.type === "date" || f.type === "datetime");
   const set = (i: number, a: RuleStep) => onChange(steps.map((x, j) => (j === i ? a : x)));
+  // A rule doesn't change a company or a person (lib/automations.ts actionProblem).
+  const writes = !isRegisterAutomationObject(o?.apiName ?? "");
   return (
     <div className="space-y-2">
       {steps.map((a, i) => (
@@ -530,13 +541,13 @@ function StepList({ steps, onChange, ws, o, depth }: { steps: readonly RuleStep[
               <span>due in</span>
               <input aria-label="Due in days" type="number" min={0} max={365} className={`${input} w-16`} value={a.dueInDays} onChange={(e) => set(i, { ...a, dueInDays: Number(e.target.value) })} />
               <span>days for</span>
-              <OwnerPicker ws={ws} allowRecordOwner owner={a.owner} onChange={(owner) => set(i, { ...a, owner })} />
+              <OwnerPicker ws={ws} allowRecordOwner companyOwner={!!o?.companyOwner && o.apiName !== "account"} owner={a.owner} onChange={(owner) => set(i, { ...a, owner })} />
             </>
           )}
           {a.kind === "assign_owner" && (
             <>
               <span>Assign the owner:</span>
-              <OwnerPicker ws={ws} allowRecordOwner={false} owner={a.owner} onChange={(owner) => set(i, { ...a, owner })} />
+              <OwnerPicker ws={ws} allowRecordOwner={false} companyOwner={!!o?.companyOwner} owner={a.owner} onChange={(owner) => set(i, { ...a, owner })} />
             </>
           )}
           {a.kind === "wait" && (
@@ -579,9 +590,9 @@ function StepList({ steps, onChange, ws, o, depth }: { steps: readonly RuleStep[
         </div>
       ))}
       <div className="flex flex-wrap gap-2">
-        <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "set_field", field: "", value: null }])}>Set a field</button>
+        {writes && <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "set_field", field: "", value: null }])}>Set a field</button>}
         <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "create_task", subject: "Follow up on {record}", dueInDays: 2, owner: { kind: "record_owner" } }])}>Create a task</button>
-        {o?.fields.some((f) => f.apiName === "ownerId") && ws.members.length > 0 && (
+        {writes && o?.fields.some((f) => f.apiName === "ownerId") && ws.members.length > 0 && (
           <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "assign_owner", owner: { kind: "round_robin", userIds: [] } }])}>Assign an owner</button>
         )}
         <button type="button" className={btn} onClick={() => onChange([...steps, { kind: "wait", days: 2 }])}>Wait</button>
@@ -642,8 +653,10 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
   const o = ws.objects.find((x) => x.apiName === object);
   const fieldOf = (apiName: string) => o?.fields.find((f) => f.apiName === apiName);
 
+  const register = isRegisterAutomationObject(object);
   const reset = (next: string) => {
     setObject(next);
+    if (isRegisterAutomationObject(next) && (kind === "created" || kind === "schedule")) setKind("updated");
     setField("");
     setFrom("");
     setTo("");
@@ -694,10 +707,11 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
           options={ws.objects.map((x) => ({ value: x.apiName, label: x.label }))} />
         <SelectField aria-label="Trigger" value={kind} onValueChange={(v) => setKind(v as Trigger["kind"])}
           options={[
-            { value: "created", label: "is created" },
+            // Canon doesn't record a company or a person being added, nor lists them for a schedule (convex/automations.ts checkRule).
+            ...(register ? [] : [{ value: "created", label: "is created" }]),
             { value: "updated", label: "has a field change" },
             { value: "deleted", label: "is deleted" },
-            { value: "schedule", label: "matches, on a schedule" },
+            ...(register ? [] : [{ value: "schedule", label: "matches, on a schedule" }]),
           ]} />
         {kind === "schedule" && (
           <>
@@ -751,7 +765,7 @@ function Builder({ ws, initial, onDone }: { ws: Workspace; initial?: Rule; onDon
         <StepList steps={actions} onChange={(next) => setActions(next as Action[])} ws={ws} o={o} depth={0} />
       </div>
 
-      <p className="border-l-2 border-primary pl-2 text-sm" data-testid="automation-sentence">{sentence(draft, ws)}</p>
+      <div className="border-l-2 border-primary pl-2"><p className="text-sm" data-testid="automation-sentence">{sentence(draft, ws)}</p><Reach object={object} ws={ws} /></div>
       <FlowCanvas scenario={{ id: initial ? `automation-edit-${initial.id}` : "automation-draft", title: name || "New rule", nodes: ruleNodes(draft, ws) }} height={220} />
       <DryRun label="Dry run: which records match now" args={{ object, trigger, conditions: conditionList }} />
       <div className="flex flex-wrap gap-2">
