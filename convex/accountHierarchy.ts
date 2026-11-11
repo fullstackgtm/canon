@@ -9,7 +9,11 @@ import { can, refusal } from "./lib/capabilities";
 import { applyAsUser, changeAs, crmParentsOf, edgesOf } from "./associations";
 import { recordEditPorts, requireCaller } from "./records";
 import type { EdgeResult } from "./lib/objects/associations";
-import { EditConflictError, editPartyRecord, isLedgerEditField } from "./lib/canon/partyLedger";
+import { EditConflictError, editPartyRecord, isLedgerEditField, recordHolds } from "./lib/canon/partyLedger";
+import { mergeableFields } from "./lib/canon/partyMerge";
+import { resolveObjectDef, STANDARD_OBJECTS } from "./lib/objects/registry";
+import { mergeAs, mergeWriteArgs, undoAs, writeMerge } from "./recordMerges";
+import { partyStores } from "./canon";
 import type { FieldItem, HierarchyItem, ParentItem } from "../engine/src/accountHierarchy/plan.ts";
 import type { CitationCheck } from "../engine/src/accountHierarchy/research.ts";
 import { checkPolicyInput, resolvePolicy, type HierarchyPolicy } from "../engine/src/accountHierarchy/policy.ts";
@@ -22,9 +26,9 @@ import { checkPolicyInput, resolvePolicy, type HierarchyPolicy } from "../engine
  * Salesforce connected can also scan Salesforce live: Canon's Salesforce import does not bring parent links, creation
  * dates or the custom fields a policy names.
  *
- * Approving a parent move or a field fix on a Canon scan changes Canon at once, as the approver (`approveParent`,
- * `approveFields`). Every other approval only records the decision: merges, and anything on a Salesforce scan, whose
- * ids are Salesforce ids. Nothing in this file or its actions writes to a CRM.
+ * Approving an item on a Canon scan changes Canon at once, as the approver: a parent move (`approveParent`), a field
+ * fix (`approveFields`) or a merge (`approveMerge`). On a Salesforce scan, whose ids are Salesforce ids, an approval
+ * only records the decision. Nothing in this file or its actions writes to a CRM.
  *
  * A scan reads every account, so every function needs a caller who sees every record and may manage integrations.
  * Decisions also need `cleanup.run`.
@@ -124,7 +128,8 @@ export const group = query({
         decision: d.decision,
         decidedAt: d.decidedAt,
         decidedBy: (await ctx.db.get(d.decidedBy))?.name ?? "a former member",
-        ...(d.appliedAt ? { appliedAt: d.appliedAt } : {}),
+        // A merge undone from the survivor's history is no longer applied.
+        ...(d.appliedAt && (!d.mergeId || (await standingMerge(ctx, g.orgId, d))) ? { appliedAt: d.appliedAt } : {}),
         ...(d.applyError ? { applyError: d.applyError } : {}),
       }] as const))) as Record<string, ItemDecision>,
       // A Canon scan's parents as they are now, so an applied move shows without a rescan, and what a CRM says
@@ -199,6 +204,7 @@ const PARENT_CHANGED = "The parent changed since this scan. Rescan to review it 
 const PARENT_CHANGED_SINCE_MOVE = "The parent changed after this move, so undo would overwrite that change. Rescan to review it again.";
 const APPLIED = "This change was applied. Undo it to change the decision.";
 const FIELDS_CHANGED = "The company's fields changed since this scan. Rescan to review it again.";
+const MERGE_CHANGED = "The companies' fields changed since this scan. Rescan to review the merge again.";
 const FIELDS_CHANGED_SINCE_FIX = "The fields changed after this fix, so undo would overwrite that change. Edit them on the company page instead.";
 
 /** A proposal item and its decision, for a caller who may decide. */
@@ -214,8 +220,8 @@ async function itemOf(ctx: QueryCtx | MutationCtx, researchId: Id<"hierarchyRese
     .query("hierarchyDecisions")
     .withIndex("by_researchId_and_itemKey", (q) => q.eq("researchId", research._id).eq("itemKey", itemKey))
     .unique();
-  // Only a Canon scan names Canon record ids, and only its parent moves and field fixes apply; merges are recorded.
-  const applies = scan?.provider === "canon" && (item.op === "set_parent" || item.op === "set_fields");
+  // Only a Canon scan names Canon record ids; a Salesforce scan's items are recorded, never applied.
+  const applies = scan?.provider === "canon";
   return { user, research, item, existing, applies };
 }
 
@@ -236,15 +242,15 @@ async function currentParent(ctx: QueryCtx, orgId: Id<"organizations">, accountI
 }
 
 /**
- * Records a person's decision on one proposed item. A Canon scan's parent move and field fix are approved and undone
- * through `approveParent`/`undoParent` and `approveFields`/`undoFields`, which change Canon; this records the rest and
- * rejects anything.
+ * Records a person's decision on one proposed item. A Canon scan's items are approved and undone through
+ * `approveParent`/`undoParent`, `approveFields`/`undoFields` and `approveMerge`/`undoMerge`, which change Canon; this
+ * records a Salesforce scan's and rejects anything.
  */
 export const decide = mutation({
   args: { researchId: v.id("hierarchyResearch"), itemKey: v.string(), decision: v.union(v.literal("approved"), v.literal("rejected"), v.literal("clear")) },
   handler: async (ctx, args) => {
     const { user, research, existing, applies } = await itemOf(ctx, args.researchId, args.itemKey);
-    if (existing?.appliedAt) throw new ConvexError(APPLIED);
+    if (existing?.appliedAt && (!existing.mergeId || (await standingMerge(ctx, user.orgId, existing)))) throw new ConvexError(APPLIED);
     if (args.decision === "approved" && applies) throw new ConvexError("This change is approved by applying it. Reload the page and approve again.");
     if (args.decision === "clear") {
       if (existing) await ctx.db.delete(existing._id);
@@ -284,7 +290,7 @@ async function moveParent(ctx: ActionCtx, args: { researchId: Id<"hierarchyResea
   } catch (error) {
     // A company the approver cannot see, or a role that cannot edit companies: kept on the decision like any refusal.
     if (undo || !(error instanceof ConvexError) || typeof error.data !== "string") throw error;
-    await ctx.runMutation(internal.accountHierarchy.refuseParentMove, { ...args, message: error.data });
+    await ctx.runMutation(internal.accountHierarchy.refuseItem, { ...args, message: error.data });
     return { status: "invalid", message: error.data };
   }
 }
@@ -330,8 +336,8 @@ export const applyParentMove = internalMutation({
   },
 });
 
-/** A parent move refused before its transaction (a company the approver cannot see): the reason stays on the page. */
-export const refuseParentMove = internalMutation({
+/** A parent move or merge refused before its transaction (a company the approver cannot see): the reason stays on the page. */
+export const refuseItem = internalMutation({
   args: { ...itemArgs, message: v.string() },
   handler: async (ctx, args) => {
     const { user, research, existing } = await itemOf(ctx, args.researchId, args.itemKey);
@@ -444,6 +450,102 @@ export const recordFieldFix = internalMutation({
     const outcome = args.error ? { applyError: args.error.slice(0, 500) } : { appliedAt: decided.decidedAt };
     if (existing) await ctx.db.patch(existing._id, { ...decided, appliedAt: undefined, applyError: undefined, ...outcome });
     else await ctx.db.insert("hierarchyDecisions", { orgId: user.orgId, researchId: research._id, itemKey: args.itemKey, ...decided, ...outcome });
+    return null;
+  },
+});
+
+/**
+ * Approve a Canon scan's merge: the duplicate is merged into the company the page shows as kept, through the record
+ * pages' merge (recordMerges.mergeAs) as the approver: an admin or manager whose role sees and edits every field and
+ * deletes companies, and who sees both. Its people, deals, links and facts move to the survivor, and the values it
+ * takes from the duplicate (the proposal's blank fields to fill) are the approver's picks, a person's values. The
+ * merge and the decision commit together; undo is the record merge's undo.
+ */
+export const approveMerge = action({
+  args: itemArgs,
+  handler: async (ctx, args): Promise<FixResult> => {
+    const caller = await requireCaller(ctx);
+    const item: MergeFix = await ctx.runQuery(internal.accountHierarchy.mergeItem, args);
+    if (item.mergeId) return { status: "unchanged" };
+    try {
+      await mergeAs(ctx, caller, { object: "account", survivorId: item.survivorId, loserIds: [item.loserId], picks: item.picks }, (merge) =>
+        ctx.runMutation(internal.accountHierarchy.applyMerge, { ...args, merge }));
+      return { status: "applied" };
+    } catch (error) {
+      if (!(error instanceof ConvexError) || typeof error.data !== "string") throw error;
+      await ctx.runMutation(internal.accountHierarchy.refuseItem, { ...args, message: error.data });
+      return { status: "invalid", message: error.data };
+    }
+  },
+});
+
+/** Undo an applied merge: the record merge's undo puts both companies back, then the decision is cleared. */
+export const undoMerge = action({
+  args: itemArgs,
+  handler: async (ctx, args): Promise<FixResult> => {
+    const caller = await requireCaller(ctx);
+    const item: MergeFix = await ctx.runQuery(internal.accountHierarchy.mergeItem, args);
+    if (item.mergeId) {
+      try {
+        await undoAs(ctx, caller, item.mergeId);
+      } catch (error) {
+        if (!(error instanceof ConvexError) || typeof error.data !== "string") throw error;
+        return { status: "invalid", message: error.data };
+      }
+    }
+    await ctx.runMutation(internal.accountHierarchy.clearDecision, args);
+    return { status: item.mergeId ? "applied" : "unchanged" };
+  },
+});
+
+type MergeFix = { survivorId: string; loserId: string; picks: Record<string, string>; mergeId: string | null };
+
+/** A decision's merge, while it stands: null once it was undone, here or from the survivor's history. */
+async function standingMerge(ctx: QueryCtx, orgId: Id<"organizations">, decision: Doc<"hierarchyDecisions"> | null): Promise<string | null> {
+  if (!decision?.mergeId || decision.appliedAt === undefined) return null;
+  const merge = await ctx.db.query("recordMerges").withIndex("by_orgId_and_mergeId", (q) => q.eq("orgId", orgId).eq("mergeId", decision.mergeId!)).unique();
+  return merge && !merge.undoneAt ? merge.mergeId : null;
+}
+
+export const mergeItem = internalQuery({
+  args: itemArgs,
+  handler: async (ctx, args): Promise<MergeFix> => {
+    const { user, item, existing, applies } = await itemOf(ctx, args.researchId, args.itemKey);
+    if (!applies || item.op !== "merge") throw new ConvexError("Only a merge on a scan of Canon's companies merges companies.");
+    // The survivor keeps its values; it takes the duplicate's only where the proposal fills a blank, never an owner.
+    const pickable = new Set(mergeableFields(resolveObjectDef(STANDARD_OBJECTS.account)).map((f) => f.apiName));
+    const picks = Object.fromEntries(Object.keys(item.fill).filter((f) => pickable.has(f) && !/owner/i.test(f)).map((f) => [f, item.loserId]));
+    return { survivorId: item.survivorId, loserId: item.loserId, picks, mergeId: await standingMerge(ctx, user.orgId, existing) };
+  },
+});
+
+/** The merge and its decision in one transaction, so the decision says applied exactly when the companies merged. */
+export const applyMerge = internalMutation({
+  args: { ...itemArgs, merge: mergeWriteArgs },
+  handler: async (ctx, args) => {
+    const { user, research, item, existing, applies } = await itemOf(ctx, args.researchId, args.itemKey);
+    if (!applies || item.op !== "merge" || args.merge.survivor.recordId !== item.survivorId) throw new ConvexError("Only a merge on a scan of Canon's companies merges companies.");
+    if (await standingMerge(ctx, user.orgId, existing)) throw new ConvexError(APPLIED);
+    // The fields the survivor takes from the duplicate: still blank on the survivor, still what the scan read on the duplicate (CAS).
+    const picked = Object.keys(args.merge.picks);
+    const [loser] = args.merge.losers;
+    const holds = (party: typeof loser, values: Record<string, string | null>) => recordHolds(partyStores(ctx), { orgId: user.orgId, object: "account", recordId: party.recordId, values, ...(party.streamId ? { streamId: party.streamId } : {}), ...(party.snapshot ? { snapshot: party.snapshot } : {}) });
+    if (picked.length && !((await holds(args.merge.survivor, Object.fromEntries(picked.map((f) => [f, null])))) && (await holds(loser, Object.fromEntries(picked.map((f) => [f, item.fill[f] ?? null])))))) {
+      throw new ConvexError(MERGE_CHANGED);
+    }
+    await writeMerge(ctx, args.merge);
+    const row = { decision: "approved" as const, decidedBy: user._id, decidedAt: Date.now(), appliedAt: Date.now(), mergeId: args.merge.mergeId };
+    if (existing) await ctx.db.patch(existing._id, { ...row, applyError: undefined });
+    else await ctx.db.insert("hierarchyDecisions", { orgId: user.orgId, researchId: research._id, itemKey: args.itemKey, ...row });
+    return null;
+  },
+});
+
+export const clearDecision = internalMutation({
+  args: itemArgs,
+  handler: async (ctx, args) => {
+    const { existing } = await itemOf(ctx, args.researchId, args.itemKey);
+    if (existing) await ctx.db.delete(existing._id);
     return null;
   },
 });

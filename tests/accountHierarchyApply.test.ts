@@ -17,17 +17,17 @@ const COUNTRY = "ah:fields:child:country=France";
 // The record pages' link changes read through the caller's client (a memory record service); a field fix's edit goes through
 // records.ts's own client, the stand-in record service in Convex tables (convexFakeStore). Both hold the same companies.
 let client = createFakeRecordClient({ store: createMemoryRecordStore() });
-const files = loadConvex(["accountHierarchy.ts", "associations.ts", "hubspotImport.ts", "records.ts", "canon.ts", "hubspot.ts", "objects.ts"], { "records.ts": (real) => ({ ...real, callerClient: () => client }) });
+const files = loadConvex(["accountHierarchy.ts", "associations.ts", "hubspotImport.ts", "records.ts", "canon.ts", "hubspot.ts", "objects.ts", "recordMerges.ts"], { "records.ts": (real) => ({ ...real, callerClient: () => client }) });
 
 /** Companies in the stand-in record service (records.ts convexFakeStore), each with a country unless `countries` says otherwise. */
-async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: string[]; countries?: Record<string, string>; rules?: ObjectRule[] } = {}) {
+async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: string[]; countries?: Record<string, string>; industries?: Record<string, string>; fill?: Record<string, string>; rules?: ObjectRule[] } = {}) {
   const companies = opts.companies ?? ["top", "old", "child"];
-  const rows = companies.map((id) => ({ id, name: id, domain: `${id}.test`, fit: 0, status: "new", segmentIds: [], source: "test", version: 1, updatedAt: 1, ...(opts.countries?.[id] ? { country: opts.countries[id] } : {}) }) as AccountRow);
+  const rows = companies.map((id) => ({ id, name: id, domain: `${id}.test`, fit: 0, status: "new", segmentIds: [], source: "test", version: 1, updatedAt: 1, ...(opts.countries?.[id] ? { country: opts.countries[id] } : {}), ...(opts.industries?.[id] ? { industry: opts.industries[id] } : {}) }) as AccountRow);
   const store = createMemoryRecordStore();
   await store.putAccounts("org", rows);
   client = createFakeRecordClient({ store });
   const items = [
-    parentItem("child", "old", "top"), parentItem("top", null, "child"), { op: "merge", survivorId: "top", loserId: "old", fill: {}, why: "dup", moves: "", warn: [], key: "ah:merge:old" },
+    parentItem("child", "old", "top"), parentItem("top", null, "child"), { op: "merge", survivorId: "top", loserId: "old", fill: opts.fill ?? {}, why: "dup", moves: "", warn: [], key: "ah:merge:old" },
     fieldItem({ country: "France" }, { country: opts.countries?.child ?? null }), fieldItem({ BillingCountry: "France" }, { BillingCountry: null }),
     fieldItem({ industry: "Luxury goods" }, { industry: "Software" }),
   ];
@@ -40,7 +40,7 @@ async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: st
       _id: "research", orgId: "org", scanId: "scan", groupId: "group", groupName: "Top", rootAccountId: "top", status: "done", startedBy: "admin", startedAt: 1, proposal: { items },
       verification: { checkedAt: "2026-11-10T00:00:00Z", checks: [{ ...QUOTE, result: "verified" }] },
     }],
-    fakeRecordAccounts: rows.map((row) => ({ ws: "org", recordId: row.id, row })),
+    fakeRecordAccounts: rows.map((row) => ({ _id: `fakeRecordAccounts:${row.id}`, ws: "org", recordId: row.id, row })),
   });
   const ctx = (): any => ({
     db,
@@ -73,17 +73,22 @@ async function fixture(opts: { provider?: "canon" | "salesforce"; companies?: st
   /** The company's row in the stand-in record service. */
   const row = async () => plain((await files["records.ts"].fakeGetAccounts.handler(ctx(), { ws: "org", ids: ["child"] }))[0]);
   const ledger = (): any[] => plain(f.db.rows("ledgerEntries").filter((e: any) => e.body?.kind === "assert"));
-  const edit = (patch: Record<string, unknown>) => files["records.ts"].edit.handler(actionCtx, { object: "account", id: "child", patch, idempotencyKey: `edit:${JSON.stringify(patch)}` });
-  const hubspotIndustry = (industry: string) =>
-    files["hubspot.ts"].upsertAccounts.handler(ctx(), { orgId: "org", accounts: [{ crmId: "hs-child", name: "child", domain: "child.test", industry }] });
+  const edit = (patch: Record<string, unknown>, id = "child") => files["records.ts"].edit.handler(actionCtx, { object: "account", id, patch, idempotencyKey: `edit:${id}:${JSON.stringify(patch)}` });
+  const hubspotIndustry = (industry: string, id = "child") =>
+    files["hubspot.ts"].upsertAccounts.handler(ctx(), { orgId: "org", accounts: [{ crmId: `hs-${id}`, name: id, domain: `${id}.test`, industry }] });
   /** The company as a HubSpot sync first wrote it, its register row linked to that stream, as the projector links it. */
-  const fromHubspot = async (value: string) => {
-    await hubspotIndustry(value);
-    const stream = db.rows("canonExternalIds").find((x) => x.provider === "hubspot:account" && x.externalId === "hs-child")!.entityId;
-    const row = db.rows("fakeRecordAccounts").find((r) => r.recordId === "child")!;
+  const fromHubspot = async (value: string, id = "child") => {
+    await hubspotIndustry(value, id);
+    const stream = db.rows("canonExternalIds").find((x) => x.provider === "hubspot:account" && x.externalId === `hs-${id}`)!.entityId;
+    const row = db.rows("fakeRecordAccounts").find((r) => r.recordId === id)!;
     await db.patch(row._id, { row: { ...(row.row as object), stream } });
   };
-  const f = { fromHubspot, db, h, ctx, parentOf, setParent, args, decision, approve, undo, hubspotParent, useCrmParent, fix, undoFix, holds, country, row, ledger, edit, hubspotIndustry };
+  const merge = () => h.approveMerge.handler(actionCtx, { researchId: "research", itemKey: "ah:merge:old" }).then(plain);
+  const undoMerge = () => h.undoMerge.handler(actionCtx, { researchId: "research", itemKey: "ah:merge:old" }).then(plain);
+  /** The stream a record id names, and the one it was merged into, if any. */
+  const streamOf = (id: string) => db.rows("canonExternalIds").find((x) => x.provider === "record:account" && x.externalId === id)?.entityId as string | undefined;
+  const mergedInto = (id: string) => (db.rows("canonEntities").find((e) => e._id === streamOf(id))?.mergedInto ?? null) as string | null;
+  const f = { merge, undoMerge, streamOf, mergedInto, fromHubspot, db, h, ctx, parentOf, setParent, args, decision, approve, undo, hubspotParent, useCrmParent, fix, undoFix, holds, country, row, ledger, edit, hubspotIndustry };
   await setParent("child", "old");
   return f;
 }
@@ -160,15 +165,16 @@ test("undo puts the previous parent back and clears the decision; once the paren
   assert.equal(typeof (await f.decision()).appliedAt, "number");
 });
 
-test("rejecting writes nothing, and other items and Salesforce scans record the decision only", async () => {
+test("rejecting writes nothing, a Canon scan's items are approved only by applying them, and Salesforce scans record the decision only", async () => {
   const canon = await fixture();
   const entries = canon.db.rows("ledgerEntries").length;
   await canon.h.decide.handler(canon.ctx(), { ...canon.args(), decision: "rejected" });
-  await canon.h.decide.handler(canon.ctx(), { researchId: "research", itemKey: "ah:merge:old", decision: "approved" });
+  await canon.h.decide.handler(canon.ctx(), { researchId: "research", itemKey: "ah:merge:old", decision: "rejected" });
+  await assert.rejects(canon.h.decide.handler(canon.ctx(), { researchId: "research", itemKey: "ah:merge:old", decision: "approved" }));
   await assert.rejects(canon.h.decide.handler(canon.ctx(), { ...canon.args(), decision: "approved" }));
   assert.equal(canon.db.rows("ledgerEntries").length, entries);
   assert.deepEqual(await canon.parentOf("child"), ["old"]);
-  assert.equal((await canon.decision("ah:merge:old")).appliedAt, undefined);
+  assert.equal((await canon.decision("ah:merge:old")).decision, "rejected");
 
   const sf = await fixture({ provider: "salesforce" });
   const before = sf.db.rows("ledgerEntries").length;
@@ -261,4 +267,62 @@ test("undo puts the scan's value back and clears the decision; once the field ch
   assert.equal(await f.country("Spain"), true);
   assert.equal((await f.row()).country, "Spain");
   assert.equal(typeof (await f.decision(COUNTRY)).appliedAt, "number");
+});
+
+test("approving a merge merges the duplicate into the company kept, as the approver: its links, deals and the blank fields it fills move; approving again changes nothing", async () => {
+  const f = await fixture({ industries: { old: "Lighting" }, fill: { industry: "Lighting" } });
+  await f.db.insert("deals", { orgId: "org", companyId: "old", name: "Old renewal", isClosed: false, isWon: false, closeDate: "2026-12-01" });
+  assert.deepEqual(await f.merge(), { status: "applied" });
+  assert.equal(f.mergedInto("old"), f.streamOf("top"));
+  assert.deepEqual(await f.parentOf("child"), ["top"]);
+  assert.deepEqual(plain(f.db.rows("deals").map((d) => d.companyId)), ["top"]);
+  assert.equal(await files["canon.ts"].recordHolds.handler(f.ctx(), { orgId: "org", object: "account", recordId: "top", values: { industry: "Lighting" } }), true);
+  const d = await f.decision("ah:merge:old");
+  assert.equal(d.decidedBy, "Ada");
+  assert.equal(typeof d.appliedAt, "number");
+  assert.equal(f.db.rows("recordMerges").length, 1);
+  assert.equal(f.db.rows("recordMerges")[0].mergedBy, "admin");
+
+  assert.deepEqual(await f.merge(), { status: "unchanged" });
+  assert.equal(f.db.rows("recordMerges").length, 1);
+});
+
+test("a merge naming a company the approver cannot see, or whose survivor filled the field since the scan, is refused and kept; nothing is merged", async () => {
+  const hidden = await fixture({ companies: ["top", "child"] });
+  const entries = hidden.db.rows("ledgerEntries").length;
+  const result = await hidden.merge();
+  assert.equal(result.status, "invalid");
+  assert.equal(hidden.db.rows("ledgerEntries").length, entries);
+  assert.equal(hidden.db.rows("recordMerges").length, 0);
+  assert.equal((await hidden.decision("ah:merge:old")).applyError, result.message);
+
+  const stale = await fixture({ industries: { old: "Lighting" }, fill: { industry: "Lighting" } });
+  await stale.edit({ industry: "Retail" }, "top");
+  const refused = await stale.merge();
+  assert.equal(refused.status, "invalid");
+  assert.equal(stale.mergedInto("old"), null);
+  assert.equal(stale.db.rows("recordMerges").length, 0);
+  assert.equal(await files["canon.ts"].recordHolds.handler(stale.ctx(), { orgId: "org", object: "account", recordId: "top", values: { industry: "Retail" } }), true);
+  assert.equal((await stale.decision("ah:merge:old")).applyError, refused.message);
+});
+
+test("after a merge, a CRM sync of the merged-away company lands on the company kept; undo puts both back", async () => {
+  const f = await fixture();
+  await f.fromHubspot("Software", "old");
+  await f.merge();
+  await f.hubspotIndustry("Retail", "old");
+  assert.equal(f.mergedInto("old"), f.streamOf("top"));
+  assert.equal(await f.h.group.handler(f.ctx(), { groupId: "group" }).then((g: any) => typeof g.decisions["ah:merge:old"].appliedAt), "number");
+  const topHolds = (industry: string) => files["canon.ts"].recordHolds.handler(f.ctx(), { orgId: "org", object: "account", recordId: "top", values: { industry } });
+  assert.equal(await topHolds("Retail"), true);
+  // A field a person set on the company kept holds against the merged-away record's CRM, as against its own.
+  await f.edit({ industry: "Luxury goods" }, "top");
+  await f.hubspotIndustry("Wholesale", "old");
+  assert.equal(await topHolds("Luxury goods"), true);
+  assert.deepEqual(plain(f.db.rows("parentDisagreements").filter((d) => d.association === "field").map((d) => [d.crmRef, d.attribute, d.crmValue])), [["hubspot:account:hs-old", "industry", "Wholesale"]]);
+
+  assert.deepEqual(await f.undoMerge(), { status: "applied" });
+  assert.equal(f.mergedInto("old"), null);
+  assert.deepEqual(await f.parentOf("child"), ["old"]);
+  assert.equal(await f.decision("ah:merge:old"), null);
 });

@@ -56,8 +56,8 @@ export function AccountHierarchyList() {
         <p className="mb-3 max-w-[78ch] text-sm text-muted-foreground">
           Finds companies that may be duplicates or sit in the wrong corporate family: a shared website domain, the same name once legal suffixes are
           dropped, or an enrichment vendor&apos;s parent that disagrees with the parent on record. Research checks each group on the web, citing a page and
-          a word-for-word quote for every claim, and proposes merges, parent moves and field fixes for you to approve. An approved parent move or field fix changes the
-          company in Canon at once, as your own edit; merges are only recorded for now. Nothing is written to Salesforce or HubSpot.
+          a word-for-word quote for every claim, and proposes merges, parent moves and field fixes for you to approve. An approved parent move, field fix or merge changes
+          Canon at once, as you. Nothing is written to Salesforce or HubSpot.
         </p>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <button type="button" className={primary} disabled={reading} onClick={() => void scan("canon")}>

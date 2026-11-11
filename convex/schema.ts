@@ -1130,6 +1130,8 @@ export default defineSchema({
     appliedAt: v.optional(v.number()),
     /** An approved parent move that was refused (a cycle, a parent changed since the scan): the reason, kept for the page. */
     applyError: v.optional(v.string()),
+    /** An applied merge: its recordMerges id, which its undo names. */
+    mergeId: v.optional(v.string()),
   })
     .index("by_researchId_and_itemKey", ["researchId", "itemKey"])
     .index("by_orgId_and_itemKey", ["orgId", "itemKey"]),
