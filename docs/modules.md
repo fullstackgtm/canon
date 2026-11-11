@@ -3663,7 +3663,11 @@ ledger with `facts.forRecords`, after declaring which attributes it reads:
 - **What it returns.** A row per record: `{ id, fields, receipts? }`. Each field is `{ attribute, value, state, winner,
   contestedBy?, confirmedAt? }`: `state` is `resolved`, `contested`, `empty` (no value yet) or `unknown` (a
   `custom.<slug>` the workspace has no field for); `winner` is the winning fact's id;
-  `contestedBy` the facts that disagree with it; `confirmedAt` when the winning fact was last confirmed (ms). `receipts`
+  `contestedBy` the facts that disagree with it; `confirmedAt` when the winning fact was last confirmed (ms). Preview
+  since 2026-11-10: `held` is `true` when a person set or cleared the field in Canon, so a Salesforce or HubSpot import
+  or sync leaves it as it is until someone uses the CRM's value (absent when the field follows the newest value), and
+  `crm` lists, for a held field, what each CRM says instead where it differs: `[{ provider, value }]`, `provider`
+  being `salesforce` or `hubspot`. A field the caller's role hides has neither, as it has no field. `receipts`
   holds each field's facts, newest first: `{ id, value, status, source: { kind, actor }, evidence, confidence,
   observedAt, validFrom, lastConfirmedAt, validTo, decidedAt }`. `source.kind` is a label (`salesforce`,
   `enrichment`, `user`), not a closed list; `actor` is `user:<member id>`, `agent:<agent id>` or `integration:<id>`.
@@ -3743,7 +3747,8 @@ return { intents: [{ op: "propose", operation: "facts.propose", reason: "From th
 A read marked **preview** in `CANON_READS` (`stability: "preview"`, with the date it shipped in `since`) works and is
 supported, but its arguments and rows may still change before it is marked stable. A change to a preview read ships
 with a note here; a stable read changes only by adding. `facts.forRecords` is preview since 2026-11-09, and
-`companies.updatedSince` and `people.updatedSince` since 2026-11-10. A proposal
+`companies.updatedSince` and `people.updatedSince` since 2026-11-10. On 2026-11-10 `facts.forRecords` added each
+field's `held` and `crm` (see "Facts"); nothing it returned before changed. A proposal
 operation is marked the same way in `PROPOSAL_OPERATIONS`: `facts.propose` is preview since 2026-11-09.
 
 ## Writes to Canon records
