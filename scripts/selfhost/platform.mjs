@@ -1,4 +1,5 @@
 import { randomBytes, randomInt } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
 // Where the container finds its public address and setup code when the operator did not set them.
 
@@ -31,4 +32,20 @@ export function newSetupCode() {
  */
 export function newTokenEncryptionKey() {
   return randomBytes(32).toString("base64");
+}
+
+/**
+ * The environment the Convex backend runs with. It is told the browser's address (CONVEX_CLOUD_ORIGIN), which its
+ * storage URLs need, and its Node action runner calls the backend back there too. The runner loads
+ * nodeActionFetch.mjs, which sends those calls to the backend's in-container addresses instead, whatever the host port.
+ */
+export function backendEnv(env, { backend, backendSite }) {
+  // It imports src/lib/internalUrl.ts, which a Node 22 before 22.18 loads only with the flag.
+  const preload = `--experimental-strip-types --import=${fileURLToPath(new URL("./nodeActionFetch.mjs", import.meta.url))}`;
+  return {
+    ...env,
+    CANON_INTERNAL_CONVEX_URL: backend,
+    CANON_INTERNAL_CONVEX_SITE_URL: backendSite,
+    NODE_OPTIONS: env.NODE_OPTIONS ? `${env.NODE_OPTIONS} ${preload}` : preload,
+  };
 }

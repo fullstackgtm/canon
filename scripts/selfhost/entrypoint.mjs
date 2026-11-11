@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { INTEGRATIONS_AVAILABLE, integrationEnabled, integrationNeeds } from "../../convex/lib/integrationsAvailable.ts";
 import { functionsDigest, mustPush } from "./functions.mjs";
 import { advanceDataEpoch, checkDataEpoch, imageContract } from "./dataEpoch.mjs";
-import { newSetupCode, newTokenEncryptionKey, platformSiteUrl, SETUP_CODE_FILE } from "./platform.mjs";
+import { backendEnv, newSetupCode, newTokenEncryptionKey, platformSiteUrl, SETUP_CODE_FILE } from "./platform.mjs";
 import { keepAlive, runtimeAnswers, runtimeChoice } from "./recipeRuntime.mjs";
 
 // How the processes in this container reach each other. SITE_URL and its port are the browser's
@@ -192,7 +192,7 @@ async function main() {
   // The backend's scratch directory (run_backend.sh puts it in the volume) holds one unpacked
   // function runtime and socket per backend process, which it never removes. Nothing runs yet.
   await rm("/data/convex/tmp", { recursive: true, force: true });
-  daemon("Convex", "/convex/run_backend.sh", [], env, "/convex");
+  daemon("Convex", "/convex/run_backend.sh", [], backendEnv(env, { backend: BACKEND, backendSite: BACKEND_SITE }), "/convex");
   await waitFor(`${BACKEND}/version`);
   if (runtime.builtIn) await waitForRuntime(runtime.url);
   const changes = [];
