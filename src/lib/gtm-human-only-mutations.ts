@@ -34,6 +34,7 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.crmDisagreements.useCrmValues": "handing deal fields people set in Canon back to a CRM is an admin's call on the write gate, made in the app",
   "api.crmDisagreements.startUseAll": "handing every disagreement under a filter back to a CRM is an admin's call on the write gate, made in the app",
   "api.crmDisagreements.cancelJob": "stops the admin's own job that hands fields back to a CRM, in the app",
+  "api.crmDisagreements.setFollow": "which deal fields always follow a CRM over people's edits is an admin's write-gate setting, made in the app",
   "api.accountHierarchy.savePolicy": "the hierarchy policy holds the hard rules (owners never change, active contracts flagged); an agent never relaxes its own guardrails",
   // Admin settings that change what every record accepts or where data is sent.
   "api.dataModel.createField": "field definitions are admin settings: they change what every record, import and API write accepts",

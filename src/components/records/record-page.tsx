@@ -24,7 +24,8 @@ import { DealRelations } from "./related-lists";
 import { DealGaps } from "@/components/crm/deal-gaps";
 import { FieldGroups, Frame, History, SOURCE_LABEL, btn, type InDialog } from "./record-parts";
 import { RecordBoundary } from "./record-boundary";
-import { CrmFieldNote } from "./crm-note";
+import { CRM_NAME, CrmFieldNote } from "./crm-note";
+import { groupOf } from "../../../convex/lib/canon/personHold";
 import { RecordLink } from "./record-context";
 import { recordListOf } from "./record-target";
 import { RegisterRecordPage } from "./register-page";
@@ -113,6 +114,8 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const write = useAction(api.objects.writeScoped);
   // What a CRM says about the deal's fields where a person's value held (lib/canon/personHold.ts).
   const crmClaims = useQuery(api.fieldClaims.forDeal, object === "deal" ? { streamId } : "skip");
+  // Deal fields an admin set to always follow a CRM: a person's edit there lasts until the CRM's next write.
+  const follows = useQuery(api.crmDisagreements.follows, object === "deal" ? {} : "skip");
   const remove = useMutation(api.objects.remove);
   const restore = useMutation(api.objects.restore);
   const [busy, setBusy] = useState(false);
@@ -189,6 +192,10 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
         <dt className="text-xs font-medium text-muted-foreground">
           {f.label}
           {meta?.state === "contested" && <span className="ml-1 text-amber-600" title="Sources disagree on this value">· contested</span>}
+          {(() => {
+            const crms = follows?.filter((x) => x.field === groupOf("deal", f.apiName)).map((x) => CRM_NAME[x.provider]) ?? [];
+            return crms.length > 0 && <span className="mt-0.5 block normal-case tracking-normal text-[10px]" title="An admin set this field to always follow the CRM">Follows {crms.join(" and ")}: an edit here lasts until its next sync</span>;
+          })()}
           {meta?.sourceKind && meta.sourceKind !== "user" && (
             // The value shown is another source's: a person's edit wins only while it is the newest fact.
             <span className="mt-0.5 block normal-case tracking-normal text-[10px]" title="The value shown comes from this source">from {SOURCE_LABEL[meta.sourceKind] ?? meta.sourceKind}</span>

@@ -38,6 +38,8 @@ export function CrmDisagreementsTab() {
   const take = useMutation(api.crmDisagreements.useCrmValues);
   const startAll = useMutation(api.crmDisagreements.startUseAll);
   const cancel = useMutation(api.crmDisagreements.cancelJob);
+  const follows = useQuery(api.crmDisagreements.follows, {});
+  const setFollow = useMutation(api.crmDisagreements.setFollow);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -151,6 +153,31 @@ export function CrmDisagreementsTab() {
       )}
       {hiddenCount > 0 && visible.length > 0 && <p className="text-xs text-muted-foreground">{hiddenCount} more on deals you can&apos;t see.</p>}
       {rows.status === "CanLoadMore" && <Button size="sm" variant="outline" onClick={() => rows.loadMore(25)}>Show more</Button>}
+      <section className="space-y-2 pt-4">
+        <h3 className="font-medium">Fields that always follow a CRM</h3>
+        <p className="text-sm text-muted-foreground">
+          For a field set here, the CRM&apos;s next import or sync always replaces what a person set in Canon, and the deal page says their edit lasts until then.
+        </p>
+        <div className="overflow-x-auto border border-border">
+          <table className="text-sm">
+            <thead className="text-left text-xs font-medium text-muted-foreground"><tr><th className="p-2">Field</th><th className="p-2">Salesforce</th><th className="p-2">HubSpot</th></tr></thead>
+            <tbody>
+              {FIELDS.map((f) => (
+                <tr key={f} className="border-t border-border">
+                  <td className="p-2">{labelOf(f)}</td>
+                  {(["salesforce", "hubspot"] as const).map((p) => (
+                    <td key={p} className="p-2 text-center">
+                      <input type="checkbox" aria-label={`${labelOf(f)} always follows ${CRM_NAME[p]}`} disabled={follows === undefined}
+                        checked={Boolean(follows?.some((x) => x.field === f && x.provider === p))}
+                        onChange={(e) => void run(setFollow({ provider: p, field: f, follow: e.target.checked }))} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

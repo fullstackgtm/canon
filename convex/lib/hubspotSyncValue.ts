@@ -178,10 +178,14 @@ export function contactUnchanged(existing: Record<string, unknown> | null, value
   return !!existing && existing.lastSyncAt !== NOT_WRITTEN && !extra && unchangedRow(existing, value);
 }
 
-/** The fingerprint of what a sync sent for a deal, its values and owner included: the same as when they were all the row's patch. */
-export const dealSyncHash = (deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>) =>
-  syncFingerprint({ ...value, ...dealSyncValues(deal), primaryRepId: deal.primaryRepId });
+/**
+ * The fingerprint of what a sync sent for a deal, its values and owner included: the same as when they were all the
+ * row's patch. `follows` (canon.ts crmFollowsKey): the fields the workspace set to always follow this CRM, so changing
+ * them writes each deal once more; empty, the fingerprint is what it was before the setting existed.
+ */
+export const dealSyncHash = (deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>, follows = "") =>
+  syncFingerprint({ ...value, ...dealSyncValues(deal), primaryRepId: deal.primaryRepId, ...(follows ? { crmFollows: follows } : {}) });
 
-export function dealUnchanged(existing: Record<string, unknown> | null, deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>, extra?: unknown): boolean {
-  return !!existing && !extra && existing.syncHash === dealSyncHash(deal, value);
+export function dealUnchanged(existing: Record<string, unknown> | null, deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>, extra?: unknown, follows = ""): boolean {
+  return !!existing && !extra && existing.syncHash === dealSyncHash(deal, value, follows);
 }

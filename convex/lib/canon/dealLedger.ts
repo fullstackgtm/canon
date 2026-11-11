@@ -174,6 +174,8 @@ export type DealWrite = {
    * patched with the projection in one write. A `closedAt` follows the closed state: left out when a person holds it.
    */
   columns?: Record<string, unknown>;
+  /** For a CRM's write: the field groups it always wins, an admin's "always follow this CRM" (lib/canon/personHold.ts). */
+  crmFollows?: (group: string) => boolean;
 };
 
 export type DealWriteResult = {
@@ -262,7 +264,7 @@ export async function writeDeal(s: DealStores, w: DealWrite): Promise<DealWriteR
   const { result, resolved, rejected, incoming } = await appendWrite(s, {
     orgId: w.orgId, def: w.def, streamId: w.streamId, entityType: "opportunity", source, actor, values: w.values, now: w.now,
     ...(validFrom !== undefined ? { validFrom } : {}), ...(w.evidence !== undefined ? { evidence: w.evidence } : {}),
-    ...(w.deferMirror ? { deferMirror: true as const } : {}), ...(taken ? { reassert: true as const } : {}),
+    ...(w.deferMirror ? { deferMirror: true as const } : {}), ...(taken ? { reassert: true as const } : {}), ...(w.crmFollows ? { crmFollows: w.crmFollows } : {}),
   });
 
   const held = result.status === "applied" || result.status === "unchanged" ? result.held ?? [] : [];
@@ -319,6 +321,7 @@ async function writeDealFactsOnly(
     .map((o) => (w.evidence !== undefined ? { ...o, evidence: w.evidence } : o));
   const out = await ingestObservations(s.facts, {
     orgId: w.orgId, entityId: w.streamId, sourceKind: source.kind, sourceRefBase: source.ref, actor, observedAt: w.now, observations,
+    ...(w.crmFollows ? { crmFollows: w.crmFollows } : {}),
   });
   const diffs = divergences(observations, out.resolved);
   const patch = inColumns(dealPatch(attributes

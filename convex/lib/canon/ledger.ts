@@ -163,6 +163,8 @@ export async function ingestObservations(
     patchPlanId?: string;
     /** The person who ran an agent-class source and accepts its facts as they land. */
     acceptedBy?: Decider;
+    /** For a CRM's write: the field groups it always wins (lib/canon/personHold.ts personHeldFields). */
+    crmFollows?: (group: string) => boolean;
   },
 ): Promise<IngestResult> {
   const out: IngestResult = { resolved: {}, written: 0, confirmed: 0, factIds: {}, rejected: [], held: [] };
@@ -179,7 +181,7 @@ export async function ingestObservations(
     const covered = a.observations.map((o) => o.attribute).filter((f) => heldField(object, f));
     const winners = new Map<string, StoredFact | null>();
     for (const f of new Set(covered.flatMap((f) => groupFields(object, groupOf(object, f))))) winners.set(f, await winnerOf(f));
-    for (const f of personHeldFields(object, covered, (f) => winners.get(f) ?? null)) held.add(f);
+    for (const f of personHeldFields(object, covered, (f) => winners.get(f) ?? null, undefined, a.crmFollows)) held.add(f);
   }
   for (const o of a.observations) {
     if (!mayWrite(a.sourceKind, o.attribute, a.ownership, a.entityType)) {

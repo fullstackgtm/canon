@@ -2,7 +2,8 @@
  * The workspace's CRM disagreements (lib/canon/personHold.ts): what Salesforce and HubSpot say about deal fields a
  * person holds in Canon, by field and CRM, for an admin who changes the write gate. Using a CRM's values writes them
  * as that CRM record's, so each field follows the CRM again (fieldClaims.takeCrmValue), for a selection or a whole
- * filtered set; a whole set runs as a job, a page per transaction, and reports its progress.
+ * filtered set; a whole set runs as a job, a page per transaction, and reports its progress. An admin may also set a
+ * field to always follow a CRM (crmFieldFollows), so a person's value never holds against it.
  */
 import { ConvexError, v, type Infer } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
@@ -15,7 +16,7 @@ import { hiddenFields, type Access } from "./lib/access";
 import { accessFor, recordVisible } from "./permissions";
 import { asState, view } from "./objects";
 import { asFieldClaim } from "./lib/fieldClaimStore";
-import { claimValues, standing } from "./lib/canon/personHold";
+import { claimValues, groupOf, heldField, standing } from "./lib/canon/personHold";
 import { takeCrmValue } from "./fieldClaims";
 import * as objectValidators from "./lib/objects/validators";
 import { sameValue, type FactValue } from "./lib/canon/policy";
@@ -237,3 +238,36 @@ export const runJob = internalMutation({
   },
 });
 
+
+/**
+ * Deal fields that always follow a CRM (crmFieldFollows): for such a field a CRM's write always lands and a person's
+ * edit lasts until its next one. Every member reads them, so the deal page can say an edit is temporary.
+ */
+export const follows = query({
+  args: {},
+  returns: v.array(v.object({ field: v.string(), provider })),
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const rows = await ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", user.orgId)).take(200);
+    return rows.map((r) => ({ field: r.attribute, provider: r.provider }));
+  },
+});
+
+/** Make a deal field (a group by its lead field) always follow a CRM, or hold a person's value against it again. Admins, as the write gate. */
+export const setFollow = mutation({
+  args: { provider, field: v.string(), follow: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const user = await requireAdmin(ctx);
+    if (!heldField("deal", args.field) || groupOf("deal", args.field) !== args.field) throw new ConvexError("Canon holds no such deal field against a CRM");
+    const rows = await ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", user.orgId)).take(200);
+    const existing = rows.find((r) => r.provider === args.provider && r.attribute === args.field);
+    if (!args.follow) {
+      if (existing) await ctx.db.delete(existing._id);
+    } else if (!existing) {
+      await ctx.db.insert("crmFieldFollows", { orgId: user.orgId, provider: args.provider, attribute: args.field, updatedBy: user._id, updatedAt: Date.now() });
+    }
+    return null;
+  },
+});

@@ -266,6 +266,7 @@ export const ARCHIVE_TABLES = {
   // The proposals and decisions behind field values, and the only place `verification` lives.
   facts: data("by_orgId_status"),
   canonFieldOwnership: data("by_orgId"),
+  crmFieldFollows: data("by_orgId"),
   canonAutoAcceptRules: data("by_orgId"),
   canonEntities: ledger("by_orgId_projectionId"),
   canonExternalIds: ledger("by_orgId_provider_externalId"),

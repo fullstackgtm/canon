@@ -4694,6 +4694,20 @@ export default defineSchema({
   })
     .index("by_orgId", ["orgId"]),
 
+  /**
+   * Deal fields that always follow a CRM (lib/canon/personHold.ts): an admin's setting that a person's value never
+   * holds against `provider`'s writes of `attribute` (a group's lead field holds its group), so the CRM always wins and
+   * a person's edit lasts until its next write. None by default.
+   */
+  crmFieldFollows: defineTable({
+    orgId: v.id("organizations"),
+    provider: v.union(v.literal("salesforce"), v.literal("hubspot")),
+    attribute: v.string(),
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_orgId", ["orgId"]),
+
   // P1 write gate: per (sourceKind, attribute) auto-accept above a verified
   // confidence. None by default.
   canonAutoAcceptRules: defineTable({

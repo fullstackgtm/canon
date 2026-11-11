@@ -10,7 +10,7 @@ import {
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireCap, scopeUserToActiveOrg } from "./lib";
-import { crmAccountEntity, crmContactEntity, dealEntity, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDealValues } from "./canon";
+import { crmAccountEntity, crmContactEntity, crmFollowsKey, dealEntity, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDealValues } from "./canon";
 import { crmDealValues } from "./lib/canon/dealLedger";
 import { shardOf } from "./lib/objects/write";
 import { syncPartyBatch } from "./lib/canon/partyLedger";
@@ -569,7 +569,8 @@ function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"crmAccoun
 }
 
 /** The fingerprint of what a sync last sent for a deal, its values and owner included: the same as when they were all the row's patch. */
-const dealSyncHash = (deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>) => syncFingerprint({ ...value, ...dealSyncValues(deal), primaryRepId: deal.primaryRepId });
+const dealSyncHash = (deal: Infer<typeof syncDealRow>, value: ReturnType<typeof dealSyncValue>, follows = "") =>
+  syncFingerprint({ ...value, ...dealSyncValues(deal), primaryRepId: deal.primaryRepId, ...(follows ? { crmFollows: follows } : {}) });
 
 /** A sync's unchanged rows: their Salesforce ids, and the rows among them whose daily sync time is due. */
 type UnchangedRows<T extends "crmAccounts" | "crmContacts" | "deals"> = { unchanged: string[]; stamp: Array<Id<T>> };
@@ -628,6 +629,7 @@ export const unchangedDeals = internalQuery({
     const now = Date.now();
     const rows = unchangedRows<"deals">(args.stampAll);
     const accountOf = accountResolver(ctx, args.orgId);
+    const follows = crmFollowsKey(ctx, args.orgId, "salesforce");
     const repOrg = new Map<string, Promise<string | undefined>>();
     await Promise.all(args.deals.map(async (deal) => {
       // A rep from another org is the upsert's to skip and count.
@@ -640,7 +642,7 @@ export const unchangedDeals = internalQuery({
         ctx.db.query("deals").withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", deal.crmId)).first(),
         deal.accountId ? Promise.resolve(deal.accountId) : accountOf(deal.accountCrmId),
       ]);
-      if (existing && existing.syncHash === dealSyncHash(deal, dealSyncValue(deal, accountId, args.instanceUrl, now))) rows.add(deal.crmId, existing, now);
+      if (existing && existing.syncHash === dealSyncHash(deal, dealSyncValue(deal, accountId, args.instanceUrl, now), await follows)) rows.add(deal.crmId, existing, now);
     }));
     return rows.out;
   },
@@ -849,6 +851,8 @@ export const upsertDeals = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const results = { created: 0, updated: 0, skipped: 0 };
+    // The fields this workspace set to always follow Salesforce: part of each deal's fingerprint (lib/hubspotSyncValue.ts dealSyncHash).
+    const follows = await crmFollowsKey(ctx, args.orgId, "salesforce");
     const accountOf = accountResolver(ctx, args.orgId);
     const repOrg = new Map<string, string | undefined>();
 
@@ -871,7 +875,7 @@ export const upsertDeals = internalMutation({
 
       // A deal the sync wrote with these values before writes nothing to its ledger stream; its sync time is stamped
       // at most daily.
-      const syncHash = dealSyncHash(deal, value);
+      const syncHash = dealSyncHash(deal, value, follows);
       if (existing && existing.syncHash === syncHash) {
         if (args.stampAll || now - (existing.lastSyncAt ?? 0) > SYNC_STAMP_MS) await ctx.db.patch(existing._id, { lastSyncAt: now });
         results.updated++;

@@ -80,13 +80,17 @@ export function heldField(object: string, field: string, def?: Names): boolean {
  * The fields of a CRM's write a person holds: covered by the rule, with a field of their group resolved now to a
  * person's fact. `winner` is the fact a field resolves to.
  */
-export function personHeldFields(object: string, fields: readonly string[], winner: (field: string) => { sourceKind: string; sourceRef: string } | null, def?: Names): string[] {
+export function personHeldFields(
+  object: string, fields: readonly string[], winner: (field: string) => { sourceKind: string; sourceRef: string } | null, def?: Names,
+  /** Groups (by lead field) the writing CRM always wins: an admin's "always follow this CRM" (crmFieldFollows). */
+  follows?: (group: string) => boolean,
+): string[] {
   const groups = new Map<string, boolean>();
   const heldGroup = (group: string) => {
     if (!groups.has(group)) groups.set(group, groupFields(object, group).some((f) => { const w = winner(f); return w !== null && isPersonFact(w); }));
     return groups.get(group)!;
   };
-  return fields.filter((f) => heldField(object, f, def) && heldGroup(groupOf(object, f)));
+  return fields.filter((f) => heldField(object, f, def) && !follows?.(groupOf(object, f)) && heldGroup(groupOf(object, f)));
 }
 
 /** The fact a field resolves to from its candidates (fold.ts FieldFold), or null when it has none. */
