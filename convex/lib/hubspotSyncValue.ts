@@ -170,11 +170,12 @@ export function dealSyncValue(deal: Infer<typeof syncDealRow>, accountId: Id<"cr
   };
 }
 
-export function accountUnchanged(existing: Record<string, unknown> | null, value: ReturnType<typeof accountSyncValue>, extra?: unknown): boolean {
+/** `value` may carry the row's `followsKey` (canon.ts crmFollowsKey), compared as any other column. */
+export function accountUnchanged(existing: Record<string, unknown> | null, value: ReturnType<typeof accountSyncValue> & { followsKey?: string }, extra?: unknown): boolean {
   return !!existing && !extra && unchangedRow(existing, value);
 }
 
-export function contactUnchanged(existing: Record<string, unknown> | null, value: ReturnType<typeof contactSyncValue>, extra?: unknown): boolean {
+export function contactUnchanged(existing: Record<string, unknown> | null, value: ReturnType<typeof contactSyncValue> & { followsKey?: string }, extra?: unknown): boolean {
   return !!existing && existing.lastSyncAt !== NOT_WRITTEN && !extra && unchangedRow(existing, value);
 }
 

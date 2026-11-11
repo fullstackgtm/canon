@@ -37,7 +37,7 @@ import {
   type BackfillOutcome, type PartyLookup, type PartyMismatch, type PartyObject, type PartySeed, type PartySource, type PartyStores, type PartyValues, type PartyWriteResult, type RecordPatch,
 } from "./lib/canon/partyLedger";
 import { mirrorAppended, type MirrorJob } from "./lib/canon/streamLedger";
-import { groupOf } from "./lib/canon/personHold";
+import { groupOf, type HeldObject } from "./lib/canon/personHold";
 import { compareDeal, crmGroupValues, ensureDealStream, isHistoricalSource, mirrorDecisions, mirrorProposal, writeDeal, writeDealLifecycle, type DealMismatch, type DealSource, type DealStores, type DealValues, type DealWriteResult } from "./lib/canon/dealLedger";
 import type { OwnershipOverride } from "./lib/canon/gate";
 import { fieldClaimStore } from "./lib/fieldClaimStore";
@@ -317,6 +317,11 @@ export async function crmTakenValues(ctx: MutationCtx, deal: Doc<"deals">, provi
   return crmGroupValues(dealStores(ctx), entityId, `${provider}:${crmId}`, values);
 }
 
+/** crmTakenValues for a company or a person, by its stream. */
+export async function crmPartyTakenValues(ctx: MutationCtx, object: PartyObject, entityId: Id<"canonEntities">, provider: "salesforce" | "hubspot", crmId: string, values: PartyValues): Promise<PartyValues> {
+  return crmGroupValues(partyStores(ctx), entityId, `${provider}:${object}:${crmId}`, values, object);
+}
+
 /** Archive or restore a deal as `userId` (see lib/canon/dealLedger.ts writeDealLifecycle). */
 export async function saveDealLifecycle(ctx: MutationCtx, deal: Doc<"deals">, op: "delete" | "restore", userId: Id<"users">, expectedVersion?: number) {
   const streamId = await dealEntity(ctx, deal, { kind: "user", userId });
@@ -545,7 +550,7 @@ const isPartyEntity = (e: Doc<"canonEntities">): e is Doc<"canonEntities"> & { e
 const CRM_PROVIDERS = ["hubspot", "salesforce"] as const;
 const crmProvider = (provider: string) => (CRM_PROVIDERS as readonly string[]).includes(provider) ? provider as (typeof CRM_PROVIDERS)[number] : null;
 
-async function readPartyDef(ctx: QueryCtx, orgId: Id<"organizations">, object: PartyObject) {
+export async function readPartyDef(ctx: QueryCtx, orgId: Id<"organizations">, object: PartyObject) {
   const row = await ctx.db.query("objectDefs").withIndex("by_orgId_apiName", (q) => q.eq("orgId", orgId).eq("apiName", object)).unique();
   return { row, ext: row ? fromStored<OrgObjectExtension>(row) : undefined };
 }
@@ -623,6 +628,8 @@ export function partyStores(ctx: MutationCtx): PartyStores {
     },
     defWith: (orgId, object, values) => partyDef(ctx, orgId as Id<"organizations">, object, values),
     ownership: (orgId) => transactionOwnership(ctx, orgId as Id<"organizations">),
+    crmFollows: (orgId, provider, object) => transactionFollows(ctx, orgId as Id<"organizations">, provider, object),
+    fieldClaims: fieldClaimStore(ctx),
   };
 }
 
@@ -792,6 +799,7 @@ export async function saveParty(ctx: MutationCtx, p: {
     seed: async () => (p.seed === undefined ? identitySeed(ctx, entityId) : p.seed),
     ...(p.deferMirror ? { deferMirror: true as const } : {}),
   });
+  if (p.source.kind === "user" && out.result.status !== "invalid") await letGoFollowed(ctx, p.orgId, p.object, entityId, Object.keys(p.values));
   return { ...out, entityId };
 }
 
@@ -969,6 +977,7 @@ export const saveRecordEdit = internalMutation({
       now: Date.now(), ownership: await transactionOwnership(ctx, args.orgId), identitySeed: (entityId) => identitySeed(ctx, entityId as Id<"canonEntities">),
       ...(args.at !== undefined ? { at: args.at } : {}), ...(args.snapshot ? { snapshot: args.snapshot } : {}), ...(args.found ? { found: args.found } : {}),
     });
+    if (out.result.status !== "invalid") await letGoFollowed(ctx, args.orgId, args.object, out.entityId as Id<"canonEntities">, Object.keys(args.patch));
     const version = "version" in out.result ? out.result.version : undefined;
     return { entityId: out.entityId, status: out.result.status, rejected: out.rejected, ...(version !== undefined ? { version } : {}) };
   },
@@ -1051,24 +1060,47 @@ export const checkRecordEdit = internalQuery({
   },
 });
 
+/** A crmFieldFollows row's object: a deal's carries none, as every row before companies and people did. */
+export const followObject = (r: Pick<Doc<"crmFieldFollows">, "object">): HeldObject => r.object ?? "deal";
+
 /**
- * The deal fields the workspace set to always follow `provider`, as a key (sorted, comma-separated; "" for none) that a
- * sync folds into each deal's fingerprint, so a change to them writes each deal once more.
+ * The fields of `object` the workspace set to always follow `provider`, as a key (sorted, comma-separated; "" for none)
+ * that a sync folds into each record's fingerprint (a deal's syncHash, a company's or person's mirror row
+ * `followsKey`), so a change to them writes each record once more.
  */
-export async function crmFollowsKey(ctx: { db: QueryCtx["db"] }, orgId: Id<"organizations">, provider: "salesforce" | "hubspot"): Promise<string> {
+export async function crmFollowsKey(ctx: { db: QueryCtx["db"] }, orgId: Id<"organizations">, provider: "salesforce" | "hubspot", object: HeldObject = "deal"): Promise<string> {
   const rows = await ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(200);
-  return rows.filter((r) => r.provider === provider).map((r) => r.attribute).sort().join(",");
+  return rows.filter((r) => r.provider === provider && followObject(r) === object).map((r) => r.attribute).sort().join(",");
 }
 
 const followReads = new WeakMap<MutationCtx, Map<string, Promise<Doc<"crmFieldFollows">[]>>>();
 
-/** The deal fields (by group lead) that always follow `provider` in the workspace (crmFieldFollows), read once per transaction. */
-async function transactionFollows(ctx: MutationCtx, orgId: Id<"organizations">, provider: "salesforce" | "hubspot"): Promise<Set<string>> {
+/** The fields of `object` (by group lead) that always follow `provider` in the workspace (crmFieldFollows), read once per transaction. */
+async function transactionFollows(ctx: MutationCtx, orgId: Id<"organizations">, provider: "salesforce" | "hubspot", object: HeldObject = "deal"): Promise<Set<string>> {
   let reads = followReads.get(ctx);
   if (!reads) followReads.set(ctx, (reads = new Map()));
   let read = reads.get(orgId);
   if (!read) reads.set(orgId, (read = ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(200)));
-  return new Set((await read).filter((r) => r.provider === provider).map((r) => r.attribute));
+  return new Set((await read).filter((r) => r.provider === provider && followObject(r) === object).map((r) => r.attribute));
+}
+
+/**
+ * A person's edit of a company's or person's field that follows one of its CRMs lasts until that CRM's next sync: the
+ * record's mirror rows let go of their fingerprint (`followsKey`), so the next sync writes them even when the CRM
+ * changed nothing, as a deal's syncHash is let go (saveDealValues).
+ */
+async function letGoFollowed(ctx: MutationCtx, orgId: Id<"organizations">, object: PartyObject, entityId: Id<"canonEntities">, fields: readonly string[]) {
+  for (const provider of ["salesforce", "hubspot"] as const) {
+    const followed = await transactionFollows(ctx, orgId, provider, object);
+    if (!fields.some((f) => followed.has(groupOf(object, f)))) continue;
+    const ids = await ctx.db.query("canonExternalIds").withIndex("by_entityId", (q) => q.eq("entityId", entityId)).take(50);
+    for (const x of ids.filter((x) => x.provider === (object === "account" ? ID.crmAccount(provider) : ID.crmContact(provider)))) {
+      const row = object === "account"
+        ? await ctx.db.query("crmAccounts").withIndex("by_orgId_crmId", (q) => q.eq("orgId", orgId).eq("crmId", x.externalId)).first()
+        : await ctx.db.query("crmContacts").withIndex("by_orgId_crmId", (q) => q.eq("orgId", orgId).eq("crmId", x.externalId)).first();
+      if (row?.followsKey && row.provider === provider) await ctx.db.patch(row._id, { followsKey: undefined });
+    }
+  }
 }
 
 const ownershipReads = new WeakMap<MutationCtx, Map<string, Promise<OwnershipOverride[]>>>();

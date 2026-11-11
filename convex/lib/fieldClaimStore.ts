@@ -14,6 +14,7 @@ export const asFieldClaim = (d: Doc<"parentDisagreements">): FieldClaim | null =
   d.association === "field" && d.attribute
     ? {
       id: d._id, recordId: d.accountId, field: d.attribute, provider: d.provider, ref: d.crmRef, value: (d.crmValue ?? null) as FactValue, seenAt: d.seenAt,
+      ...(d.object ? { object: d.object } : {}),
       ...(d.crmValues ? { values: Object.fromEntries(d.crmValues.map((x) => [x.attribute, x.value as FactValue])) } : {}),
     }
     : null;
@@ -26,7 +27,7 @@ export async function fieldClaimsOf(ctx: QueryCtx, orgId: Id<"organizations">, r
   return rows.flatMap((d) => asFieldClaim(d) ?? []);
 }
 
-/** The store the deal writer settles claims through, each record's read once per transaction. */
+/** The store the deal and party writers settle claims through, each record's read once per transaction. */
 export function fieldClaimStore(ctx: MutationCtx): FieldClaimStore {
   const read = new Map<string, FieldClaim[]>();
   const org = (id: string) => id as Id<"organizations">;
@@ -40,7 +41,7 @@ export function fieldClaimStore(ctx: MutationCtx): FieldClaimStore {
     async put(orgId, c, replaces) {
       const row = {
         orgId: org(orgId), accountId: c.recordId, provider: c.provider, crmRef: c.ref, crmParentId: null, seenAt: c.seenAt,
-        association: "field" as const, attribute: c.field, crmValue: c.value as Doc<"parentDisagreements">["crmValue"],
+        association: "field" as const, attribute: c.field, crmValue: c.value as Doc<"parentDisagreements">["crmValue"], ...(c.object ? { object: c.object } : {}),
         ...(c.values ? { crmValues: Object.entries(c.values).map(([attribute, value]) => ({ attribute, value: value as NonNullable<Doc<"parentDisagreements">["crmValue"]> | null })) } : {}),
       };
       const kept = await of(orgId, c.recordId);

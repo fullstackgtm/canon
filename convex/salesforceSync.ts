@@ -437,7 +437,9 @@ function registerRecordPort(
       if (!local?.fields.stream || !local.sfId) return port.edit(object, id, fields, opts);
       const split = splitRecordPatch(object, fields as Record<string, string | number | null>);
       if (Object.keys(split.ledger).length) {
-        // A newer Salesforce value is dated by its commit; one Salesforce is the authority for is dated now, so it wins whatever is newer.
+        // A newer Salesforce value is dated by its commit; one Salesforce is the authority for is dated now, so it wins whatever is
+        // newer, except a value a person set in Canon, which holds (lib/canon/personHold.ts). The ledger leaves that field out
+        // and records what Salesforce says; it is not refused, so the write still succeeds.
         const now = Date.now();
         const sfId = local.sfId;
         const won: Record<string, string | number | null> = {};

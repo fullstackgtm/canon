@@ -25,7 +25,7 @@ import { action, internalAction, internalMutation, internalQuery, mutation, quer
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
-import { convexLedgerStore, crmTakenValues, customAttributesOf, factResolution, flushPartyMirror, mirrorDecidedFacts, mirrorGateProposal, normalizeProposal, orgOwnership, saveDealValues, saveParty } from "./canon";
+import { convexLedgerStore, crmPartyTakenValues, crmTakenValues, customAttributesOf, factResolution, flushPartyMirror, mirrorDecidedFacts, mirrorGateProposal, normalizeProposal, orgOwnership, saveDealValues, saveParty } from "./canon";
 import { decideFacts, ensureEntity, ingestObservations, type LedgerStore } from "./lib/canon/ledger";
 import { deciderOf } from "./lib/canon/decider";
 import { claimValues, crmRecordOf, groupFields, groupOf, heldField, isPersonFact, standing, winningFact } from "./lib/canon/personHold";
@@ -690,10 +690,16 @@ async function resolveAs(ctx: MutationCtx, factId: Id<"facts">, admitted: Readon
       return out.resolved[fact.attribute] ?? (await factResolution(ctx, entity._id, fact.attribute));
     }
     if (entity.entityType === "opportunity") throw new ConvexError("Fact not found");
+    // As for a deal: a CRM's value is taken as that CRM record's, with its group, so the field follows the CRM again.
+    const crm = crmRecordOf(fact, entity.entityType);
+    const values = crm ? await crmPartyTakenValues(ctx, entity.entityType, entity._id, crm.provider, crm.crmId, { [fact.attribute]: fact.value }) : { [fact.attribute]: fact.value };
+    if (crm) refuseLockedWrite(await accessFor(ctx, user), entity.entityType, Object.keys(values));
     const out = await saveParty(ctx, {
-      orgId: user.orgId, object: entity.entityType, identity: { entityId: entity._id }, source: { kind: "user", userId: user._id },
-      values: { [fact.attribute]: fact.value }, evidence,
+      orgId: user.orgId, object: entity.entityType, identity: { entityId: entity._id },
+      source: crm ? { kind: crm.provider, crmId: crm.crmId, takenBy: user._id } : { kind: "user", userId: user._id },
+      values, evidence,
     });
+    if (crm && out.result.status === "deferred") throw new ConvexError("This record's history is still being moved onto the ledger. Try again in a minute.");
     const refused = out.rejected.find((e) => e.field === fact.attribute);
     if (refused) throw new ConvexError(`Could not use this value: ${refused.message}`);
     return out.resolved[fact.attribute] ?? (await factResolution(ctx, entity._id, fact.attribute));

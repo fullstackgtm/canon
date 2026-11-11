@@ -1,6 +1,6 @@
 /**
- * The workspace's CRM disagreements (lib/canon/personHold.ts): what Salesforce and HubSpot say about deal fields a
- * person holds in Canon, by field and CRM, for an admin who changes the write gate. Using a CRM's values writes them
+ * The workspace's CRM disagreements (lib/canon/personHold.ts): what Salesforce and HubSpot say about deal, company and
+ * person fields a person holds in Canon, by record type, field and CRM, for an admin who changes the write gate. Using a CRM's values writes them
  * as that CRM record's, so each field follows the CRM again (fieldClaims.takeCrmValue), for a selection or a whole
  * filtered set; a whole set runs as a job, a page per transaction, and reports its progress. An admin may also set a
  * field to always follow a CRM (crmFieldFollows), so a person's value never holds against it.
@@ -13,16 +13,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { can, refusal } from "./lib/capabilities";
 import { hiddenFields, type Access } from "./lib/access";
-import { accessFor, recordVisible } from "./permissions";
-import { asState, view } from "./objects";
+import { accessFor } from "./permissions";
 import { asFieldClaim } from "./lib/fieldClaimStore";
-import { claimValues, groupOf, heldField, standing } from "./lib/canon/personHold";
-import { takeCrmValue } from "./fieldClaims";
+import { claimObject, claimValues, groupFields, groupOf, heldField, standing, type HeldObject } from "./lib/canon/personHold";
+import { claimRecord, shownValues, takeCrmValue } from "./fieldClaims";
+import { followObject } from "./canon";
 import * as objectValidators from "./lib/objects/validators";
-import { sameValue, type FactValue } from "./lib/canon/policy";
 
 const CAP = "writeGate.edit" as const;
-/** Rows a page shows: each reads its deal's record. */
+/** Rows a page shows: each reads its record. */
 const PAGE_MAX = 50;
 /** Disagreements one job step takes, each a deal write. */
 const JOB_STEP = 20;
@@ -30,12 +29,28 @@ const JOB_STEP = 20;
 export const SELECTION_MAX = 50;
 
 const provider = v.union(v.literal("salesforce"), v.literal("hubspot"));
-const filter = { provider: v.optional(provider), field: v.optional(v.string()) };
-type Filter = { provider?: "salesforce" | "hubspot"; field?: string };
+const heldObject = v.union(v.literal("deal"), v.literal("account"), v.literal("contact"));
+/** `field` names a field of `object`; without an object it matches that field on every object. */
+const filter = { provider: v.optional(provider), object: v.optional(heldObject), field: v.optional(v.string()) };
+type Filter = { provider?: "salesforce" | "hubspot"; object?: HeldObject; field?: string };
 
-/** The workspace's field disagreements under a filter, by CRM and field when named. */
+/** The workspace's field disagreements under a filter, by CRM, object and field when named. A deal's row carries no object. */
 function disagreements(ctx: QueryCtx, orgId: Id<"organizations">, f: Filter) {
   const all = ctx.db.query("parentDisagreements");
+  if (f.object) {
+    const object = f.object === "deal" ? undefined : f.object;
+    if (f.provider) {
+      const crm = f.provider;
+      return all.withIndex("by_orgId_and_association_and_object_and_provider_and_attribute", (i) => {
+        const byCrm = i.eq("orgId", orgId).eq("association", "field").eq("object", object).eq("provider", crm);
+        return f.field ? byCrm.eq("attribute", f.field) : byCrm;
+      });
+    }
+    return all.withIndex("by_orgId_and_association_and_object_and_attribute", (i) => {
+      const byObject = i.eq("orgId", orgId).eq("association", "field").eq("object", object);
+      return f.field ? byObject.eq("attribute", f.field) : byObject;
+    });
+  }
   if (f.provider) {
     const crm = f.provider;
     return all.withIndex("by_orgId_and_association_and_provider_and_attribute", (i) => {
@@ -53,15 +68,20 @@ const rowView = v.union(
   v.object({
     id: v.string(),
     provider,
+    object: heldObject,
     field: v.string(),
     streamId: v.string(),
-    deal: v.string(),
+    /** The id the record's page goes by: a deal's stream, a company's or person's register id; null when Canon does not know it. */
+    pageId: v.union(v.string(), v.null()),
+    title: v.string(),
     /** What the CRM says and what Canon holds, for each field of the claim the caller may read. */
     values: v.array(v.object({ field: v.string(), crm: objectValidators.factValue, canon: objectValidators.factValue })),
+    /** An amount's currency on each side, to format it: kept when the two agree on it, so `values` leaves it out. */
+    currency: v.optional(v.object({ crm: objectValidators.factValue, canon: objectValidators.factValue })),
     seenAt: v.number(),
   }),
-  /** A deal the caller may not see: counted, never named. */
-  v.object({ id: v.string(), provider, field: v.string(), hidden: v.literal(true) }),
+  /** A record the caller may not see: counted, never named. */
+  v.object({ id: v.string(), provider, object: heldObject, field: v.string(), hidden: v.literal(true) }),
 );
 
 /** One page of the workspace's standing disagreements: those a person still holds and the CRM still differs from. */
@@ -71,26 +91,27 @@ export const list = query({
     const user = await getCurrentUser(ctx);
     if (!user || !can(user, CAP)) return { page: [], isDone: true, continueCursor: "" };
     const access = await accessFor(ctx, user);
-    const hidden = hiddenFields(access, "deal");
     const result = await disagreements(ctx, user.orgId, args).paginate({ ...args.paginationOpts, numItems: Math.min(args.paginationOpts.numItems, PAGE_MAX) });
     const page: Array<Infer<typeof rowView>> = [];
     for (const d of result.page) {
       const claim = asFieldClaim(d);
-      if (!claim || hidden.includes(claim.field)) continue;
+      const object = claim && claimObject(claim);
+      if (!claim || !object || hiddenFields(access, object).includes(claim.field)) continue;
+      const hidden = hiddenFields(access, object);
       const streamId = ctx.db.normalizeId("canonEntities", claim.recordId);
-      const hot = streamId ? await ctx.db.query("recordRows").withIndex("by_orgId_streamId", (q) => q.eq("orgId", user.orgId).eq("streamId", streamId)).unique() : null;
-      if (!streamId || !hot) continue;
-      const state = asState(hot);
-      if (!standing(state, claim)) continue;
-      const record = await view(ctx, user.orgId, streamId, 1000, new Map());
-      if (!record || !(await recordVisible(ctx, access, record))) {
-        page.push({ id: claim.id, provider: claim.provider, field: claim.field, hidden: true });
+      const record = streamId ? await claimRecord(ctx, user.orgId, access, streamId) : null;
+      if (!streamId || !record || record.object !== object || !standing(record.state, claim, object)) continue;
+      if (!record.visible) {
+        page.push({ id: claim.id, provider: claim.provider, object, field: claim.field, hidden: true });
         continue;
       }
-      // A group reads as its lead field and the fields that differ, as the deal page's note does.
-      const values = Object.entries(claimValues(claim)).filter(([f, crm]) => !hidden.includes(f) && (f === claim.field || !sameValue((record.values[f] ?? null) as FactValue, crm)))
-        .map(([field, crm]) => ({ field, crm: crm as Infer<typeof objectValidators.factValue>, canon: (record.values[field] ?? null) as Infer<typeof objectValidators.factValue> }));
-      page.push({ id: claim.id, provider: claim.provider, field: claim.field, streamId, deal: record.title || "Untitled deal", values, seenAt: claim.seenAt });
+      // A group reads as its lead field and the fields that differ, as the record page's note does.
+      const values = shownValues(record.state, claim, hidden).map(({ field, value }) => ({ field, crm: value, canon: (record.values[field] ?? null) as Infer<typeof objectValidators.factValue> }));
+      const canonCurrency = (record.values.currency ?? null) as Infer<typeof objectValidators.factValue>;
+      const currency = groupFields(object, claim.field).includes("currency") && !hidden.includes("currency")
+        ? { crm: (claimValues(claim).currency ?? canonCurrency) as Infer<typeof objectValidators.factValue>, canon: canonCurrency }
+        : null;
+      page.push({ id: claim.id, provider: claim.provider, object, field: claim.field, streamId, pageId: record.pageId, title: record.title, values, ...(currency ? { currency } : {}), seenAt: claim.seenAt });
     }
     return { ...result, page };
   },
@@ -109,13 +130,12 @@ async function requireAdmin(ctx: MutationCtx) {
 async function takeIfStanding(ctx: MutationCtx, user: Doc<"users">, access: Access, d: Doc<"parentDisagreements">): Promise<boolean> {
   const claim = asFieldClaim(d);
   const streamId = claim ? ctx.db.normalizeId("canonEntities", claim.recordId) : null;
-  const hot = streamId ? await ctx.db.query("recordRows").withIndex("by_orgId_streamId", (q) => q.eq("orgId", user.orgId).eq("streamId", streamId)).unique() : null;
-  if (!claim || !streamId || !hot || !standing(asState(hot), claim)) {
+  const record = claim && streamId ? await claimRecord(ctx, user.orgId, access, streamId) : null;
+  if (!claim || !record || record.object !== claimObject(claim) || !standing(record.state, claim, record.object)) {
     await ctx.db.delete(d._id);
     return false;
   }
-  const record = await view(ctx, user.orgId, streamId, 1000, new Map());
-  if (!record || !(await recordVisible(ctx, access, record))) throw new ConvexError("Deal not found");
+  if (!record.visible) throw new ConvexError("Record not found");
   await takeCrmValue(ctx, user, d._id);
   return true;
 }
@@ -148,6 +168,7 @@ const jobView = v.union(v.null(), v.object({
   id: v.id("crmDisagreementJobs"),
   status: v.union(v.literal("running"), v.literal("done"), v.literal("cancelled"), v.literal("failed")),
   provider: v.optional(provider),
+  object: v.optional(heldObject),
   field: v.optional(v.string()),
   taken: v.number(),
   failed: v.number(),
@@ -168,7 +189,7 @@ export const status = query({
     return {
       canManage: true,
       job: {
-        id: j._id, status: j.status, ...(j.provider ? { provider: j.provider } : {}), ...(j.field ? { field: j.field } : {}), taken: j.taken, failed: j.failed,
+        id: j._id, status: j.status, ...(j.provider ? { provider: j.provider } : {}), ...(j.object ? { object: j.object } : {}), ...(j.field ? { field: j.field } : {}), taken: j.taken, failed: j.failed,
         ...(j.lastError ? { lastError: j.lastError } : {}), startedAt: j.startedAt, ...(j.finishedAt ? { finishedAt: j.finishedAt } : {}),
       },
     };
@@ -184,7 +205,7 @@ export const startUseAll = mutation({
     const last = await ctx.db.query("crmDisagreementJobs").withIndex("by_orgId", (q) => q.eq("orgId", user.orgId)).order("desc").first();
     if (last?.status === "running") throw new ConvexError("Canon is already using a CRM's values here. Wait for it, or stop it.");
     const id = await ctx.db.insert("crmDisagreementJobs", {
-      orgId: user.orgId, createdBy: user._id, ...(args.provider ? { provider: args.provider } : {}), ...(args.field ? { field: args.field } : {}),
+      orgId: user.orgId, createdBy: user._id, ...(args.provider ? { provider: args.provider } : {}), ...(args.object ? { object: args.object } : {}), ...(args.field ? { field: args.field } : {}),
       status: "running", cursor: null, taken: 0, failed: 0, startedAt: Date.now(),
     });
     await ctx.scheduler.runAfter(0, internal.crmDisagreements.runJob, { jobId: id });
@@ -205,7 +226,7 @@ export const cancelJob = mutation({
 
 /**
  * One step of a job: the next disagreements under its filter, each taken as the admin who started it (who must still
- * be able to), then the next step. A disagreement refused (a deal they may not edit) is counted and left.
+ * be able to), then the next step. A disagreement refused (a record they may not edit) is counted and left.
  */
 export const runJob = internalMutation({
   args: { jobId: v.id("crmDisagreementJobs") },
@@ -218,7 +239,7 @@ export const runJob = internalMutation({
       await ctx.db.patch(j._id, { status: "failed", lastError: "The admin who started this can no longer change the write gate", finishedAt: Date.now() });
       return null;
     }
-    const filterOf: Filter = { ...(j.provider ? { provider: j.provider } : {}), ...(j.field ? { field: j.field } : {}) };
+    const filterOf: Filter = { ...(j.provider ? { provider: j.provider } : {}), ...(j.object ? { object: j.object } : {}), ...(j.field ? { field: j.field } : {}) };
     const access = await accessFor(ctx, user);
     const page = await disagreements(ctx, j.orgId, filterOf).paginate({ cursor: j.cursor, numItems: JOB_STEP });
     let { taken, failed } = j;
@@ -240,33 +261,36 @@ export const runJob = internalMutation({
 
 
 /**
- * Deal fields that always follow a CRM (crmFieldFollows): for such a field a CRM's write always lands and a person's
- * edit lasts until its next one. Every member reads them, so the deal page can say an edit is temporary.
+ * Deal, company and person fields that always follow a CRM (crmFieldFollows): for such a field a CRM's write always
+ * lands and a person's edit lasts until its next one. Every member reads them, so a record page can say an edit is temporary.
  */
 export const follows = query({
   args: {},
-  returns: v.array(v.object({ field: v.string(), provider })),
+  returns: v.array(v.object({ object: heldObject, field: v.string(), provider })),
   handler: async (ctx) => {
     const user = await getCurrentUser(ctx);
     if (!user) return [];
     const rows = await ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", user.orgId)).take(200);
-    return rows.map((r) => ({ field: r.attribute, provider: r.provider }));
+    return rows.map((r) => ({ object: followObject(r), field: r.attribute, provider: r.provider }));
   },
 });
 
-/** Make a deal field (a group by its lead field) always follow a CRM, or hold a person's value against it again. Admins, as the write gate. */
+/** Make a field (a group by its lead field) of a deal, company or person always follow a CRM, or hold a person's value against it again. Admins, as the write gate. */
 export const setFollow = mutation({
-  args: { provider, field: v.string(), follow: v.boolean() },
+  args: { provider, object: v.optional(heldObject), field: v.string(), follow: v.boolean() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const user = await requireAdmin(ctx);
-    if (!heldField("deal", args.field) || groupOf("deal", args.field) !== args.field) throw new ConvexError("Canon holds no such deal field against a CRM");
+    const object: HeldObject = args.object ?? "deal";
+    if (!heldField(object, args.field) || groupOf(object, args.field) !== args.field) throw new ConvexError("Canon holds no such field against a CRM");
     const rows = await ctx.db.query("crmFieldFollows").withIndex("by_orgId", (q) => q.eq("orgId", user.orgId)).take(200);
-    const existing = rows.find((r) => r.provider === args.provider && r.attribute === args.field);
+    const existing = rows.find((r) => r.provider === args.provider && followObject(r) === object && r.attribute === args.field);
     if (!args.follow) {
       if (existing) await ctx.db.delete(existing._id);
     } else if (!existing) {
-      await ctx.db.insert("crmFieldFollows", { orgId: user.orgId, provider: args.provider, attribute: args.field, updatedBy: user._id, updatedAt: Date.now() });
+      await ctx.db.insert("crmFieldFollows", {
+        orgId: user.orgId, provider: args.provider, attribute: args.field, ...(object !== "deal" ? { object } : {}), updatedBy: user._id, updatedAt: Date.now(),
+      });
     }
     return null;
   },

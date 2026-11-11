@@ -88,24 +88,29 @@ export function CrmRoleNotes({ roles, roleLabel, personLink, onUsed }: {
   });
 }
 
-const FIELD_NOUN: Record<string, string> = { ownerId: "owner", companyId: "company" };
+const FIELD_NOUN: Record<string, string> = { ownerId: "owner", companyId: "company", employees: "employee count" };
 
-type ClaimView = FunctionReturnType<typeof api.fieldClaims.forDeal>[number];
+type ClaimView = FunctionReturnType<typeof api.fieldClaims.forRecord>[number];
 
 /**
- * What a CRM says a deal field is, where the value a person chose in Canon held (fieldClaims.forDeal). Fields that move
- * together read as one note under the group's lead field: "Salesforce says the stage is Negotiation (forecast category
- * Commit, open)."
+ * What a CRM says a deal's, company's or person's field is, where the value a person chose in Canon held
+ * (fieldClaims.forRecord). Fields that move together read as one note under the group's lead field: "Salesforce says
+ * the stage is Negotiation (forecast category Commit, open)."
  */
-export function CrmFieldNote({ claim, canTake, fields, team, money }: {
+export function CrmFieldNote({ claim, canTake, fields, team, money, noun: recordNoun = "deal", onUsed }: {
   claim: ClaimView;
   canTake: boolean;
-  /** The deal's fields, to name and format the CRM's values as the page shows them. */
+  /** The record's fields, to name and format the CRM's values as the page shows them. */
   fields: readonly FieldDescription[];
   team?: readonly TeamMember[];
   money?: Money;
+  /** What the record is called: "deal", "company", "person". A company's or person's note waits for their row to show the CRM's value. */
+  noun?: string;
+  onUsed?: () => void;
 }) {
-  const take = useMutation(api.fieldClaims.useCrmValue);
+  const takeDeal = useMutation(api.fieldClaims.useCrmValue);
+  const takeRecord = useAction(api.fieldClaims.useCrmRecordValue);
+  const take = recordNoun === "deal" ? takeDeal : takeRecord;
   const crm = CRM_NAME[claim.provider];
   const fieldOf = (id: string) => fields.find((f) => f.fieldId === id);
   const noun = FIELD_NOUN[claim.field] ?? fieldOf(claim.field)?.label.toLowerCase() ?? claim.field;
@@ -129,10 +134,10 @@ export function CrmFieldNote({ claim, canTake, fields, team, money }: {
   });
   const value = shown(claim.field, claim.value);
   const also = rest.length ? <> ({rest.map((r, i) => <span key={i}>{i ? ", " : ""}{r}</span>)})</> : null;
-  const says = value !== null ? <>{crm} says the {noun} is {value}{also}.</> : <>{crm} has no {noun} for this deal{also}.</>;
+  const says = value !== null ? <>{crm} says the {noun} is {value}{also}.</> : <>{crm} has no {noun} for this {recordNoun}{also}.</>;
   if (!canTake) return <p className="mt-1 whitespace-normal text-xs text-muted-foreground">{says}</p>;
   return (
-    <CrmNote action={`Use ${crm}'s ${noun}`} take={() => take({ id: claim.id })} done={`The ${noun} now follows ${crm}`}>
+    <CrmNote action={`Use ${crm}'s ${noun}`} take={() => take({ id: claim.id })} done={`The ${noun} now follows ${crm}`} {...(onUsed ? { onUsed } : {})}>
       {says}
     </CrmNote>
   );

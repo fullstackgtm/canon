@@ -1284,8 +1284,9 @@ test("an org that denies HubSpot the industry field: a HubSpot sync appends ever
 test("a CRM seed that leaves out a field the history already accepted does not mark its snapshot seen: the full sync at the same stamp lands that field", async () => {
   const m = memory();
   const streamId = await entityFor(m, { domain: HUBSPOT_ROW.domain, crm: { provider: "hubspot", crmId: "9001" } }, "crm1");
+  // An older value from an import, not a person's: a person's would hold against HubSpot (lib/canon/personHold.ts).
   await ingestObservations(m.factStore, {
-    orgId: ORG, entityId: streamId, entityType: "account", sourceKind: "user", sourceRefBase: "user:u1", actor: { kind: "user", id: "u1" },
+    orgId: ORG, entityId: streamId, entityType: "account", sourceKind: "import", sourceRefBase: "import:old", actor: { kind: "integration", id: "backfill" },
     observedAt: 1000, observations: [{ attribute: "industry", value: "Old industry" }],
   });
   const crmSeed: PartySeed = { source: hubspot("2026-09-01T00:00:00Z"), values: crmAccountValues(HUBSPOT_ROW) };
@@ -1294,7 +1295,7 @@ test("a CRM seed that leaves out a field the history already accepted does not m
 
   const sync = await write(m, streamId, hubspot("2026-09-01T00:00:00Z"), crmAccountValues(HUBSPOT_ROW), 3000);
   assert.equal(sync.result.status, "applied");
-  assert.equal(m.hotRows.get(streamId)!.row.values.industry, "Software", "HubSpot's newer snapshot outranks the older user fact");
+  assert.equal(m.hotRows.get(streamId)!.row.values.industry, "Software", "HubSpot's newer snapshot outranks the older imported fact");
   assert.equal(m.hotRows.get(streamId)!.state.watermarks.find((w) => w.sourceKind === "hubspot")?.validFrom, Date.parse("2026-09-01T00:00:00Z"));
 });
 
@@ -1451,7 +1452,9 @@ test("an edit of a record the service does not have fails before the ledger is w
   assert.equal(m.entries.length, 0);
 });
 
-test("a Salesforce value the sync decided wins (its authority, or a person's resolution) is re-asserted, so it beats a newer edit; a plain repeat does not", async () => {
+// Before 2026-11-10 the register sync's re-assert beat a person's newer edit. A person's value now holds against it, as
+// against any CRM write (lib/canon/personHold.ts); "always follow" (crmFieldFollows) is how an admin makes Salesforce win.
+test("a Salesforce value the sync re-asserts leaves a person's newer edit as it is, as a plain repeat does", async () => {
   const m = memory();
   const acc = await ensureEntity(m.factStore, { orgId: ORG, entityType: "account", projectionTable: "recordAccounts", projectionId: "acc_r", externalIds: accountExternalIds({ recordId: "acc_r", crm: { provider: "salesforce", crmId: "001R" } }) });
   const sf = (at: number) => ({ kind: "salesforce" as const, crmId: "001R", rawData: { SystemModstamp: at } });
@@ -1462,8 +1465,8 @@ test("a Salesforce value the sync decided wins (its authority, or a person's res
   });
   await again(3000, false);
   assert.equal(m.hotRows.get(acc)!.row.values.industry, "Software", "Salesforce repeating itself is not news");
-  await again(3000, true);
-  assert.equal(m.hotRows.get(acc)!.row.values.industry, "Retail");
+  const out = await again(4000, true);
+  assert.deepEqual([m.hotRows.get(acc)!.row.values.industry, out.rejected], ["Software", []]);
 });
 
 test("importing the same CSV twice changes nothing the second time, matched and new rows alike", async () => {
