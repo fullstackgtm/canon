@@ -4309,6 +4309,19 @@ export default defineSchema({
     cursors: v.record(v.string(), v.number()),
   }).index("by_orgId", ["orgId"]),
 
+  // A webhook-triggered rule's signing secret (convex/automations.ts, "On demand"), encrypted with this deployment's
+  // key. A person makes it and sees it once; it never moves with an imported workspace, so an imported rule takes no
+  // request until someone here makes a new one.
+  automationWebhookSecrets: defineTable({
+    orgId: v.id("organizations"),
+    ruleId: v.id("automationRules"),
+    secret: sealedV,
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_ruleId", ["ruleId"])
+    .index("by_orgId", ["orgId"]),
+
   // One trigger of one rule (its ledger entry is `shard`.`seq`): whether the record met the
   // conditions, and each action's outcome. `status` pending or running means steps remain;
   // `leaseUntil` is when a running executor is presumed dead and the sweep sends it again.
@@ -4340,12 +4353,17 @@ export default defineSchema({
     version: v.optional(v.number()),
     /** Who the run acts as: the admin who approved that version (its actions are theirs). Absent: the rule's member now, as before versions. */
     actsAs: v.optional(v.id("users")),
+    /** A run someone started on its record (trigger "manual"): who. */
+    startedBy: v.optional(v.id("users")),
+    /** A webhook's run: the request's event key (its id, else its body's hash), so a redelivery starts nothing new. */
+    eventKey: v.optional(v.string()),
     leaseUntil: v.number(),
     createdAt: v.number(),
     finishedAt: v.optional(v.number()),
   })
     .index("by_ruleId_and_createdAt", ["ruleId", "createdAt"])
     .index("by_ruleId_and_slot_and_streamId", ["ruleId", "slot", "streamId"])
+    .index("by_ruleId_and_eventKey", ["ruleId", "eventKey"])
     .index("by_status_and_leaseUntil", ["status", "leaseUntil"])
     .index("by_status_and_resumeAt", ["status", "resumeAt"]),
 

@@ -45,6 +45,7 @@ import { CompanyRelations, ContactRelations } from "./related-lists";
 import { FieldGroups, Frame, History, btn, type InDialog } from "./record-parts";
 import { useRecordInspection } from "./record-context";
 import { recordHref, recordListOf } from "./record-target";
+import { RunRule } from "./run-rule";
 
 type Party = "account" | "contact";
 
@@ -246,7 +247,7 @@ function partyRenderers(p: Page, title: { aside?: ReactNode; extra?: ReactNode }
             {title.aside}
             {deleted && <p className="mt-1 text-sm text-destructive">Archived. Restore it to edit.</p>}
           </div>
-          <div className="record-header-actions">{held}{controls}</div>
+          <div className="record-header-actions">{held}{controls}<RunRule object={object} id={id} /></div>
         </div>
       );
     },

@@ -42,9 +42,9 @@ import { refuseNarrowed, type Access } from "./lib/access";
 import { callerClient, principalClient, requireCaller } from "./records";
 import { localTime, validTimezone } from "./lib/linkedin/limits";
 import { isRegisterObject, listViewDef, type ListFilter, type ListRow } from "./lib/objects/listSpec";
-import { withoutHidden } from "./lib/access";
+import { may, withoutHidden } from "./lib/access";
 import { shardHeads } from "./ledgerFeed";
-import { asEntry, loadDef, recordVisibleTo, requireWritable, saveAsCaller, saveDealAsCaller } from "./objects";
+import { asEntry, convexObjectStore, loadDef, recordVisibleTo, requireWritable, saveAsCaller, saveDealAsCaller } from "./objects";
 import { LEAD_READ_ONLY } from "./lib/objects/describe";
 import { attachTargets } from "./activityTargets";
 import { hostOf, sendStep } from "./lib/automationOutbound";
@@ -56,14 +56,18 @@ import { SHARDS } from "./lib/objects/write";
 import { coerce, type FieldValue, type ResolvedObjectDef } from "./lib/objects/registry";
 import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { archivedObjectNames } from "./lib/objects/orgDefs";
-import { ID } from "./lib/canon/identity";
+import { ID, normalizeDomain, normalizeEmail } from "./lib/canon/identity";
+import { uniqueClaimKeys, uniqueClaimProvider } from "./lib/objects/write";
+import { encryptForStorage, decryptFromStorage } from "./lib/tokenHelpers";
+import { sealedV } from "./lib/sealed";
+import { eventKeyOf, verifyWebhook } from "./lib/agents/webhook";
 import {
   SLOT_CAP, actionProblem, branchSteps, companyField, conditionsMet, conditionsProblem, dueDate, entryOrigin, ifHolds, initialSteps, mayTrigger, nextInTurn, nextSlot, pathThrough,
   relatedOf, relatedVias, resolveConditions, resumeAt, rowOf, scheduleProblem, triggerFires, weightedCycle, type AutomationMark, type Related,
 } from "./lib/automations";
 import {
   ACTIONS_MAX, AUTOMATION_OBJECTS, CONDITIONS_MAX, MAX_DEPTH, RULES_MAX, STEPS_MAX, actionValidator, replaySummaryValidator, conditionValidator, describe, describeConditions,
-  isAutomationObject, isRegisterAutomationObject, reachNote, stepAt, triggerValidator, walkSteps,
+  isAutomationObject, isOnDemand, isRegisterAutomationObject, reachNote, stepAt, triggerValidator, walkSteps,
   type AutomationAction, type Branch, type Condition, type IfStep, type LeafAction, type OwnerChoice, type RuleNames, type RuleStep, type Step, type Trigger,
 } from "../modules/kernel/automation";
 
@@ -194,6 +198,7 @@ async function checkRule(ctx: QueryCtx, orgId: Id<"organizations">, input: RuleI
     const bad = scheduleProblem(t);
     if (bad) throw new ConvexError(bad);
   }
+  if (t.kind === "webhook" && !matchable(def).includes(t.match)) throw new ConvexError(`A webhook names ${def.pluralLabel.toLowerCase()} by id or by a unique field: ${matchable(def).join(", ")}`);
   if (input.conditions.some((c) => relatedOf(def, c.field))) throw new ConvexError("A condition on a related record's field goes in an If step");
   const problem = conditionsProblem(def, input.conditions);
   if (problem) throw new ConvexError(problem);
@@ -377,7 +382,7 @@ export const propose = mutation({
     const sentence = describe(row.spec, await namesFor(ctx, admin.orgId, row.spec.object));
     if (!p) {
       // The approver sees what it would have done over the last two weeks without asking for it.
-      if (row.spec.trigger.kind !== "schedule") await ctx.scheduler.runAfter(0, internal.automations.replayVersion, { versionId: row._id });
+      if (row.spec.trigger.kind !== "schedule" && !isOnDemand(row.spec.trigger)) await ctx.scheduler.runAfter(0, internal.automations.replayVersion, { versionId: row._id });
       return { versionId: row._id, version: row.version, ruleId: row.ruleId ?? null, status: "proposed" as const, sentence };
     }
     return { versionId: row._id, version: row.version, ruleId: await approveVersion(ctx, p, row), status: "approved" as const, sentence };
@@ -464,6 +469,8 @@ const ruleView = async (ctx: QueryCtx, r: Doc<"automationRules">) => {
     lastRun: last ? { status: last.status, at: last.createdAt } : null,
     nextSlotAt: r.status === "active" ? r.nextSlotAt ?? null : null,
     lastSlot: r.slotRun ? { at: r.slotRun.slot, runs: r.slotRun.count, done: r.slotRun.done, note: r.slotRun.note ?? null } : null,
+    // Where a webhook rule takes requests, and whether it has a secret yet (never the secret itself).
+    webhook: r.trigger.kind === "webhook" ? { url: automationWebhookUrl(r._id), hasSecret: (await secretOf(ctx, r._id)) !== null } : null,
   };
 };
 
@@ -636,6 +643,8 @@ export const workspace = query({
         relations: await relationsOf(ctx, orgId, def),
         // Whether a task or owner can go to the record's company owner, and what a rule on it sees.
         companyOwner: companyField(def) !== null, reach: reachNote(def.apiName, def.pluralLabel),
+        // What a webhook may name its records by.
+        matchable: matchable(def),
       });
     }
     const teams = await ctx.db.query("teamGroups").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(100);
@@ -1615,7 +1624,7 @@ export const replayVersion = internalAction({
   args: { versionId: v.id("automationVersions") },
   handler: async (ctx, args): Promise<void> => {
     const job: ReplayJob | null = await ctx.runQuery(internal.automations.replayVersionJob, args);
-    if (!job || job.trigger.kind === "schedule") return;
+    if (!job || job.trigger.kind === "schedule" || isOnDemand(job.trigger)) return;
     await ctx.runMutation(internal.automations.saveReplay, { versionId: args.versionId, replay: replaySummary(await runReplay(ctx, job), job.userId) });
   },
 });
@@ -1630,14 +1639,230 @@ export const replay = action({
     versionId: v.optional(v.id("automationVersions")), ruleId: v.optional(v.id("automationRules")),
     object: v.optional(v.string()), trigger: v.optional(triggerValidator), conditions: v.optional(v.array(conditionValidator)), actions: v.optional(v.array(actionValidator)),
   },
-  handler: async (ctx, args): Promise<ReplayResult | { schedule: true }> => {
+  handler: async (ctx, args): Promise<ReplayResult | { schedule: true } | { onDemand: true }> => {
     await requireCaller(ctx, { read: true });
     const job: ReplayJob | null = await ctx.runQuery(internal.automations.replayJob, args);
     if (!job) throw new ConvexError("Only admins manage automation rules");
     if (job.trigger.kind === "schedule") return { schedule: true };
+    if (isOnDemand(job.trigger)) return { onDemand: true };
     const result = await runReplay(ctx, job);
     if (job.versionId) await ctx.runMutation(internal.automations.saveReplay, { versionId: job.versionId, replay: replaySummary(result, job.userId) });
     return result;
+  },
+});
+
+// ───────────────────────────── On demand ─────────────────────────────
+//
+// A rule whose trigger is "manual" runs on one record when a member who can edit it asks, from its page or an agent's
+// tool; a "webhook" rule runs on the record a signed POST to its own URL names. Either way it runs as its approver,
+// like any rule: the approver must still be a member and see the record, and the record must meet its conditions.
+// A webhook rule's signing secret is a person's to make (shown once) and never moves with an imported workspace.
+
+export const AUTOMATION_WEBHOOK_PREFIX = "/automations/webhook/";
+export const automationWebhookUrl = (id: Id<"automationRules">) => `${(process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "")}${AUTOMATION_WEBHOOK_PREFIX}${id}`;
+
+/** What a webhook may name records of `def` by: their id, or a unique field (a company's domain, a person's email). */
+function matchable(def: ResolvedObjectDef): string[] {
+  if (def.apiName === "account") return ["id", "domain"];
+  if (def.apiName === "contact") return ["id", "email"];
+  return ["id", ...def.fields.filter((f) => !f.system && f.archivedAt === undefined && "unique" in f && f.unique === true).map((f) => f.apiName)];
+}
+
+const secretOf = async (ctx: QueryCtx, ruleId: Id<"automationRules">) => ctx.db.query("automationWebhookSecrets").withIndex("by_ruleId", (q) => q.eq("ruleId", ruleId)).unique();
+
+/** The object a stream is a record of, as rules name objects. */
+const objectOfEntity = (e: Doc<"canonEntities">) => (e.entityType === "opportunity" ? "deal" : e.entityType);
+
+/**
+ * The stream of the record of `object` that `value` names: by id (a stream id; a company's or person's record-service
+ * id too) or by a unique field. Null when none does, or when it is archived. A company or person nobody has worked in
+ * Canon has no stream, so a rule can't run on it.
+ */
+async function recordNamed(ctx: MutationCtx, orgId: Id<"organizations">, def: ResolvedObjectDef, match: string, value: unknown): Promise<Id<"canonEntities"> | null> {
+  if (typeof value !== "string" || !value.trim() || value.length > 500) return null;
+  const store = convexObjectStore(ctx);
+  const find = async (provider: string, key: string) => {
+    const id = await store.findByExternalId(orgId, provider, key);
+    return id ? ctx.db.normalizeId("canonEntities", id) : null;
+  };
+  let streamId: Id<"canonEntities"> | null;
+  if (match === "id") {
+    streamId = ctx.db.normalizeId("canonEntities", value)
+      ?? (def.apiName === "account" ? await find(ID.recordAccount, value) : def.apiName === "contact" ? await find(ID.recordContact, value) : null);
+  } else if (def.apiName === "account" || def.apiName === "contact") {
+    streamId = def.apiName === "account" ? await find(ID.domain, normalizeDomain(value)) : await find(ID.email, normalizeEmail(value));
+  } else {
+    const f = def.byApiName.get(match);
+    const key = f ? uniqueClaimKeys(def, f.fieldId, value)[0]?.key : undefined;
+    streamId = f && key ? await find(uniqueClaimProvider(def, f.fieldId), key) : null;
+  }
+  const entity = streamId ? await ctx.db.get(streamId) : null;
+  if (!entity || entity.orgId !== orgId || objectOfEntity(entity) !== def.apiName) return null;
+  const st = (await statesAround(ctx, entity._id, Number.MAX_SAFE_INTEGER, Number.NaN)).states;
+  return st && st !== "too_long" && st.after.lifecycle.status === "active" ? entity._id : null;
+}
+
+/**
+ * Start a run of an on-demand rule on one record, as its approver: refused when the approver left (the rule pauses),
+ * can't see the record, or the record doesn't meet the rule's conditions.
+ */
+async function startOnDemand(
+  ctx: MutationCtx, rule: Doc<"automationRules">, streamId: Id<"canonEntities">, extra: { startedBy?: Id<"users">; eventKey?: string },
+): Promise<Id<"automationRuns">> {
+  const p = await principalOf(ctx, rule);
+  if (!p) {
+    await pause(ctx, rule, CREATOR_GONE);
+    throw new ConvexError(CREATOR_GONE);
+  }
+  if (!(await recordVisibleTo(ctx, p.access, rule.orgId, streamId))) throw new ConvexError(`${p.user.name}, who this rule acts as, can't see this record`);
+  const def = await loadDef(ctx, rule.orgId, rule.object);
+  const row = await recordNow(ctx, def, p.access, streamId, rule.object);
+  if (!conditionsMet(def, row, rule.conditions, Date.now(), await timezoneOf(ctx, rule.orgId))) {
+    throw new ConvexError(`The record doesn't meet the rule's conditions: ${describeConditions(rule.object, rule.conditions, await namesFor(ctx, rule.orgId, rule.object))}`);
+  }
+  const now = Date.now();
+  const runId = await ctx.db.insert("automationRuns", {
+    orgId: rule.orgId, ruleId: rule._id, shard: -2, seq: now, streamId, object: rule.object, title: row.title.slice(0, 200), event: rule.trigger.kind,
+    matched: true, status: "pending", depth: 0, triggeredAt: now, steps: initialSteps(rule.actions), actions: rule.actions, leaseUntil: now + LEASE_MS, createdAt: now,
+    ...(rule.version !== undefined ? { version: rule.version } : {}), actsAs: actsAsOf(rule), ...extra,
+  });
+  await ctx.scheduler.runAfter(0, internal.automations.execute, { runId });
+  return runId;
+}
+
+/**
+ * Run a "manual" rule on one record (`id`: its stream id, or a company's or person's record-service id). Any member who
+ * can edit the record may, in person or through their agent; the rule still acts as the admin who approved it.
+ */
+const CANT_RUN = "You can run a rule only on a record you can edit";
+export const runOnRecord = mutation({
+  args: { ruleId: v.id("automationRules"), id: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const rule = await ownRule(ctx, user.orgId, args.ruleId);
+    if (rule.trigger.kind !== "manual") throw new ConvexError("This rule runs on its own trigger, not on request");
+    if (rule.status !== "active") throw new ConvexError(rule.pausedReason ?? "The rule is paused");
+    const streamId = await recordNamed(ctx, user.orgId, await loadDef(ctx, user.orgId, rule.object), "id", args.id);
+    const access = await accessFor(ctx, user);
+    // Whoever starts it must be able to edit the record themselves: the rule's actions are its approver's, not a way round their own role.
+    // A company or person nobody has worked in Canon has no history for a rule to read; any other id names nothing.
+    if (!streamId) throw new ConvexError(isRegisterAutomationObject(rule.object) ? "A rule runs on a company or person once someone has worked it in Canon: edit it once, then run the rule" : CANT_RUN);
+    if (!may(access, rule.object, "edit") || !(await recordVisibleTo(ctx, access, user.orgId, streamId))) {
+      throw new ConvexError(CANT_RUN);
+    }
+    const agent = await agentClientOf(ctx);
+    const runId = await startOnDemand(ctx, rule, streamId, { startedBy: user._id });
+    await audit(ctx, user, "automation_rule.run", { ruleId: rule._id, runId, streamId, ...(agent ? { agent } : {}) });
+    return { runId };
+  },
+});
+
+/** The rules a member may run on a record of `object` now: active "manual" rules, by name and sentence. */
+export const manualRules = query({
+  args: { object: v.string() },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return [];
+    const rules = await ctx.db.query("automationRules").withIndex("by_orgId_and_status", (q) => q.eq("orgId", user.orgId).eq("status", "active")).take(RULES_MAX);
+    const mine = rules.filter((r) => r.object === args.object && r.trigger.kind === "manual");
+    const names = mine.length ? await namesFor(ctx, user.orgId, args.object) : {};
+    return mine.map((r) => ({ id: r._id, name: r.name, sentence: describe(r, names) }));
+  },
+});
+
+/**
+ * Make a webhook rule's signing secret, replacing any it had. A person does, in person; the secret is returned here
+ * once and kept encrypted.
+ */
+export const rotateWebhookSecret = action({
+  args: { ruleId: v.id("automationRules") },
+  handler: async (ctx, args): Promise<{ secret: string; url: string }> => {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    const secret = `whsec_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+    await ctx.runMutation(internal.automations.saveWebhookSecret, { ruleId: args.ruleId, secret: await encryptForStorage(secret) });
+    return { secret, url: automationWebhookUrl(args.ruleId) };
+  },
+});
+
+export const saveWebhookSecret = internalMutation({
+  args: { ruleId: v.id("automationRules"), secret: sealedV },
+  handler: async (ctx, args) => {
+    const p = await requirePerson(ctx);
+    const rule = await ownRule(ctx, p.orgId, args.ruleId);
+    if (rule.trigger.kind !== "webhook") throw new ConvexError("Only a rule a webhook starts has a signing secret");
+    const old = await secretOf(ctx, rule._id);
+    if (old) await ctx.db.delete(old._id);
+    await ctx.db.insert("automationWebhookSecrets", { orgId: p.orgId, ruleId: rule._id, secret: args.secret, createdBy: p._id, createdAt: Date.now() });
+    await audit(ctx, p, "automation_rule.rotate_webhook_secret", { ruleId: rule._id });
+    return null;
+  },
+});
+
+/** For the webhook route only: the stored (encrypted) secret of an active webhook rule. */
+export const webhookSecret = internalQuery({
+  args: { ruleId: v.string() },
+  handler: async (ctx, args) => {
+    const ruleId = ctx.db.normalizeId("automationRules", args.ruleId);
+    const rule = ruleId ? await ctx.db.get(ruleId) : null;
+    if (!rule || rule.status !== "active" || rule.trigger.kind !== "webhook") return null;
+    const row = await secretOf(ctx, rule._id);
+    return row ? { ruleId: rule._id, secret: row.secret } : null;
+  },
+});
+
+/**
+ * One signed request to a webhook rule: the record its body names, once per event key (a redelivery starts nothing new).
+ * A record that isn't there, or that the rule's member can't see, gets the same answer.
+ */
+export const receiveWebhook = internalMutation({
+  args: { ruleId: v.id("automationRules"), eventKey: v.string(), value: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<{ status: "started"; runId: Id<"automationRuns"> } | { status: "duplicate" } | { status: "refused"; error: string; code: 404 | 409 | 422 }> => {
+    const rule = await ctx.db.get(args.ruleId);
+    if (!rule || rule.status !== "active" || rule.trigger.kind !== "webhook") return { status: "refused", error: "This rule isn't taking requests", code: 409 };
+    const seen = await ctx.db.query("automationRuns").withIndex("by_ruleId_and_eventKey", (q) => q.eq("ruleId", rule._id).eq("eventKey", args.eventKey)).first();
+    if (seen) return { status: "duplicate" };
+    if (args.value === undefined) return { status: "refused", error: `The body needs "${rule.trigger.match}": the record's ${rule.trigger.match === "id" ? "id" : rule.trigger.match}`, code: 422 };
+    const streamId = await recordNamed(ctx, rule.orgId, await loadDef(ctx, rule.orgId, rule.object), rule.trigger.match, args.value);
+    const p = await principalOf(ctx, rule);
+    if (streamId && p && !(await recordVisibleTo(ctx, p.access, rule.orgId, streamId))) return { status: "refused", error: "No record matches", code: 404 };
+    if (!streamId) return { status: "refused", error: "No record matches", code: 404 };
+    try {
+      return { status: "started", runId: await startOnDemand(ctx, rule, streamId, { eventKey: args.eventKey }) };
+    } catch (cause) {
+      return { status: "refused", error: messageOf(cause), code: 422 };
+    }
+  },
+});
+
+/** Check a webhook request against its rule's secret, then start its run: what the HTTP route calls (lib/automationWebhookRoute.ts). */
+export async function handleAutomationWebhook(
+  ctx: ActionCtx, ruleId: string, body: string, headers: { timestamp: string | null; signature: string | null }, now = Date.now(),
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const stored: { ruleId: Id<"automationRules">; secret: string } | null = await ctx.runQuery(internal.automations.webhookSecret, { ruleId });
+  const verdict = stored ? await verifyWebhook({ secret: await decryptFromStorage(stored.secret), body, nowMs: now, ...headers }) : { ok: false as const, reason: "bad_signature" as const };
+  if (!stored || !verdict.ok) return { status: 401, body: { error: verdict.ok ? "bad_signature" : verdict.reason } };
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return { status: 422, body: { error: "The body is not JSON." } };
+  }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return { status: 422, body: { error: "The body must be a JSON object." } };
+  const rule = await ctx.runQuery(internal.automations.webhookMatch, { ruleId: stored.ruleId });
+  const value = rule ? (payload as Record<string, unknown>)[rule.match] : undefined;
+  const out: { status: "started"; runId: string } | { status: "duplicate" } | { status: "refused"; error: string; code: number } = await ctx.runMutation(internal.automations.receiveWebhook, {
+    ruleId: stored.ruleId, eventKey: await eventKeyOf(payload, body), ...(typeof value === "string" ? { value } : {}),
+  });
+  if (out.status === "refused") return { status: out.code, body: { error: out.error } };
+  return out.status === "started" ? { status: 202, body: { status: "started", runId: out.runId } } : { status: 200, body: { status: "duplicate" } };
+}
+
+/** The body key a webhook rule reads its record from. */
+export const webhookMatch = internalQuery({
+  args: { ruleId: v.id("automationRules") },
+  handler: async (ctx, args) => {
+    const rule = await ctx.db.get(args.ruleId);
+    return rule?.trigger.kind === "webhook" ? { match: rule.trigger.match } : null;
   },
 });
 

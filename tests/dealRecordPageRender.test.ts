@@ -59,6 +59,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     "./record-boundary": { RecordBoundary: ({ children }: { children: ReactNode }) => children },
     "./record-context": { RecordLink: ({ children }: { children: ReactNode }) => children },
     "./crm-note": { CrmFieldNote: empty, CRM_NAME: {} },
+    "./run-rule": { RunRule: empty },
     "../../../convex/lib/canon/personHold": { groupOf: (_o: string, f: string) => f },
   };
   const load = (text: string) => {

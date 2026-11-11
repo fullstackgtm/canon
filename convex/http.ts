@@ -11,6 +11,7 @@ import { registerEmailLogRoutes } from "./lib/emailLog/routes";
 import { registerModuleUploadRoute } from "./lib/modules/uploadRoute";
 import { registerPiRoute } from "./lib/research/piRoute";
 import { registerConnectorWebhookRoutes } from "./lib/connectors/webhookRoute";
+import { registerAutomationWebhookRoutes } from "./lib/automationWebhookRoute";
 import { registerUnsubscribeRoute } from "./lib/outbound/unsubscribeRoute";
 import { billingFromSubscription, invoiceSubscriptionId, stripeClient, verifyWebhook } from "./lib/stripeBilling";
 
@@ -410,6 +411,9 @@ registerModuleUploadRoute(http);
 
 // Signed webhooks that write the workspace's webhook.events feed (docs/connector-feeds.md).
 registerConnectorWebhookRoutes(http);
+
+// Signed requests that start a webhook-triggered automation rule on the record they name.
+registerAutomationWebhookRoutes(http);
 registerUnsubscribeRoute(http);
 
 export default http;

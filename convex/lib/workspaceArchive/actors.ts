@@ -321,6 +321,14 @@ export const CENSUS: readonly Mechanism[] = [
     runs: ["internal.automations.sweep", "internal.recordWebhooks.sweep"],
   },
   {
+    key: "automation-on-demand", does: "run an automation rule on the record a member or a signed webhook names",
+    gate: "convex/automations.ts runOnRecord (a member who can edit the record), webhookSecret (an active rule with a secret made here), startOnDemand (the approver still a member who sees the record)",
+    arrives: "its rule arrives paused, and webhook secrets never move, so a webhook rule takes no request until a person here makes a new secret",
+    imported: [{ table: "automationRules", index: "by_orgId_and_status", open: (r) => r.status === "active" && ["manual", "webhook"].includes((r.trigger as Row | undefined)?.kind as string), checklist: ruleOff }],
+    here: [any("automationWebhookSecrets", "by_orgId")],
+    runs: ["registerAutomationWebhookRoutes"],
+  },
+  {
     key: "routing", does: "assign owners from a routing rule's members",
     gate: "convex/automations.ts:806 (the routing rule is on)",
     arrives: "turned off",

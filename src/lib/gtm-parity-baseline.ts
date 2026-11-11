@@ -34,6 +34,7 @@ export const gtmParityBaseline: Readonly<Record<string, GtmParityReason>> = {
   "api.agentSlack.sendTest": "human-only-candidate",
   "api.agentTurns.rotateSecret": "human-only-candidate",
   "api.audienceActions.connectSequencer": "human-only-candidate",
+  "api.automations.rotateWebhookSecret": "human-only-candidate",
   "api.audiences.disconnectSequencer": "human-only-candidate",
   "api.billing.openPortal": "human-only-candidate",
   "api.chatgptAuth.disconnect": "human-only-candidate",

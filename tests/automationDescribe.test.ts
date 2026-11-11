@@ -63,6 +63,8 @@ test("every trigger, condition operator, owner choice and action the rule shape 
     updated: { kind: "updated", field: "stage", from: ["proposal"], to: ["won"] },
     deleted: { kind: "deleted" },
     schedule: { kind: "schedule", cadence: "weekly", weekday: 1, minute: 540 },
+    manual: { kind: "manual" },
+    webhook: { kind: "webhook", match: "custom.tier" },
   };
   const owners: Record<string, OwnerChoice> = {
     member: { kind: "member", userId: "users:avery" as never },
