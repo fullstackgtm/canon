@@ -202,8 +202,8 @@ enable" has the details.
    the next build, choose the new files: the same module upgrades in place and keeps its data, as a new commit does.
    The same files again are refused as already installed, and an older version as going back. A hosted Canon refuses
    development installs; only a self-hosted one (`CANON_AUTH=local`) or a local development stack takes them. An
-   agent can't make one. A module with server code also needs the recipe runtime, which a self-hosted Canon doesn't
-   start: `docs/self-hosting.md` says how to give it one (`RECIPE_RUNTIME_URL`, `RECIPE_RUNTIME_SECRET`).
+   agent can't make one. A module with server code runs its calls in the recipe runtime, which the self-hosted image
+   starts for you (`docs/self-hosting.md`).
 4. To release it, commit, push and install the same directory from GitHub. A development install and a GitHub install
    of one module are different sources: uninstall the development one first. "Upgrades" says what an upgrade checks.
 

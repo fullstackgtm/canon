@@ -25,8 +25,9 @@ The existing treg paid-call switch, permissions, approvals, and organization
 allowlists still apply.
 
 Without the record service, records use the existing Convex-backed store.
-Without the recipe runtime, first-party recipe code keeps its existing in-process
-execution; modules that declare server code are unavailable. Declarative modules such as
+The Docker image starts the recipe runtime itself (see
+[Self-host CanonCRM](self-hosting.md)). A backend run without it keeps first-party
+recipe code in process; modules that declare server code are unavailable. Declarative modules such as
 Reports remain available. Installing executable packages requires the runtime. Missing
 vendor keys hide controls or show a needs-key note. Scheduled vendor workers
 skip unavailable capabilities.

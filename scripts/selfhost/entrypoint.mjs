@@ -6,6 +6,7 @@ import { INTEGRATIONS_AVAILABLE, integrationEnabled, integrationNeeds } from "..
 import { functionsDigest, mustPush } from "./functions.mjs";
 import { advanceDataEpoch, checkDataEpoch, imageContract } from "./dataEpoch.mjs";
 import { newSetupCode, newTokenEncryptionKey, platformSiteUrl, SETUP_CODE_FILE } from "./platform.mjs";
+import { keepAlive, runtimeAnswers, runtimeChoice } from "./recipeRuntime.mjs";
 
 // How the processes in this container reach each other. SITE_URL and its port are the browser's
 // address: the published port can differ from the container's, and a public domain may not
@@ -92,6 +93,15 @@ async function waitFor(url) {
   throw new Error(`Service did not become ready at ${url}`);
 }
 
+async function waitForRuntime(url) {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    if (stopping) throw new Error("Container is stopping");
+    if (await runtimeAnswers(url, 1000)) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`The recipe runtime did not answer at ${url}`);
+}
+
 async function convexEnvNames(dir) {
   const keys = new Set();
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -115,8 +125,8 @@ async function main() {
   }
   await rm("/tmp/canoncrm-ready", { force: true });
   const port = process.env.PORT || "3000";
-  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535 || [3210, 3211, 8787].includes(Number(port))) {
-    throw new Error("PORT must be an available TCP port other than 3210, 3211, or 8787");
+  if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535 || [3210, 3211, 8787, 8790].includes(Number(port))) {
+    throw new Error("PORT must be an available TCP port other than 3210, 3211, 8787, or 8790");
   }
   const site = origin(process.env.SITE_URL || platformSiteUrl(process.env) || "http://localhost:3000", "SITE_URL");
   const publicBackend = process.env.CONVEX_PUBLIC_URL ? origin(process.env.CONVEX_PUBLIC_URL, "CONVEX_PUBLIC_URL") : `${site}/convex`;
@@ -161,11 +171,30 @@ async function main() {
   delete env.CANON_SETUP_CODE;
   env.CLERK_JWT_ISSUER_DOMAIN ||= "https://unconfigured.invalid";
   env.RECORD_SERVICE_URL = RECORDS;
+  // Module server code and recipe plays run in the recipe runtime. Without the operator's own, the image's workerd
+  // runs it on loopback with a secret kept in the volume; workerd gets that secret and nothing else from this env.
+  const runtime = runtimeChoice(process.env);
+  if (runtime.builtIn) {
+    env.RECIPE_RUNTIME_URL = runtime.url;
+    env.RECIPE_RUNTIME_SECRET = await persisted(`${credentials}/recipe_runtime_secret`, () => randomBytes(32).toString("hex"));
+    const workerd = { PATH: env.PATH, RECIPE_RUNTIME_SECRET: env.RECIPE_RUNTIME_SECRET };
+    keepAlive({
+      launch: () => {
+        const { child, done } = start("Recipe runtime", "/app/.recipe-runtime/workerd", ["serve", "--experimental", "config.capnp"], workerd, "/app/.recipe-runtime");
+        return { kill: (signal) => child.kill(signal), exited: done.then(() => {}, () => {}) };
+      },
+      answers: () => runtimeAnswers(runtime.url, 3000),
+      log: (message) => console.error(message),
+      giveUp: (reason) => { console.error(reason); void stop(1); },
+      stopping: () => stopping,
+    });
+  }
   // The backend's scratch directory (run_backend.sh puts it in the volume) holds one unpacked
   // function runtime and socket per backend process, which it never removes. Nothing runs yet.
   await rm("/data/convex/tmp", { recursive: true, force: true });
   daemon("Convex", "/convex/run_backend.sh", [], env, "/convex");
   await waitFor(`${BACKEND}/version`);
+  if (runtime.builtIn) await waitForRuntime(runtime.url);
   const changes = [];
   const names = await convexEnvNames("/app/convex");
   for (const [feature, definition] of Object.entries(INTEGRATIONS_AVAILABLE)) {
@@ -200,9 +229,12 @@ async function main() {
       await rename(`${PUSHED}.tmp`, PUSHED);
     }
   } else console.log("Functions match the last push; not pushing them again");
+  // Next and the record service never call the runtime, so they never hold its secret.
+  const appEnv = { ...env };
+  delete appEnv.RECIPE_RUNTIME_SECRET;
   // Convex names its public site URL as the ledger source in every nudge; this pins the address beside it.
   daemon("Record service", process.execPath, ["--experimental-strip-types", "--no-warnings", "src/main.ts"],
-    { ...env, DATA_DIR: "/data/records", PORT: "8787", HOST: "127.0.0.1", PROJECTOR_SOURCE_URL: BACKEND_SITE }, "/app/services/record-service");
+    { ...appEnv, DATA_DIR: "/data/records", PORT: "8787", HOST: "127.0.0.1", PROJECTOR_SOURCE_URL: BACKEND_SITE }, "/app/services/record-service");
   await waitFor(`${RECORDS}/healthz`);
   if (env.FSGTM_ENABLE_DEMO_DATA === "true") {
     await cli(["run", "devSeed:ensureWorkspace"]);
@@ -210,7 +242,7 @@ async function main() {
   }
   // Next fetches the URLs Convex hands back (storage, upload routes), which carry the browser's address; these map them back inside.
   daemon("Next", process.execPath, [".next/standalone/server.js"],
-    { ...env, HOSTNAME: "0.0.0.0", PORT: port, CANON_SETUP_CODE: setupCode, CANON_INTERNAL_CONVEX_URL: BACKEND, CANON_INTERNAL_CONVEX_SITE_URL: BACKEND_SITE });
+    { ...appEnv, HOSTNAME: "0.0.0.0", PORT: port, CANON_SETUP_CODE: setupCode, CANON_INTERNAL_CONVEX_URL: BACKEND, CANON_INTERNAL_CONVEX_SITE_URL: BACKEND_SITE });
   await waitFor(`http://127.0.0.1:${port}/api/public/version`);
   await writeFile("/tmp/canoncrm-ready", "ready\n");
   const advanced = await advanceDataEpoch("/data", contract, epoch.epoch, async (m) => {
@@ -218,7 +250,7 @@ async function main() {
     await cli(["run", m.run]);
   });
   if (advanced.failed) console.log(`Migration ${advanced.failed.run} failed (${advanced.failed.error}). The volume stays at data epoch ${epoch.epoch}; restart this release to run it again (docs/updating.md).`);
-  console.log(`CanonCRM ready at ${site}. Recipe runtime is off unless RECIPE_RUNTIME_URL and RECIPE_RUNTIME_SECRET are configured.`);
+  console.log(`CanonCRM ready at ${site}. Recipe runtime: ${runtime.builtIn ? `built in, at ${runtime.url}` : "the one RECIPE_RUNTIME_URL names"}.`);
   const pending = await start("Convex CLI", process.execPath, ["node_modules/convex/bin/main.js", "run", "localAuth:setupPending", "--env-file", cliEnvFile], env, "/app", true)
     .done.then((out) => out.trim() === "true", () => false);
   if (pending && env.CANON_AUTH === "local") {

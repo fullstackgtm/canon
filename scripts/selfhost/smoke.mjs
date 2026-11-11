@@ -116,6 +116,11 @@ try {
     if (ended.token !== null) throw new Error('Signed-out session still has access');
   `);
   console.log("Local owner signup, signed session, and sign-out passed without Clerk or demo access");
+  inside(`
+    const r = await fetch('http://127.0.0.1:8790/run', {method:'POST'});
+    if (r.status !== 401) throw new Error('The built-in recipe runtime did not refuse an unsigned call ('+r.status+')');
+  `);
+  console.log("The built-in recipe runtime answers on loopback and refuses an unsigned call");
   docker("exec", name, "pkill", "-TERM", "-x", "convex-local-ba");
   for (let n = 0; n < 45; n++) {
     if (docker("inspect", name, "--format", "{{.State.Running}}") === "false") break;
