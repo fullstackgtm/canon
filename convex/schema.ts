@@ -552,7 +552,9 @@ export default defineSchema({
     attachedTo: v.optional(v.object({ collection: v.string(), key: v.string() })),
     at: v.number(),
   }).index("by_attached_and_at", ["attachedTo", "at"])
-    .index("by_visitorUpload_state_expiresAt", ["visitorUpload.state", "visitorUpload.expiresAt"]),
+    .index("by_visitorUpload_state_expiresAt", ["visitorUpload.state", "visitorUpload.expiresAt"])
+    // A workspace's files, for its export (convex/workspaceTransfer.ts).
+    .index("by_orgId", ["orgId"]),
 
   // A module's job keys that wait to run (docs/modules.md, "Jobs, watches and schedules"): one row per stale key,
   // deleted when a run applies. Read and written only by convex/lib/modules/jobs.ts and scope.ts. `dirtySeq` counts

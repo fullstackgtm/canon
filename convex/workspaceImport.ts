@@ -41,7 +41,7 @@ import { resolveAttribute } from "./lib/canon/policy";
 import { invalidateFit } from "./lib/fitInvalidation";
 import { shardHeads } from "./ledgerFeed";
 import { arrive, CENSUS, type ArrivalAt, type Mechanism, type Switch } from "./lib/workspaceArchive/actors";
-import { restoreImportedDocs } from "./lib/modules/scope";
+import { restoreImportedDocs, restoreImportedFiles } from "./lib/modules/scope";
 import { enabledModules, installedModule, isEnabled, manifestOf } from "./lib/modules/packages";
 import { setModuleEnabled } from "./modules";
 
@@ -457,7 +457,7 @@ export const importPage = mutation({
     const decode = async (raw: Record<string, unknown> & { _id: string }): Promise<Decoded> => {
       // A stream's own register id (acc_s_/con_s_ of its stream id) is known once the stream exists.
       const own = args.section === "canonEntities" && !args.pass ? new Map([[await registerIdOf("account", raw._id), `${SELF}:account`], [await registerIdOf("contact", raw._id), `${SELF}:contact`]]) : null;
-      const env: RemapEnv = { orgId, map: (id) => own?.get(id) ?? map.get(id), imported: (t) => t in IMPORT_TABLES || t === "organizations" };
+      const env: RemapEnv = { orgId, map: (id) => own?.get(id) ?? map.get(id), imported: (t) => t in IMPORT_TABLES || t === "organizations" || t === "_storage" };
       return decodeRow(args.section, shape, raw, env, { deferSelf, omit, scopeField: scopeFieldOf(args.section) ?? undefined });
     };
     const decoded = await Promise.all(raws.map(decode));
@@ -493,7 +493,8 @@ export const importPage = mutation({
       for (const [i, r] of rows.entries()) {
         const p = placed[i];
         await ctx.db.insert("workspaceImportIds", { orgId, importId: imp._id, table: args.section, oldId: r.oldId, newId: p.id });
-        if (p.held) result.held[r.moduleId] = (result.held[r.moduleId] ?? 0) + 1;
+        if (p.left) result.notWritten[p.left] = (result.notWritten[p.left] ?? 0) + 1;
+        else if (p.held) result.held[r.moduleId] = (result.held[r.moduleId] ?? 0) + 1;
         else result.written++;
       }
     } else {
@@ -544,6 +545,7 @@ export const importPage = mutation({
 
 /** One module row as it lands: the module it belongs to, the module table it is a row of, and its fields but those two. */
 type ModuleRow = { moduleId: string; table: Doc<"moduleHeldRows">["table"]; row: Record<string, unknown> };
+/** The tables a held row can be a row of. */
 const MODULE_TABLES: ReadonlyArray<string> = schema.tables.moduleHeldRows.validator.fields.table.members.map((m) => m.value);
 
 /**
@@ -553,7 +555,7 @@ const MODULE_TABLES: ReadonlyArray<string> = schema.tables.moduleHeldRows.valida
 async function moduleRowOf(ctx: QueryCtx, orgId: Id<"organizations">, section: string, decoded: Record<string, unknown>, createdAt: unknown): Promise<ModuleRow> {
   const held = section === "moduleHeldRows";
   const table = held ? String(decoded.table) : section;
-  if (!MODULE_TABLES.includes(table)) throw new ConvexError(`A held module row can't be a ${table} row.`);
+  if (held && !MODULE_TABLES.includes(table)) throw new ConvexError(`A held module row can't be a ${table} row.`);
   const { orgId: _o, moduleId, ...fields } = held ? { ...(decoded.row as Record<string, unknown>), moduleId: decoded.moduleId } : decoded;
   void _o;
   let row: Record<string, unknown> = fields;
@@ -579,10 +581,17 @@ async function receiverOf(ctx: QueryCtx, orgId: Id<"organizations">, moduleId: s
  * Module rows into the module installed here (docs and history through its scope, AI receipts and snapshots as they
  * are), or into moduleHeldRows with why. Returns each row's id here and whether it was held.
  */
-async function placeModuleRows(ctx: MutationCtx, orgId: Id<"organizations">, rows: ReadonlyArray<ModuleRow>): Promise<Array<{ id: string; held: boolean }>> {
-  const out: Array<{ id: string; held: boolean }> = new Array(rows.length);
+async function placeModuleRows(ctx: MutationCtx, orgId: Id<"organizations">, rows: ReadonlyArray<ModuleRow>): Promise<Array<{ id: string; held: boolean; left?: string }>> {
+  const out: Array<{ id: string; held: boolean; left?: string }> = new Array(rows.length);
+  // A module's files go in whatever is installed: the docs that name them, restored or held, read them by id.
+  const live = rows.flatMap((r, i) => (IMPORT_TABLES[r.table]?.live ? [i] : []));
+  for (const i of live) {
+    const [p] = await restoreImportedFiles(ctx, orgId, rows[i].moduleId, [rows[i].row]);
+    out[i] = "id" in p ? { id: p.id, held: false } : { id: SKIPPED, held: false, left: p.why };
+  }
+  rows = rows.map((r, i) => (live.includes(i) ? { ...r, moduleId: "" } : r));
   const receivers = new Map<string, Doc<"modulePackages"> | string>();
-  for (const r of rows) if (!receivers.has(r.moduleId)) receivers.set(r.moduleId, await receiverOf(ctx, orgId, r.moduleId));
+  for (const r of rows) if (r.moduleId && !receivers.has(r.moduleId)) receivers.set(r.moduleId, await receiverOf(ctx, orgId, r.moduleId));
   const hold = async (i: number, why?: string, pkg?: Doc<"modulePackages">) => {
     const r = rows[i];
     const id = await ctx.db.insert("moduleHeldRows", { orgId, moduleId: r.moduleId, table: r.table, row: r.row, heldAt: Date.now(), ...(why && pkg ? { problem: { why, epoch: pkg.epoch ?? 1 } } : {}) });
@@ -726,6 +735,45 @@ async function replayLedger(ctx: MutationCtx, imp: Doc<"workspaceImports">, rows
   }
   return written;
 }
+
+/** The file an import already stored for the archive's `files/<oldId>`, or null; refuses when no import is running. */
+export const fileOf = internalQuery({
+  args: { key: v.string(), oldId: v.string() },
+  handler: async (ctx, args) => {
+    const { imp } = await running(ctx, args.key);
+    return (await mapFor(ctx, imp._id, [args.oldId])).get(args.oldId) ?? null;
+  },
+});
+
+/** Rows that name `oldId` name `storageId` from now on; a file already taken for it stands, and this one is dropped. */
+export const fileStored = internalMutation({
+  args: { key: v.string(), oldId: v.string(), storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    const { orgId, imp } = await running(ctx, args.key);
+    const done = (await mapFor(ctx, imp._id, [args.oldId])).get(args.oldId);
+    if (done) { await ctx.storage.delete(args.storageId); return done; }
+    await ctx.db.insert("workspaceImportIds", { orgId, importId: imp._id, table: "_storage", oldId: args.oldId, newId: args.storageId });
+    return args.storageId as string;
+  },
+});
+
+const hex = (buffer: ArrayBuffer) => [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/**
+ * Store one of the archive's files (`files/<oldId>`) here. The bytes come with the call and this stores them, so the
+ * caller never names a storage id and can't make rows point at a file it didn't send. Their size and SHA-256 must be
+ * the archive's. At most FILE_MAX_BYTES (cli/workspaceArchive.ts): an action's arguments are at most 16 MiB.
+ */
+export const importFile = action({
+  args: { key: v.string(), oldId: v.string(), sha256: v.string(), contentType: v.string(), bytes: v.bytes() },
+  handler: async (ctx, args): Promise<{ storageId: string }> => {
+    const done: string | null = await ctx.runQuery(internal.workspaceImport.fileOf, { key: args.key, oldId: args.oldId });
+    if (done) return { storageId: done };
+    if (hex(await crypto.subtle.digest("SHA-256", args.bytes)) !== args.sha256) throw new ConvexError(`The file sent for ${args.oldId} isn't the archive's (its checksum differs). Run the import again.`);
+    const storageId = await ctx.storage.store(new Blob([args.bytes], { type: args.contentType.slice(0, 200) || "application/octet-stream" }));
+    return { storageId: await ctx.runMutation(internal.workspaceImport.fileStored, { key: args.key, oldId: args.oldId, storageId }) };
+  },
+});
 
 /** The import's workspace and the map entries a register page names, for the action that writes it to the record service. */
 export const registerContext = internalQuery({

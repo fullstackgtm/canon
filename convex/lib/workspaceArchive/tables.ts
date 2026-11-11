@@ -26,16 +26,17 @@ export type ArchiveScope =
   | { by: "needsIndex"; index: string };
 
 export type ArchiveEntry =
-  | { class: "data" | "ledger"; scope: ArchiveScope; omit?: readonly string[]; pick?: readonly string[] }
+  /** `codeFiles`: the stored files its rows name are code (a module's or recipe's bundle), which an archive never carries. */
+  | { class: "data" | "ledger"; scope: ArchiveScope; omit?: readonly string[]; pick?: readonly string[]; codeFiles?: true }
   | { class: "derived"; rebuiltBy: string }
   | { class: "local" | "secret" | "identity" | "global"; why?: string };
 
 export type ArchiveClass = ArchiveEntry["class"];
 
 const data = (index: string, field?: string): ArchiveEntry => ({ class: "data", scope: { by: "org", index, ...(field ? { field } : {}) } });
+const withCode = (index: string): ArchiveEntry => ({ class: "data", scope: { by: "org", index }, codeFiles: true });
 const ledger = (index: string): ArchiveEntry => ({ class: "ledger", scope: { by: "org", index } });
 const child = (parent: string, via: string, index: string, andOrg?: true): ArchiveEntry => ({ class: "data", scope: { by: "parent", parent, via, index, ...(andOrg ? { andOrg } : {}) } });
-const needsIndex = (index: string, omit?: readonly string[]): ArchiveEntry => ({ class: "data", scope: { by: "needsIndex", index }, ...(omit ? { omit } : {}) });
 const derived = (rebuiltBy: string): ArchiveEntry => ({ class: "derived", rebuiltBy });
 const local = (why?: string): ArchiveEntry => ({ class: "local", ...(why ? { why } : {}) });
 const secret = (why: string): ArchiveEntry => ({ class: "secret", why });
@@ -52,14 +53,15 @@ export const ARCHIVE_TABLES = {
       "creditBalanceMicro", "creditUnit", "freeCreditsMonth", "freeCreditsUsedMicro", "metronomeCustomerId", "metronomeContractId", "planTier"],
   },
   recipeRevisions: data("by_orgId_and_recipeId_and_revision"),
-  recipeMarkdownRevisions: data("by_orgId_and_recipeId_and_revision"),
-  recipePackages: data("by_orgId_and_recipeId"),
+  recipeMarkdownRevisions: withCode("by_orgId_and_recipeId_and_revision"),
+  recipePackages: withCode("by_orgId_and_recipeId"),
   recipeEnablements: data("by_orgId_and_point_and_enabled"),
   pageEditAttempts: local("a log of how the page editor routed each request"),
   githubRecipeConnections: local("an installation of this deployment's GitHub App; the other deployment connects its own"),
   githubRecipeSetupStates: local(),
   moduleInterfaceOwners: data("by_orgId_and_moduleId"),
-  modulePackages: data("by_orgId_and_moduleId"),
+  // A private module's bundle must never leave in an archive; no module's code installs from one.
+  modulePackages: withCode("by_orgId_and_moduleId"),
   moduleActivityHeads: local(),
   moduleActivityPublications: derived("publishing each installed module's activity again from moduleDocs"),
   moduleActivityDescriptors: derived("publishing each installed module's activity again from moduleDocs"),
@@ -74,8 +76,9 @@ export const ARCHIVE_TABLES = {
   moduleVisitors: secret("visitor sessions are hashed bearer sessions"),
   moduleVisitCodes: secret("one-time visit codes are hashed bearer codes"),
   moduleRateLimits: local(),
-  // Files are out of scope until archives carry storage; the ticket secret never leaves.
-  moduleFiles: needsIndex("by_orgId", ["secret", "visitorUpload"]),
+  // Files people put in module docs, with their bytes (cli/workspaceArchive.ts). An upload ticket's secret and a
+  // visitor's upload session (a share grant's, which never moves) stay behind.
+  moduleFiles: { class: "data", scope: { by: "org", index: "by_orgId" }, omit: ["secret", "visitorUpload"] },
   moduleJobs: local(),
   moduleSnapshots: data("by_orgId_moduleId_snapshot_page"),
   moduleCursors: local(),

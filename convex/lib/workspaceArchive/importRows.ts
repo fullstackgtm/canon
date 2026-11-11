@@ -76,6 +76,8 @@ export type ImportSpec = {
   local?: Readonly<Record<string, string>>;
   /** Fields this install derives again from the row's others (a module doc's index slots): left out of the decoded row. */
   rebuilt?: readonly string[];
+  /** A module's rows written whether or not the module is installed here (its files: docs, restored or held, name them). */
+  live?: true;
 };
 
 /** Tables whose ids sit inside other tables' strings: the order can't be read off the validators, so it is named. */
@@ -264,6 +266,8 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   fieldConsolidationWrites: { kind: "rows", prose: ["before", "after", "reason", "detail"], dependsOn: RECORDS },
   fieldConsolidationProfiles: { kind: "rows", prose: ["profile", "error"], dependsOn: RECORDS },
 
+  // Files people put in a module's docs, their bytes uploaded first (`_storage` is mapped then). A doc's file field names one.
+  moduleFiles: { kind: "module", live: true, module: { field: "moduleId" }, prose: ["name", "attachedTo.key"], dependsOn: MODULE_DEPS },
   // A module's documents and their history (docs/workspace-export.md, "Module data"). The module's own manifest types
   // the ids inside a doc, so every id the archive maps is rewritten wherever it stands: a doc's data, its key (made
   // from its fields, a member's id among them) and its set parent's key. Any other word stays as written.
@@ -279,10 +283,10 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
  * The `data` sections this importer leaves for later, each with why. Every exported table is imported or listed
  * here (tests/workspaceImport.test.ts), so the dry run's "not imported yet" lines always say why.
  * - `C`: the module package itself and the planning tables (commissions, territories, quota plans).
- * - `files`: rows that are their stored file, which archives don't carry yet.
+ * - `code`: an installed recipe's bundle, which runs: code is installed here, never from an archive.
  * - `rebuilt`: state the import rebuilds or the next sync writes.
  */
-export const DEFERRED: Readonly<Record<string, { group: "C" | "files" | "rebuilt"; why: string }>> = {
+export const DEFERRED: Readonly<Record<string, { group: "C" | "code" | "rebuilt"; why: string }>> = {
 
   modulePackages: { group: "C", why: "module code is never installed from an archive; a module installed here takes its documents" },
   moduleInterfaceOwners: { group: "rebuilt", why: "which installed package owns an interface (ICPs); the modules installed here decide it" },
@@ -304,8 +308,8 @@ export const DEFERRED: Readonly<Record<string, { group: "C" | "files" | "rebuilt
   capacityModels: { group: "C", why: "arrives with the quota plans" },
   planningScenarios: { group: "C", why: "arrives with the quota plans" },
   headcountReqs: { group: "C", why: "a requisition names its territory" },
-  recipePackages: { group: "files", why: "an installed recipe is its bundle, a stored file" },
-  recipeMarkdownRevisions: { group: "files", why: "a workspace recipe's revisions run with its package's bundle, a stored file" },
+  recipePackages: { group: "code", why: "an installed recipe runs its bundle, and code is never installed from an archive" },
+  recipeMarkdownRevisions: { group: "code", why: "a workspace recipe's revisions run with its package's bundle, and code is never installed from an archive" },
   icpScores: { group: "rebuilt", why: "scores of CRM mirror accounts, which archives never carry; the rescore after import scores the register" },
   accountEnrichments: { group: "rebuilt", why: "enrichment of CRM mirror accounts, which archives never carry" },
   leadScores: { group: "rebuilt", why: "scores of CRM mirror contacts, which archives never carry" },
@@ -341,6 +345,8 @@ export function dependenciesOf(table: string, shape: Shape | undefined): string[
   // A row a module owns in another table comes after the module's own rows: a sequence launch is bound to its
   // sequence's docs (lib/sequences/bindings.ts), which must be in first.
   if (IMPORT_TABLES[table]?.module && IMPORT_TABLES[table].kind !== "module") for (const [t, spec] of Object.entries(IMPORT_TABLES)) if (spec.kind === "module") refs.add(t);
+  // A module's docs name its files by id, so the files come first.
+  if (IMPORT_TABLES[table]?.kind === "module" && !IMPORT_TABLES[table].live) for (const [t, spec] of Object.entries(IMPORT_TABLES)) if (spec.live) refs.add(t);
   // A deferred field's refs are filled in by its second pass, after the section it waits for.
   const deferred = IMPORT_TABLES[table]?.defer?.fields ?? [];
   const own = shape?.fields ? { ...shape, fields: Object.fromEntries(Object.entries(shape.fields).filter(([k]) => !deferred.includes(k))) } : shape;
@@ -570,7 +576,8 @@ export function decodeRow(table: string, shape: Shape, raw: Record<string, unkno
 
   const refOf = (refTable: string, id: string, at: Shape, path: readonly string[]): unknown => {
     if (opts.deferSelf && refTable === table) return SKIP;
-    if (!env.imported(refTable) || env.map(id) === SKIPPED) {
+    // A stored file is mapped once the import uploaded it; one the archive doesn't carry is cleared like any table it doesn't.
+    if (!env.imported(refTable) || env.map(id) === SKIPPED || (refTable === "_storage" && env.map(id) === undefined)) {
       out.cleared[refTable] = (out.cleared[refTable] ?? 0) + 1;
       missing = refTable;
       return SKIP;

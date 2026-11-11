@@ -31,8 +31,8 @@ names its workspace, so it can't export any other. Every read checks that the ad
 
 ## What an archive holds
 
-The archive is a tar file holding `manifest.json` and gzipped NDJSON parts under `sections/<name>/`, each up to about
-8 MB. One section holds one table's rows for this workspace:
+The archive is a tar file holding `manifest.json`, gzipped NDJSON parts under `sections/<name>/`, each up to about
+8 MB, and the stored files the rows name under `files/<id>`. One section holds one table's rows for this workspace:
 
 - The record ledger and its identities: every company, person, deal, association and activity stream, merges and
   duplicate decisions, and your object definitions.
@@ -42,9 +42,14 @@ The archive is a tar file holding `manifest.json` and gzipped NDJSON parts under
   their documents, sequences, suppressions, the do-not-call list and the rest of the workspace's records.
 - Members, as a `users` section with their name, email, role, manager, title and whether they're active. An import
   will match people by email.
+- Stored files: what people put in a module's file fields, hierarchy scan snapshots and the pages their research
+  read, and field consolidation CSVs. An archive carries at most 1 GiB of files, because the import reads the
+  archive into memory, and at most 10 MiB per file, because the import sends each file in one call. A module's
+  file field takes 10 MB unless the module allows more. Past either limit the export stops before it writes any
+  file and names the largest files.
 
 The manifest records the source (self-hosted or hosted, the app commit, the data epoch, the record service contract),
-when and by whom the archive was made, each section's row count, and each part's SHA-256. References between records
+when and by whom the archive was made, each section's row count, and each part's and file's SHA-256. References between records
 are written as `{"$ref": "<table>", "id": "<old id>"}`. Ids written inside text, such as `user:<id>` in a source
 reference, are left as they are. The manifest counts them per section.
 
@@ -57,7 +62,7 @@ reference, are left as they are. The manifest counts them per section.
 - Sync state, queues, cursors, background jobs and fills held for review.
 - What Canon rebuilds from the ledger and from facts, such as list rows and field state.
 - Data shared by every workspace, such as public website caches.
-- Files and attachments, for now. The manifest counts how many stored files the exported rows reference.
+- Installed recipe and module code, and the audio of a dialer call (its row stays behind with its dialer session).
 
 The manifest's `notExported` list names every table left out, with its reason.
 
@@ -158,8 +163,8 @@ act, with what is connected on this deployment.
 - **Calls** from every provider arrive with their transcripts, insights and suggestions. The dialer's settings and
   the recording policy arrive with call recording off, and calling needs a number connected here. A dialer call's
   own row needs its dialer session, which stays behind, so it is left out and counted: the call stays on the
-  person's activity, and its transcript and insights come along. Its audio was a file, and files don't come along
-  yet, so the call shows no recording to play. A recording link from a meeting recorder or another provider stays.
+  person's activity, and its transcript and insights come along. Its audio was a file on that row, so the call shows
+  no recording to play. A recording link from a meeting recorder or another provider stays.
 - **The hierarchy manager and field consolidations** arrive with their settings, scans, research, decisions and
   runs. Nothing in them is automatic: every parent move and every consolidation is a person's decision. A scan,
   research or consolidation run that hadn't finished arrives failed; run it again here. What a connected CRM said
@@ -177,8 +182,10 @@ What doesn't, for now:
   sync rebuilds (CRM mirror scores and what a connected CRM says about a company's parent).
 - A row that needs something not imported is left out and counted, such as an audience member an agent added. The
   dry run says how many, per section, and why.
-- Files and attachments: references to them are cleared and counted per section, and a row that is only its file
-  is left out.
+- Files: the import sends each file a row it writes names before the sections. This deployment checks its SHA-256
+  against the manifest, stores it, and rewrites the row to the copy. A file the archive doesn't carry (an archive from before
+  files moved) is cleared from its row and counted, and a row that is only its file is left out. A module's files
+  arrive even when the module isn't installed here, so its held docs still find them.
 - Nothing sends or syncs on its own: integrations, mailboxes and grants are never in an archive, so they stay
   disconnected until you connect them here. The import stops while this workspace has an active automation rule or
   a live record webhook, so imported history can't set either off. Turn them off, then run the import again.

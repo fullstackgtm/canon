@@ -19,6 +19,8 @@ const Body = z.discriminatedUnion("op", [
   z.object({ op: z.literal("users"), offset: z.number().int().min(0), rows: z.array(line).max(200), formerIds: z.array(z.string().max(64)).max(200), pass: z.literal(2).optional() }),
   z.object({ op: z.literal("page"), section: z.string().max(100), offset: z.number().int().min(0), rows: z.array(line).max(100), pass: z.literal(2).optional() }),
   z.object({ op: z.literal("register"), section: z.enum(["register.accounts", "register.contacts", "register.field_history"]), offset: z.number().int().min(0), rows: z.array(line).max(1000) }),
+  // A file's bytes as base64: at most 10 MiB of file (cli/workspaceArchive.ts FILE_MAX_BYTES).
+  z.object({ op: z.literal("importFile"), oldId: z.string().max(64), sha256: z.string().regex(/^[0-9a-f]{64}$/), contentType: z.string().max(200), base64: z.string().max(14_000_000) }),
   z.object({ op: z.literal("finish"), expected: z.record(z.string().max(120), z.number().int().min(0)) }),
 ]);
 
@@ -41,6 +43,10 @@ export async function POST(request: Request): Promise<Response> {
     else if (body.op === "users") result = await convex.mutation(api.workspaceImport.importUsers, { key, ...withoutOp(body) });
     else if (body.op === "page") result = await convex.mutation(api.workspaceImport.importPage, { key, ...withoutOp(body) });
     else if (body.op === "register") result = await convex.action(api.workspaceImport.importRegister, { key, ...withoutOp(body) });
+    else if (body.op === "importFile") {
+      const bytes = Buffer.from(body.base64, "base64");
+      result = await convex.action(api.workspaceImport.importFile, { key, oldId: body.oldId, sha256: body.sha256, contentType: body.contentType, bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
+    }
     else result = await convex.mutation(api.workspaceImport.finish, { key, ...withoutOp(body) });
     return Response.json(result, { headers: { "cache-control": "no-store" } });
   } catch (e) {
