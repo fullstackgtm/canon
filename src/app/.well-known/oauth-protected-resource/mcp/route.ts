@@ -15,8 +15,9 @@ import { siteBase } from "../../../api/agents/_lib.ts";
 
 export const dynamic = "force-dynamic";
 
+// A self-hosted install's /mcp takes paired CLI tokens only, so it advertises no authorization server.
 function flagOff(): Response | null {
-  return process.env.MCP_REMOTE_ENABLED !== "true"
+  return process.env.MCP_REMOTE_ENABLED !== "true" || process.env.CANON_AUTH === "local"
     ? new Response(null, { status: 404 })
     : null;
 }

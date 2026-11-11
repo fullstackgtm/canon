@@ -6,12 +6,14 @@
  *   - `canon login` runs the MCP OAuth flow (discovery, dynamic client
  *     registration, PKCE) in the browser with a loopback redirect, then keeps
  *     and refreshes the tokens in ~/.canon/credentials.json (0600).
+ *   - A self-hosted Canon has no OAuth: `canon login` pairs this machine
+ *     instead (pairDevice) and keeps the paired CLI token in the same file.
  *   - Headless agents set CANON_TOKEN to a paired CLI token instead.
  */
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -24,7 +26,7 @@ const DEFAULT_URL = "https://canoncrm.com";
 const CALLBACK_PORT = Number(process.env.CANON_CALLBACK_PORT ?? 8976);
 const VERSION = "0.1.0";
 
-type Stored = { client?: OAuthClientInformationMixed; tokens?: OAuthTokens; verifier?: string };
+type Stored = { client?: OAuthClientInformationMixed; tokens?: OAuthTokens; verifier?: string; cliToken?: string };
 type CredentialFile = Record<string, Stored>;
 
 function credentialsPath() {
@@ -55,7 +57,8 @@ function openBrowser(url: string) {
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   try {
-    spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
+    // A server without a browser (no xdg-open) fails the spawn asynchronously; the link is printed either way.
+    spawn(cmd, args, { stdio: "ignore", detached: true }).on("error", () => {}).unref();
   } catch {
     // Printed below as a fallback.
   }
@@ -125,6 +128,40 @@ function awaitCallback(): { server: Server; code: Promise<string> } {
   return { server, code };
 }
 
+/** Whether `base` signs MCP clients in with OAuth. A self-hosted Canon advertises none: its /mcp takes paired CLI tokens. */
+async function offersOAuth(base: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  try {
+    return (await fetchImpl(`${base}/.well-known/oauth-protected-resource/mcp`)).ok;
+  } catch {
+    return true;
+  }
+}
+
+type Pairing = { deviceCode: string; userCode: string; verificationUrl: string; expiresInSeconds: number; intervalSeconds: number };
+
+/**
+ * Pair this machine with `base` through its device flow (src/app/api/cli/auth): show the approval page and its code,
+ * wait while a signed-in member approves it, then keep the token in the credentials file. The token is never printed.
+ */
+export async function pairDevice(base: string, io: { fetchImpl?: typeof fetch; open?: (url: string) => void; wait?: (ms: number) => Promise<void>; log?: (line: string) => void } = {}): Promise<void> {
+  const { fetchImpl = fetch, open = openBrowser, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log = console.error } = io;
+  const post = async <T>(path: string, body: Record<string, unknown>): Promise<T> => {
+    const response = await fetchImpl(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error(`${base}${path} answered HTTP ${response.status}.`);
+    return (await response.json()) as T;
+  };
+  const pairing = await post<Pairing>("/api/cli/auth/start", { requesterLabel: `canon CLI on ${hostname()}` });
+  log(`Approve this machine in Canon, signed in as the member the CLI will act as:\n  ${pairing.verificationUrl}\nThe page shows code ${pairing.userCode}.`);
+  open(pairing.verificationUrl);
+  for (const deadline = Date.now() + pairing.expiresInSeconds * 1000; Date.now() < deadline;) {
+    await wait(pairing.intervalSeconds * 1000);
+    const poll = await post<{ status: string; cliToken?: string }>("/api/cli/auth/poll", { deviceCode: pairing.deviceCode });
+    if (poll.status === "approved" && poll.cliToken) return updateCredentials(base, () => ({ cliToken: poll.cliToken }));
+    if (poll.status !== "pending") throw new Error(`The pairing was ${poll.status}. Run \`canon login\` again.`);
+  }
+  throw new Error("The pairing expired before anyone approved it. Run `canon login` again.");
+}
+
 function baseUrl(flags: Map<string, string>) {
   return (flags.get("--url") ?? process.env.CANON_URL ?? DEFAULT_URL).replace(/\/+$/, "");
 }
@@ -133,7 +170,7 @@ function baseUrl(flags: Map<string, string>) {
 function connectionError(endpoint: URL, error: unknown): Error {
   const code = error instanceof StreamableHTTPError ? error.code : undefined;
   if (code === 401 || code === 403) return new Error(`${endpoint.origin} refused the token (HTTP ${code}). Run \`canon login\`, or pair a new CLI token for CANON_TOKEN.`);
-  if (code === 404) return new Error(`No Canon MCP endpoint at ${endpoint.href} (HTTP 404). Check --url or CANON_URL; a local or self-hosted server needs MCP_REMOTE_ENABLED=true.`);
+  if (code === 404) return new Error(`No Canon MCP endpoint at ${endpoint.href} (HTTP 404). Check --url or CANON_URL; a hosted-mode server needs MCP_REMOTE_ENABLED=true.`);
   if (code !== undefined) return new Error(`${endpoint.href} answered HTTP ${code}. Retry once; if it fails again, check the server's logs.`);
   const cause = error instanceof Error ? (error.cause as { code?: string } | undefined)?.code ?? error.message : String(error);
   if (/ECONNREFUSED|ENOTFOUND|fetch failed|EAI_AGAIN/.test(cause)) return new Error(`Could not reach ${endpoint.origin} (${cause}). Check --url or CANON_URL and that the server is running.`);
@@ -151,7 +188,7 @@ async function connect(base: string, opts: { interactive: boolean }): Promise<Cl
 
 async function connectTo(endpoint: URL, base: string, opts: { interactive: boolean }): Promise<Client> {
   const client = new Client({ name: "canon-cli", version: VERSION });
-  const headless = process.env.CANON_TOKEN;
+  const headless = process.env.CANON_TOKEN ?? readCredentials()[base]?.cliToken;
   if (headless) {
     await client.connect(new StreamableHTTPClientTransport(endpoint, { requestInit: { headers: { Authorization: `Bearer ${headless}` } } }));
     return client;
@@ -308,7 +345,7 @@ function parseArgs(text: string): Record<string, unknown> {
 
 const USAGE = `canon ${VERSION} — Canon from the command line (talks to <url>/mcp)
 
-  canon login [--url <url>]            sign in through the browser (OAuth)
+  canon login [--url <url>]            sign in through the browser (OAuth), or pair with a self-hosted Canon
   canon logout [--url <url>]
   canon whoami
   canon deals [--name <text>] [--limit <n>]
@@ -370,15 +407,19 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(VERSION);
       return;
     case "login": {
-      const client = await connect(base, { interactive: true });
+      const paired = !(await offersOAuth(base));
+      if (paired) await pairDevice(base);
+      const client = await connect(base, { interactive: !paired });
       await client.close();
-      console.log(`Signed in to ${base}.`);
+      console.log(paired ? `Paired with ${base}. Revoke it in Settings > API access.` : `Signed in to ${base}.`);
       return;
     }
-    case "logout":
+    case "logout": {
+      const paired = Boolean(readCredentials()[base]?.cliToken);
       updateCredentials(base, () => undefined);
-      console.log(`Signed out of ${base}.`);
+      console.log(paired ? `Forgot the token for ${base}. It works until you revoke it in Settings > API access.` : `Signed out of ${base}.`);
       return;
+    }
     case "whoami":
       return callTool(base, "canon_whoami", {});
     case "deals":

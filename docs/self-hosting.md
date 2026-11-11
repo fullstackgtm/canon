@@ -361,6 +361,33 @@ The SSH user must already have Docker access without an interactive sudo prompt.
 Use an SSH config alias for custom ports or keys. For a private server, keep the
 tunnel open and use its localhost URL instead.
 
+## Use the canon CLI and MCP clients
+
+The `canon` CLI and other MCP clients reach a self-hosted Canon at `<your URL>/mcp`
+with a paired CLI token. A self-hosted Canon has no OAuth server, so `/mcp` takes
+those tokens only. From a Canon checkout:
+
+```sh
+npm run canon -- login --url https://crm.example.com
+npm run canon -- whoami --url https://crm.example.com
+```
+
+`login` prints a link to `/dashboard/cli-auth` and a code, and opens the link.
+Sign in there as an admin or manager, check that the page shows the same code,
+and approve it. The CLI then keeps the token in `~/.canon/credentials.json`
+(mode `0600`) and never prints it. It acts as the member who approved it, with
+that member's role. Set `CANON_URL` to skip `--url`.
+
+**Settings > API access** lists each paired machine. Revoke one there, and its
+next request is refused. Turning a member off on the Team page revokes their
+tokens too. A token expires after 90 days. `canon logout` only forgets the
+token on that machine. Revoke it as well.
+
+For another MCP client, pair once with `canon login`, then give the client the
+token as an `Authorization: Bearer` header on `<your URL>/mcp`. A headless agent
+sets `CANON_TOKEN` to it instead of using the credentials file. The same token
+works on the record API (`/api/v1`).
+
 ## Preserve data and upgrade
 
 The Compose `data` volume mounts at `/data`. It contains both databases, file
