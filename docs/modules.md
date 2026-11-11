@@ -4000,9 +4000,12 @@ credits per call or per hit), its rate limits and who must consent before it run
 
 Canon's registry (`convex/lib/providers/registry.ts`) declares its providers with it and resolves each capability per
 workspace: the workspace's own key first, then the deployment's, else unavailable with a reason that names the keys
-that would turn it on. A provider that misses or fails passes to the next. Find email is the first capability behind
-it: a connected Deepline account, then Canon's hosted treg waterfall. Every receipt goes through the registry's
-`meter` into `providerCalls`. `tests/providerCensus.test.ts` lists every other provider call site still outside it.
+that would turn it on. A provider that misses or fails passes to the next. Find email runs behind it (a connected
+Deepline account, then Canon's hosted treg waterfall), and so do LinkedIn sends and reads (Unipile, on the
+deployment's key). Every receipt goes through the registry's `meter` into `providerCalls`. **Settings → Providers**
+shows each capability, the provider serving it in the workspace, where its key comes from (names only) and its cost; a
+self-hosted install without a key shows "Bring your own key" and the key names that turn it on.
+`tests/providerCensus.test.ts` lists every other provider call site still outside it.
 
 ## System
 

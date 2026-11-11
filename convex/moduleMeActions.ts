@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { createUnipileClient } from "./lib/linkedin/unipile";
-import { unipileEnv } from "./linkedinActions";
+import { unipileEnv } from "./lib/providers/linkedin";
 import { fakeModel } from "./lib/modules/ai";
 import { callerClient } from "./records";
 

@@ -24,7 +24,8 @@ let recordClient = createFakeRecordClient({ store: createMemoryRecordStore() });
 const loaded = loadConvex(["suppressions.ts", "dialer.ts", "emailAccounts.ts", "emailActions.ts", "linkedinWorker.ts", "outbound.ts", "outboundDispatch.ts", "modules.ts", "records.ts"], {
   "lib.ts": (real) => ({ ...real, getCurrentUser: async () => user, requireUser: async () => { if (!user) throw new Error("Not authenticated"); return user; }, agentClientOf: async () => agentClient }),
   "records.ts": (real) => ({ ...real, clientFor: () => recordClient, callerClient: (_ctx: unknown, caller: { access: Access }) => scopedRecordClient(recordClient, [caller.access], async () => null) }),
-  "linkedinActions.ts": (real) => ({ ...real, convexSiteUrl: () => "http://127.0.0.1:1", unipileEnv: () => null }),
+  "linkedinActions.ts": (real) => ({ ...real, convexSiteUrl: () => "http://127.0.0.1:1" }),
+  "lib/providers/linkedin.ts": (real) => ({ ...real, unipileEnv: () => null, linkedinClient: () => ({ client: null, reason: "LinkedIn is off in tests." }) }),
   "objects.ts": (real) => ({ ...real, saveAsCaller: async () => ({ status: "unchanged" }) }),
   "lib/outbound/adapters.ts": (real) => ({ ...real, providerReady: () => true }),
   // Compute and activity logging are stand-ins. Public authorization, planning, scoped reads and suppression decisions are real.

@@ -5,6 +5,8 @@ import { useQuery } from "convex/react";
 import { usePathname } from "next/navigation";
 import { api } from "../../convex/_generated/api";
 import { ACTION_INTEGRATIONS, INTEGRATIONS_AVAILABLE, integrationNeeds, type IntegrationFeature } from "../../convex/lib/integrationsAvailable.ts";
+import { ACTION_CAPABILITIES } from "../../convex/lib/providers/registry.ts";
+import type { ProviderCapability } from "../../modules/kernel/providers.ts";
 
 export function useIntegrationAvailable(feature: IntegrationFeature): boolean {
   return useQuery(api.integrationsAvailable.status)?.[feature] === true;
@@ -53,7 +55,15 @@ export function IntegrationReport() {
   </section>;
 }
 
+/** Children only where a provider serves `capability` in this workspace: its own key or the deployment's (Settings → Providers). */
+export function CapabilityGate({ capability, children }: { capability: ProviderCapability; children: ReactNode }) {
+  const settings = useQuery(api.providers.settings);
+  return settings?.capabilities.some((c) => c.capability === capability && c.ready) ? children : null;
+}
+
 export function IntegrationActionGate({ action, children }: { action: string; children: ReactNode }) {
+  const capability = ACTION_CAPABILITIES[action];
+  if (capability) return <CapabilityGate capability={capability}>{children}</CapabilityGate>;
   const feature = ACTION_INTEGRATIONS[action];
   return feature ? <IntegrationGate feature={feature}>{children}</IntegrationGate> : children;
 }

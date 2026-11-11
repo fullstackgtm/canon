@@ -1,7 +1,7 @@
 /** Every area on the Settings page, grouped the way the table shows them. */
 import type { IntegrationFeature } from "../../../../convex/lib/integrationsAvailable.ts";
 
-export type SettingsKey = "workspace" | "targets" | "team" | "permissions" | "pipelines" | "billing" | "api" | "webhooks" | "feeds" | "outbound" | "recording" | "emailLog";
+export type SettingsKey = "workspace" | "targets" | "team" | "permissions" | "pipelines" | "billing" | "providers" | "api" | "webhooks" | "feeds" | "outbound" | "recording" | "emailLog";
 
 export type SettingsDef = {
   key: SettingsKey;
@@ -84,6 +84,14 @@ export const SETTINGS_GROUPS: { title: string; items: SettingsDef[] }[] = [
         description:
           "The workspace's credits, buying more, invoices and saved cards in Stripe, and what was spent this month: credits by day, paid email hits and provider spend.",
         href: "/dashboard/settings/billing",
+      },
+      {
+        key: "providers",
+        name: "Providers",
+        summary: "Who finds emails and sends on LinkedIn, and whose key it uses",
+        description:
+          "Each data and sending capability, the provider that serves it in this workspace, whether its key is the workspace's own or the deployment's, and what a call costs. Admins and managers bring their own keys here.",
+        href: "/dashboard/settings/providers",
       },
       {
         key: "emailLog",

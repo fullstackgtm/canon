@@ -17,7 +17,6 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { unipileEnv } from "./linkedinActions";
 import {
   inWindow, nextGapMs, nextInviteSlot, remaining, windowBounds,
 } from "./lib/linkedin/limits";
@@ -25,7 +24,7 @@ import { afterConnected, afterMessage, chooseWork, render, withdrawDue, type Ste
 import { settleRetry } from "./lib/linkedin/outcomes";
 import { ACTIVITY_LOOKUPS, activeWithinDaysOf, dormantReason, freshCheck, isDormant } from "./lib/linkedin/activity";
 import { performInvite, performMessage, performSync, type EnrollmentRef, type Job, type Result } from "./lib/linkedin/perform";
-import { createUnipileClient } from "./lib/linkedin/unipile";
+import { linkedinClient } from "./lib/providers/linkedin";
 import { logLinkedinEvent, type Rendered } from "./lib/signals/contactLog";
 import { contactLog } from "./observations";
 import { senderCapacity } from "./lib/linkedin/sender";
@@ -213,14 +212,13 @@ export const runSender = internalAction({
   handler: async (ctx, args) => {
     const job: Claimed | null = await ctx.runMutation(internal.linkedinWorker.claim, { accountId: args.accountId });
     if (!job) return;
-    const env = unipileEnv();
     let result: Result = { sends: [], events: [], effect: null };
     if (job.kind !== "skip") {
-      if (!env) {
+      const { client } = linkedinClient("linkedin.send");
+      if (!client) {
         await ctx.runMutation(internal.linkedinWorker.finish, { accountId: args.accountId, sends: [], events: [], effect: { holdMs: 3_600_000, reason: "LinkedIn isn't set up on this deployment." } });
         return;
       }
-      const client = createUnipileClient(env);
       result = job.kind === "invite" ? await performInvite(client, job) : job.kind === "message" ? await performMessage(client, job) : await performSync(client, job);
     }
     const rendered = job.kind === "invite" || job.kind === "message" ? job.rendered : undefined;

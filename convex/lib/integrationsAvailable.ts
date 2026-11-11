@@ -50,8 +50,6 @@ export const ACTION_INTEGRATIONS: Readonly<Record<string, IntegrationFeature | r
   "kernel.checkNow": "chatgpt",
   "kernel.sendEmail": "unipile",
   "kernel.saveGmailDraft": "unipile",
-  "kernel.queueLinkedin": "unipile",
-  "kernel.findEmail": "treg",
   "kernel.findPhone": "treg",
   "kernel.callContact": "dialer",
   "kernel.checkSignals": "treg",
