@@ -7,6 +7,7 @@ export const gtmMutationRegistry = {
   "api.audiences.createFromIcp": api.audiences.createFromIcp,
   "api.agents.setOwner": api.agents.setOwner,
   "api.agents.setPaused": api.agents.setPaused,
+  "api.leadScoring.updateRoutingRule": api.leadScoring.updateRoutingRule,
   "api.agentTurns.create": api.agentTurns.create,
   "api.agentTurns.archive": api.agentTurns.archive,
   "api.agentTurns.testRun": api.agentTurns.testRun,

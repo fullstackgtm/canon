@@ -14,7 +14,8 @@
  * Nothing sends or acts after an import until a person turns it on here: writeRow applies each table's arrival
  * (lib/workspaceArchive/actors.ts) to every row, and `finish` refuses while any switch the archive could bring is open.
  *
- * Hosted deployments keep import switched off (`importEnabled`) until a dry-run screen and a proof on dev exist.
+ * A hosted deployment takes imports once its operator sets CANON_WORKSPACE_IMPORT=on (`importEnabled`); every import
+ * runs its dry run first and refuses to start while the dry run refuses anything.
  */
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -40,7 +41,7 @@ import { convexLedgerStore } from "./canon";
 import { resolveAttribute } from "./lib/canon/policy";
 import { invalidateFit } from "./lib/fitInvalidation";
 import { shardHeads } from "./ledgerFeed";
-import { arrive, CENSUS, type ArrivalAt, type Mechanism, type Switch } from "./lib/workspaceArchive/actors";
+import { ARRIVALS, arrive, CENSUS, type ArrivalAt, type Mechanism, type Switch } from "./lib/workspaceArchive/actors";
 import { restoreImportedDocs, restoreImportedFiles } from "./lib/modules/scope";
 import { enabledModules, installedModule, isEnabled, manifestOf } from "./lib/modules/packages";
 import { setModuleEnabled } from "./modules";
@@ -320,18 +321,23 @@ async function arrivalAt(ctx: QueryCtx, orgId: Id<"organizations">): Promise<Arr
  * refuses while any is open); `here` counts connections and grants made on this deployment, which an import never
  * writes. The import summary prints it, so an admin sees what arrived switched off and what is connected here.
  */
-export async function gatesIn(ctx: QueryCtx, orgId: Id<"organizations">) {
+/** The workspace's rows of one census switch: under a parent, those of each of the workspace's parent rows (an agent's turns). */
+async function switchRows(ctx: QueryCtx, orgId: Id<"organizations">, m: Mechanism, s: Switch): Promise<Array<Record<string, unknown>>> {
   type Indexed = { withIndex(i: string, f: (q: { eq(f: string, v: unknown): unknown }) => unknown): { take(n: number): Promise<Array<Record<string, unknown>>> } };
   /** Rows whose index's first field (orgId, or a parent's id) is `value`. */
   const rowsOf = async (table: string, index: string, value: unknown) => {
     const first = (schema.tables as unknown as Record<string, { indexes: Array<{ indexDescriptor: string; fields: string[] }> }>)[table].indexes.find((i) => i.indexDescriptor === index)!.fields[0];
     return (ctx.db.query(table as TableNames) as unknown as Indexed).withIndex(index, (q) => q.eq(first, value)).take(GATE_SCAN);
   };
-  // A switch under a parent reads the rows of each of the workspace's parent rows (an agent's turns, a play's steps).
+  const parentSwitch = s.parent ? m.imported.find((p) => p.table === s.parent && !p.parent) : null;
+  if (!parentSwitch) return rowsOf(s.table, s.index, orgId);
+  const parents = await rowsOf(parentSwitch.table, parentSwitch.index, orgId);
+  return (await Promise.all(parents.map((p) => rowsOf(s.table, s.index, p._id)))).flat();
+}
+
+export async function gatesIn(ctx: QueryCtx, orgId: Id<"organizations">) {
   const read = async (m: Mechanism, s: Switch) => {
-    const parentSwitch = s.parent ? m.imported.find((p) => p.table === s.parent && !p.parent) : null;
-    const parents = parentSwitch ? await rowsOf(parentSwitch.table, parentSwitch.index, orgId) : [];
-    const rows = parentSwitch ? (await Promise.all(parents.map((p) => rowsOf(s.table, s.index, p._id)))).flat() : await rowsOf(s.table, s.index, orgId);
+    const rows = await switchRows(ctx, orgId, m, s);
     return { rows: rows.length, open: rows.filter((r) => (s.open ? s.open(r) : true)).length };
   };
   const out = [];
@@ -343,6 +349,35 @@ export async function gatesIn(ctx: QueryCtx, orgId: Id<"organizations">) {
   return out;
 }
 export type GateReport = Awaited<ReturnType<typeof gatesIn>>;
+
+/**
+ * What an import brought here switched off and is still off, for the arrival checklist (Settings > Workspace >
+ * Arrived off): every census switch's rows its `checklist` lists, each with what it would do, why it arrived off and
+ * how a person turns it on here through its own switch. Built from the census, so a new actor appears here once its
+ * census row says how. Admins only, and only once this workspace took an import.
+ */
+export const arrivals = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user || !can(user, "workspace.transfer") || (await agentClientOf(ctx))) return null;
+    const imp = await ctx.db.query("workspaceImports").withIndex("by_orgId", (q) => q.eq("orgId", user.orgId)).order("desc").first();
+    if (!imp || imp.status !== "done") return { importedAt: null, items: [] };
+    const items = [];
+    const seen = new Set<string>();
+    for (const m of CENSUS) for (const s of m.imported) {
+      const list = s.checklist;
+      if (!list || "history" in list) continue;
+      for (const r of await switchRows(ctx, user.orgId, m, s)) {
+        const id = String(r._id);
+        if (!list.lists(r) || seen.has(id)) continue;
+        seen.add(id);
+        items.push({ mechanism: m.key, does: m.does, table: s.table, id, name: list.name(r), arrived: ARRIVALS[s.table]?.why ?? m.arrives, turnOn: list.turnOn(r) });
+      }
+    }
+    return { importedAt: imp.finishedAt ?? null, items };
+  },
+});
 
 /** Remove the new workspace's own rows of a settings table (its defaults) the first time the archive's arrive. */
 async function replaceDefaults(ctx: MutationCtx, imp: Doc<"workspaceImports">, table: string) {
