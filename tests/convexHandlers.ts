@@ -13,6 +13,10 @@ import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import * as convexAuthServer from "@convex-dev/auth/server";
+import { Password } from "@convex-dev/auth/providers/Password";
+import Google from "@auth/core/providers/google";
+import Resend from "@auth/core/providers/resend";
 
 const nodeRequire = createRequire(import.meta.url);
 const CONVEX = resolve(dirname(fileURLToPath(import.meta.url)), "../convex");
@@ -36,6 +40,10 @@ export function loadConvex(files: readonly string[], overrides: Record<string, (
     const req = (id: string) => {
       if (id.endsWith("_generated/server")) return server;
       if (id.endsWith("_generated/api")) return api;
+      if (id === "@convex-dev/auth/server") return convexAuthServer;
+      if (id === "@convex-dev/auth/providers/Password") return { Password };
+      if (id === "@auth/core/providers/google") return { default: Google };
+      if (id === "@auth/core/providers/resend") return { default: Resend };
       if (!id.startsWith(".")) return nodeRequire(id);
       const base = resolve(dirname(path), id);
       const target = [base, `${base}.ts`, `${base}/index.ts`].find((p) => p.endsWith(".ts") && existsSync(p));

@@ -32,6 +32,7 @@ import type * as associations from "../associations.js";
 import type * as audienceActions from "../audienceActions.js";
 import type * as audienceImport from "../audienceImport.js";
 import type * as audiences from "../audiences.js";
+import type * as auth from "../auth.js";
 import type * as automationAgent from "../automationAgent.js";
 import type * as automations from "../automations.js";
 import type * as backgroundJobs from "../backgroundJobs.js";
@@ -75,6 +76,7 @@ import type * as conversationExtractActions from "../conversationExtractActions.
 import type * as conversationView from "../conversationView.js";
 import type * as conversations from "../conversations.js";
 import type * as conversationsApi from "../conversationsApi.js";
+import type * as convexAuthUsers from "../convexAuthUsers.js";
 import type * as credits from "../credits.js";
 import type * as crmDisagreements from "../crmDisagreements.js";
 import type * as crons from "../crons.js";
@@ -672,6 +674,7 @@ declare const fullApi: ApiFromModules<{
   audienceActions: typeof audienceActions;
   audienceImport: typeof audienceImport;
   audiences: typeof audiences;
+  auth: typeof auth;
   automationAgent: typeof automationAgent;
   automations: typeof automations;
   backgroundJobs: typeof backgroundJobs;
@@ -715,6 +718,7 @@ declare const fullApi: ApiFromModules<{
   conversationView: typeof conversationView;
   conversations: typeof conversations;
   conversationsApi: typeof conversationsApi;
+  convexAuthUsers: typeof convexAuthUsers;
   credits: typeof credits;
   crmDisagreements: typeof crmDisagreements;
   crons: typeof crons;

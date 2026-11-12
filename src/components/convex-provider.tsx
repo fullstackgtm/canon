@@ -5,7 +5,8 @@ import { ConvexProvider, ConvexProviderWithAuth, ConvexReactClient, useConvexAut
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { ClerkProvider, useAuth } from "@clerk/nextjs";
 import { api } from "../../convex/_generated/api";
-import { LOCAL_AUTH } from "@/lib/authMode";
+import { ConvexAuthNextjsProvider } from "@convex-dev/auth/nextjs";
+import { LOCAL_AUTH, CONVEX_AUTH } from "@/lib/authMode";
 
 async function fetchLocalAccessToken() {
   const response = await fetch("/api/local-auth", { cache: "no-store" });
@@ -94,9 +95,14 @@ function ProdProvider({ children }: { children: React.ReactNode }) {
 
 export function ConvexClientProvider({
   children,
+  waitForAuth = true,
 }: {
   children: React.ReactNode;
+  waitForAuth?: boolean;
 }) {
+  if (CONVEX_AUTH) {
+    return <ConvexAuthNextjsProvider client={convex}>{waitForAuth ? <AwaitConvexAuth>{children}</AwaitConvexAuth> : children}</ConvexAuthNextjsProvider>;
+  }
   if (LOCAL_AUTH) {
     return <ConvexProviderWithAuth client={convex} useAuth={useLocalAuth}><AwaitConvexAuth>{children}</AwaitConvexAuth></ConvexProviderWithAuth>;
   }
@@ -111,7 +117,7 @@ export function ClerkAuthProvider({
 }: {
   children: React.ReactNode;
 }) {
-  if (LOCAL_AUTH) return <>{children}</>;
+  if (LOCAL_AUTH || CONVEX_AUTH) return <>{children}</>;
   if (DEV_MODE) {
     return <>{children}</>;
   }

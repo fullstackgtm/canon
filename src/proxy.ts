@@ -1,3 +1,4 @@
+import { CONVEX_AUTH } from "./lib/authMode";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { visitHeaders, visitFileHeaders } from "./lib/visitHeaders.ts";
@@ -39,6 +40,18 @@ export async function proxy(request: NextRequest) {
     Boolean(bypassToken) &&
     (request.headers.get("x-fsgtm-smoke-bypass") === bypassToken ||
       request.headers.get("x-fsgtm-ui-smoke") === bypassToken);
+
+  if (CONVEX_AUTH) {
+    const { convexAuthNextjsMiddleware, nextjsMiddlewareRedirect } = await import("@convex-dev/auth/nextjs/server");
+    const handler = convexAuthNextjsMiddleware(async (req, { convexAuth }) => {
+      const path = req.nextUrl.pathname;
+      if (isPublicPath(path) || isClerkContextOnlyPath(path)) return NextResponse.next();
+      if (await convexAuth.isAuthenticated()) return NextResponse.next();
+      if (path.startsWith("/api/")) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return nextjsMiddlewareRedirect(req, "/sign-in");
+    }, { shouldHandleCode: (req) => req.nextUrl.pathname.startsWith("/sign-in") || req.nextUrl.pathname.startsWith("/sign-up") });
+    return handler(request, {} as any);
+  }
 
   if (process.env.CANON_AUTH === "local") {
     const [{ localAuthGate }, { sessionForToken }] = await Promise.all([import("./lib/localAuthGate.ts"), import("./lib/localAuth.ts")]);

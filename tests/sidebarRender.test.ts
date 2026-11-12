@@ -18,7 +18,8 @@ const { outputText } = ts.transpileModule(source, {
 });
 const stubs: Record<string, unknown> = {
   "@/components/integration-gate": { IntegrationGate: childrenOnly },
-  "@/lib/authMode": { LOCAL_AUTH: false },
+  "@/lib/authMode": { LOCAL_AUTH: false, CONVEX_AUTH: false },
+  "@/components/convex-sign-in": { ConvexUserButton: empty },
   "@/components/local-auth-controls": { LocalInviteDialog: empty, LocalOrgSwitcher: empty, LocalUserButton: empty },
   "next/link": { default: ({ children, ...props }: { children?: ReactNode }) => createElement("a", props, children) },
   "next/navigation": { usePathname: () => "/dashboard/integrations" },

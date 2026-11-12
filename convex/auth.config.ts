@@ -5,17 +5,17 @@
 // JWKS, so Convex never fetches keys over the network.
 const serviceIssuer = process.env.CANON_SERVICE_JWT_ISSUER;
 const serviceJwks = process.env.CANON_SERVICE_JWKS;
-let localAuth = false;
+let authMode = "clerk";
 try {
-  localAuth = process.env.CANON_AUTH === "local";
+  authMode = process.env.CANON_AUTH ?? "clerk";
 } catch {
   // Convex auth-config evaluation throws on an unset variable. Existing Clerk installs need no new setting.
 }
 
 const authConfig = {
   providers: [
-    ...(localAuth ? [] : [{
-      domain: process.env.CLERK_JWT_ISSUER_DOMAIN,
+    ...(authMode === "local" ? [] : [{
+      domain: authMode === "convex" ? process.env.CONVEX_SITE_URL : process.env.CLERK_JWT_ISSUER_DOMAIN,
       applicationID: "convex",
     }]),
     ...(serviceIssuer && serviceJwks
