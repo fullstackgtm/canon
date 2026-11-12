@@ -1,3 +1,4 @@
+import { auth } from "./auth";
 import { httpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
@@ -16,6 +17,7 @@ import { registerUnsubscribeRoute } from "./lib/outbound/unsubscribeRoute";
 import { billingFromSubscription, invoiceSubscriptionId, stripeClient, verifyWebhook } from "./lib/stripeBilling";
 
 const http = httpRouter();
+if (process.env.CANON_AUTH === "convex") auth.addHttpRoutes(http);
 registerPiRoute(http);
 
 http.route({

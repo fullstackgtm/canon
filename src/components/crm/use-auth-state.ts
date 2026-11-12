@@ -1,7 +1,7 @@
 "use client";
 
 import { useConvexAuth } from "convex/react";
-import { LOCAL_AUTH } from "@/lib/authMode";
+import { LOCAL_AUTH, CONVEX_AUTH } from "@/lib/authMode";
 
 const DEV_MODE =
   (process.env.NODE_ENV !== "production" && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) ||
@@ -12,6 +12,6 @@ const DEV_MODE =
  * mode the backend's demo bypass supplies the user, so report "signed in".
  * DEV_MODE is a build-time constant, so the hook order never changes.
  */
-export const useAuthState: () => { isAuthenticated: boolean; isLoading: boolean } = DEV_MODE && !LOCAL_AUTH
+export const useAuthState: () => { isAuthenticated: boolean; isLoading: boolean } = DEV_MODE && !LOCAL_AUTH && !CONVEX_AUTH
   ? () => ({ isAuthenticated: true, isLoading: false })
   : useConvexAuth;

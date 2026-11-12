@@ -1,3 +1,4 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import { isBuiltInRole } from "./lib/roles";
 import { can, refusal } from "./lib/capabilities";
@@ -20,7 +21,7 @@ export const DEV_USER_CLERK_ID = "dev_user_fullstackgtm";
  * talk to Convex directly, so any auth bypass here is a deployment-wide hole.
  */
 export function isDevAuthBypassEnabled() {
-  if (process.env.CANON_AUTH === "local") return false;
+  if (process.env.CANON_AUTH === "local" || process.env.CANON_AUTH === "convex") return false;
   return process.env.FSGTM_ENABLE_DEMO_DATA === "true";
 }
 
@@ -59,7 +60,9 @@ export async function scopeUserToActiveOrg(
   ctx: QueryCtx | MutationCtx,
   user: Doc<"users">,
   activeClerkOrgId: string | null,
+  activeOrgId?: Id<"organizations">,
 ): Promise<Doc<"users"> | null> {
+  if (activeOrgId) return credentialMember(ctx, user, activeOrgId);
   if (!activeClerkOrgId) return credentialMember(ctx, user, user.orgId);
 
   const org = await ctx.db
@@ -112,6 +115,17 @@ async function findUser(ctx: QueryCtx | MutationCtx) {
     return devBypassUser(ctx);
   }
 
+  if (process.env.CANON_AUTH === "convex") {
+    const service = process.env.CANON_SERVICE_JWT_ISSUER;
+    if (!service || identity.issuer !== service) {
+      const userId = await getAuthUserId(ctx);
+      const user = userId ? await ctx.db.get(userId) : null;
+      if (!user?.isActive) return null;
+      return scopeUserToActiveOrg(ctx, user, null, user.activeOrgId);
+    }
+    // Paired CLI JWTs use the legacy member key and the pairing's workspace claim.
+  }
+
   const identityKeys = [identity.tokenIdentifier, identity.subject].filter(
     (key): key is string => Boolean(key),
   );
@@ -123,7 +137,7 @@ async function findUser(ctx: QueryCtx | MutationCtx) {
       .first();
 
     if (user) {
-      if (process.env.CANON_AUTH === "local" && !user.isActive) return null;
+      if ((process.env.CANON_AUTH === "local" || process.env.CANON_AUTH === "convex") && !user.isActive) return null;
       return scopeUserToActiveOrg(ctx, user, activeClerkOrgIdFromIdentity(identity));
     }
   }

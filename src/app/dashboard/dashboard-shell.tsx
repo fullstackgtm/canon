@@ -31,7 +31,8 @@ import { RecordInspection } from "@/components/records/record-inspection";
 import { WorkspaceTheme } from "@/components/shell/workspace-theme";
 import { DevUserButton } from "@/components/shell/dev-member-switcher";
 import { useOnboardingSteps } from "@/hooks/use-onboarding-steps";
-import { LOCAL_AUTH } from "@/lib/authMode";
+import { LOCAL_AUTH, CONVEX_AUTH } from "@/lib/authMode";
+import { ConvexUserButton } from "@/components/convex-sign-in";
 import { LocalInviteDialog, LocalOrgSwitcher, LocalUserButton } from "@/components/local-auth-controls";
 
 const DEV_MODE =
@@ -55,6 +56,7 @@ function DueTasksBadge({ collapsed }: { collapsed?: boolean }) {
 const COLLAPSE_KEY = "fsgtm-sidebar-collapsed";
 
 function ShellUserButton({ collapsed }: { collapsed?: boolean }) {
+  if (CONVEX_AUTH) return <ConvexUserButton collapsed={collapsed} />;
   if (LOCAL_AUTH) return <LocalUserButton collapsed={collapsed} />;
   if (DEV_MODE) return <DevUserButton collapsed={collapsed} />;
   return (
@@ -73,7 +75,7 @@ function ShellUserButton({ collapsed }: { collapsed?: boolean }) {
 }
 
 function ShellOrgSwitcher({ collapsed }: { collapsed?: boolean }) {
-  if (LOCAL_AUTH) return <LocalOrgSwitcher collapsed={collapsed} />;
+  if (LOCAL_AUTH || CONVEX_AUTH) return <LocalOrgSwitcher collapsed={collapsed} />;
   return DEV_MODE ? <DevOrgSwitcher collapsed={collapsed} /> : <OrgSwitcher collapsed={collapsed} />;
 }
 
@@ -208,7 +210,7 @@ function AskButton({ collapsed, onOpen }: { collapsed?: boolean; onOpen?: () => 
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const shell = <Suspense><RecordInspection><CustomizeProvider><Shell>{children}</Shell></CustomizeProvider></RecordInspection></Suspense>;
-  return LOCAL_AUTH || DEV_MODE ? shell : <RequireOrganization>{shell}</RequireOrganization>;
+  return LOCAL_AUTH || CONVEX_AUTH || DEV_MODE ? shell : <RequireOrganization>{shell}</RequireOrganization>;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

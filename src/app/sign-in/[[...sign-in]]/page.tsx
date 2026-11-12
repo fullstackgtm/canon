@@ -1,3 +1,5 @@
+import { CONVEX_AUTH } from "@/lib/authMode";
+import { ConvexSignInPage } from "@/components/convex-sign-in-page";
 import { redirect } from "next/navigation";
 import { SignIn } from "@clerk/nextjs";
 import { ClerkAuthProvider } from "@/components/convex-provider";
@@ -9,6 +11,7 @@ const DEV_MODE =
   !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 export default async function SignInPage() {
+  if (CONVEX_AUTH) return <ConvexSignInPage />;
   if (process.env.CANON_AUTH === "local") {
     const { LocalSignIn } = await import("@/components/local-sign-in");
     return <LocalSignIn />;

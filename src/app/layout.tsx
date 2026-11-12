@@ -1,3 +1,5 @@
+import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
+import { CONVEX_AUTH } from "@/lib/authMode";
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -61,7 +63,7 @@ export default function RootLayout({
       <body
         className={`${plexSans.variable} ${plexSerif.variable} ${plexMono.variable} font-sans antialiased`}
       >
-        <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        <TooltipProvider delayDuration={200}>{CONVEX_AUTH ? <ConvexAuthNextjsServerProvider shouldHandleCode={false}>{children}</ConvexAuthNextjsServerProvider> : children}</TooltipProvider>
         <Toaster richColors position="bottom-right" />
       </body>
     </html>

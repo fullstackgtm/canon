@@ -14,14 +14,14 @@ import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { awaitsLogin } from "../../../../convex/lib/clerkRoles";
 import { parseCsv } from "../../../../convex/lib/objects/csvImport";
-import { LOCAL_AUTH } from "@/lib/authMode";
+import { LOCAL_AUTH, CONVEX_AUTH } from "@/lib/authMode";
 
 const btn = "inline-flex h-8 items-center gap-1.5 border border-border px-2.5 text-xs font-medium hover:bg-muted disabled:opacity-50";
 const primary = cn(btn, "border-primary bg-primary text-primary-foreground hover:bg-primary/85");
 const input = "h-8 w-full border border-input bg-background px-2 text-sm outline-none focus:border-primary";
 
 /** Clerk runs sign-in and invites; a local stack bypasses it (convex-provider.tsx). */
-export const CLERK_ON = !LOCAL_AUTH && !((process.env.NODE_ENV !== "production" && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) || process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true");
+export const CLERK_ON = !LOCAL_AUTH && !CONVEX_AUTH && !((process.env.NODE_ENV !== "production" && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) || process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true");
 
 type Invite = (member: { _id: Id<"users">; email: string; role: string }) => Promise<void>;
 

@@ -1,3 +1,4 @@
+export const CONVEX_AUTH = process.env.NEXT_PUBLIC_CANON_AUTH === "convex";
 export const LOCAL_AUTH = process.env.NEXT_PUBLIC_CANON_AUTH === "local";
 export const LOCAL_SESSION_COOKIE = "canon_session";
 

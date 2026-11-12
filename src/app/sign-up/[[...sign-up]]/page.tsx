@@ -1,3 +1,4 @@
+import { CONVEX_AUTH } from "@/lib/authMode";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignUp } from "@clerk/nextjs";
@@ -17,6 +18,10 @@ export default async function SignUpPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  if (CONVEX_AUTH) {
+    const { ConvexSignInPage } = await import("@/components/convex-sign-in-page");
+    return <ConvexSignInPage />;
+  }
   if (process.env.CANON_AUTH === "local") {
     const { LocalSignIn } = await import("@/components/local-sign-in");
     return <LocalSignIn invite={typeof params.invite === "string" ? params.invite : undefined} />;

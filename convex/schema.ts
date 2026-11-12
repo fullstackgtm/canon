@@ -1,3 +1,4 @@
+import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { sourceFactsFields, sourceMatch, sourceSeed } from "./lib/tam/marketSourcesValidator";
 import { candidateFields, discoverySource, investigationStatus, planSource } from "./lib/tam/investigationValidator";
@@ -743,8 +744,16 @@ export default defineSchema({
     .index("by_researchRunId_and_pending", ["researchRunId", "pending"])
     .index("by_researchRunId_and_meteredAt", ["researchRunId", "meteredAt"]),
 
+  ...authTables,
+
   users: defineTable({
     clerkUserId: v.string(),
+    activeOrgId: v.optional(v.id("organizations")),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    image: v.optional(v.string()),
+    isAnonymous: v.optional(v.boolean()),
     orgId: v.id("organizations"),
     email: v.string(),
     name: v.string(),
@@ -772,6 +781,8 @@ export default defineSchema({
     invitedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
+    .index("email", ["email"])
+    .index("phone", ["phone"])
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_orgId", ["orgId"])
     .index("by_orgId_email", ["orgId", "email"])
