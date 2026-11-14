@@ -93,3 +93,10 @@ test("visitor public paths include only the interstitial, grant reader and named
   for (const path of ["/api/visit/request-code/extra", "/api/visit/verify-code/extra"]) assert.equal(isPublicPath(path), false, path);
   for (const path of ["/r/secret", "/rx", "/r/v", "/r/v/short", "/r/dashboard", "/api/visit", "/api/visit/open/extra", "/api/visit/op/extra", "/api/visit/transition/extra", "/api/visit/upload/extra", "/api/visit/file/extra", "/api/visits/page", "/dashboard/r", "/dashboard"]) assert.equal(isPublicPath(path), false, path);
 });
+
+test("Salesforce services authenticate at their route boundary", () => {
+  assert.equal(isPublicPath("/services/data/v66.0/query"), true);
+  assert.equal(isPublicPath("/services/oauth2/userinfo"), true);
+  assert.equal(isPublicPath("/services"), false);
+  assert.equal(isPublicPath("/servicesx/data"), false);
+});
