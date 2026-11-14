@@ -380,3 +380,5 @@ create at that point, then its update.
 `.internal` names. A name is also resolved at delivery and refused if it points
 to a private address. A local dev stack alone may use `http://127.0.0.1` or
 `localhost`.
+
+Salesforce clients can use the [Salesforce-compatible REST API](salesforce-compatible-api.md).

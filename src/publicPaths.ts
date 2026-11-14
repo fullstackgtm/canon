@@ -25,6 +25,7 @@ export function isPublicPath(pathname: string) {
     // with a bearer token (Clerk JWT or paired CLI token) and answers 401
     // without one. CLI tokens are not Clerk sessions, so the gate cannot apply.
     pathname.startsWith("/api/v1/") ||
+    pathname.startsWith("/services/") ||
     // CLI device-flow + observability endpoints authenticate themselves
     // (device codes / broker tokens), never via Clerk. They must bypass the
     // browser-session gate or the CLI gets 307'd to /sign-in (it has no session).

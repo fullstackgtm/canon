@@ -82,7 +82,7 @@ function parseFilter(def: Described, text: string) {
   return { field, op: op as FilterOp, value: op === "in" || op === "hasAny" || op === "hasAll" ? raw.split(",").map(scalar) : scalar(raw) };
 }
 
-export async function listRecords(client: V1Client, object: string, params: URLSearchParams): Promise<V1Result> {
+export async function listRecords(client: V1Client, object: string, params: URLSearchParams, includeLinkedAccount = false): Promise<V1Result> {
   readQuery(LIST_QUERY, params);
   const def = await describe(client, object);
   const limit = params.get("limit");
@@ -97,7 +97,11 @@ export async function listRecords(client: V1Client, object: string, params: URLS
     ...(params.get("cursor") ? { cursor: params.get("cursor")! } : {}),
     ...(deleted === "true" ? { deleted: true } : {}),
   } as never);
-  return { status: 200, body: { data: page.rows.map((r) => toApiRecord(def, r)), nextCursor: page.nextCursor, total: page.total } };
+  return { status: 200, body: { data: page.rows.map((r) => {
+    const record = toApiRecord(def, r);
+    if (includeLinkedAccount && object === "contact" && "accountId" in r) record.values.accountId = r.accountId ? String(r.accountId) : null;
+    return record;
+  }), nextCursor: page.nextCursor, total: page.total } };
 }
 
 /** An object's records grouped by `field` (a date by `bucket`), as `objects.groups` counts them for a grouped list. */
