@@ -385,6 +385,10 @@ describe("record service API", () => {
     assert.deepEqual(byQ.json.rows.map((c: any) => c.fullName), ["Ada Lovelace"]);
     assert.equal((await ws.post("contacts/list", { filter: { accountId: "acc_none" } })).json.total, 0);
 
+    assert.equal((await ws.post("contacts/list", { filter: { accountIds: [id, "acc_none"] } })).json.total, 2);
+    assert.equal((await ws.post("contacts/list", { filter: { accountIds: [] } })).json.total, 0);
+    assert.equal((await ws.post("contacts/list", { filter: { accountIds: ["acc_none"] } })).json.total, 0);
+
     const body ={ object: "account", id, patch: { status: "working", ownerId: "u1" }, actorId: "user-1", idempotencyKey: "e1", sourceTimestamp: 1_700_000_000_000 };
     const e1 = await ws.post("records/edit", body);
     assert.equal(e1.json.version, 2);

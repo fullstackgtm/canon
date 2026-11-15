@@ -100,3 +100,8 @@ test("Salesforce services authenticate at their route boundary", () => {
   assert.equal(isPublicPath("/services"), false);
   assert.equal(isPublicPath("/servicesx/data"), false);
 });
+
+test("HubSpot compatibility authenticates its subtree at the route", () => {
+  assert.equal(isPublicPath("/hubspot/crm/v3/objects/contacts"), true);
+  for (const path of ["/hubspot", "/hubspotx/crm", "/hubspots/"]) assert.equal(isPublicPath(path), false);
+});

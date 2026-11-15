@@ -528,6 +528,7 @@ export function createFakeRecordClient(opts: {
       const q = req.filter?.q?.toLowerCase();
       const rows = (await store.allContacts(ws))
         .filter((c) => !req.filter?.accountId || c.accountId === req.filter.accountId)
+        .filter((c) => !req.filter?.accountIds || req.filter.accountIds.includes(c.accountId))
         .filter((c) => !req.filter?.scope || ownerAdmitted(req.filter.scope, c.ownerId))
         .filter((c) => !q || lower(c.fullName).includes(q) || lower(c.title).includes(q) || lower(c.email).includes(q))
         .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));

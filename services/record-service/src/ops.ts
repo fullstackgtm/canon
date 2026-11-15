@@ -128,6 +128,10 @@ export async function listContacts(ws: Workspace, body: ListContactsBody): Promi
   const parts: string[] = [`deletedAt IS NULL`];
   const params: Params = {};
   if (body.filter?.accountId) (parts.push(`accountId = $accountId`), (params.accountId = body.filter.accountId));
+  if (body.filter?.accountIds) {
+    const keys = body.filter.accountIds.map((id, i) => { params[`account${i}`] = id; return `$account${i}`; });
+    parts.push(keys.length ? `accountId IN (${keys.join(",")})` : "FALSE");
+  }
   if (body.filter?.sfId) (parts.push(`sfId = $sfId`), (params.sfId = body.filter.sfId));
   if (body.filter?.scope) parts.push(legacyScopeSql(body.filter.scope, params));
   if (body.filter?.q) {
