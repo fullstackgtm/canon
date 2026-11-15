@@ -126,6 +126,7 @@ test("the choke point: every public function that can reveal a record is judged 
   // reads return one. Each must call a judge (permissions.ts entitySight and what is built on it, the scoped record
   // client, or a whole-workspace refusal), or be on scripts/visibility-allowlist.ts with the reason it needs none.
   const entries = inventory();
+  assert(entries.find(e => e.ref === "associations.relatedBatch")?.judgedBy.includes("callerClient"));
   const allowed = new Set(Object.values(ALLOWLIST).flat());
   assert.deepEqual(entries.filter((e) => !e.judgedBy.length && !allowed.has(e.ref)).map((e) => e.ref), [], "judge these, or allowlist them with a reason");
   const unjudged = new Set(entries.filter((e) => !e.judgedBy.length).map((e) => e.ref));

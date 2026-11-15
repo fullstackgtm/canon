@@ -10,7 +10,7 @@
 import { ConvexError, v, type Infer } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { action, internalMutation, internalQuery, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { asEntry, convexObjectStore } from "./objects";
 import { callerClient, requireCaller, type ActionCaller } from "./records";
@@ -452,5 +452,64 @@ export const related = action({
         return [{ provider: d.provider, ref: d.ref, parent: d.parentId ? companyOf(family.get(d.parentId)!, false) : null, seenAt: d.seenAt }];
       }),
     };
+  },
+});
+
+/** A page's requested link types; register identities are checked in shared IN reads. */
+export const relatedBatch = action({
+  args: { object: v.union(v.literal("account"), v.literal("contact"), v.literal("deal")), ids: v.array(v.string()), targets: v.array(v.union(v.literal("account"), v.literal("contact"), v.literal("deal"))) },
+  handler: async (ctx, args): Promise<Array<{ id: string; links: Array<{ object: string; id: string }> }>> => {
+    if (args.ids.length > 200) throw new ConvexError("At most 200 records per association batch");
+    const caller = await requireCaller(ctx, { read: true });
+    const client = callerClient(ctx, caller), orgId = caller.orgId as Id<"organizations">;
+    const wanted = new Set(args.targets);
+    const source = args.object === "deal" ? null : await rowsById(client, caller.orgId, args.object, args.ids);
+    const candidates = await Promise.all(args.ids.map(async (id) => {
+      const links: Array<{ object: string; id: string }> = [];
+      if (args.object === "deal") {
+        const data = await ctx.runQuery(internal.dealCommittee.dealPeople, { orgId, userId: caller.userId as Id<"users">, streamId: id, access: caller.access });
+        if (data && wanted.has("account") && data.companyId) links.push({ object: "account", id: data.companyId });
+        if (data && wanted.has("contact")) links.push(...data.members.map(m => ({ object: "contact", id: m.contactId })));
+      } else if (source?.has(id)) {
+        if (args.object === "contact" && wanted.has("account")) {
+          const edges = await ctx.runQuery(internal.associations.edges, { orgId, association: "contact_account", side: "from", id });
+          const row = source.get(id)!;
+          links.push(...(edges.worked ? edges.active.map(e => e.toId) : row.accountId ? [row.accountId] : []).map(id => ({ object: "account", id })));
+        }
+        if (args.object === "contact" && wanted.has("deal")) {
+          const deals = await ctx.runQuery(internal.dealCommittee.dealsOfContact, { orgId, contactId: id, access: caller.access });
+          links.push(...deals.map(d => ({ object: "deal", id: d.streamId })));
+        }
+        if (args.object === "account" && wanted.has("contact")) {
+          const edges = await ctx.runQuery(internal.associations.edges, { orgId, association: "contact_account", side: "to", id });
+          links.push(...edges.active.map(e => ({ object: "contact", id: e.fromId })));
+        }
+      }
+      return { id, links };
+    }));
+    if (args.object === "account" && wanted.has("contact") && source?.size) {
+      let cursor: string | undefined;
+      do {
+        const page = await client.listContacts(caller.orgId, { filter: { accountIds: [...source.keys()] }, limit: 200, ...(cursor ? { cursor } : {}) });
+        for (const p of page.rows) candidates.find(c => c.id === p.accountId)?.links.push({ object: "contact", id: p.id });
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+    }
+    if (args.object === "account" && wanted.has("deal") && source?.size) {
+      let cursor: string | undefined;
+      do {
+        const page = await ctx.runAction(api.objects.list, { object: "deal", filter: [{ field: "companyId", op: "in", value: [...source.keys()] }], limit: 200, ...(cursor ? { cursor } : {}) });
+        for (const d of page.rows) candidates.find(c => c.id === d.values.companyId)?.links.push({ object: "deal", id: d.id });
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+    }
+    const visible = new Map<string, Set<string>>();
+    for (const object of ["account", "contact"] as const) {
+      const ids = [...new Set(candidates.flatMap(c => c.links.filter(l => l.object === object).map(l => l.id)))];
+      const kept = new Set<string>();
+      for (let i = 0; i < ids.length; i += 200) for (const id of (await rowsById(client, caller.orgId, object, ids.slice(i, i + 200))).keys()) kept.add(id);
+      visible.set(object, kept);
+    }
+    return candidates.map(c => ({ id: c.id, links: [...new Map(c.links.filter(l => l.object === "deal" || visible.get(l.object)?.has(l.id)).map(l => [`${l.object}:${l.id}`, l])).values()] }));
   },
 });

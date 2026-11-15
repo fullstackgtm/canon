@@ -4,6 +4,7 @@ import { createRecord, deleteRecord, getRecord, listRecords, updateRecord, type 
 import { jsonBody, V1Error, type V1Client, type V1Result } from '../api/v1/_lib.ts';
 import { fail, field, iso, OBJECTS, SalesforceError, schema, type SfObject, type SfField } from './_schema.ts';
 import { parse } from './_soql.ts';
+import { memberRecords, recordsByIds } from '../api/v1/_compat.ts';
 
 const ok = (body: unknown, status = 200): V1Result => ({ status, body });
 const userSchema: SfObject = { name: 'User', canon: 'user', label: 'User', createable: false, updateable: false, deletable: false, custom: false, fields: Object.entries({ Id: 'id', Name: 'string', Email: 'email', IsActive: 'boolean', Title: 'string' }).map(([name, type]) => ({ name, canon: ({ Id: 'id', IsActive: 'isActive' } as Record<string, string>)[name] ?? name.toLowerCase(), type, label: name, nillable: true, createable: false, updateable: false, custom: false })) };
@@ -13,11 +14,11 @@ async function page(client: V1Client, obj: SfObject, params: URLSearchParams): P
   if ([...params.keys()].some(k => !['limit', 'filter', 'cursor'].includes(k))) fail('MALFORMED_QUERY', 'User supports Id filters only');
   const filters = params.getAll('filter');
   if (filters.some(f => !/^id:(eq|in):/.test(f))) fail('MALFORMED_QUERY', 'User supports Id filters only');
-  const rows = (await client.query(api.users.list, {})).filter(u => filters.every(f => f.split(':').slice(2).join(':').split(',').includes(u._id)));
+  const rows = (await memberRecords(client)).filter(u => filters.every(f => f.split(':').slice(2).join(':').split(',').includes(u.id)));
   const start = Number(params.get('cursor') ?? 0);
   if (!Number.isSafeInteger(start) || start < 0) fail('MALFORMED_QUERY', 'Invalid User cursor');
   const end = start + Number(params.get('limit') ?? 200);
-  return { data: rows.slice(start, end).map(u => ({ id: u._id, object: 'user', title: u.name, version: 1, status: 'active', createdAt: 0, updatedAt: 0, deletedAt: null, values: { name: u.name, email: u.email, isActive: u.isActive, title: u.title ?? null } })), total: rows.length, nextCursor: end < rows.length ? String(end) : null };
+  return { data: rows.slice(start, end), total: rows.length, nextCursor: end < rows.length ? String(end) : null };
 }
 function value(r: ApiRecord, f: SfField): unknown {
   if (f.canon === '$firstName' || f.canon === '$lastName') {
@@ -35,16 +36,7 @@ async function render(client: V1Client, obj: SfObject, rows: ApiRecord[], select
     const f = obj.fields.find(f => f.relationshipName?.toLowerCase() === rel.toLowerCase())!;
     const parent = all.find(o => f.referenceTo?.includes(o.name))!;
     const ids = [...new Set(rows.map(r => value(r, f)).filter((v): v is string => typeof v === 'string' && !!v))];
-    const records = new Map<string, ApiRecord>();
-    for (let i = 0; i < ids.length; i += 200) {
-      let cursor: string | null = null;
-      do {
-        const params = new URLSearchParams({ limit: '200', filter: `id:in:${ids.slice(i, i + 200).join(',')}` });
-        if (cursor) params.set('cursor', cursor);
-        const result = await page(client, parent, params);
-        result.data.forEach(r => records.set(r.id, r)); cursor = result.nextCursor;
-      } while (cursor);
-    }
+    const records = await recordsByIds(client, parent.canon, ids);
     refs.set(rel, records);
   }
   return rows.map(r => {

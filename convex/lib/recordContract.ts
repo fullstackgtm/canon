@@ -177,7 +177,7 @@ export type AccountsListResponse = { rows: AccountRow[]; nextCursor: string | nu
 
 export const ContactsListRequest = z.object({
   filter: z.object({
-    accountId: z.string().optional(), q: z.string().optional(),
+    accountId: z.string().optional(), accountIds: z.array(z.string()).max(200).optional(), q: z.string().optional(),
     /** Service 1.29.0+ (CP14): only contacts the caller may see. */
     scope: z.object({ field: z.literal("ownerId"), owners: z.array(z.string()), unowned: z.boolean() }).optional(),
   }).optional(),

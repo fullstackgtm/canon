@@ -382,3 +382,4 @@ to a private address. A local dev stack alone may use `http://127.0.0.1` or
 `localhost`.
 
 Salesforce clients can use the [Salesforce-compatible REST API](salesforce-compatible-api.md).
+HubSpot clients can use the [HubSpot-compatible CRM API](hubspot-compatible-api.md).
