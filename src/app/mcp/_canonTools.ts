@@ -124,7 +124,7 @@ export const canonRecordTools: CanonTool[] = [
   },
   {
     name: "canon_get_deal",
-    description: "One deal's canonical fields, optionally as of a past time: knownAt (what Canon knew then) and/or validAt (what was true then), both ms since epoch.",
+    description: "One deal by deal row id (from canon_list_deals). Includes current role-visible custom fields in record.values; built-in fields optionally as of a past time: knownAt (what Canon knew then) and/or validAt (what was true then), both ms since epoch.",
     inputSchema: { dealId: z.string(), knownAt: z.number().int().optional(), validAt: z.number().int().optional() },
     writes: false,
     run: async (convex, args) => {
@@ -136,25 +136,26 @@ export const canonRecordTools: CanonTool[] = [
         ...(typeof args.knownAt === "number" ? { knownAt: args.knownAt } : {}),
         ...(typeof args.validAt === "number" ? { validAt: args.validAt } : {}),
       });
-      return { deal: compactDeal(deal as Record<string, unknown>), fields };
+      const record = await convex.action(api.objects.read, { id: String(args.dealId) });
+      return { deal: compactDeal(deal as Record<string, unknown>), fields, record };
     },
   },
   {
     name: "canon_field_receipts",
-    description: "Every fact behind one field of one deal, newest first: value, status, source, actor, evidence, confidence, verification and who decided it.",
+    description: "Built-in deal fields only, by deal row id; read current custom fields with canon_get_deal or canon_get_record. Every fact, newest first: value, status, source, actor, evidence, confidence, verification and who decided it.",
     inputSchema: { dealId: z.string(), attribute: z.enum(DEAL_FIELDS) },
     writes: false,
     run: (convex, args) => convex.query(api.canonGate.fieldReceipts, { dealId: args.dealId as Id<"deals">, attribute: String(args.attribute) }),
   },
   {
     name: "canon_find_entity",
-    description: "An account or contact's Canon identity and canonical field values, found by entity id, record id, domain (accounts) or email (contacts). Null when it is not in Canon yet.",
+    description: "Find a company or person by Canon entity id, register record id, domain or email, worked or not. Returns recordId for record tools and lookup fields; entityId/streamId are null until anchored. Use recordId for canon_propose_facts (it promotes on write), entityId for canon_entity_receipts. Null means missing or not visible.",
     inputSchema: {
       entityType: z.enum(["account", "contact"]),
       entityId: z.string().optional(), recordId: z.string().optional(), domain: z.string().optional(), email: z.string().optional(),
     },
     writes: false,
-    run: (convex, args) => convex.query(api.canonEntities.find, args as never),
+    run: (convex, args) => convex.action(api.canonEntities.findScoped, args as never),
   },
   {
     name: "canon_entity_receipts",
@@ -249,19 +250,24 @@ export const canonRecordTools: CanonTool[] = [
   },
   {
     name: "canon_get_record",
-    description: "One record's current values and version, by stream id (any object on the ledger), or an account by its register record id with its contacts.",
+    description: "Current role-visible values, including custom fields, and version. streamId accepts a Canon entity/stream id or company/person register record id; accountRecordId accepts a company register id and preserves contacts, adding the ledger view as record. Worked records return values keyed by field id, including custom.<slug>; unworked records return register details. Use register ids for company/person edits and lookups, stream ids for other edits.",
     inputSchema: { streamId: z.string().optional(), accountRecordId: z.string().optional() },
     writes: false,
-    run: (convex, args) => {
-      if (typeof args.streamId === "string") return convex.query(api.objects.get, { streamId: args.streamId as Id<"canonEntities"> });
-      if (typeof args.accountRecordId === "string") return convex.action(api.records.get, { id: args.accountRecordId });
+    run: async (convex, args) => {
+      if (typeof args.streamId === "string") return convex.action(api.objects.read, { id: args.streamId });
+      if (typeof args.accountRecordId === "string") {
+        const account = await convex.action(api.records.get, { id: args.accountRecordId });
+        if (!account) return null;
+        const record = await convex.action(api.objects.read, { id: args.accountRecordId });
+        return { ...account, record };
+      }
       throw new Error("Pass streamId or accountRecordId");
     },
   },
   {
     name: "canon_upsert_accounts",
     description:
-      "Add up to 100 companies to the CRM, keyed by domain. A company already present keeps its values and only gains the fields it lacks; change existing values with canon_update_record. Returns the record ids. Pass the same idempotencyKey to retry a batch safely.",
+      "Add up to 100 companies to the CRM, keyed by domain. A company already present keeps its values and only gains the fields it lacks; change existing values with canon_update_record. Returns register record ids for canon_get_record, canon_update_record and lookup fields. Pass the same idempotencyKey to retry a batch safely.",
     inputSchema: {
       accounts: z.array(z.object({
         domain: z.string().min(1), name: z.string().min(1), industry: z.string().optional(),
@@ -275,7 +281,7 @@ export const canonRecordTools: CanonTool[] = [
   {
     name: "canon_upsert_contacts",
     description:
-      "Add up to 100 people to the CRM, attached to a company by accountDomain (add the company first) or accountId. Duplicates are merged; an existing person only gains the fields they lack. Pass the same idempotencyKey to retry a batch safely.",
+      "Add up to 100 people to the CRM, attached to a company by accountDomain (add the company first) or accountId. accountId is a company register id; returns person register ids for canon_get_record, canon_update_record and lookup fields. Duplicates are merged; an existing person only gains the fields they lack. Pass the same idempotencyKey to retry a batch safely.",
     inputSchema: {
       contacts: z.array(z.object({
         fullName: z.string().min(1), accountDomain: z.string().optional(), accountId: z.string().optional(),
@@ -288,7 +294,7 @@ export const canonRecordTools: CanonTool[] = [
   },
   {
     name: "canon_create_record",
-    description: "Money is in cents; dates are YYYY-MM-DD; picklist values are option values from canon_describe_object, not labels. Create a lead, task, note, call, meeting, product, deal line item or a record of a custom object. Line items require dealId and productId stream ids, positive integer quantity and an explicit totalPrice in integer hundredths; name is derived from the product. Link an activity to a company, contact or deal with accountId, contactId or dealId. Returns its stream id and version. Pass an idempotencyKey to retry a create safely: the same key and values return the first answer.",
+    description: "Money is in cents; dates are YYYY-MM-DD; picklist values are option values from canon_describe_object, not labels. Create a lead, task, note, call, meeting, product, deal line item or a record of a custom object. Line items require dealId and productId stream ids, positive integer quantity and an explicit totalPrice in integer hundredths; name is derived from the product. Link an activity with accountId/contactId (company/person register record ids from canon_find_entity.recordId) or dealId (a deal stream id). Returns its stream id and version. Pass an idempotencyKey to retry a create safely: the same key and values return the first answer.",
     inputSchema: { object: ledgerObject, values: fieldValues, idempotencyKey: z.string().min(1).max(200).optional() },
     writes: true,
     run: (convex, args) => convex.action(api.objects.writeScoped, { object: args.object as never, values: args.values as never, ...(args.idempotencyKey ? { idempotencyKey: String(args.idempotencyKey) } : {}) }),

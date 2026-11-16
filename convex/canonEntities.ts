@@ -238,7 +238,7 @@ export const findFor = internalQuery({
  */
 async function findAs(
   ctx: QueryCtx, orgId: Id<"organizations">, accesses: readonly Access[],
-  args: { entityType: EntityType; entityId?: string; recordId?: string; domain?: string; email?: string }, admitted: ReadonlySet<string>,
+  args: { entityType: EntityType; entityId?: string; recordId?: string; domain?: string; email?: string }, admitted: ReadonlySet<string>, judge?: ReturnType<typeof sightJudge>,
 ) {
   {
     const user = { orgId };
@@ -257,7 +257,7 @@ async function findAs(
     }
     const entity = entityId ? await ctx.db.get(entityId) : null;
     if (!entity || entity.orgId !== user.orgId || entity.entityType !== args.entityType) return null;
-    if (!(await querySees(ctx, accesses, entity, admitted))) return null;
+    if (!(await (judge ? judge.entity(entity) : querySees(ctx, accesses, entity, admitted)))) return null;
     const object = entity.entityType === "opportunity" ? "deal" : entity.entityType;
     const hidden = new Set(accesses.flatMap((a) => hiddenFields(a, object)));
     const externalIds = await ctx.db.query("canonExternalIds").withIndex("by_entityId", (q) => q.eq("entityId", entity._id)).take(50);
@@ -272,3 +272,39 @@ async function findAs(
   }
 }
 
+/** Workspace lookup: admit register rows through the same scoped client as list/search, without promoting them. */
+export const findScoped = action({
+  args: findArgs,
+  handler: async (ctx, args): Promise<unknown> => {
+    const caller = await requireCaller(ctx, { read: true });
+    const client = callerClient(ctx, caller);
+    const entity: Awaited<ReturnType<typeof findAs>> = await admitThenRead(client, caller.orgId, (admitted) => ctx.runQuery(internal.canonEntities.findWorkspaceFor, {
+      ...args, orgId: caller.orgId as Id<"organizations">, accesses: [caller.access], admitted,
+    }));
+    if (entity) {
+      const provider = args.entityType === "contact" ? ID.recordContact : ID.recordAccount;
+      const recordId = entity.externalIds.find((x) => x.provider === provider)?.externalId ??
+        (["recordAccounts", "recordContacts"].includes(entity.projection.table) ? entity.projection.id : null);
+      return { ...entity, recordId, streamId: entity.entityId };
+    }
+    if (args.entityId || !["account", "contact"].includes(args.entityType)) return null;
+    const object = args.entityType as "account" | "contact";
+    const field = args.recordId ? "id" : object === "account" ? "domain" : "email";
+    const value = args.recordId ?? (object === "account" ? args.domain && normalizeDomain(args.domain) : args.email && normalizeEmail(args.email));
+    if (!value) return null;
+    const row = (await client.listRegister(caller.orgId, object, { filter: [{ field, op: "eq", value }], limit: 1 })).rows[0];
+    return row ? {
+      entityId: null, entityType: object, recordId: row.id, streamId: null, label: row.title,
+      record: row, recordTool: "canon_get_record", proposalKey: { recordId: row.id },
+    } : null;
+  },
+});
+
+export const findWorkspaceFor = internalQuery({
+  args: { orgId: v.id("organizations"), accesses: v.array(v.any()), admitted: v.array(v.string()), ...findArgs },
+  handler: async (ctx, { orgId, accesses, admitted, ...args }) => {
+    const judge = sightJudge(ctx, accesses as Access[], new Set(admitted));
+    const value = await findAs(ctx, orgId, accesses as Access[], args, new Set(admitted), judge);
+    return { value, pending: judge.pending };
+  },
+});

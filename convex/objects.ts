@@ -603,9 +603,9 @@ export const createMany = mutation({
   },
 });
 
-export async function view(ctx: QueryCtx, orgId: Id<"organizations">, streamId: Id<"canonEntities">, cap: number, defs: Map<string, ResolvedObjectDef>) {
+export async function view(ctx: QueryCtx, orgId: Id<"organizations">, streamId: Id<"canonEntities">, cap: number, defs: Map<string, ResolvedObjectDef>, includeParties = false) {
   const entity = await ctx.db.get(streamId);
-  const object = !entity ? null : Object.hasOwn(VIEWABLE_ENTITY_TYPES, entity.entityType) ? VIEWABLE_ENTITY_TYPES[entity.entityType] : isCustomObjectName(entity.entityType) ? entity.entityType : null;
+  const object = !entity ? null : includeParties && (entity.entityType === "account" || entity.entityType === "contact") ? entity.entityType : Object.hasOwn(VIEWABLE_ENTITY_TYPES, entity.entityType) ? VIEWABLE_ENTITY_TYPES[entity.entityType] : isCustomObjectName(entity.entityType) ? entity.entityType : null;
   if (!entity || entity.orgId !== orgId || !object) return null;
   const record = await materialize(readStore(ctx), streamId, cap);
   if (!record) return null;
@@ -1040,5 +1040,39 @@ export const fakeObjectRows = internalQuery({
       isDone: page.isDone,
       continueCursor: page.continueCursor,
     };
+  },
+});
+
+/** Resolve a stream or projection id, admitting register-backed entities through the scoped client. */
+export const readById = internalQuery({
+  args: { id: v.string(), admitted: v.array(v.string()) },
+  handler: async (ctx, { id, admitted }): Promise<{ value: Awaited<ReturnType<typeof view>> | null; pending: ReturnType<typeof sightJudge>["pending"] }> => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return { value: null, pending: [] };
+    const streamId = ctx.db.normalizeId("canonEntities", id);
+    const entity = streamId ? await ctx.db.get(streamId) : await ctx.db.query("canonEntities")
+      .withIndex("by_orgId_projectionId", (q) => q.eq("orgId", user.orgId).eq("projectionId", id)).first();
+    if (!entity || entity.orgId !== user.orgId) return { value: null, pending: [] };
+    const access = await accessFor(ctx, user);
+    const judge = sightJudge(ctx, [access], new Set(admitted));
+    const record = await view(ctx, user.orgId, entity._id, GET_FOLD_CAP, new Map(), true);
+    const visible = record && (isRegisterObject(record.object) ? await judge.entity(entity) : await recordVisible(ctx, access, record));
+    return { value: visible ? forCaller(access, record!) : null, pending: judge.pending };
+  },
+});
+
+/** Single-record tools accept register ids as well as stream ids; reads never start a stream. */
+export const read = action({
+  args: { id: v.string() },
+  handler: async (ctx, { id }): Promise<unknown> => {
+    const caller = await requireCaller(ctx, { read: true });
+    const client = callerClient(ctx, caller);
+    const record: Awaited<ReturnType<typeof view>> = await admitThenRead(client, caller.orgId,
+      (admitted) => ctx.runQuery(internal.objects.readById, { id, admitted }));
+    if (record) return record;
+    const account = await client.get(caller.orgId, id);
+    if (account) return account;
+    const contact = await client.getContact(caller.orgId, id);
+    return contact ? { contact } : null;
   },
 });

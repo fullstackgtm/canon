@@ -34,7 +34,7 @@ const SAMPLE_ARGS: Record<string, Record<string, unknown>> = {
 };
 
 // The action twins of reads a narrowed role cannot be judged by in a query (CP14) read only.
-const READ_ACTIONS = new Set(["objects:list", "objects:search", "records:get", "canonGate:entityReceiptsScoped", "canonGate:myBatchStatusScoped", "canonGate:reviewQueueScoped"]);
+const READ_ACTIONS = new Set(["objects:read", "canonEntities:findScoped", "objects:list", "objects:search", "records:get", "canonGate:entityReceiptsScoped", "canonGate:myBatchStatusScoped", "canonGate:reviewQueueScoped"]);
 
 test("record updates accept typed splits while fact proposals retain their scalar input contract", () => {
   const splits = [{ userId: "users:ada", percentage: 100, kind: "revenue" }];
@@ -143,4 +143,17 @@ test("MCP line-item CRUD schemas admit the object and forward versioned writes t
     assert.equal(f.calls[0].name, fn);
     if ("expectedVersion" in args) assert.equal((f.calls[0].args as { expectedVersion: number }).expectedVersion, args.expectedVersion);
   }
+});
+
+test("single-record tools retain the scoped ledger's custom values and account contacts", async () => {
+  const record = { values: { "custom.segment": "Enterprise" }, streamId: "s1" };
+  const account = { account: { id: "r1" }, contacts: [{ id: "c1" }] };
+  const client = {
+    query: async () => ({ _id: "d1" }),
+    action: async (ref: never) => getFunctionName(ref) === "records:get" ? account : record,
+  } as never;
+  const deal = await canonTools.find((t) => t.name === "canon_get_deal")!.run(client, { dealId: "d1" }) as { record: unknown };
+  assert.deepEqual(deal.record, record);
+  const company = await canonTools.find((t) => t.name === "canon_get_record")!.run(client, { accountRecordId: "r1" });
+  assert.deepEqual(company, { ...account, record });
 });
