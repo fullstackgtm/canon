@@ -250,18 +250,19 @@ export const canonRecordTools: CanonTool[] = [
   },
   {
     name: "canon_get_record",
-    description: "Current role-visible values, including custom fields, and version. streamId accepts a Canon entity/stream id or company/person register record id; accountRecordId accepts a company register id and preserves contacts, adding the ledger view as record. Worked records return values keyed by field id, including custom.<slug>; unworked records return register details. Use register ids for company/person edits and lookups, stream ids for other edits.",
-    inputSchema: { streamId: z.string().optional(), accountRecordId: z.string().optional() },
+    description: "Current role-visible values, including custom fields, and version. id is an alias of streamId. streamId accepts a Canon entity/stream id or company/person register record id; accountRecordId accepts a company register id and preserves contacts, adding the ledger view as record. Worked records return values keyed by field id, including custom.<slug>; unworked records return register details. Use register ids for company/person edits and lookups, stream ids for other edits.",
+    inputSchema: { id: z.string().optional(), streamId: z.string().optional(), accountRecordId: z.string().optional() },
     writes: false,
     run: async (convex, args) => {
-      if (typeof args.streamId === "string") return convex.action(api.objects.read, { id: args.streamId });
+      const id = args.streamId ?? args.id;
+      if (typeof id === "string") return convex.action(api.objects.read, { id });
       if (typeof args.accountRecordId === "string") {
         const account = await convex.action(api.records.get, { id: args.accountRecordId });
         if (!account) return null;
         const record = await convex.action(api.objects.read, { id: args.accountRecordId });
         return { ...account, record };
       }
-      throw new Error("Pass streamId or accountRecordId");
+      throw new Error("Pass id, streamId or accountRecordId");
     },
   },
   {

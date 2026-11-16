@@ -33,7 +33,11 @@ writes to a connected CRM without an explicitly approved plan.
 Use canon_data_model to define objects, fields and pipeline stages (admin role).
 An admin's own agent applies these changes directly; every change is recorded in
 Data model → Recent changes. Use canon_members to list members and their ids,
-then the record tools to create records. Money is in cents, dates are YYYY-MM-DD,
+then the record tools to create records. Set ownerId to a member id from
+canon_members: records an agent creates have no owner unless it sets one. Only
+deals default their owner to the creating member. A rule assigning work to the
+record's owner or its company's owner fails when that record or company has no
+owner who is a member. Money is in cents, dates are YYYY-MM-DD,
 and picklist values are option values from canon_describe_object, not labels.
 Propose workflow rules with canon_automations: an agent proposes, a person
 approves on the Automations page. Build views and reports with canon_views and

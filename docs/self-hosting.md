@@ -365,18 +365,27 @@ tunnel open and use its localhost URL instead.
 
 The `canon` CLI and other MCP clients reach a self-hosted Canon at `<your URL>/mcp`
 with a paired CLI token. A self-hosted Canon has no OAuth server, so `/mcp` takes
-those tokens only. From a Canon checkout:
+those tokens only. In your Docker Compose install directory:
 
 ```sh
-npm run canon -- login --url https://crm.example.com
-npm run canon -- whoami --url https://crm.example.com
+docker compose exec canoncrm npm run canon -- login
+docker compose exec canoncrm npm run canon -- whoami
+docker compose exec canoncrm npm run canon -- mcp-config --show-token
 ```
 
-`login` prints a link to `/dashboard/cli-auth` and a code, and opens the link.
-Sign in there as an admin or manager, check that the page shows the same code,
-and approve it. The CLI then keeps the token in `~/.canon/credentials.json`
-(mode `0600`) and never prints it. It acts as the member who approved it, with
-that member's role. Set `CANON_URL` to skip `--url`.
+`login` prints a public link to `/dashboard/cli-auth` and a code. Open the
+link on your computer, sign in as the member the agent should act as, check
+the code and approve it. The CLI stores the token in
+`/data/canon-cli/credentials.json` (mode `0600`) in the persistent volume.
+It never prints the token unless you request `mcp-config --show-token`.
+Keep that output private. It acts with the approving member's role.
+
+Without Compose, use a checkout on your computer with Node.js 22.6 or newer.
+Run `npm ci`, then `npm run canon -- login --url https://crm.example.com`
+and `npm run canon -- mcp-config --url https://crm.example.com --show-token`.
+Use your install's public URL. Credentials then live in
+`~/.canon/credentials.json` (or `CANON_HOME/credentials.json`).
+Set `CANON_URL` to skip `--url`.
 
 **Settings > API access** lists each paired machine. Revoke one there, and its
 next request is refused. Turning a member off on the Team page revokes their
@@ -478,13 +487,35 @@ The bundled Convex backend uses FSL-1.1-Apache-2.0 separately.
 ## Set up your CRM with your agent
 
 With `CANON_AUTH=local` or `CANON_AUTH=convex`, connect with a paired token.
-From a Canon checkout with Node.js 22.6 or newer:
+In the install directory on your Docker Compose host, run:
+
+```sh
+docker compose exec canoncrm npm run canon -- login
+docker compose exec canoncrm npm run canon -- mcp-config --show-token
+```
+
+No Node installation is needed on the host. Open the printed public link in
+your browser and approve the code. The CLI stores the pairing in
+`/data/canon-cli/credentials.json` (mode `0600`) in the persistent data volume,
+so container updates preserve it. Keep the volume and client configuration private.
+Omit `--show-token` to print a placeholder and the credentials path.
+
+Without Docker Compose (including Render or Railway), run the CLI from a
+Canon checkout on your own computer with Node.js 22.6 or newer:
 
 ```sh
 npm ci
 npm run canon -- login --url https://crm.example.com
-npm run canon -- mcp-config --url https://crm.example.com
+npm run canon -- mcp-config --url https://crm.example.com --show-token
 ```
+
+Use your install's public URL. Checkout credentials live in
+`~/.canon/credentials.json`, or `CANON_HOME/credentials.json` when set.
+Inside the container the CLI's public address defaults to `SITE_URL`; `CANON_URL` overrides it and `--url` takes precedence.
+`CANON_INTERNAL_URL` changes only the CLI's request address, leaving pairing
+links, credential keys and printed client URLs public. The Compose image sets
+it to `http://127.0.0.1:3000`. If you override the container's `PORT`, set
+`CANON_INTERNAL_URL` to match.
 
 Sign in at the link, check the code, and approve the pairing as the member your
 agent should act as. `mcp-config` prints a Claude Code command, Cursor-compatible

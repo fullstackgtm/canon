@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { POST as mcpPost } from "../src/app/mcp/route.ts";
 import { GET as mcpResourceMetadata } from "../src/app/.well-known/oauth-protected-resource/mcp/route.ts";
-import { main, pairDevice } from "../cli/canon.ts";
+import { createServer } from "node:http";
+import { canonTools } from "../src/app/mcp/_canonTools.ts";
+import { main, pairDevice, requestBase } from "../cli/canon.ts";
 
 const toolsList = (authorization?: string) => new Request("http://localhost/mcp", {
   method: "POST",
@@ -44,15 +46,18 @@ test("a self-hosted /mcp is served without the hosted flag, takes only paired CL
 test("canon login against a self-hosted Canon pairs through its device flow and keeps the token without printing it", async () => {
   const home = mkdtempSync(join(tmpdir(), "canon-cli-"));
   process.env.CANON_HOME = home;
+  process.env.CANON_INTERNAL_URL = "http://127.0.0.1:3000";
+  process.env.SITE_URL = "https://crm.example.com";
   const token = `fsgtm_${"a".repeat(64)}`;
   const polls = ["pending", "approved"];
   const requests: string[] = [];
   const lines: string[] = [];
   const opened: string[] = [];
   const fetchImpl = (async (url: string, init?: RequestInit) => {
+    assert.equal(new URL(url).origin, "http://127.0.0.1:3000");
     requests.push(`${new URL(url).pathname} ${init?.body ?? ""}`);
     if (url.endsWith("/api/cli/auth/start")) {
-      return Response.json({ deviceCode: "d".repeat(64), userCode: "ABCD-EFGH", verificationUrl: "https://crm.example.com/dashboard/cli-auth?code=ABCD-EFGH", expiresInSeconds: 900, intervalSeconds: 3 });
+      return Response.json({ deviceCode: "d".repeat(64), userCode: "ABCD-EFGH", verificationUrl: "http://127.0.0.1:3000/dashboard/cli-auth?code=ABCD-EFGH", expiresInSeconds: 900, intervalSeconds: 3 });
     }
     const status = polls.shift();
     return Response.json(status === "approved" ? { status, cliToken: token } : { status });
@@ -64,9 +69,9 @@ test("canon login against a self-hosted Canon pairs through its device flow and 
     const log = console.log;
     console.log = (line: string) => output.push(line);
     try {
-      await main(["mcp-config", "--url", "https://crm.example.com"]);
+      await main(["mcp-config"]);
       assert.ok(!output.join("\n").includes(token));
-      assert.match(output.join("\n"), /credentials.json/);
+      assert.ok(output.join("\n").includes(join(home, "credentials.json")));
       output.length = 0;
       await main(["mcp-config", "--url", "https://crm.example.com", "--show-token"]);
       const config = output.join("\n");
@@ -79,7 +84,77 @@ test("canon login against a self-hosted Canon pairs through its device flow and 
     assert.equal(requests.filter((r) => r.startsWith("/api/cli/auth/poll")).length, 2, "it polls until the pairing is approved");
     assert.ok(lines.join("\n").includes("ABCD-EFGH") && !lines.join("\n").includes(token), "it shows the code to approve, never the token");
   } finally {
+    delete process.env.CANON_INTERNAL_URL;
+    delete process.env.SITE_URL;
     delete process.env.CANON_HOME;
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("CLI discovery and MCP requests use the internal address while configuration and credential lookup use the public address", async () => {
+  const home = mkdtempSync(join(tmpdir(), "canon-cli-routing-"));
+  const requests: string[] = [];
+  const server = createServer(async (req, res) => {
+    requests.push(req.url!);
+    if (req.url === "/.well-known/oauth-protected-resource/mcp") { res.writeHead(200).end("{}"); return; }
+    if (req.url !== "/mcp") { res.writeHead(404).end(); return; }
+    assert.equal(req.headers.authorization, "Bearer routing-test-token");
+    if (req.method !== "POST") { res.writeHead(405).end(); return; }
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const message = JSON.parse(body);
+    if (message.id === undefined) { res.writeHead(202).end(); return; }
+    const result = message.method === "initialize"
+      ? { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "routing-test", version: "1" } }
+      : { content: [{ type: "text", text: "member confirmed" }] };
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as { port: number };
+  const saved = { ...process.env };
+  const log = console.log;
+  const output: string[] = [];
+  console.log = (line: string) => output.push(line);
+  try {
+    process.env.CANON_HOME = home;
+    process.env.CANON_INTERNAL_URL = `http://127.0.0.1:${address.port}`;
+    process.env.SITE_URL = "https://public.example";
+    delete process.env.CANON_URL;
+    delete process.env.CANON_TOKEN;
+    writeFileSync(join(home, "credentials.json"), JSON.stringify({ "https://public.example": { cliToken: "routing-test-token" } }));
+    await main(["login"]);
+    await main(["whoami"]);
+    await main(["mcp-config", "--show-token"]);
+    assert.ok(requests.includes("/.well-known/oauth-protected-resource/mcp"));
+    assert.ok(requests.filter((path) => path === "/mcp").length >= 4);
+    assert.ok(output.join("\n").includes("https://public.example/mcp"));
+    assert.ok(!output.join("\n").includes(process.env.CANON_INTERNAL_URL));
+    output.length = 0;
+    process.env.CANON_TOKEN = "routing-test-token";
+    process.env.CANON_URL = "https://env.example";
+    await main(["mcp-config"]);
+    assert.ok(output.join("\n").includes("https://env.example/mcp"));
+    output.length = 0;
+    await main(["mcp-config", "--url", "https://flag.example/"]);
+    assert.ok(output.join("\n").includes("https://flag.example/mcp"));
+    delete process.env.CANON_INTERNAL_URL;
+    assert.equal(requestBase("https://public.example"), "https://public.example");
+  } finally {
+    console.log = log;
+    process.env = saved;
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("canon_get_record accepts id as the streamId alias and preserves existing argument precedence", async () => {
+  const tool = canonTools.find((tool) => tool.name === "canon_get_record")!;
+  const ids: string[] = [];
+  const client = { action: async (_fn: unknown, args: { id: string }) => { ids.push(args.id); return args; } };
+  assert.ok(tool.inputSchema.id);
+  for (const args of [{ id: "register" }, { streamId: "stream" }, { id: "alias", streamId: "preferred" }]) {
+    await tool.run(client as never, args);
+  }
+  assert.deepEqual(ids, ["register", "stream", "preferred"]);
 });
