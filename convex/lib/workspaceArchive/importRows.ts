@@ -97,6 +97,7 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   teamGroups: { kind: "rows", replace: true },
   pipelineStageConfigs: { kind: "rows", replace: true },
   dealPipelines: { kind: "rows", replace: true },
+  dataModelChanges: { kind: "rows", dependsOn: ["users"] },
   objectDefs: { kind: "rows", replace: true },
   // A deal's company can be a register id derived from its stream (acc_s_), which exists once the streams are in.
   deals: { kind: "rows", dependsOn: ["users", "pipelineStageConfigs", "dealPipelines"], defer: { fields: ["companyId"], after: "canonEntities" } },

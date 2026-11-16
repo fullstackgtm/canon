@@ -107,3 +107,29 @@ test("every trigger, condition operator, owner choice and action the rule shape 
   assert.equal(describe({ object: "deal", trigger: triggers.schedule, conditions: [{ field: "closeDate", op: "lt", value: "{today}" }], actions: [{ kind: "set_field", field: "stage", value: null }] }, NAMES),
     "Every Monday at 09:00 (America/New_York), for each deal where Close date is before today: clear Stage.");
 });
+
+test("relative dates validate and resolve calendar days in the workspace timezone, including If conditions", async () => {
+  const { conditionsProblem, resolveConditions, ifHolds } = await import("../convex/lib/automations.ts");
+  const { resolveOrgObject } = await import("../convex/lib/objects/registry.ts");
+  const { todayOffset, describeConditions } = await import("../modules/kernel/automation.ts");
+  const def = resolveOrgObject("deal")!;
+  const at = Date.parse("2028-03-01T01:30:00Z");
+  const condition = (value: string) => ({ field: "closeDate", op: "eq", value });
+  for (const [value, date] of [["{today}", "2028-02-29"], ["{today+60}", "2028-04-29"], ["{today-30}", "2028-01-30"]] as const) {
+    assert.equal(conditionsProblem(def, [condition(value)]), null);
+    assert.equal(resolveConditions(def, [condition(value)], at, "America/Los_Angeles")[0].value, date);
+    const row = { id: "deal", object: "deal", version: 1, status: "active", title: "", createdAt: 0, updatedAt: 0, deletedAt: null, values: { [def.byApiName.get("closeDate")!.fieldId]: date } } as const;
+    assert.equal(ifHolds(def, row, [condition(value)], {}, at, "America/Los_Angeles"), true);
+  }
+  for (const value of ["{today+0}", "{today-3651}", "{today+1.5}", "{today+01}"]) {
+    assert.equal(todayOffset(value), null);
+    assert.notEqual(conditionsProblem(def, [condition(value)]), null);
+  }
+  const task = resolveOrgObject("task")!;
+  const dst = Date.parse("2028-03-11T20:30:15Z");
+  assert.equal(resolveConditions(task, [{ field: "createdAt", op: "gt", value: "{today+1}" }], dst, "America/Los_Angeles")[0].value, Date.parse("2028-03-12T19:30:15Z"));
+  assert.equal(todayOffset("{today+3650}"), 3650);
+  assert.equal(todayOffset("{today-1}"), -1);
+  assert.match(describeConditions("deal", [condition("{today+60}")], NAMES), /60 days from today/);
+  assert.match(describeConditions("deal", [{ ...condition("{today-30}"), op: "lt" }], NAMES), /before 30 days ago/);
+});

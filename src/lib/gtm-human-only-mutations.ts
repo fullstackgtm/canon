@@ -44,15 +44,8 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.crmDisagreements.cancelJob": "stops the admin's own job that hands fields back to a CRM, in the app",
   "api.crmDisagreements.setFollow": "which fields always follow a CRM over people's edits is an admin's write-gate setting, made in the app",
   "api.accountHierarchy.savePolicy": "the hierarchy policy holds the hard rules (owners never change, active contracts flagged); an agent never relaxes its own guardrails",
-  // Admin settings that change what every record accepts or where data is sent.
-  "api.dataModel.createField": "field definitions are admin settings: they change what every record, import and API write accepts",
-  "api.dataModel.updateFieldDef": "field definitions are admin settings: they change what every record, import and API write accepts",
-  "api.dataModel.setArchived": "field definitions are admin settings: they change what every record, import and API write accepts",
-  "api.dataModel.relabel": "an object's name is an admin setting: it renames the object for everyone in the workspace",
-  "api.customObjects.create": "object definitions are admin settings: they add or retire whole objects every page, import and API write resolves",
-  "api.customObjects.edit": "object definitions are admin settings: they add or retire whole objects every page, import and API write resolves",
-  "api.customObjects.setArchived": "object definitions are admin settings: they add or retire whole objects every page, import and API write resolves",
-  "api.pipelines.save": "pipeline stages are admin settings that every deal and report depends on",
+  // 2026-11-16: an admin's own agent applies schema changes; the capability check is the gate.
+  // Every such change is logged in dataModelChanges.
   // Workspace export (convex/workspaceTransfer.ts): a key reads every record of the workspace for an hour.
   "api.workspaceTransfer.createExportKey": "an export key lets whoever holds it read the whole workspace for an hour; an admin creates it in Settings, never an agent",
   "api.workspaceImport.createImportKey": "an import key lets whoever holds it write a whole archive into an empty workspace; an admin creates it in Settings, never an agent",

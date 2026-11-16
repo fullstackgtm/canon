@@ -13,7 +13,7 @@ import { getErrorMessage } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
 import { FlowCanvas, chain, type FlowNode } from "@/components/flow/flow-canvas";
 import {
-  TODAY, describe, describeConditions, describeParts, isOnDemand, isRegisterAutomationObject, relatedField, ruleChanges, stepAt,
+  TODAY, todayOffset, relativeDateText, describe, describeConditions, describeParts, isOnDemand, isRegisterAutomationObject, relatedField, ruleChanges, stepAt,
   type AutomationAction, type Condition, type IfStep, type OwnerChoice, type RuleNames, type RuleShape, type RuleStep, type Trigger,
 } from "../../../../modules/kernel/automation";
 
@@ -45,7 +45,7 @@ const IF_DEPTH = 2;
 /** A typed value from a form's text, as the field stores it: money in cents, as the record filters store it. */
 function parseValue(field: FieldInfo | undefined, raw: string): Scalar | null {
   if (raw === "") return null;
-  if (raw === TODAY) return raw;
+  if (todayOffset(raw) !== null) return raw;
   if (field?.type === "currency") return Math.round(Number(raw) * 100);
   if (field && NUMERIC.has(field.type)) return Number(raw);
   if (field?.type === "checkbox") return raw === "true";
@@ -350,6 +350,7 @@ function Proposals({ ws }: { ws: Workspace }) {
             {row.author.agent ? `Written by ${row.author.agent} for ${row.author.name}` : `Written by ${row.author.name}`}, {when(row.createdAt)}
             {row.note ? <>: “{row.note}”</> : null}
           </p>
+          {row.approvalNotes.map((note) => <p key={note} className="text-xs text-warning">{note}</p>)}
           {row.current && <Changes row={row} ws={ws} />}
           {row.spec.trigger.kind === "schedule" || isOnDemand(row.spec.trigger)
             ? <DryRun label="Dry run: which records it would act on at its next run" args={{ object: row.spec.object, trigger: row.spec.trigger, conditions: row.spec.conditions }} />
@@ -464,7 +465,7 @@ function Runs({ ruleId, ws, object }: { ruleId: Id<"automationRules">; ws: Works
   const o = ws.objects.find((x) => x.apiName === object);
   const label = (field: string | undefined, value: unknown) => {
     const f = o?.fields.find((x) => x.apiName === field);
-    return value === TODAY ? "today" : typeof value === "boolean" ? (value ? "Yes" : "No") : f?.options?.find((x) => x.value === value)?.label ?? String(value ?? "empty");
+    return relativeDateText(value) ?? (typeof value === "boolean" ? (value ? "Yes" : "No") : f?.options?.find((x) => x.value === value)?.label ?? String(value ?? "empty"));
   };
   if (rows === undefined) return <LoadingRows count={1} height="h-8" />;
   if (!rows.length) return <p className="mt-2 text-xs text-muted-foreground">No runs yet. A run appears when a record changes the way the trigger says.</p>;

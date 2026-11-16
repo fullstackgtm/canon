@@ -14,6 +14,7 @@ import { api } from "../../../convex/_generated/api.js";
 import type { Id } from "../../../convex/_generated/dataModel.js";
 import { canonConversationTools } from "./_canonConversationTools.ts";
 import { canonLinkedinTools } from "./_canonLinkedinTools.ts";
+import { canonSchemaTools } from "./_canonSchemaTools.ts";
 import { canonJobTools } from "./_canonJobTools.ts";
 import { canonModuleTools } from "./_canonModuleTools.ts";
 import { canonRelationTools } from "./_canonRelationTools.ts";
@@ -219,7 +220,7 @@ export const canonRecordTools: CanonTool[] = [
   },
   {
     name: "canon_describe_object",
-    description: "An object's fields (apiName, type, picklist values) and what the caller may do with its records. Call before writing to an object.",
+    description: "An object's fields (apiName, type, picklist values) and what the caller may do with its records. Call before writing to an object. Add fields with canon_data_model.",
     inputSchema: { object: listedObject },
     writes: false,
     run: (convex, args) => convex.query(api.objects.describe, { object: String(args.object) }),
@@ -287,7 +288,7 @@ export const canonRecordTools: CanonTool[] = [
   },
   {
     name: "canon_create_record",
-    description: "Create a lead, task, note, call, meeting, product, deal line item or a record of a custom object. Line items require dealId and productId stream ids, positive integer quantity and an explicit totalPrice in integer hundredths; name is derived from the product. Link an activity to a company, contact or deal with accountId, contactId or dealId. Returns its stream id and version. Pass an idempotencyKey to retry a create safely: the same key and values return the first answer.",
+    description: "Money is in cents; dates are YYYY-MM-DD; picklist values are option values from canon_describe_object, not labels. Create a lead, task, note, call, meeting, product, deal line item or a record of a custom object. Line items require dealId and productId stream ids, positive integer quantity and an explicit totalPrice in integer hundredths; name is derived from the product. Link an activity to a company, contact or deal with accountId, contactId or dealId. Returns its stream id and version. Pass an idempotencyKey to retry a create safely: the same key and values return the first answer.",
     inputSchema: { object: ledgerObject, values: fieldValues, idempotencyKey: z.string().min(1).max(200).optional() },
     writes: true,
     run: (convex, args) => convex.action(api.objects.writeScoped, { object: args.object as never, values: args.values as never, ...(args.idempotencyKey ? { idempotencyKey: String(args.idempotencyKey) } : {}) }),
@@ -307,7 +308,7 @@ export const canonRecordTools: CanonTool[] = [
   {
     name: "canon_update_record",
     description:
-      "Change fields of one record. Accounts and contacts: pass the register record id as `id` (a first edit moves the record onto the ledger). Other objects: pass the stream id, and expectedVersion to fail on a concurrent change (status conflict) instead of overwriting it. Line-item changes and deal splitAllocations require expectedVersion. Credit splits are [{userId,percentage,kind:revenue|overlay}], with revenue totaling 100%; null clears splits. A line item's dealId cannot change. A null value clears an optional field.",
+      "Money is in cents; dates are YYYY-MM-DD; picklist values are option values from canon_describe_object, not labels. Change fields of one record. Accounts and contacts: pass the register record id as `id` (a first edit moves the record onto the ledger). Other objects: pass the stream id, and expectedVersion to fail on a concurrent change (status conflict) instead of overwriting it. Line-item changes and deal splitAllocations require expectedVersion. Credit splits are [{userId,percentage,kind:revenue|overlay}], with revenue totaling 100%; null clears splits. A line item's dealId cannot change. A null value clears an optional field.",
     inputSchema: {
       object: z.union([z.enum(["account", "contact", "deal", ...LEDGER_OBJECTS]), CUSTOM_OBJECT]),
       id: z.string(),
@@ -359,4 +360,4 @@ export const canonRecordTools: CanonTool[] = [
   },
 ];
 
-export const canonTools: CanonTool[] = [...canonRecordTools, ...canonJobTools, ...canonRelationTools, ...canonReportTools, ...canonModuleTools, ...canonConversationTools, ...canonLinkedinTools];
+export const canonTools: CanonTool[] = [...canonRecordTools, ...canonJobTools, ...canonSchemaTools, ...canonRelationTools, ...canonReportTools, ...canonModuleTools, ...canonConversationTools, ...canonLinkedinTools];

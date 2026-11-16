@@ -4919,6 +4919,15 @@ export default defineSchema({
     .index("by_entityId_provider_attribute", ["entityId", "provider", "attribute"])
     .index("by_orgId", ["orgId"]),
 
+  // Who changed the data model, and when: one row per change to an object, a field or a pipeline
+  // (convex/lib.ts logDataModelChange). `agent` is the client of an agent that made it as `userId`
+  // (/mcp, the canon CLI); absent, a person made it in the app.
+  dataModelChanges: defineTable({
+    orgId: v.id("organizations"), userId: v.id("users"), at: v.number(),
+    agent: v.optional(v.string()), object: v.string(), kind: objectValidators.dataModelChangeKind,
+    fieldId: v.optional(v.string()), summary: v.string(), registryVersion: v.optional(v.number()),
+  }).index("by_orgId_and_at", ["orgId", "at"]),
+
   // Object layer (docs/cp0-object-layer.md). An org's extension of a standard
   // object: its custom fields and its own picklist options (e.g. deal stages).
   objectDefs: defineTable({

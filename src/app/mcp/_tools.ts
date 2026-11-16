@@ -28,6 +28,17 @@ enrichment tools propose changes; a person or a calibrated rule approves
 them, and every field keeps the source it came from. CanonCRM never
 writes to a connected CRM without an explicitly approved plan.
 
+## Setting up a workspace
+
+Use canon_data_model to define objects, fields and pipeline stages (admin role).
+An admin's own agent applies these changes directly; every change is recorded in
+Data model → Recent changes. Use canon_members to list members and their ids,
+then the record tools to create records. Money is in cents, dates are YYYY-MM-DD,
+and picklist values are option values from canon_describe_object, not labels.
+Propose workflow rules with canon_automations: an agent proposes, a person
+approves on the Automations page. Build views and reports with canon_views and
+canon_reports.
+
 ## Agent access (this server's surface)
 
 - CRM-Ops Bench leaderboard: the get_leaderboard tool here, or

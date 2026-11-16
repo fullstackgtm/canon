@@ -11,7 +11,7 @@ function fakeConvex(recordRefs?: boolean) {
   const rec = (kind: string) => async (ref: unknown, args: unknown) => {
     calls.push({ kind, name: getFunctionName(ref as never), args });
     if (kind === "query" && getFunctionName(ref as never) === "modules:describe") return recordRefs === undefined ? {} : { recordRefs };
-    if (kind === "query" && getFunctionName(ref as never) === "modules:list") return [];
+    if (kind === "query" && ["modules:list", "users:list"].includes(getFunctionName(ref as never))) return [];
     if (getFunctionName(ref as never) === "records:bulkRegister") return { results: [{ streamId: "acc_1", result: { status: "applied" } }], unprocessed: [] };
     return kind === "query" && getFunctionName(ref as never) === "deals:list"
       ? [{ _id: "d1", name: "Acme renewal", amount: 5, secret: "x" }, { _id: "d2", name: "Globex", amount: 7 }]
@@ -44,7 +44,7 @@ test("record updates accept typed splits while fact proposals retain their scala
   assert.equal(z.object(propose.inputSchema).safeParse({ agentId: "a", sourceKind: "call", title: "Proposal", facts: [{ dealId: "d1", attribute: "splitAllocations", value: splits }] }).success, false);
 });
 
-test("read tools only read; every write tool is marked, and only record removals and edits are destructive", async () => {
+test("read tools only read; every write tool and destructive tool is marked", async () => {
   for (const tool of canonTools.filter((t) => !t.writes)) {
     const f = fakeConvex();
     await tool.run(f.client, SAMPLE_ARGS[tool.name] ?? {});
@@ -52,7 +52,7 @@ test("read tools only read; every write tool is marked, and only record removals
       assert.ok(c.kind === "query" || (c.kind === "action" && READ_ACTIONS.has(c.name)), `${tool.name} is read-only but called ${c.kind} ${c.name}`);
     }
   }
-  assert.deepEqual(canonTools.filter((t) => t.destructive).map((t) => t.name), ["canon_update_record", "canon_delete_record", "canon_review", "canon_duplicates"]);
+  assert.deepEqual(canonTools.filter((t) => t.destructive).map((t) => t.name), ["canon_update_record", "canon_delete_record", "canon_review", "canon_data_model", "canon_duplicates"]);
 });
 
 test("update_record edits accounts through the register and other objects with a version check", async () => {

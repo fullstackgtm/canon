@@ -11,24 +11,20 @@ import { ConvexError, v } from "convex/values";
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { getCurrentUser, requireUser } from "./lib";
+import { getCurrentUser, requireUser, logDataModelChange } from "./lib";
 import { scheduleNudge } from "./ledgerFeed";
 import {
-  addField, archiveField, BUILDER_TYPES, builderOwns, MODELED_OBJECTS, restoreField, updateField, type ComputeSpec, type FieldPatch, type RelatedDefs,
+  addField, archiveField, builderOwns, MODELED_OBJECTS, restoreField, updateField, type ComputeSpec, type FieldPatch, type RelatedDefs,
 } from "./lib/objects/fieldBuilder";
 import { isRegisterObject } from "./lib/objects/listSpec";
 import { RegistryError, resolveOrgObject, STANDARD_OBJECTS, type OrgObjectExtension } from "./lib/objects/registry";
 import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { customObjectRows, loadOrgObject, objectNames, objectRow } from "./lib/objects/orgDefs";
 import { relabelObject } from "./lib/objects/customObjects";
-import { computedType, fieldRule, fromStored, rollupDef, toStored } from "./lib/objects/validators";
+import { dataModelRelabelArgs, dataModelSetArchivedArgs, dataModelUpdateFieldDefArgs, dataModelCreateFieldArgs, fromStored, toStored } from "./lib/objects/validators";
 
 /** A standard object the builder models, or one of the org's own (custom_<slug>); the set differs per org, so it is checked on use. */
 const modeledObject = v.string();
-/** A formula's expression and type, or a rollup's source and filter (lib/objects/formula.ts). */
-const computeSpec = v.object({ formula: v.string(), returns: v.optional(computedType), rollup: v.optional(rollupDef) });
-const optionEdit = v.object({ value: v.optional(v.string()), label: v.string(), color: v.optional(v.string()), active: v.optional(v.boolean()) });
-
 /** An org holds at most this many AI fields (researchAgents.MAX_AGENTS). */
 const AI_FIELDS_MAX = 50;
 
@@ -57,9 +53,11 @@ function requireModeled(object: string, ext: OrgObjectExtension | undefined) {
   if (ext.object.archivedAt !== undefined) throw new ConvexError(`${ext.object.pluralLabel} is archived; restore it before changing its fields`);
 }
 
+const CHANGE_VERBS = { object_relabeled: "Renamed", field_created: "Added field", field_updated: "Updated field", field_archived: "Archived field", field_restored: "Restored field" };
+
 /** Run a builder change against the org's extension, store it, and tell the projector. */
 async function change(
-  ctx: MutationCtx, object: string, run: (ext: OrgObjectExtension | undefined, ai: Set<string>) => OrgObjectExtension,
+  ctx: MutationCtx, object: string, event: { kind: keyof typeof CHANGE_VERBS; fieldId?: string }, run: (ext: OrgObjectExtension | undefined, ai: Set<string>) => OrgObjectExtension,
 ): Promise<OrgObjectExtension> {
   const user = await requireAdmin(ctx);
   const { row, ext } = await readExt(ctx, user.orgId, object);
@@ -78,6 +76,13 @@ async function change(
   };
   if (row) await ctx.db.patch(row._id, doc);
   else await ctx.db.insert("objectDefs", { orgId: user.orgId, apiName: object, ...doc });
+  const resolved = resolveOrgObject(object, next)!;
+  const field = event.fieldId ? resolved.fields.find((f) => f.fieldId === event.fieldId)
+    : event.kind === "field_created" ? next.customFields.find((f) => !ext?.customFields.some((old) => old.fieldId === f.fieldId)) : undefined;
+  const verb = CHANGE_VERBS[event.kind];
+  await logDataModelChange(ctx, user, { ...event, ...(field ? { fieldId: field.fieldId } : {}), object,
+    summary: `${verb}${field ? ` ${field.label} on` : ""} ${resolved.pluralLabel}`,
+    registryVersion: next.registryVersion });
   await scheduleNudge(ctx, user.orgId);
   return next;
 }
@@ -151,12 +156,12 @@ export const relabels = internalQuery({
 
 /** Rename a standard object in this workspace (People called Contacts); empty names bring back Canon's. Admins only. */
 export const relabel = mutation({
-  args: { object: modeledObject, label: v.string(), pluralLabel: v.string() },
+  args: dataModelRelabelArgs,
   handler: async (ctx, args) => {
     if (!(MODELED_OBJECTS as readonly string[]).includes(args.object)) throw new ConvexError("Rename your own objects from their row");
     const names = await objectNames(ctx, (await requireUser(ctx)).orgId);
     const reset = !args.label.trim() && !args.pluralLabel.trim();
-    await change(ctx, args.object, (ext) => relabelObject(args.object, ext, reset ? null : args, names));
+    await change(ctx, args.object, { kind: "object_relabeled" }, (ext) => relabelObject(args.object, ext, reset ? null : args, names));
   },
 });
 
@@ -201,16 +206,7 @@ export const fields = query({
 });
 
 export const createField = mutation({
-  args: {
-    object: modeledObject,
-    label: v.string(),
-    type: v.union(...BUILDER_TYPES.map((t) => v.literal(t))),
-    options: v.optional(v.array(optionEdit)),
-    lookupTo: v.optional(v.string()),
-    compute: v.optional(computeSpec),
-    /** A text field that holds prose (long text). */
-    multiline: v.optional(v.boolean()),
-  },
+  args: dataModelCreateFieldArgs,
   returns: v.object({ fieldId: v.string(), apiName: v.string() }),
   handler: async (ctx, { object, ...spec }) => {
     const user = await requireAdmin(ctx);
@@ -219,7 +215,7 @@ export const createField = mutation({
     }
     const related = await rollupSource(ctx, user.orgId, spec.compute);
     let created = { fieldId: "", apiName: "" };
-    await change(ctx, object, (ext, ai) => {
+    await change(ctx, object, { kind: "field_created" }, (ext, ai) => {
       const out = addField(object, ext, spec, ai, related);
       created = { fieldId: out.field.fieldId, apiName: out.field.apiName };
       return out.ext;
@@ -229,26 +225,14 @@ export const createField = mutation({
 });
 
 export const updateFieldDef = mutation({
-  args: {
-    object: modeledObject,
-    fieldId: v.string(),
-    label: v.optional(v.string()),
-    hidden: v.optional(v.boolean()),
-    options: v.optional(v.array(optionEdit)),
-    required: v.optional(v.boolean()),
-    rules: v.optional(v.array(fieldRule)),
-    compute: v.optional(computeSpec),
-    /** Turning it on checks every record for duplicates in the background (uniqueFields.ts); off releases the claims. */
-    unique: v.optional(v.boolean()),
-    multiline: v.optional(v.boolean()),
-  },
+  args: dataModelUpdateFieldDefArgs,
   returns: v.null(),
   handler: async (ctx, { object, fieldId, unique, ...rest }) => {
     const user = await requireAdmin(ctx);
     const related = await rollupSource(ctx, user.orgId, rest.compute);
     const claimingSince = Date.now();
     const patch = { ...rest, ...(unique === undefined ? {} : { unique: unique ? { claimingSince } : false as const }) } as FieldPatch;
-    const next = await change(ctx, object, (ext, ai) => {
+    const next = await change(ctx, object, { kind: "field_updated", fieldId }, (ext, ai) => {
       ownedBy(ext, fieldId, ai);
       return updateField(object, ext, fieldId, patch, related);
     });
@@ -267,13 +251,25 @@ export const updateFieldDef = mutation({
 });
 
 export const setArchived = mutation({
-  args: { object: modeledObject, fieldId: v.string(), archived: v.boolean() },
+  args: dataModelSetArchivedArgs,
   returns: v.null(),
   handler: async (ctx, args) => {
-    await change(ctx, args.object, (ext, ai) => {
+    await change(ctx, args.object, { kind: args.archived ? "field_archived" : "field_restored", fieldId: args.fieldId }, (ext, ai) => {
       ownedBy(ext, args.fieldId, ai);
       return args.archived ? archiveField(args.object, ext, args.fieldId, Date.now()) : restoreField(args.object, ext, args.fieldId);
     });
     return null;
+  },
+});
+
+export const history = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    if (!can(user, "dataModel.edit")) throw new ConvexError(refusal("dataModel.edit"));
+    const limit = args.limit ?? 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new ConvexError("Limit must be an integer from 1 to 200");
+    const rows = await ctx.db.query("dataModelChanges").withIndex("by_orgId_and_at", (q) => q.eq("orgId", user.orgId)).order("desc").take(limit);
+    return Promise.all(rows.map(async (row) => ({ ...row, memberName: (await ctx.db.get(row.userId))?.name ?? "Former member" })));
   },
 });

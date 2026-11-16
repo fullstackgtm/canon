@@ -12,12 +12,12 @@ import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { getCurrentUser, requireUser } from "./lib";
+import { getCurrentUser, requireUser, logDataModelChange } from "./lib";
 import { scheduleNudge } from "./ledgerFeed";
 import { editObject, newObject, setObjectArchived, type ExistingObject } from "./lib/objects/customObjects";
 import { customObjectRows, objectNames, objectRow } from "./lib/objects/orgDefs";
-import { OBJECT_ICONS, RegistryError, type OrgObjectExtension } from "./lib/objects/registry";
-import { fromStored, toStored } from "./lib/objects/validators";
+import { RegistryError, type OrgObjectExtension } from "./lib/objects/registry";
+import { customObjectsSetArchivedArgs, customObjectsEditArgs, customObjectsCreateArgs, fromStored, toStored } from "./lib/objects/validators";
 
 async function requireAdmin(ctx: MutationCtx): Promise<Doc<"users">> {
   const user = await requireUser(ctx);
@@ -67,7 +67,7 @@ export const salesforceObjects = query({
 
 /** Create an object: its names, an icon, and the label of its primary name field. Returns its stable apiName (`custom_<slug>`). */
 export const create = mutation({
-  args: { label: v.string(), pluralLabel: v.string(), icon: v.union(...OBJECT_ICONS.map((i) => v.literal(i))), titleLabel: v.string() },
+  args: customObjectsCreateArgs,
   returns: v.object({ apiName: v.string() }),
   handler: async (ctx, args) => {
     const user = await requireAdmin(ctx);
@@ -77,37 +77,39 @@ export const create = mutation({
       orgId: user.orgId, apiName: made.apiName, registryVersion: made.ext.registryVersion, object: made.ext.object!,
       customFields: toStored(made.ext.customFields), updatedAt: Date.now(),
     });
+    await logDataModelChange(ctx, user, { object: made.apiName, kind: "object_created", summary: `Created object ${made.ext.object!.pluralLabel}`, registryVersion: made.ext.registryVersion });
     await scheduleNudge(ctx, user.orgId);
     return { apiName: made.apiName };
   },
 });
 
-async function changeObject(ctx: MutationCtx, apiName: string, run: (ext: OrgObjectExtension, existing: ExistingObject[]) => OrgObjectExtension) {
+async function changeObject(ctx: MutationCtx, apiName: string, kind: "object_edited" | "object_archived" | "object_restored", run: (ext: OrgObjectExtension, existing: ExistingObject[]) => OrgObjectExtension) {
   const user = await requireAdmin(ctx);
   const row = await objectRow(ctx, user.orgId, apiName);
   if (!row?.object) throw new ConvexError(`Unknown object ${apiName}`);
   const existing = await objectNames(ctx, user.orgId);
   const next = guarded(() => run(fromStored<OrgObjectExtension>(row), existing));
   await ctx.db.patch(row._id, { registryVersion: next.registryVersion, object: next.object!, updatedAt: Date.now() });
+  await logDataModelChange(ctx, user, { object: apiName, kind, summary: `${kind === "object_edited" ? "Updated" : kind === "object_archived" ? "Archived" : "Restored"} object ${next.object!.pluralLabel}`, registryVersion: next.registryVersion });
   await scheduleNudge(ctx, user.orgId);
 }
 
 /** Rename an object's labels or change its icon. Its apiName, fields and records are untouched. */
 export const edit = mutation({
-  args: { apiName: v.string(), label: v.optional(v.string()), pluralLabel: v.optional(v.string()), icon: v.optional(v.union(...OBJECT_ICONS.map((i) => v.literal(i)))) },
+  args: customObjectsEditArgs,
   returns: v.null(),
   handler: async (ctx, { apiName, ...patch }) => {
-    await changeObject(ctx, apiName, (ext, existing) => editObject(apiName, ext, patch, existing));
+    await changeObject(ctx, apiName, "object_edited", (ext, existing) => editObject(apiName, ext, patch, existing));
     return null;
   },
 });
 
 /** Archive an object (hidden from the nav, search and the API; records and history kept) or restore it. */
 export const setArchived = mutation({
-  args: { apiName: v.string(), archived: v.boolean() },
+  args: customObjectsSetArchivedArgs,
   returns: v.null(),
   handler: async (ctx, { apiName, archived }) => {
-    await changeObject(ctx, apiName, (ext, existing) => setObjectArchived(ext, archived, Date.now(), existing, apiName));
+    await changeObject(ctx, apiName, archived ? "object_archived" : "object_restored", (ext, existing) => setObjectArchived(ext, archived, Date.now(), existing, apiName));
     return null;
   },
 });
