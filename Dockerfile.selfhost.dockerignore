@@ -5,6 +5,7 @@
 !next-env.d.ts
 !tsconfig.json
 !postcss.config.mjs
+!cli/**
 !src/**
 !public/**
 !convex/**

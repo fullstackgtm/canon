@@ -16,8 +16,9 @@ export function agentClients(origin: string, paired = LOCAL_AUTH || CONVEX_AUTH)
     {
       id: "paired-clients", label: "Claude Code, Cursor or Codex",
       steps: [
-        { text: "From a Canon checkout with npm ci completed, pair this machine. Sign in at the link and approve the code:", code: `npm run canon -- login --url ${origin}` },
-        { text: "Print setup for your client. This explicitly includes your token, so keep the output private:", code: `npm run canon -- mcp-config --url ${origin} --show-token` },
+        { text: "In your Docker Compose install directory, pair this machine. Open the printed link on your computer and approve the code:", code: "docker compose exec canoncrm npm run canon -- login" },
+        { text: "Print setup for your client. This explicitly includes your token, so keep the output private:", code: "docker compose exec canoncrm npm run canon -- mcp-config --show-token" },
+        { text: `Without Compose (Render, Railway or another host), use a Canon checkout on your computer with Node.js 22.6 or newer:`, code: `npm ci\nnpm run canon -- login --url ${origin}\nnpm run canon -- mcp-config --url ${origin} --show-token` },
         { text: "Apply the setup for your client, reconnect it, then ask it to call canon_whoami. Revoke tokens in Settings > API access." },
       ],
     },
@@ -93,7 +94,7 @@ export function stepPrompt(stepId: string, domain: string | null): string | null
 }
 
 export function selfHostedStarterPrompt(origin: string): string {
-  return `Help me set up our CRM at ${origin}. If Canon tools are missing, have me run npm run canon -- login --url ${origin} from a Canon checkout, approve pairing as my member, then use npm run canon -- mcp-config --url ${origin} --show-token privately to configure the client. Send the paired token as Authorization: Bearer <token> to ${mcpUrl(origin)}. Never put the token in chat or committed files.
+  return `Help me set up our CRM at ${origin}. If Canon tools are missing, have me run docker compose exec canoncrm npm run canon -- login in the install directory, approve pairing at the printed public link as my member, then use docker compose exec canoncrm npm run canon -- mcp-config --show-token privately to configure the client. Without Compose (Render, Railway or another host), use a checkout on my computer with Node.js 22.6 or newer: npm ci, then npm run canon -- login --url ${origin} and npm run canon -- mcp-config --url ${origin} --show-token. Send the paired token as Authorization: Bearer <token> to ${mcpUrl(origin)}. Never put the token in chat or committed files.
 
 Call canon_whoami and get_docs first. Ask about our sales process, the records we track, and the fields and pipeline stages we need. Inspect the existing model and list members with canon_members. Propose a small setup before writing anything. After I approve, use canon_data_model to create or edit custom objects, fields and stages, canon_views for useful views, and canon_reports for reports. Data-model changes require an admin member. Propose rules with canon_automations; a person must approve them. If a tool is unavailable, report it rather than claiming the change succeeded. Confirm the resulting setup and explain what remains. Ask before any write I have not approved. Do not invent CRM data.`;
 }
@@ -101,11 +102,14 @@ Call canon_whoami and get_docs first. Ask about our sales process, the records w
 export function selfHostedAuthText(origin: string): string {
   return `## Connect your agent
 
-From a Canon checkout, run npm ci, then npm run canon -- login --url ${origin}.
+In your Docker Compose install directory, run docker compose exec canoncrm npm run canon -- login.
+No Node installation is needed on the host. Open the printed public link on your computer.
 Sign in as the member the agent should act as, check the pairing code and approve it.
-Run npm run canon -- mcp-config --url ${origin} for client configuration with a placeholder.
+Run docker compose exec canoncrm npm run canon -- mcp-config for client configuration with a placeholder.
 Add --show-token only when you need the real token, and keep that output private.
-The CLI stores it in ~/.canon/credentials.json, or CANON_HOME/credentials.json when set.
+The container stores it in /data/canon-cli/credentials.json (0600) in the persistent data volume, so updates preserve it.
+Without Compose (Render, Railway or another host), use a checkout on your computer with Node.js 22.6 or newer: npm ci, then npm run canon -- login --url ${origin} and npm run canon -- mcp-config --url ${origin}.
+Checkout credentials live in ~/.canon/credentials.json, or CANON_HOME/credentials.json when set.
 Send Authorization: Bearer <token> to ${mcpUrl(origin)}. This install uses paired tokens only.
 Call canon_whoami to confirm the member. Permissions follow that member's role.
 Revoke the pairing in Settings > API access. Tokens expire after 90 days.

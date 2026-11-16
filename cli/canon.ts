@@ -54,6 +54,7 @@ function updateCredentials(base: string, patch: (s: Stored) => Stored | undefine
 }
 
 function openBrowser(url: string) {
+  if (existsSync("/.dockerenv") || (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY)) return;
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   try {
@@ -146,13 +147,18 @@ type Pairing = { deviceCode: string; userCode: string; verificationUrl: string; 
 export async function pairDevice(base: string, io: { fetchImpl?: typeof fetch; open?: (url: string) => void; wait?: (ms: number) => Promise<void>; log?: (line: string) => void } = {}): Promise<void> {
   const { fetchImpl = fetch, open = openBrowser, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log = console.error } = io;
   const post = async <T>(path: string, body: Record<string, unknown>): Promise<T> => {
-    const response = await fetchImpl(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const response = await fetchImpl(`${requestBase(base)}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error(`${base}${path} answered HTTP ${response.status}.`);
     return (await response.json()) as T;
   };
   const pairing = await post<Pairing>("/api/cli/auth/start", { requesterLabel: `canon CLI on ${hostname()}` });
-  log(`Approve this machine in Canon, signed in as the member the CLI will act as:\n  ${pairing.verificationUrl}\nThe page shows code ${pairing.userCode}.`);
-  open(pairing.verificationUrl);
+  const verificationUrl = new URL(pairing.verificationUrl);
+  const publicUrl = new URL(base);
+  verificationUrl.protocol = publicUrl.protocol;
+  verificationUrl.hostname = publicUrl.hostname;
+  verificationUrl.port = publicUrl.port;
+  log(`Approve this machine in Canon, signed in as the member the CLI will act as:\n  ${verificationUrl.href}\nThe page shows code ${pairing.userCode}.`);
+  open(verificationUrl.href);
   for (const deadline = Date.now() + pairing.expiresInSeconds * 1000; Date.now() < deadline;) {
     await wait(pairing.intervalSeconds * 1000);
     const poll = await post<{ status: string; cliToken?: string }>("/api/cli/auth/poll", { deviceCode: pairing.deviceCode });
@@ -162,8 +168,15 @@ export async function pairDevice(base: string, io: { fetchImpl?: typeof fetch; o
   throw new Error("The pairing expired before anyone approved it. Run `canon login` again.");
 }
 
+export function requestBase(base: string): string {
+  return (process.env.CANON_INTERNAL_URL ?? base).replace(/\/+$/, "");
+}
+
 function baseUrl(flags: Map<string, string>) {
-  return (flags.get("--url") ?? process.env.CANON_URL ?? DEFAULT_URL).replace(/\/+$/, "");
+  // SITE_URL is the install's public address inside its own container (where CANON_INTERNAL_URL is set). Elsewhere it
+  // is some other program's variable, and never chooses which Canon the CLI talks to.
+  const own = process.env.CANON_INTERNAL_URL ? process.env.SITE_URL : undefined;
+  return (flags.get("--url") ?? process.env.CANON_URL ?? own ?? DEFAULT_URL).replace(/\/+$/, "");
 }
 
 /** A failed connection in terms of what to do next: the transport's own message is "Error POSTing to endpoint:" and nothing else. */
@@ -178,7 +191,7 @@ function connectionError(endpoint: URL, error: unknown): Error {
 }
 
 async function connect(base: string, opts: { interactive: boolean }): Promise<Client> {
-  const endpoint = new URL(`${base}/mcp`);
+  const endpoint = new URL(`${requestBase(base)}/mcp`);
   try {
     return await connectTo(endpoint, base, opts);
   } catch (error) {
@@ -274,7 +287,7 @@ async function workspaceCommand(base: string, sub: string | undefined, rest: str
   if (sub === "export") {
     const key = await exportKey();
     const started = Date.now();
-    const transport = httpTransport(base, key);
+    const transport = httpTransport(requestBase(base), key);
     const plan = await transport.plan();
     const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
     const out = flags.get("--out") ?? `canon-workspace-${plan.workspace.slug}-${stamp}.tar`;
@@ -300,7 +313,7 @@ async function workspaceCommand(base: string, sub: string | undefined, rest: str
     const key = process.env.CANON_EXPORT_KEY?.trim();
     let live: Record<string, number> | undefined;
     if (key) {
-      const transport = httpTransport(base, key);
+      const transport = httpTransport(requestBase(base), key);
       const plan = await transport.plan();
       const archived = verifyArchive(files).manifest.workspace.id;
       if (plan.workspace.id !== archived) throw new Error(`The export key is for workspace ${plan.workspace.id}; this archive is of ${archived}.`);
@@ -320,7 +333,7 @@ async function workspaceCommand(base: string, sub: string | undefined, rest: str
     const files = readArchive(archive);
     const key = await exportKey("CANON_IMPORT_KEY", "Import key");
     try {
-      const report = await importWorkspace(httpImportTransport(base, key), files, { dryRun: dry !== undefined, log: (l) => console.log(l) });
+      const report = await importWorkspace(httpImportTransport(requestBase(base), key), files, { dryRun: dry !== undefined, log: (l) => console.log(l) });
       printImportReport(report);
       if (report.dryRun && (report.refusals.length || report.unmapped.length)) process.exitCode = 1;
     } catch (error) {
@@ -381,7 +394,8 @@ const USAGE = `canon ${VERSION} — Canon from the command line (talks to <url>/
   canon call <tool> [--args <json>]    call any hosted tool; --args @file.json reads a file
                                        e.g. canon call canon_research --args '{"action":"start","args":{"domain":"acme.com"}}'
 
-Environment: CANON_URL (default ${DEFAULT_URL}); CANON_TOKEN to use a paired CLI
+Environment: CANON_URL (default ${DEFAULT_URL}; inside a self-hosted container, its SITE_URL);
+CANON_INTERNAL_URL overrides the request address only; CANON_HOME sets the credentials directory; CANON_TOKEN to use a paired CLI
 token instead of OAuth (headless agents); CANON_EXPORT_KEY for workspace export and verify; CANON_IMPORT_KEY for import.`;
 
 function parse(argv: string[]) {
@@ -423,7 +437,7 @@ export async function main(argv = process.argv.slice(2)) {
       console.log(VERSION);
       return;
     case "login": {
-      const paired = !(await offersOAuth(base));
+      const paired = !(await offersOAuth(requestBase(base)));
       if (paired) await pairDevice(base);
       const client = await connect(base, { interactive: !paired });
       await client.close();

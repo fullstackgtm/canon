@@ -91,12 +91,22 @@ separately under FSL-1.1-Apache-2.0.
 
 ## Set up your CRM with your agent
 
-After creating your owner, pair your agent from a Canon checkout:
+After creating your owner, run these in the install directory on your Docker
+Compose host. No Node installation is needed on the host:
+
+```sh
+docker compose exec canoncrm npm run canon -- login
+docker compose exec canoncrm npm run canon -- mcp-config --show-token
+```
+
+The pairing is stored in `/data/canon-cli/credentials.json` in the data volume
+and survives container updates. Without Docker Compose (Render, Railway or
+another host), use a Canon checkout on your computer with Node.js 22.6 or newer:
 
 ```sh
 npm ci
 npm run canon -- login --url https://crm.example.com
-npm run canon -- mcp-config --url https://crm.example.com
+npm run canon -- mcp-config --url https://crm.example.com --show-token
 ```
 
 Approve the code as the member the agent should act as. Add `--show-token` to
