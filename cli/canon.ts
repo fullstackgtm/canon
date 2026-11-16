@@ -343,9 +343,25 @@ function parseArgs(text: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function mcpConfig(base: string, token: string): string {
+  const url = `${base}/mcp`;
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  return `Claude Code:\nclaude mcp add --transport http canon ${quote(url)} --header ${quote(`Authorization: Bearer ${token}`)}
+
+Cursor (~/.cursor/mcp.json), or another client accepting mcpServers JSON:
+${JSON.stringify({ mcpServers: { canon: { url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2)}
+
+Codex (~/.codex/config.toml):
+[mcp_servers.canon]
+url = ${JSON.stringify(url)}
+bearer_token_env_var = "CANON_TOKEN"
+Set CANON_TOKEN in the environment that launches Codex to the paired token.`;
+}
+
 const USAGE = `canon ${VERSION} — Canon from the command line (talks to <url>/mcp)
 
   canon login [--url <url>]            sign in through the browser (OAuth), or pair with a self-hosted Canon
+  canon mcp-config [--url <url>] [--show-token]   print client setup; tokens hidden by default
   canon logout [--url <url>]
   canon whoami
   canon deals [--name <text>] [--limit <n>]
@@ -412,6 +428,14 @@ export async function main(argv = process.argv.slice(2)) {
       const client = await connect(base, { interactive: !paired });
       await client.close();
       console.log(paired ? `Paired with ${base}. Revoke it in Settings > API access.` : `Signed in to ${base}.`);
+      if (paired) console.log(`Client setup: canon mcp-config --url ${base} (add --show-token to include the token).`);
+      return;
+    }
+    case "mcp-config": {
+      const token = process.env.CANON_TOKEN ?? readCredentials()[base]?.cliToken;
+      if (!token) throw new Error(`No paired token for ${base}. Run canon login --url ${base} first.`);
+      console.log(mcpConfig(base, flags.has("--show-token") ? token : "<token>"));
+      if (!flags.has("--show-token")) console.log(`Token hidden. Stored in ${credentialsPath()} (or supplied by CANON_TOKEN). Use --show-token to include it; keep that output private.`);
       return;
     }
     case "logout": {

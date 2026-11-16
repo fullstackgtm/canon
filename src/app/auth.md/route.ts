@@ -1,3 +1,4 @@
+import { selfHostedAuthText } from "../../lib/agentOnboarding.ts";
 /**
  * Human/agent-readable auth pointer for canoncrm.com (Cloudflare
  * Agent Readiness `auth.md` convention). Machine-readable counterparts:
@@ -6,11 +7,17 @@
  */
 import {
   AGENT_REVOCATION_CONTACT,
+  appOrigin,
   clerkIssuer,
   protectedResourceMetadata,
 } from "../.well-known/_lib.ts";
 
+export const dynamic = "force-dynamic";
+
 export function GET() {
+  if (process.env.CANON_AUTH === "local" || process.env.CANON_AUTH === "convex") {
+    return new Response(selfHostedAuthText(appOrigin()), { headers: { "Content-Type": "text/markdown; charset=utf-8" } });
+  }
   const metadata = protectedResourceMetadata();
   const resource = metadata.resource;
   const issuer = clerkIssuer();

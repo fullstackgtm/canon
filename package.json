@@ -8,6 +8,7 @@
   },
   "scripts": {
     "pretest": "npm ci --prefix services/record-service",
+    "canon": "node --experimental-strip-types cli/canon.ts",
     "build": "next build",
     "start": "node scripts/start-standalone.mjs",
     "typecheck": "bash scripts/typecheck.sh",

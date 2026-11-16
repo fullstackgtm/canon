@@ -80,3 +80,17 @@ test("get_leaderboard mirrors the committed Tier-1 artifact exactly", () => {
   assert.equal(fable.arms.raw.cup, 95.6);
   assert.equal(fable.arms.fullstackgtm.violations, 0);
 });
+
+test("hosted MCP still challenges unauthenticated clients with OAuth discovery", async () => {
+  process.env.MCP_REMOTE_ENABLED = "true";
+  const interval = globalThis.setInterval;
+  globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => interval(...args).unref()) as typeof setInterval;
+  try {
+    const response = await mcpPost(mcpRequest("POST"));
+    assert.equal(response.status, 401);
+    assert.match(response.headers.get("www-authenticate") ?? "", /resource_metadata=.*oauth-protected-resource/);
+  } finally {
+    globalThis.setInterval = interval;
+    delete process.env.MCP_REMOTE_ENABLED;
+  }
+});

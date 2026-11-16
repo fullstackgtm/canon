@@ -172,3 +172,22 @@ test("self-host discovery and documentation use SITE_URL before the public build
     delete process.env.NEXT_PUBLIC_SITE_URL;
   }
 });
+
+test("self-hosted agent docs and onboarding use paired credentials in both auth modes", async () => {
+  const { agentClients, starterPrompt } = await import("../src/lib/agentOnboarding.ts");
+  try {
+    for (const mode of ["local", "convex"]) {
+      process.env.CANON_AUTH = mode;
+      for (const response of [getAuthMd(), getLlmsTxt()]) {
+        const text = await response.text();
+        assert.match(text, /canon.*login/);
+        assert.match(text, /Authorization: Bearer/);
+        assert.doesNotMatch(text, /Clerk|registration_endpoint|api\/agents\/register|oauth-authorization-server/);
+      }
+      const clients = agentClients("https://crm.test", true);
+      assert.ok(clients.flatMap((client) => client.steps).some((step) => step.code?.includes("mcp-config")));
+      assert.doesNotMatch(starterPrompt("https://crm.test", null, true), /OAuth|mcp login/);
+      assert.match(starterPrompt("https://crm.test", null, true), /canon_data_model/);
+    }
+  } finally { delete process.env.CANON_AUTH; }
+});
