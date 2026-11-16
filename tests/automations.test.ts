@@ -706,3 +706,49 @@ test("a rule Ask Canon wrote waits as the ask-canon agent's proposal, with its r
   assert.deepEqual(plain([rules(w).length, versions(w).map((v) => [v.status, v.author.agent, v.author.userId])]), [0, [["proposed", "ask-canon", RILEY]]]);
   assert.ok(w.scheduled.some((s) => s.ref === "internal.automations.replayVersion"));
 });
+
+
+test("unmapped Slack can wait for approval, but cannot activate or resume until an admin maps it", async () => {
+  const w = workspace();
+  await as(w, RILEY);
+  agentClient = "audit";
+  try {
+    const doc = { ...TAG, conditions: [], actions: [{ kind: "if", conditions: [{ field: "company", op: "notEmpty" }], then: [{ kind: "notify_slack", channel: "#cs-alerts", message: "{record}" }] }] };
+    const checked = await automations.check.handler(w.ctx, doc);
+    assert.equal(checked.ok, true);
+    assert.match(checked.note, /cs-alerts.*admin.*Settings > Outbound/);
+    const proposed = await automations.propose.handler(w.ctx, doc);
+    assert.match(proposed.notes.join(" "), /cs-alerts/);
+    assert.equal(rules(w).length, 0);
+    const pending = await automations.proposals.handler(w.ctx, {});
+    assert.match(pending.open[0].approvalNotes.join(" "), /cs-alerts/);
+    agentClient = null;
+    await assert.rejects(automations.approve.handler(w.ctx, { versionId: proposed.versionId }), /cs-alerts.*Settings > Outbound/);
+    const mapping = await w.db.insert("outboundTargets", { orgId: ORG, channel: "slack", name: "cs-alerts", url: "sealed" });
+    const { ruleId } = await automations.approve.handler(w.ctx, { versionId: proposed.versionId });
+    await automations.setStatus.handler(w.ctx, { id: ruleId, status: "paused" });
+    await w.db.delete(mapping);
+    await assert.rejects(automations.setStatus.handler(w.ctx, { id: ruleId, status: "active" }), /cs-alerts/);
+    assert.equal(rules(w)[0].status, "paused");
+  } finally { agentClient = null; }
+});
+
+test("bad automation references name their path and the member lookup instead of a union mismatch", async () => {
+  const w = workspace();
+  await as(w, RILEY);
+  for (const [action, path, member] of [
+    [{ kind: "assign_owner", owner: { kind: "round_robin", userIds: [AVERY, "not-an-id"] } }, "actions.0.owner.userIds[1]", true],
+    [{ kind: "assign_owner", owner: { kind: "member", userId: "not-an-id" } }, "actions.0.owner.userId", true],
+    [{ kind: "notify_email", to: { kind: "member", userId: "not-an-id" }, subject: "Hi", message: "Hi" }, "actions.0.to.userId", true],
+    [{ kind: "assign_owner", owner: { kind: "team", teamId: "not-an-id" } }, "actions.0.owner.teamId", false],
+    [{ kind: "assign_owner", owner: { kind: "routing_rule", routingRuleId: "not-an-id" } }, "actions.0.owner.routingRuleId", false],
+    [{ kind: "call_webhook", endpointId: "not-an-id" }, "actions.0.endpointId", false],
+  ] as const) {
+    const doc = { ...TAG, conditions: [], actions: [action] };
+    const out = await automations.check.handler(w.ctx, doc);
+    assert.equal(out.ok, false);
+    assert.ok(out.problem.includes(path));
+    if (member) assert.match(out.problem, /canon_members/);
+    await assert.rejects(automations.propose.handler(w.ctx, doc), (error: Error) => error.message.includes(path));
+  }
+});

@@ -40,6 +40,22 @@ export function reachNote(object: string, plural: string): string | null {
  */
 export const TODAY = "{today}";
 
+/** A relative date's calendar-day offset, or null for a literal value. */
+export function todayOffset(value: unknown): number | null {
+  if (value === TODAY) return 0;
+  if (typeof value !== "string") return null;
+  const match = /^\{today([+-])([1-9]\d{0,3})\}$/.exec(value);
+  if (!match || Number(match[2]) > 3650) return null;
+  return Number(match[2]) * (match[1] === "+" ? 1 : -1);
+}
+
+export function relativeDateText(value: unknown): string | null {
+  const days = todayOffset(value);
+  if (days === null) return null;
+  if (days === 0) return "today";
+  return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ${days > 0 ? "from today" : "ago"}`;
+}
+
 const scalar = v.union(v.string(), v.number(), v.boolean());
 
 export const triggerValidator = v.union(
@@ -70,57 +86,65 @@ export const conditionValidator = v.object({ field: v.string(), op: v.string(), 
 /**
  * Who a task or a record is given to: one member; the triggering record's own owner (tasks only); or the next in
  * turn of a member list, a team, or a saved routing rule (whose rotation it advances, so those rules run here).
+ * Share stored and input shapes; input IDs are checked before a rule is saved.
  */
-export const ownerChoiceValidator = v.union(
-  v.object({ kind: v.literal("member"), userId: v.id("users") }),
-  v.object({ kind: v.literal("record_owner") }),
-  /** The owner of the record's company: a company's own, else the one its company lookup (a deal's or a task's Account) names, as the rule's member sees it. */
-  v.object({ kind: v.literal("company_owner") }),
-  v.object({ kind: v.literal("round_robin"), userIds: v.array(v.id("users")) }),
-  v.object({ kind: v.literal("team"), teamId: v.id("teamGroups") }),
-  v.object({ kind: v.literal("routing_rule"), routingRuleId: v.id("routingRules") }),
-);
+function actionValidators(id: typeof v.id) {
+  const ownerChoiceValidator = v.union(
+    v.object({ kind: v.literal("member"), userId: id("users") }),
+    v.object({ kind: v.literal("record_owner") }),
+    /** The owner of the record's company: a company's own, else the one its company lookup (a deal's or a task's Account) names, as the rule's member sees it. */
+    v.object({ kind: v.literal("company_owner") }),
+    v.object({ kind: v.literal("round_robin"), userIds: v.array(id("users")) }),
+    v.object({ kind: v.literal("team"), teamId: id("teamGroups") }),
+    v.object({ kind: v.literal("routing_rule"), routingRuleId: id("routingRules") }),
+  );
 
-/** Who an email step writes to: a member of the workspace, or the record's owner. Never a contact. */
-export const memberChoiceValidator = v.union(v.object({ kind: v.literal("member"), userId: v.id("users") }), v.object({ kind: v.literal("record_owner") }));
+  /** Who an email step writes to: a member of the workspace, or the record's owner. Never a contact. */
+  const memberChoiceValidator = v.union(v.object({ kind: v.literal("member"), userId: id("users") }), v.object({ kind: v.literal("record_owner") }));
 
-/** The actions that each do one thing. */
-const LEAVES = [
-  v.object({ kind: v.literal("set_field"), field: v.string(), value: v.union(scalar, v.null()) }),
-  v.object({ kind: v.literal("create_task"), subject: v.string(), dueInDays: v.number(), owner: ownerChoiceValidator }),
-  v.object({ kind: v.literal("assign_owner"), owner: ownerChoiceValidator }),
+  /** The actions that each do one thing. */
+  const LEAVES = [
+    v.object({ kind: v.literal("set_field"), field: v.string(), value: v.union(scalar, v.null()) }),
+    v.object({ kind: v.literal("create_task"), subject: v.string(), dueInDays: v.number(), owner: ownerChoiceValidator }),
+    v.object({ kind: v.literal("assign_owner"), owner: ownerChoiceValidator }),
+    /**
+     * Wait `days` whole days, or until the date in the record's own date field `until` (start of that day in the
+     * workspace's time zone; a date and time, that moment), then go on. Exactly one of the two. An empty or past date
+     * doesn't wait.
+     */
+    v.object({ kind: v.literal("wait"), days: v.optional(v.number()), until: v.optional(v.string()) }),
+    /**
+     * Post `message` to a Slack channel an admin mapped in Settings > Outbound (`channel`, its name there). `{record}` is
+     * the record's name and `{<field>}` a field's value, both as the rule's member sees the record.
+     */
+    v.object({ kind: v.literal("notify_slack"), channel: v.string(), message: v.string() }),
+    /** Email a workspace member (one member, or the record's owner), never a contact: `subject` and `message` as above. */
+    v.object({ kind: v.literal("notify_email"), to: memberChoiceValidator, subject: v.string(), message: v.string() }),
+    /**
+     * Send the record, as the rule's member sees it, to a record webhook an admin registered: signed and retried as
+     * record webhooks are. An imported rule's step arrives with no endpoint (endpoints never move), until an admin picks one.
+     */
+    v.object({ kind: v.literal("call_webhook"), endpointId: v.optional(id("recordWebhookEndpoints")) }),
+  ] as const;
+  const leafActionValidator = v.union(...LEAVES);
+
   /**
-   * Wait `days` whole days, or until the date in the record's own date field `until` (start of that day in the
-   * workspace's time zone; a date and time, that moment), then go on. Exactly one of the two. An empty or past date
-   * doesn't wait.
+   * An If step: when the record, as it is when the run reaches the step, passes `conditions`, the run goes on into
+   * `then`; otherwise into `else`, or past the step when it has none. A condition may name a field of a record the
+   * record looks up, as `<lookup>.<field>` (a deal's `companyId.industry`), read as the rule's member sees it. An If
+   * holds another If one level down, and that one holds only actions.
    */
-  v.object({ kind: v.literal("wait"), days: v.optional(v.number()), until: v.optional(v.string()) }),
-  /**
-   * Post `message` to a Slack channel an admin mapped in Settings > Outbound (`channel`, its name there). `{record}` is
-   * the record's name and `{<field>}` a field's value, both as the rule's member sees the record.
-   */
-  v.object({ kind: v.literal("notify_slack"), channel: v.string(), message: v.string() }),
-  /** Email a workspace member (one member, or the record's owner), never a contact: `subject` and `message` as above. */
-  v.object({ kind: v.literal("notify_email"), to: memberChoiceValidator, subject: v.string(), message: v.string() }),
-  /**
-   * Send the record, as the rule's member sees it, to a record webhook an admin registered: signed and retried as
-   * record webhooks are. An imported rule's step arrives with no endpoint (endpoints never move), until an admin picks one.
-   */
-  v.object({ kind: v.literal("call_webhook"), endpointId: v.optional(v.id("recordWebhookEndpoints")) }),
-] as const;
-export const leafActionValidator = v.union(...LEAVES);
+  const innerIfValidator = v.object({ kind: v.literal("if"), conditions: v.array(conditionValidator), then: v.array(leafActionValidator), else: v.optional(v.array(leafActionValidator)) });
+  const branchStepValidator = v.union(...LEAVES, innerIfValidator);
+  const ifStepValidator = v.object({ kind: v.literal("if"), conditions: v.array(conditionValidator), then: v.array(branchStepValidator), else: v.optional(v.array(branchStepValidator)) });
 
-/**
- * An If step: when the record, as it is when the run reaches the step, passes `conditions`, the run goes on into
- * `then`; otherwise into `else`, or past the step when it has none. A condition may name a field of a record the
- * record looks up, as `<lookup>.<field>` (a deal's `companyId.industry`), read as the rule's member sees it. An If
- * holds another If one level down, and that one holds only actions.
- */
-const innerIfValidator = v.object({ kind: v.literal("if"), conditions: v.array(conditionValidator), then: v.array(leafActionValidator), else: v.optional(v.array(leafActionValidator)) });
-const branchStepValidator = v.union(...LEAVES, innerIfValidator);
-export const ifStepValidator = v.object({ kind: v.literal("if"), conditions: v.array(conditionValidator), then: v.array(branchStepValidator), else: v.optional(v.array(branchStepValidator)) });
+  const actionValidator = v.union(...LEAVES, ifStepValidator);
 
-export const actionValidator = v.union(...LEAVES, ifStepValidator);
+  return { ownerChoiceValidator, memberChoiceValidator, leafActionValidator, ifStepValidator, actionValidator };
+}
+export const { ownerChoiceValidator, memberChoiceValidator, leafActionValidator, ifStepValidator, actionValidator } = actionValidators(v.id);
+/** Strings let the rule checker report the exact bad ID path instead of a union mismatch. */
+export const actionInputValidator = actionValidators((() => v.string()) as unknown as typeof v.id).actionValidator;
 
 /** The two ways out of an If. */
 export const BRANCHES = ["then", "else"] as const;
@@ -248,7 +272,7 @@ export const versionAuthorValidator = v.object({ userId: v.id("users"), agent: v
 export type VersionAuthor = Infer<typeof versionAuthorValidator>;
 
 /** A rule document in words, for an agent that writes one: the agent tool's (`canon_automations`) and Ask Canon's. */
-export const AUTOMATION_DOC = "name, object: deal | lead | task | account | contact | custom_<name> (a rule on companies or people starts only on an edit or a delete made in Canon: no created or schedule trigger, and no set_field or assign_owner; check's note says what it sees), trigger: { kind: created | deleted } | { kind: updated, field?, from?: [value], to?: [value] } | { kind: schedule, cadence: daily | weekly, minute (0 to 1439 past local midnight), weekday? (0 Sunday to 6, weekly) } | { kind: manual } (someone runs it on one record: run_on_record, or the record page) | { kind: webhook, match: id | <a unique field> } (a signed POST to the rule's own URL names one record by that key in its body; a person makes its secret on the Automations page), conditions: [{ field, op: eq | neq | in | contains | startsWith | gt | gte | lt | lte | hasAny | hasAll | empty | notEmpty, value? (\"{today}\" on a date) }] (up to 10), actions: [{ kind: set_field, field, value } | { kind: create_task, subject (\"{record}\" is the record's name), dueInDays (0 to 365), owner } | { kind: assign_owner, owner } | { kind: notify_slack, channel (a Slack channel name an admin mapped in Settings > Outbound), message } | { kind: notify_email, to: { kind: member, userId } | { kind: record_owner } (members only, never a contact), subject, message } (in a message, {record} is the record's name and {<field>} a field's value, as the rule's admin sees the record) | { kind: call_webhook, endpointId (a record webhook an admin registered) } | { kind: wait, days (1 to 365) } | { kind: wait, until (a date or date-time field of the record; an empty or past date doesn't wait) } | { kind: if, conditions (1 to 10, as above; a related record's field as <lookup>.<field>, e.g. companyId.industry, read as the rule's member sees it), then: [steps], else?: [steps] } (an if holds one more if, which holds only actions)] (1 to 10 in a row, at most 25 steps in all, in order); owner: { kind: member, userId } | { kind: record_owner } (tasks only) | { kind: company_owner } (the owner of the record's company: a company's own, or the one a deal's or task's Account names, as the rule's admin sees it) | { kind: round_robin, userIds } | { kind: team, teamId } | { kind: routing_rule, routingRuleId }; money in cents";
+export const AUTOMATION_DOC = "name, object: deal | lead | task | account | contact | custom_<name> (a rule on companies or people starts only on an edit or a delete made in Canon: no created or schedule trigger, and no set_field or assign_owner; check's note says what it sees), trigger: { kind: created | deleted } | { kind: updated, field?, from?: [value], to?: [value] } | { kind: schedule, cadence: daily | weekly, minute (0 to 1439 past local midnight), weekday? (0 Sunday to 6, weekly) } | { kind: manual } (someone runs it on one record: run_on_record, or the record page) | { kind: webhook, match: id | <a unique field> } (a signed POST to the rule's own URL names one record by that key in its body; a person makes its secret on the Automations page), conditions: [{ field, op: eq | neq | in | contains | startsWith | gt | gte | lt | lte | hasAny | hasAll | empty | notEmpty, value? (\"{today}\", \"{today+N}\" or \"{today-N}\" on a date; N is 1 to 3650 whole days in the workspace timezone) }] (up to 10), actions: [{ kind: set_field, field, value } | { kind: create_task, subject (\"{record}\" is the record's name), dueInDays (0 to 365), owner } | { kind: assign_owner, owner } | { kind: notify_slack, channel (a Slack channel name; may be proposed unmapped, but an admin must map it in Settings > Outbound before approval), message } | { kind: notify_email, to: { kind: member, userId } | { kind: record_owner } (members only, never a contact), subject, message } (in a message, {record} is the record's name and {<field>} a field's value, as the rule's admin sees the record) | { kind: call_webhook, endpointId (a record webhook an admin registered) } | { kind: wait, days (1 to 365) } | { kind: wait, until (a date or date-time field of the record; an empty or past date doesn't wait) } | { kind: if, conditions (1 to 10, as above; a related record's field as <lookup>.<field>, e.g. companyId.industry, read as the rule's member sees it), then: [steps], else?: [steps] } (an if holds one more if, which holds only actions)] (1 to 10 in a row, at most 25 steps in all, in order); owner: { kind: member, userId } | { kind: record_owner } (tasks only) | { kind: company_owner } (the owner of the record's company: a company's own, or the one a deal's or task's Account names, as the rule's admin sees it) | { kind: round_robin, userIds } | { kind: team, teamId } | { kind: routing_rule, routingRuleId }; money in cents";
 
 // ───────────────────────────── The sentence ─────────────────────────────
 
@@ -316,7 +340,8 @@ function phrases(rule: RuleShape, names: RuleNames) {
   const member = (id: string) => names.members?.find((m) => m.id === id)?.name ?? "a former member";
   const value = (apiName: string, x: unknown): string => {
     const f = fieldOf(apiName);
-    if (x === TODAY) return "today";
+    const relative = relativeDateText(x);
+    if (relative) return relative;
     if (x === null || x === undefined || x === "") return "empty";
     if (typeof x === "boolean") return x ? "Yes" : "No";
     if (Array.isArray(x)) return list(x.map((y) => value(apiName, y)), "or");

@@ -19,8 +19,8 @@ export type PipelineStage = StageConfig & { label: string; active: boolean };
 export type Pipeline = { id: string | null; name: string; isDefault: boolean; stages: PipelineStage[] };
 
 export const DEFAULT_PIPELINE_NAME = "Sales pipeline";
-const MAX_STAGES = 50;
-const MAX_LABEL = 80;
+export const MAX_STAGES = 50;
+export const MAX_LABEL = 80;
 
 /** What an unconfigured stage starts with: won and lost by name, open stages spread 10 to 90 by position. */
 function defaultConfig(option: PicklistOption, openIndex: number, openCount: number): StageConfig {

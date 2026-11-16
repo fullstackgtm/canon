@@ -24,7 +24,7 @@ function workspace() {
     // A rep sees only their own leads, and may not change a lead's source.
     rolePermissions: [{ _id: "rolePermissions:rep", orgId: ORG, role: "rep", rules: [{ object: "lead", visibility: "own", unowned: false, fields: [{ apiName: "leadSource", level: "readOnly" }] }] }],
   });
-  const ctx = { db, scheduler: { runAfter: async () => {} } };
+  const ctx = { db, auth: { getUserIdentity: async () => null }, scheduler: { runAfter: async () => {} } };
   const call = async (file: string, name: string, args: unknown) => {
     const checkpoint = db.checkpoint();
     try { return plain(await M[file]![name]!.handler(ctx as never, args as never)); } catch (error) { db.rollback(checkpoint); throw error; }

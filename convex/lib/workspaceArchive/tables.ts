@@ -289,6 +289,7 @@ export const ARCHIVE_TABLES = {
   partyMirrorFailures: local(),
   partyMirrorDrains: local(),
   canonOutboundShadow: derived("resolving facts"),
+  dataModelChanges: ledger("by_orgId_and_at"),
   objectDefs: ledger("by_orgId_apiName"),
   ledgerEntries: ledger("by_orgId_shard_seq"),
   ledgerShardHeads: derived("replaying ledgerEntries"),

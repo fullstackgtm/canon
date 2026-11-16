@@ -1,17 +1,17 @@
+import { pipelinesSaveArgs } from "./lib/objects/validators";
 import { ConvexError, v } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { getCurrentUser, requireCap } from "./lib";
+import { getCurrentUser, requireCap, logDataModelChange } from "./lib";
 import { accessFor, visibleDeals } from "./permissions";
 import { hiddenFields, isRestricted } from "./lib/access";
-import { FORECAST_CATEGORIES, planPipelineSave, resolvePipelines, type Pipeline, type PipelineInput } from "./lib/pipelines";
+import { planPipelineSave, resolvePipelines, type Pipeline, type PipelineInput } from "./lib/pipelines";
 import type { Provenance } from "../recipes/templates.ts";
 import { resolveObjectDef, STANDARD_OBJECTS, type OrgObjectExtension } from "./lib/objects/registry";
 import { fromStored, toStored } from "./lib/objects/validators";
 
 /** Deals `totals` reads; past it the totals say they are partial. */
 const TOTALS_CAP = 5000;
-const forecastCategory = v.union(...FORECAST_CATEGORIES.map((c) => v.literal(c)));
 
 async function readState(ctx: QueryCtx, orgId: Id<"organizations">) {
   const defRow = await ctx.db.query("objectDefs").withIndex("by_orgId_apiName", (q) => q.eq("orgId", orgId).eq("apiName", "deal")).unique();
@@ -65,15 +65,12 @@ export const totals = query({
 
 /** Create a pipeline (`pipelineId` null) or replace one, with its full ordered stage list. Admins and managers. */
 export const save = mutation({
-  args: {
-    pipelineId: v.union(v.id("dealPipelines"), v.literal("default"), v.null()),
-    name: v.string(),
-    stages: v.array(v.object({ value: v.union(v.string(), v.null()), label: v.string(), probability: v.number(), forecastCategory })),
-  },
+  args: pipelinesSaveArgs,
   handler: async (ctx, args) => {
     const user = await requireCap(ctx, "pipelines.edit");
     const target = args.pipelineId === null ? { kind: "new" as const } : { kind: "existing" as const, id: args.pipelineId === "default" ? null : args.pipelineId };
     await savePipeline(ctx, user.orgId, { target, name: args.name, stages: args.stages });
+    await logDataModelChange(ctx, user, { object: "deal", kind: "pipeline_saved", summary: `Saved pipeline ${args.name.trim()}` });
     return null;
   },
 });

@@ -225,3 +225,12 @@ export async function userBelongsToOrg(
     .first();
   return Boolean(membership && membership.isActive);
 }
+
+/** Schema edits record their caller in the same transaction as the definition. */
+export async function logDataModelChange(
+  ctx: MutationCtx, user: Doc<"users">,
+  change: Pick<Doc<"dataModelChanges">, "object" | "kind" | "summary"> & Partial<Pick<Doc<"dataModelChanges">, "fieldId" | "registryVersion">>,
+) {
+  const agent = await agentClientOf(ctx);
+  await ctx.db.insert("dataModelChanges", { orgId: user.orgId, userId: user._id, at: Date.now(), ...(agent ? { agent } : {}), ...change });
+}

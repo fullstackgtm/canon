@@ -68,7 +68,7 @@ import {
   relatedOf, relatedVias, resolveConditions, resumeAt, rowOf, scheduleProblem, triggerFires, weightedCycle, type AutomationMark, type Related,
 } from "./lib/automations";
 import {
-  ACTIONS_MAX, AUTOMATION_OBJECTS, CONDITIONS_MAX, MAX_DEPTH, RULES_MAX, STEPS_MAX, actionValidator, replaySummaryValidator, conditionValidator, describe, describeConditions,
+  ACTIONS_MAX, AUTOMATION_OBJECTS, CONDITIONS_MAX, MAX_DEPTH, RULES_MAX, STEPS_MAX, actionValidator, actionInputValidator, replaySummaryValidator, conditionValidator, describe, describeConditions,
   isAutomationObject, isOnDemand, isRegisterAutomationObject, reachNote, stepAt, triggerValidator, walkSteps,
   type AutomationAction, type Branch, type Condition, type IfStep, type LeafAction, type OwnerChoice, type RuleNames, type RuleStep, type Step, type Trigger,
 } from "../modules/kernel/automation";
@@ -179,7 +179,22 @@ async function checkOwner(ctx: QueryCtx, orgId: Id<"organizations">, owner: Owne
 }
 
 /** The rule as saved, or a refusal saying what is wrong with it. */
-async function checkRule(ctx: QueryCtx, orgId: Id<"organizations">, input: RuleInput): Promise<RuleInput> {
+async function checkRule(ctx: QueryCtx, orgId: Id<"organizations">, input: RuleInput, notes?: string[]): Promise<RuleInput> {
+  for (const { ref, step } of walkSteps(input.actions)) {
+    const path = `actions.${ref}`;
+    const id = (table: "users" | "teamGroups" | "routingRules" | "recordWebhookEndpoints", value: string, field: string) => {
+      if (!ctx.db.normalizeId(table, value)) throw new ConvexError(
+        `${path}.${field} is not a valid ${table === "users" ? "member id; get member ids from canon_members" : `${table} id; use an id returned by Canon's list call for that resource`}`,
+      );
+    };
+    const owner = "owner" in step ? step.owner : step.kind === "notify_email" ? step.to : null;
+    const prefix = step.kind === "notify_email" ? "to" : "owner";
+    if (owner?.kind === "member") id("users", owner.userId, `${prefix}.userId`);
+    if (owner?.kind === "round_robin") owner.userIds.forEach((value, i) => id("users", value, `${prefix}.userIds[${i}]`));
+    if (owner?.kind === "team") id("teamGroups", owner.teamId, `${prefix}.teamId`);
+    if (owner?.kind === "routing_rule") id("routingRules", owner.routingRuleId, `${prefix}.routingRuleId`);
+    if (step.kind === "call_webhook" && step.endpointId) id("recordWebhookEndpoints", step.endpointId, "endpointId");
+  }
   const name = input.name.trim().slice(0, NAME_MAX);
   if (!name) throw new ConvexError("Name the rule");
   if (!isAutomationObject(input.object)) throw new ConvexError(`Rules do not run on ${input.object} records yet`);
@@ -206,7 +221,7 @@ async function checkRule(ctx: QueryCtx, orgId: Id<"organizations">, input: RuleI
   if (problem) throw new ConvexError(problem);
   if (!input.actions.length) throw new ConvexError("Add at least one action");
   if (walkSteps(input.actions).length > STEPS_MAX) throw new ConvexError(`A rule has at most ${STEPS_MAX} steps, counting each If and the steps in its branches`);
-  await checkSteps(ctx, orgId, def, input.actions);
+  await checkSteps(ctx, orgId, def, input.actions, notes);
   return { ...input, name };
 }
 
@@ -219,8 +234,14 @@ async function relationOf(ctx: QueryCtx, orgId: Id<"organizations">, def: Resolv
   return { object: f.lookupTo, def: listViewDef(f.lookupTo, target) };
 }
 
+async function slackProblem(ctx: QueryCtx, orgId: Id<"organizations">, channel: string): Promise<string | null> {
+  const name = channel.replace(/^#/, "").toLowerCase();
+  const mapped = await ctx.db.query("outboundTargets").withIndex("by_orgId_and_channel_and_name", (q) => q.eq("orgId", orgId).eq("channel", "slack").eq("name", name)).first();
+  return mapped ? null : `No Slack channel is mapped to ${name}. An admin maps it in Settings > Outbound before approving.`;
+}
+
 /** Each step as a save checks it: an action against the object, an If's conditions (a related record's against its object) and both its branches. */
-async function checkSteps(ctx: QueryCtx, orgId: Id<"organizations">, def: ResolvedObjectDef, steps: readonly RuleStep[]) {
+async function checkSteps(ctx: QueryCtx, orgId: Id<"organizations">, def: ResolvedObjectDef, steps: readonly RuleStep[], notes?: string[]) {
   if (steps.length > ACTIONS_MAX) throw new ConvexError(`At most ${ACTIONS_MAX} steps in a row`);
   for (const a of steps) {
     if (a.kind === "if") {
@@ -233,8 +254,8 @@ async function checkSteps(ctx: QueryCtx, orgId: Id<"organizations">, def: Resolv
         if (bad) throw new ConvexError(bad);
       }
       if (!a.then.length && !a.else?.length) throw new ConvexError("An If needs a step under Then or Otherwise");
-      await checkSteps(ctx, orgId, def, a.then);
-      await checkSteps(ctx, orgId, def, a.else ?? []);
+      await checkSteps(ctx, orgId, def, a.then, notes);
+      await checkSteps(ctx, orgId, def, a.else ?? [], notes);
       continue;
     }
     const bad = actionProblem(def, a);
@@ -248,9 +269,11 @@ async function checkSteps(ctx: QueryCtx, orgId: Id<"organizations">, def: Resolv
     if ("owner" in a) await checkOwner(ctx, orgId, a.owner);
     if (a.kind === "notify_email") await checkOwner(ctx, orgId, a.to);
     if (a.kind === "notify_slack") {
-      const name = a.channel.replace(/^#/, "").toLowerCase();
-      const mapped = await ctx.db.query("outboundTargets").withIndex("by_orgId_and_channel_and_name", (q) => q.eq("orgId", orgId).eq("channel", "slack").eq("name", name)).first();
-      if (!mapped) throw new ConvexError(`No Slack channel is mapped to ${name}. An admin maps it in Settings > Outbound.`);
+      const instruction = await slackProblem(ctx, orgId, a.channel);
+      if (instruction) {
+        if (!notes) throw new ConvexError(instruction);
+        if (!notes.includes(instruction)) notes.push(instruction);
+      }
     }
     if (a.kind === "call_webhook") {
       const endpoint = a.endpointId ? await ctx.db.get(a.endpointId) : null;
@@ -279,7 +302,7 @@ const audit = (ctx: MutationCtx, user: Doc<"users">, operation: string, details:
 // approver the member the rule acts as. A person's own change in the app is approved as it is saved: they are the
 // admin who decides. An agent's call is never a decision (requirePerson).
 
-const ruleArgs = { name: v.string(), object: v.string(), trigger: triggerValidator, conditions: v.array(conditionValidator), actions: v.array(actionValidator) };
+const ruleArgs = { name: v.string(), object: v.string(), trigger: triggerValidator, conditions: v.array(conditionValidator), actions: v.array(actionInputValidator) };
 const NOTE_MAX = 1000;
 const REASON_MAX = 500;
 /** Proposals one workspace keeps waiting at once. */
@@ -324,9 +347,9 @@ async function nextVersion(ctx: QueryCtx, rule: Doc<"automationRules">): Promise
 
 /** Store a proposed version, checked as a save is: a proposal naming a field, member or team that doesn't exist never waits. */
 async function proposeVersion(
-  ctx: MutationCtx, user: Doc<"users">, doc: RuleInput, opts: { ruleId?: Id<"automationRules">; note?: string; agent: string | null },
+  ctx: MutationCtx, user: Doc<"users">, doc: RuleInput, opts: { ruleId?: Id<"automationRules">; note?: string; agent: string | null; notes?: string[] },
 ): Promise<Doc<"automationVersions">> {
-  const spec = await checkRule(ctx, user.orgId, doc);
+  const spec = await checkRule(ctx, user.orgId, doc, opts.notes);
   const rule = opts.ruleId ? await ownRule(ctx, user.orgId, opts.ruleId) : null;
   const open = await ctx.db.query("automationVersions").withIndex("by_orgId_and_status", (q) => q.eq("orgId", user.orgId).eq("status", "proposed")).take(OPEN_MAX);
   if (open.length >= OPEN_MAX) throw new ConvexError(`${OPEN_MAX} proposals are waiting for an admin; approve or reject some first`);
@@ -374,18 +397,21 @@ async function approveVersion(ctx: MutationCtx, p: Person, row: Doc<"automationV
 /**
  * Propose a rule, or a new version of one (`ruleId`), with a note saying why. An agent's proposal waits for an admin
  * and does nothing until one approves it. A person's is their own decision and is approved as it is saved.
+ * An agent can't map a Slack channel, so its proposal may name one that isn't mapped yet: `notes` says so, and the
+ * approval refuses until an admin maps it. A person's save refuses at once, as they can map it themselves.
  */
 export const propose = mutation({
   args: { ruleId: v.optional(v.id("automationRules")), ...ruleArgs, note: v.optional(v.string()) },
   handler: async (ctx, { ruleId, note, ...doc }) => {
     const admin = await requireAdmin(ctx);
     const p = await inPerson(ctx, admin);
-    const row = await proposeVersion(ctx, admin, doc, { ruleId, note, agent: p ? null : await agentClientOf(ctx) });
+    const notes: string[] = [];
+    const row = await proposeVersion(ctx, admin, doc, { ruleId, note, agent: p ? null : await agentClientOf(ctx), ...(p ? {} : { notes }) });
     const sentence = describe(row.spec, await namesFor(ctx, admin.orgId, row.spec.object));
     if (!p) {
       // The approver sees what it would have done over the last two weeks without asking for it.
       if (row.spec.trigger.kind !== "schedule" && !isOnDemand(row.spec.trigger)) await ctx.scheduler.runAfter(0, internal.automations.replayVersion, { versionId: row._id });
-      return { versionId: row._id, version: row.version, ruleId: row.ruleId ?? null, status: "proposed" as const, sentence };
+      return { versionId: row._id, version: row.version, ruleId: row.ruleId ?? null, status: "proposed" as const, sentence, notes };
     }
     return { versionId: row._id, version: row.version, ruleId: await approveVersion(ctx, p, row), status: "approved" as const, sentence };
   },
@@ -399,7 +425,7 @@ export const proposeAsked = internalMutation({
   args: { ruleId: v.optional(v.id("automationRules")), doc: v.object(ruleArgs), note: v.string() },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
-    const row = await proposeVersion(ctx, admin, args.doc, { ruleId: args.ruleId, note: args.note, agent: ASK_AGENT });
+    const row = await proposeVersion(ctx, admin, args.doc, { ruleId: args.ruleId, note: args.note, agent: ASK_AGENT, notes: [] });
     if (row.spec.trigger.kind !== "schedule" && !isOnDemand(row.spec.trigger)) await ctx.scheduler.runAfter(0, internal.automations.replayVersion, { versionId: row._id });
     return { versionId: row._id, sentence: describe(row.spec, await namesFor(ctx, admin.orgId, row.spec.object)) };
   },
@@ -440,6 +466,12 @@ export const setStatus = mutation({
     if (args.status === "paused") {
       await ctx.db.patch(rule._id, { status: "paused", pausedReason: `Paused by ${user.name}`, updatedAt: now });
     } else {
+      // A rule whose Slack channel lost its mapping stays paused until an admin maps it again. Nothing else is
+      // checked again here: an imported rule is turned on as it arrived.
+      for (const { step } of walkSteps(rule.actions)) {
+        const unmapped = step.kind === "notify_slack" ? await slackProblem(ctx, user.orgId, step.channel) : null;
+        if (unmapped) throw new ConvexError(unmapped);
+      }
       // A resumed schedule waits for its next slot: the slots it missed while paused never run.
       await ctx.db.patch(rule._id, { status: "active", pausedReason: undefined, ...(await restartAt(ctx, rule, rule.trigger, now)), updatedAt: now });
     }
@@ -560,6 +592,9 @@ async function registerIdOf(ctx: QueryCtx, streamId: Id<"canonEntities"> | strin
 
 /** A version as the proposals list and an agent read it: the document, who wrote it and why, its replay, and how it was decided. */
 const versionView = async (ctx: QueryCtx, access: Access, row: Doc<"automationVersions">, head: Doc<"automationRules"> | null) => ({
+  approvalNotes: row.status === "proposed" ? [...new Set((await Promise.all(walkSteps(row.spec.actions).flatMap(({ step }) =>
+    step.kind === "notify_slack" ? [slackProblem(ctx, row.orgId, step.channel)] : [],
+  ))).filter((note): note is string => note !== null))] : [],
   replay: row.replay ? { ...row.replay, by: await nameOf(ctx, row.replay.by), runs: await seenRuns(ctx, access, row.replay.runs) } : null,
   id: row._id, ruleId: row.ruleId ?? null, version: row.version, parent: row.parent, spec: row.spec, note: row.note, status: row.status,
   author: { name: await nameOf(ctx, row.author.userId), agent: row.author.agent ?? null },
@@ -615,8 +650,11 @@ export const check = query({
     if (!admin) return null;
     try {
       if (ruleId) await ownRule(ctx, admin.user.orgId, ruleId);
-      const spec = await checkRule(ctx, admin.user.orgId, doc);
-      const note = reachNote(spec.object, (await loadDef(ctx, admin.user.orgId, spec.object)).pluralLabel);
+      const notes: string[] = [];
+      const spec = await checkRule(ctx, admin.user.orgId, doc, notes);
+      const reach = reachNote(spec.object, (await loadDef(ctx, admin.user.orgId, spec.object)).pluralLabel);
+      if (reach) notes.unshift(reach);
+      const note = notes.join(" ");
       return { ok: true, sentence: describe(spec, await namesFor(ctx, admin.user.orgId, spec.object)), ...(note ? { note } : {}) };
     } catch (cause) {
       return { ok: false, problem: cause instanceof ConvexError ? String(cause.data) : cause instanceof Error ? cause.message : "Invalid rule" };

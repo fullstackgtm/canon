@@ -5,6 +5,9 @@
  */
 import { v, type Infer } from "convex/values";
 import type { CustomObjectMeta, FieldValue, OrgObjectExtension, PicklistOption } from "./registry.ts";
+import { BUILDER_TYPES } from "./fieldBuilder.ts";
+import { OBJECT_ICONS } from "./registry.ts";
+import { FORECAST_CATEGORIES } from "../pipelines.ts";
 import { COMPUTED_TYPES, ROLLUP_FNS } from "./formula.ts";
 import { listFilter } from "../../../modules/kernel/reportValidators.ts";
 import { REPORT_BUCKETS } from "../../../modules/kernel/reportLanguage.ts";
@@ -175,3 +178,45 @@ sameShape<Same<Infer<typeof customField>,Stored<OrgObjectExtension["customFields
 /** Read a stored shape back as its domain type; the checks above prove they differ only in brands and readonly. */
 export const fromStored = <T>(value: Stored<T>): T => value as unknown as T;
 export const toStored = <T>(value: T): Stored<T> => value as unknown as Stored<T>;
+
+export const computeSpec = v.object({ formula: v.string(), returns: v.optional(computedType), rollup: v.optional(rollupDef) });
+export const optionEdit = v.object({ value: v.optional(v.string()), label: v.string(), color: v.optional(v.string()), active: v.optional(v.boolean()) });
+
+export const dataModelCreateFieldArgs = {
+  object: v.string(),
+  label: v.string(),
+  type: v.union(...BUILDER_TYPES.map((t) => v.literal(t))),
+  options: v.optional(v.array(optionEdit)),
+  lookupTo: v.optional(v.string()),
+  compute: v.optional(computeSpec),
+  /** A text field that holds prose (long text). */
+  multiline: v.optional(v.boolean()),
+};
+export const dataModelUpdateFieldDefArgs = {
+  object: v.string(),
+  fieldId: v.string(),
+  label: v.optional(v.string()),
+  hidden: v.optional(v.boolean()),
+  options: v.optional(v.array(optionEdit)),
+  required: v.optional(v.boolean()),
+  rules: v.optional(v.array(fieldRule)),
+  compute: v.optional(computeSpec),
+  /** Turning it on checks every record for duplicates in the background (uniqueFields.ts); off releases the claims. */
+  unique: v.optional(v.boolean()),
+  multiline: v.optional(v.boolean()),
+};
+export const dataModelSetArchivedArgs = { object: v.string(), fieldId: v.string(), archived: v.boolean() };
+export const dataModelRelabelArgs = { object: v.string(), label: v.string(), pluralLabel: v.string() };
+export const customObjectsCreateArgs = { label: v.string(), pluralLabel: v.string(), icon: v.union(...OBJECT_ICONS.map((i) => v.literal(i))), titleLabel: v.string() };
+export const customObjectsEditArgs = { apiName: v.string(), label: v.optional(v.string()), pluralLabel: v.optional(v.string()), icon: v.optional(v.union(...OBJECT_ICONS.map((i) => v.literal(i)))) };
+export const customObjectsSetArchivedArgs = { apiName: v.string(), archived: v.boolean() };
+export const pipelinesSaveArgs = {
+  pipelineId: v.union(v.id("dealPipelines"), v.literal("default"), v.null()),
+  name: v.string(),
+  stages: v.array(v.object({ value: v.union(v.string(), v.null()), label: v.string(), probability: v.number(), forecastCategory: v.union(...FORECAST_CATEGORIES.map((c) => v.literal(c))) })),
+};
+
+export const dataModelChangeKind = v.union(...([
+  "object_created", "object_edited", "object_archived", "object_restored", "object_relabeled",
+  "field_created", "field_updated", "field_archived", "field_restored", "pipeline_saved",
+] as const).map((k) => v.literal(k)));

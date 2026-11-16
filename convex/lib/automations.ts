@@ -22,7 +22,7 @@ import type { FieldValue, ResolvedObjectDef } from "./objects/registry.ts";
 import { localTime } from "./linkedin/limits.ts";
 
 import {
-  CONDITIONS_MAX, MAX_DEPTH, TODAY, WAIT_DAYS_MAX, isRegisterAutomationObject, relatedField,
+  CONDITIONS_MAX, MAX_DEPTH, todayOffset, WAIT_DAYS_MAX, isRegisterAutomationObject, relatedField,
   type AutomationAction, type Branch, type Condition, type IfStep, type LeafAction, type RuleStep, type ScheduleTrigger, type Step, type Trigger,
 } from "../../modules/kernel/automation.ts";
 
@@ -110,9 +110,14 @@ export function triggerFires(trigger: Trigger, def: ResolvedObjectDef, before: R
 /** The conditions as list filters, `{today}` read in `tz` at `now`. */
 export function resolveConditions(def: ResolvedObjectDef, conditions: readonly Condition[], now: number, tz: string): ListFilter[] {
   return conditions.map((c) => {
-    if (c.value !== TODAY) return c as ListFilter;
+    const offset = todayOffset(c.value);
+    if (offset === null) return c as ListFilter;
     const type = def.byApiName.get(c.field)?.type;
-    return { ...c, value: type === "datetime" ? now : localTime(now, tz).date } as ListFilter;
+    const date = localTime(now, tz).date;
+    const shifted = new Date(Date.parse(`${date}T00:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
+    const instant = now + offset * 86_400_000;
+    const shiftedInstant = instant + (wallAt(now, tz) - now) - (wallAt(instant, tz) - instant);
+    return { ...c, value: type === "datetime" ? shiftedInstant : shifted } as ListFilter;
   });
 }
 
