@@ -88,3 +88,19 @@ under [Apache-2.0](engine/LICENSE). Everything else is licensed under
 [AGPL-3.0-only](LICENSE). A module built with the kit can use any license.
 The self-hosted image bundles the Convex open-source backend, which is licensed
 separately under FSL-1.1-Apache-2.0.
+
+## Set up your CRM with your agent
+
+After creating your owner, pair your agent from a Canon checkout:
+
+```sh
+npm ci
+npm run canon -- login --url https://crm.example.com
+npm run canon -- mcp-config --url https://crm.example.com
+```
+
+Approve the code as the member the agent should act as. Add `--show-token` to
+`mcp-config` when you are ready to put the token into private client configuration.
+Follow [Set up your CRM with your agent](docs/self-hosting.md#set-up-your-crm-with-your-agent)
+for client setup and a starter prompt covering objects, fields, pipeline stages,
+views, reports and automation proposals.

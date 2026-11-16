@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { POST as mcpPost } from "../src/app/mcp/route.ts";
 import { GET as mcpResourceMetadata } from "../src/app/.well-known/oauth-protected-resource/mcp/route.ts";
-import { pairDevice } from "../cli/canon.ts";
+import { main, pairDevice } from "../cli/canon.ts";
 
 const toolsList = (authorization?: string) => new Request("http://localhost/mcp", {
   method: "POST",
@@ -20,10 +20,20 @@ test("a self-hosted /mcp is served without the hosted flag, takes only paired CL
   const setIntervalReal = globalThis.setInterval;
   globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => setIntervalReal(...args).unref()) as typeof setInterval;
   try {
-    assert.equal((await mcpPost(toolsList())).status, 401, "no token");
-    assert.equal((await mcpPost(toolsList("Bearer oat_from_some_oauth_server"))).status, 401, "a token that isn't a paired CLI token");
-    process.env.MCP_REMOTE_ENABLED = "true";
-    assert.equal((await mcpResourceMetadata(new Request("http://localhost/.well-known/oauth-protected-resource/mcp"))).status, 404);
+    for (const mode of ["local", "convex"]) {
+      process.env.CANON_AUTH = mode;
+      for (const token of [undefined, "Bearer oat_from_some_oauth_server"]) {
+        const response = await mcpPost(toolsList(token));
+        assert.equal(response.status, 401);
+        assert.doesNotMatch(response.headers.get("www-authenticate") ?? "", /resource_metadata/);
+        const body = await response.json();
+        assert.match(body.error_description, /canon login/);
+        assert.match(body.error_description, /Authorization: Bearer/);
+      }
+      process.env.MCP_REMOTE_ENABLED = "true";
+      assert.equal((await mcpResourceMetadata(new Request("http://localhost/.well-known/oauth-protected-resource/mcp"))).status, 404);
+      delete process.env.MCP_REMOTE_ENABLED;
+    }
   } finally {
     globalThis.setInterval = setIntervalReal;
     delete process.env.CANON_AUTH;
@@ -50,6 +60,21 @@ test("canon login against a self-hosted Canon pairs through its device flow and 
   try {
     await pairDevice("https://crm.example.com", { fetchImpl, open: (url) => opened.push(url), wait: async () => {}, log: (line) => lines.push(line) });
     assert.deepEqual(JSON.parse(readFileSync(join(home, "credentials.json"), "utf8")), { "https://crm.example.com": { cliToken: token } });
+    const output: string[] = [];
+    const log = console.log;
+    console.log = (line: string) => output.push(line);
+    try {
+      await main(["mcp-config", "--url", "https://crm.example.com"]);
+      assert.ok(!output.join("\n").includes(token));
+      assert.match(output.join("\n"), /credentials.json/);
+      output.length = 0;
+      await main(["mcp-config", "--url", "https://crm.example.com", "--show-token"]);
+      const config = output.join("\n");
+      assert.ok(config.includes(`Authorization: Bearer ${token}`));
+      const json = JSON.parse(config.slice(config.indexOf("{"), config.lastIndexOf("}") + 1));
+      assert.deepEqual(json.mcpServers.canon, { url: "https://crm.example.com/mcp", headers: { Authorization: `Bearer ${token}` } });
+      assert.match(config, /bearer_token_env_var = "CANON_TOKEN"/);
+    } finally { console.log = log; }
     assert.deepEqual(opened, ["https://crm.example.com/dashboard/cli-auth?code=ABCD-EFGH"]);
     assert.equal(requests.filter((r) => r.startsWith("/api/cli/auth/poll")).length, 2, "it polls until the pairing is approved");
     assert.ok(lines.join("\n").includes("ABCD-EFGH") && !lines.join("\n").includes(token), "it shows the code to approve, never the token");

@@ -92,3 +92,29 @@ test("the first owner registers only with the install's setup code", () => {
   for (const given of [undefined, "", code.slice(0, -1), `${code}2`, newSetupCode()]) assert.equal(setupCodeMatches(given, code), false);
   for (const expected of [undefined, "", "short"]) assert.equal(setupCodeMatches(expected, expected), false, "no configured code admits nobody");
 });
+
+test("paired CLI tokens resolve active members and remain agents in convex auth mode", async () => {
+  const env = { CANON_AUTH: "convex", CANON_SERVICE_JWT_ISSUER: "https://crm.test/service" };
+  const loaded = loadConvex(["agentIdentity.ts", "agentIdentityData.ts", "lib.ts"], {}, { process: { env } });
+  const user = { _id: "user", clerkUserId: "member-key", orgId: "org", role: "admin", isActive: true };
+  const db = memoryDb({ users: [user], organizations: [{ _id: "org", clerkOrgId: "workspace-key" }] });
+  const token = `fsgtm_${"b".repeat(64)}`;
+  const tokenRow = { _id: "token", userId: "user", orgId: "org", lastUsedAt: Date.now() };
+  const resolved = await loaded["agentIdentity.ts"].resolveCliToken.handler({
+    runQuery: async (ref: unknown, args: Record<string, unknown>) => {
+      if (String(ref) === "internal.cliAuth.getTokenByHash") {
+        assert.equal(args.tokenHash, Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token))).toString("hex"));
+        return tokenRow;
+      }
+      return loaded["agentIdentityData.ts"].clerkIdentity.handler({ db }, args);
+    },
+  }, { cliToken: token });
+  assert.deepEqual(JSON.parse(JSON.stringify(resolved)), { clerkUserId: "member-key", clerkOrgId: "workspace-key" });
+  const lib = loaded["lib.ts"] as unknown as { getCurrentUser: (ctx: unknown) => Promise<typeof user | null>; agentClientOf: (ctx: unknown) => Promise<string | null> };
+  const ctx = { db, auth: { getUserIdentity: async () => ({ issuer: env.CANON_SERVICE_JWT_ISSUER, subject: resolved.clerkUserId, org_id: resolved.clerkOrgId, azp: "canon-cli-token" }) } };
+  assert.equal((await lib.getCurrentUser(ctx))?._id, "user");
+  assert.equal(await lib.agentClientOf(ctx), "canon-cli-token");
+  await db.patch("user", { isActive: false });
+  assert.equal(await lib.getCurrentUser(ctx), null);
+  assert.equal(await loaded["agentIdentityData.ts"].clerkIdentity.handler({ db }, { userId: "user", orgId: "org" }), null);
+});

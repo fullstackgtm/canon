@@ -474,3 +474,36 @@ verification applies to Docker hosts you control.
 The `engine/` and `modules/kernel/` directories use Apache-2.0. Everything
 else uses AGPL-3.0-only.
 The bundled Convex backend uses FSL-1.1-Apache-2.0 separately.
+
+## Set up your CRM with your agent
+
+With `CANON_AUTH=local` or `CANON_AUTH=convex`, connect with a paired token.
+From a Canon checkout with Node.js 22.6 or newer:
+
+```sh
+npm ci
+npm run canon -- login --url https://crm.example.com
+npm run canon -- mcp-config --url https://crm.example.com
+```
+
+Sign in at the link, check the code, and approve the pairing as the member your
+agent should act as. `mcp-config` prints a Claude Code command, Cursor-compatible
+`mcpServers` JSON and Codex TOML. It hides the token by default and names its
+credentials file. Add `--show-token` to produce configuration with the real token.
+Keep that output private and put it only in your client's private configuration.
+For Codex, supply the token through `CANON_TOKEN` in the environment that starts
+Codex. Every client sends `Authorization: Bearer <token>` to `<your URL>/mcp`.
+Reconnect your client, then paste this prompt into your agent:
+
+> Help me set up our CRM. Call canon_whoami and get_docs first. Ask about our
+> sales process, record types, fields and pipeline stages. Inspect the existing
+> model and list members with canon_members. Propose a small setup and ask for
+> approval before writing. After approval, use canon_data_model for custom objects,
+> fields and stages, canon_views for views, and canon_reports for reports.
+> Data-model changes require an admin member. Use canon_automations to propose
+> rules for a person to approve. If a tool is unavailable, report it. Confirm
+> the resulting setup. Do not invent records or include credentials in chat.
+
+Client syntax follows the [Claude Code documentation](https://code.claude.com/docs/en/mcp),
+[Cursor documentation](https://cursor.com/docs/mcp) and
+[Codex documentation](https://developers.openai.com/codex/mcp).

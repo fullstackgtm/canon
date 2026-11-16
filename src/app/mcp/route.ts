@@ -10,7 +10,7 @@
  *
  * Callers authenticate with a Clerk OAuth access token (MCP clients, `canon
  * login`) or a paired CLI token (headless agents). A self-hosted install
- * (CANON_AUTH=local) has no Clerk: it serves /mcp without the flag, to paired
+ * (CANON_AUTH=local or convex) has no Clerk: it serves /mcp without the flag, to paired
  * CLI tokens only (`canon login` pairs one). Canon tools (./_canonTools.ts)
  * then run as that user through a short-lived service JWT, so normal role and
  * org checks apply. A connection can do what its user can do in the dashboard.
@@ -137,7 +137,7 @@ async function buildHandler(): Promise<RouteHandler> {
     },
   );
 
-  return withMcpAuth(
+  const authenticated = withMcpAuth(
     handler,
     async (_request, token) => {
       // No bearer -> no auth info; withMcpAuth turns that into an RFC 9728
@@ -150,7 +150,7 @@ async function buildHandler(): Promise<RouteHandler> {
         await recordConnection(who, "canon-cli-token");
         return { token, clientId: "canon-cli-token", scopes: ["canon"], extra: { ...who } };
       }
-      if (process.env.CANON_AUTH === "local") return undefined;
+      if (pairedTokensOnly()) return undefined;
       const [{ verifyClerkToken }, { auth }] = await Promise.all([import("@clerk/mcp-tools/next"), import("@clerk/nextjs/server")]);
       const clerkAuth = await auth({ acceptsToken: "oauth_token" });
       const info = verifyClerkToken(clerkAuth, token);
@@ -167,10 +167,22 @@ async function buildHandler(): Promise<RouteHandler> {
       resourceUrl: process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || undefined,
     },
   );
+  return async (request) => {
+    const response = await authenticated(request);
+    if (!pairedTokensOnly() || response.status !== 401) return response;
+    return Response.json({ error: "invalid_token", error_description: "Pair a token with canon login, then send Authorization: Bearer <token>." }, {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Bearer realm="canon"' },
+    });
+  };
+}
+
+function pairedTokensOnly() {
+  return process.env.CANON_AUTH === "local" || process.env.CANON_AUTH === "convex";
 }
 
 async function route(request: Request): Promise<Response> {
-  if (process.env.CANON_AUTH !== "local" && process.env.MCP_REMOTE_ENABLED !== "true") {
+  if (!pairedTokensOnly() && process.env.MCP_REMOTE_ENABLED !== "true") {
     return new Response(null, { status: 404 });
   }
   cachedHandler ??= await buildHandler();
