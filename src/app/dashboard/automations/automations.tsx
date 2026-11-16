@@ -13,9 +13,11 @@ import { getErrorMessage } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
 import { FlowCanvas, chain, type FlowNode } from "@/components/flow/flow-canvas";
 import {
-  TODAY, todayOffset, relativeDateText, describe, describeConditions, describeParts, isOnDemand, isRegisterAutomationObject, relatedField, ruleChanges, stepAt,
+  todayOffset, relativeDateText, describe, describeConditions, describeParts, isOnDemand, isRegisterAutomationObject, relatedField, ruleChanges, stepAt,
   type AutomationAction, type Condition, type IfStep, type OwnerChoice, type RuleNames, type RuleShape, type RuleStep, type Trigger,
 } from "../../../../modules/kernel/automation";
+
+import { dateValueControl, dateControlValue, type DateValueKind } from "./date-value";
 
 const btn = "border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40";
 const input = "border border-border bg-background px-2 py-1 text-sm";
@@ -521,17 +523,37 @@ function ValueInput({ field, value, onChange, label }: { field: FieldInfo | unde
     );
   }
   if (field?.type === "date" || field?.type === "datetime") {
-    return (
-      <span className="flex items-center gap-1">
-        <SelectField aria-label={`${label} kind`} value={value === TODAY ? "today" : "date"} onValueChange={(v) => onChange(v === "today" ? TODAY : "")}
-          options={[{ value: "date", label: "a date" }, { value: "today", label: "today" }]} />
-        {value !== TODAY && (
-          <input aria-label={label} className={input} value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.type === "date" ? "YYYY-MM-DD" : "Value"} />
-        )}
-      </span>
-    );
+    return <DateValueInput key={field.apiName} field={field} value={value} onChange={onChange} label={label} />;
   }
   return <input aria-label={label} className={`${input} min-w-0`} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Value" />;
+}
+
+function DateValueInput({ field, value, onChange, label }: { field: FieldInfo; value: string; onChange: (v: string) => void; label: string }) {
+  const { kind, days } = dateValueControl(value);
+  const [draft, setDraft] = useState<{ source: string; text: string } | null>(null);
+  return (
+    <span className="flex flex-wrap items-center gap-1">
+      <SelectField aria-label={`${label} kind`} value={kind} onValueChange={(v) => {
+        setDraft(null);
+        onChange(dateControlValue(v as DateValueKind, String(days)) ?? value);
+      }} options={[
+        { value: "date", label: "a date" }, { value: "today", label: "today" },
+        { value: "future", label: "days from today" }, { value: "past", label: "days ago" },
+      ]} />
+      {(kind === "future" || kind === "past") && (
+        <input aria-label={`${label} days`} type="number" min={1} max={3650} step={1} className={`${input} w-24`}
+          value={draft?.source === value ? draft.text : days} onChange={(e) => {
+            const raw = e.target.value;
+            const next = dateControlValue(kind, raw);
+            setDraft({ source: next ?? value, text: raw });
+            if (next !== null) onChange(next);
+          }} onBlur={() => setDraft(null)} />
+      )}
+      {kind === "date" && (
+        <input aria-label={label} className={input} value={value} onChange={(e) => onChange(e.target.value)} placeholder={field.type === "date" ? "YYYY-MM-DD" : "Value"} />
+      )}
+    </span>
+  );
 }
 
 function OwnerPicker({ owner, onChange, ws, allowRecordOwner, companyOwner }: { owner: Owner; onChange: (o: Owner) => void; ws: Workspace; allowRecordOwner: boolean; companyOwner: boolean }) {
