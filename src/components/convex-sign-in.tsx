@@ -5,6 +5,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { convexAuthError } from "../lib/convexAuthError";
 import { Button } from "./ui/button";
 
 type Flow = "signIn" | "signUp" | "email" | "email-code" | "reset" | "reset-verification";
@@ -30,7 +31,7 @@ export function ConvexSignIn({ google, emailEnabled }: { google: boolean; emailE
       if (flow === "email") setFlow("email-code");
       else if (flow === "reset") setFlow("reset-verification");
       else if (result.signingIn) window.location.assign("/dashboard");
-    } catch { setError("Sign-in failed. Check your details and try again. Existing members must verify their email before linking a new login."); }
+    } catch (error) { setError(convexAuthError(error, flow, google, emailEnabled)); }
     finally { setBusy(false); }
   }
   return <main className="flex min-h-screen items-center justify-center bg-background p-6">

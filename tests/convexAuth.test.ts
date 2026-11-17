@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { convexAuthError } from "../src/lib/convexAuthError.ts";
+import { ConvexError } from "convex/values";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
 const env = { CANON_AUTH: "convex", CANON_SERVICE_JWT_ISSUER: "https://canon.test/service", FSGTM_ENABLE_DEMO_DATA: "true" };
-const modules = loadConvex(["convexAuthUsers.ts", "lib.ts", "cliAuth.ts", "agentIdentityData.ts"], {}, { process: { env } });
+let loginTime: number | undefined;
+const modules = loadConvex(["convexAuthUsers.ts", "lib.ts", "cliAuth.ts", "agentIdentityData.ts"], {}, { process: { env }, Date: { now: () => loginTime ?? Date.now() } });
 const create = modules["convexAuthUsers.ts"].createOrUpdateUser as unknown as (ctx: unknown, args: unknown) => Promise<string>;
 const current = modules["lib.ts"].getCurrentUser as unknown as (ctx: unknown) => Promise<any>;
 const args = (email: string, extra = {}) => ({ existingUserId: null, type: "oauth", provider: { id: "google", type: "oauth" }, profile: { email, emailVerified: true }, ...extra });
@@ -33,7 +36,12 @@ test("password creates one workspace with defaults; unverified email cannot clai
   assert.equal(db.rows("organizations").length, 1);
   assert.equal(db.rows("orgMemberships").length, 1);
   assert.ok(db.rows("recipeEnablements").length > 0);
-  await assert.rejects(create(ctx, input), /Verify this email/);
+  // The sign-in form explains this refusal by matching its reason, so the two must stay in step.
+  await assert.rejects(create(ctx, input), (error) => {
+    assert.match(String((error as { data?: unknown }).data), /Verify this email/);
+    assert.match(convexAuthError(error, "signUp", true, false), /Use Google with the same email address/);
+    return true;
+  });
   await db.insert("authAccounts", { userId: id, provider: "password", providerAccountId: user?.email });
   await assert.rejects(create(ctx, args("new@example.com")), /Sign in with your password or reset/);
 });
@@ -58,4 +66,33 @@ test("Convex sessions scope to stored active org, reject inactive members, and p
   assert.equal((await current(ctx))?.orgId, "home");
   identity = null;
   assert.equal(await current(ctx), null, "convex mode never admits the demo bypass");
+});
+
+test("new sessions update last login without changing creation time", async () => {
+  loginTime = 200;
+  const beforeSession = modules["convexAuthUsers.ts"].beforeSessionCreation as unknown as (ctx: unknown, args: unknown) => Promise<void>;
+  const db = memoryDb({ users: [{ _id: "ada", createdAt: 100, lastLoginAt: 100 }] });
+  await beforeSession({ db }, { userId: "ada" });
+  assert.equal((await db.get("ada"))?.lastLoginAt, 200);
+  loginTime = 300;
+  await beforeSession({ db }, { userId: "ada" });
+  assert.equal((await db.get("ada"))?.lastLoginAt, 300);
+  assert.equal((await db.get("ada"))?.createdAt, 100);
+  loginTime = undefined;
+});
+
+test("member sign-up guidance offers only configured verification methods; password errors stay generic", () => {
+  const error = new ConvexError("Verify this email before linking an existing member. Use email sign-in or Google.");
+  for (const google of [false, true]) for (const email of [false, true]) {
+    const message = convexAuthError(error, "signUp", google, email);
+    assert.equal(message.includes("Google"), google);
+    assert.equal(message.includes("emailed code"), email);
+    assert.equal(message.includes("Ask your workspace admin"), !google && !email);
+    assert.equal(convexAuthError(error, "signIn", google, email), convexAuthError(new Error("Invalid credentials"), "signIn", google, email));
+  }
+  const passwordError = new ConvexError("Sign in with your password or reset it before linking another sign-in method.");
+  assert.equal(convexAuthError(passwordError, "signUp", false, true).includes("reset it"), true);
+  assert.equal(convexAuthError(passwordError, "signUp", false, false).includes("reset it"), false);
+  assert.match(convexAuthError(new ConvexError("Multiple members use this email. Ask an administrator to resolve them."), "signUp", false, false), /workspace admin/);
+  assert.equal(convexAuthError(new Error("Invalid credentials"), "signUp", true, true).includes("workspace member"), false);
 });

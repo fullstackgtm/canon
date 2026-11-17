@@ -2,7 +2,7 @@ import { convexAuth } from "@convex-dev/auth/server";
 import { Password } from "@convex-dev/auth/providers/Password";
 import Google from "@auth/core/providers/google";
 import Resend from "@auth/core/providers/resend";
-import { createOrUpdateUser } from "./convexAuthUsers";
+import { createOrUpdateUser, beforeSessionCreation } from "./convexAuthUsers";
 
 const enabled = process.env.CANON_AUTH === "convex";
 const emailEnabled = Boolean(process.env.AUTH_RESEND_KEY && process.env.AUTH_EMAIL_FROM);
@@ -34,5 +34,5 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
     })] : []),
     ...(emailEnabled ? [email] : []),
   ] : [],
-  callbacks: { createOrUpdateUser },
+  callbacks: { createOrUpdateUser, beforeSessionCreation },
 });

@@ -73,6 +73,10 @@ export const PendingInvitesButton: () => React.ReactNode = CLERK_ON ? ClerkPendi
 
 /** How a member gets in: added in Canon with no login, a CRM owner from a sync, or a person who signs in. */
 export function loginOf(member: { clerkUserId: string; lastLoginAt?: number; invitedAt?: number }): { label: string; hint: string } {
+  if (CONVEX_AUTH && awaitsLogin(member.clerkUserId)) return {
+    label: member.clerkUserId.startsWith("member:") ? "No login" : "CRM owner",
+    hint: "Invites are not available in this sign-in mode yet. They sign in as this member with Google or an emailed code, using this same email address. If this install offers password sign-in only, they cannot sign in yet.",
+  };
   if (awaitsLogin(member.clerkUserId) && member.invitedAt) return { label: "Invited", hint: `Invite sent ${new Date(member.invitedAt).toLocaleDateString()}; they sign in as this member when they accept.` };
   if (member.clerkUserId.startsWith("member:")) return { label: "No login", hint: "Added in Canon. An invite to this email lets them sign in as this member." };
   if (/^(hubspot|salesforce):/.test(member.clerkUserId)) return { label: "CRM owner", hint: "Synced from the CRM as a deal owner. An invite lets them sign in." };
@@ -126,7 +130,7 @@ export function NewMemberDialog({ roles, managers, onClose }: {
       <DialogContent className="rounded-none sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add team member</DialogTitle>
-          <DialogDescription>{LOCAL_AUTH ? "They can own deals and sit on teams. Create an invitation link so they can choose a password and sign in." : "They can own deals and sit on teams. With an invite, they get an email and sign in as this member; without one, they have no login until you invite them from their row."}</DialogDescription>
+          <DialogDescription>{CONVEX_AUTH ? "They can own deals and sit on teams. Invites are not available in this sign-in mode yet. They sign in as this member with Google or an emailed code, using this same email address. If this install offers password sign-in only, they cannot sign in yet." : LOCAL_AUTH ? "They can own deals and sit on teams. Create an invitation link so they can choose a password and sign in." : "They can own deals and sit on teams. With an invite, they get an email and sign in as this member; without one, they have no login until you invite them from their row."}</DialogDescription>
         </DialogHeader>
         <form className="grid gap-3 text-sm" onSubmit={(e) => { e.preventDefault(); if (!ready) return; if (form.role === "admin") setAskingAdmin(true); else void save(); }}>
           <label className="grid gap-1 font-medium">Name<input className={input} value={form.name} onChange={(e) => set("name")(e.target.value)} autoFocus /></label>
@@ -142,10 +146,10 @@ export function NewMemberDialog({ roles, managers, onClose }: {
             </label>
             <div className="grid gap-1 font-medium">Start date<DateInput value={form.startDate} onChange={set("startDate")} /></div>
           </div>
-          <label className="flex items-center gap-2" title={invite ? undefined : "Invites go through Clerk, which a local stack bypasses"}>
+          {!CONVEX_AUTH && <label className="flex items-center gap-2" title={invite ? undefined : "Invites go through Clerk, which a local stack bypasses"}>
             <input type="checkbox" checked={!!invite && sendInvite} disabled={!invite} onChange={(e) => setSendInvite(e.target.checked)} />
             {LOCAL_AUTH ? "Create an invitation link so they can sign in" : "Send an invite email so they can sign in"}
-          </label>
+          </label>}
           <DialogFooter>
             <button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button>
             <button type="submit" className={primary} disabled={busy || !ready}>{busy ? "Adding…" : invite && sendInvite ? "Add and invite" : "Add member"}</button>
