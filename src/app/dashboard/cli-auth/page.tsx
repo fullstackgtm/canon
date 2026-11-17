@@ -94,9 +94,9 @@ function CliAuthForm() {
       <div className="mb-4 flex items-center gap-3">
         <TerminalSquare className="h-6 w-6 text-muted-foreground" />
         <div>
-          <h2 className="text-sm font-medium">Authorize a fullstackgtm CLI</h2>
+          <h2 className="text-sm font-medium">Authorize a CLI</h2>
           <p className="text-sm text-muted-foreground">
-            A CLI run of <code>fullstackgtm login --via</code> is waiting. Confirm the pairing
+            A CLI login is waiting. Confirm the pairing
             code matches what the terminal shows, then approve. The CLI will use this
             organization&apos;s stored CRM credentials.
           </p>

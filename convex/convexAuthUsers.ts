@@ -53,3 +53,8 @@ export async function createOrUpdateUser(ctx: MutationCtx, args: UserArgs): Prom
   await ctx.db.insert("orgMemberships", { userId, orgId, role: "admin", isActive: true, createdAt: now, updatedAt: now });
   return userId;
 }
+
+export async function beforeSessionCreation(ctx: MutationCtx, { userId }: { userId: Id<"users"> }): Promise<void> {
+  if (process.env.CANON_AUTH !== "convex") throw new ConvexError("Convex Auth is disabled");
+  await ctx.db.patch(userId, { lastLoginAt: Date.now() });
+}
