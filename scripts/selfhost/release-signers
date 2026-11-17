@@ -2,4 +2,4 @@
 #   <principal> namespaces="git" <ssh public key>
 # scripts/selfhost/releases.mjs pins this file on its first run and verifies
 # release/<date> tags against the pinned copy.
-releases@fullstackgtm.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJK1iFwJn/4WmyoBuDcMT5vLRto1oxA+F1Aq9nRqf57Y canon-release
+releases@fullstackgtm.com namespaces="git" sk-ecdsa-sha2-nistp256@openssh.com AAAAInNrLWVjZHNhLXNoYTItbmlzdHAyNTZAb3BlbnNzaC5jb20AAAAIbmlzdHAyNTYAAABBBH3oTAR/WUg9WFCpcjt5O8zVD42GlHnsfnBG7XhkmBgM8dBEiH+U9S3vYL8nPhK3tcrUxfKCjd5oxjdAJBemyZcAAAAEc3NoOg== canon-release
