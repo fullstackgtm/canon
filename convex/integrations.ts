@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { normalizeFieldMappings } from "./lib/crmMappings";
@@ -394,6 +395,8 @@ function inFlightRuns(ctx: QueryCtx, orgId: Id<"organizations">, provider: CrmSy
 async function endSyncRun(ctx: MutationCtx, run: Doc<"integrationSyncRuns">, error: string) {
   const now = Date.now();
   await ctx.db.patch(run._id, { status: "error", error, finishedAt: now });
+  // A HubSpot sync holds its writes' wakes until it ends (lib/heldWakes.ts): one that ended this way never woke them.
+  if (run.provider === "hubspot") await ctx.scheduler.runAfter(0, internal.objects.wakeHeldWrites, { orgId: run.orgId, drain: true });
   if (isCrmSync(run.provider) && (await inFlightRuns(ctx, run.orgId, run.provider)).length) return;
   const integration = await ctx.db
     .query("integrations")

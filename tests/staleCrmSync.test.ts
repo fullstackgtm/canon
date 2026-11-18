@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
+const scheduler = { runAfter: async () => null };
 const MIN = 60_000;
 const admin = { _id: "users:1", orgId: "org1", role: "admin", name: "Ana", email: "ana@x.co" };
 const { "integrations.ts": integrations } = loadConvex(["integrations.ts"], {
@@ -25,21 +26,21 @@ test("the sweep ends CRM runs older than any action, and frees the connection", 
     { provider: "salesforce", startedAt: Date.now() - MIN },
     { provider: "granola", startedAt: Date.now() - 60 * MIN },
   ]);
-  assert.equal((await integrations.endStaleSyncs.handler({ db }, {})).ended, 1);
+  assert.equal((await integrations.endStaleSyncs.handler({ db, scheduler }, {})).ended, 1);
   assert.deepEqual(db.rows("integrationSyncRuns").map((r) => r.status), ["error", "in_progress", "in_progress"]);
   // The live run still holds the connection; the sweep frees it once nothing runs.
   assert.equal((await db.get("integrations:sf"))!.lastSyncStatus, "in_progress");
   assert.equal((await db.get("integrations:gr"))!.lastSyncStatus, "in_progress");
   await db.patch("integrationSyncRuns:1", { startedAt: Date.now() - 20 * MIN });
-  await integrations.endStaleSyncs.handler({ db }, {});
+  await integrations.endStaleSyncs.handler({ db, scheduler }, {});
   assert.equal((await db.get("integrations:sf"))!.lastSyncStatus, "error");
 });
 
 test("a new sync ends a stale run, but not a live one", async () => {
   const db = world([{ provider: "salesforce", startedAt: Date.now() - 20 * MIN }]);
-  await integrations.startSyncRun.handler({ db }, { orgId: "org1", provider: "salesforce", trigger: "manual" });
+  await integrations.startSyncRun.handler({ db, scheduler }, { orgId: "org1", provider: "salesforce", trigger: "manual" });
   assert.deepEqual(db.rows("integrationSyncRuns").map((r) => r.status), ["error", "in_progress"]);
-  await assert.rejects(integrations.startSyncRun.handler({ db }, { orgId: "org1", provider: "salesforce", trigger: "manual" }), /already running/);
+  await assert.rejects(integrations.startSyncRun.handler({ db, scheduler }, { orgId: "org1", provider: "salesforce", trigger: "manual" }), /already running/);
 });
 
 test("a run in steps that keeps beating its heartbeat lives past any one action; a silent one does not", async () => {
@@ -50,7 +51,7 @@ test("a run in steps that keeps beating its heartbeat lives past any one action;
       { _id: "integrationSyncRuns:1", orgId: "org2", provider: "hubspot", trigger: "manual", status: "in_progress", startedAt: Date.now() - 40 * MIN, progress: { heartbeatAt: Date.now() - 20 * MIN } },
     ],
   });
-  assert.equal((await integrations.endStaleSyncs.handler({ db }, {})).ended, 1);
+  assert.equal((await integrations.endStaleSyncs.handler({ db, scheduler }, {})).ended, 1);
   assert.deepEqual(db.rows("integrationSyncRuns").map((r) => r.status), ["in_progress", "error"]);
   // Live chains older than a dead run do not hide it from the sweep.
   const crowded = memoryDb({
@@ -60,17 +61,17 @@ test("a run in steps that keeps beating its heartbeat lives past any one action;
       { _id: "integrationSyncRuns:dead", orgId: "org9", provider: "hubspot", trigger: "manual", status: "in_progress", startedAt: Date.now() - 30 * MIN, progress: { heartbeatAt: Date.now() - 20 * MIN } },
     ],
   });
-  assert.equal((await integrations.endStaleSyncs.handler({ db: crowded }, {})).ended, 1);
+  assert.equal((await integrations.endStaleSyncs.handler({ db: crowded, scheduler }, {})).ended, 1);
   assert.equal((await crowded.get("integrationSyncRuns:dead"))!.status, "error");
-  await assert.rejects(integrations.startSyncRun.handler({ db }, { orgId: "org1", provider: "hubspot", trigger: "manual" }), /already running/);
+  await assert.rejects(integrations.startSyncRun.handler({ db, scheduler }, { orgId: "org1", provider: "hubspot", trigger: "manual" }), /already running/);
 });
 
 test("stop ends the run, and the sync's own finish cannot undo it", async () => {
   const db = world([{ provider: "salesforce", startedAt: Date.now() - MIN }]);
-  assert.equal((await integrations.stopSync.handler({ db }, { provider: "salesforce" })).stopped, 1);
+  assert.equal((await integrations.stopSync.handler({ db, scheduler }, { provider: "salesforce" })).stopped, 1);
   assert.equal((await db.get("integrations:sf"))!.lastSyncError, "Sync stopped by Ana.");
-  assert.equal(await integrations.syncRunLive.handler({ db }, { syncRunId: "integrationSyncRuns:0" }), false);
-  await integrations.finishSyncRun.handler({ db }, { syncRunId: "integrationSyncRuns:0", status: "success" });
+  assert.equal(await integrations.syncRunLive.handler({ db, scheduler }, { syncRunId: "integrationSyncRuns:0" }), false);
+  await integrations.finishSyncRun.handler({ db, scheduler }, { syncRunId: "integrationSyncRuns:0", status: "success" });
   assert.equal((await db.get("integrationSyncRuns:0"))!.status, "error");
 });
 
@@ -80,7 +81,7 @@ test("a sync's per-object progress never moves back to an older snapshot", async
     integrationSyncRuns: [{ _id: "integrationSyncRuns:0", orgId: "org1", provider: "hubspot", trigger: "manual", status: "in_progress", startedAt: Date.now() }],
   });
   const snapshot = (done: number, finished: boolean, updatedAt: number) => ({ syncRunId: "integrationSyncRuns:0", objects: [{ object: "accounts", done, finished, updatedAt }] });
-  await integrations.updateRunObjects.handler({ db }, snapshot(200, true, 2000));
-  await integrations.updateRunObjects.handler({ db }, snapshot(100, false, 1000));
+  await integrations.updateRunObjects.handler({ db, scheduler }, snapshot(200, true, 2000));
+  await integrations.updateRunObjects.handler({ db, scheduler }, snapshot(100, false, 1000));
   assert.deepEqual((await db.get("integrationSyncRuns:0"))!.objects, snapshot(200, true, 2000).objects);
 });

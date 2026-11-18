@@ -18,6 +18,7 @@ import { scheduleDealHistory } from "./dealHistory";
 import { scheduleWebhookFanout } from "./recordWebhooks";
 import { scheduleAutomationFanout } from "./lib/automationWake";
 import { scheduleModuleFeed } from "./lib/modules/jobs";
+import { wakesHeld } from "./lib/heldWakes";
 import { automationRefPrefix, type AutomationMark } from "./lib/automations";
 import { callerClient, requireCaller } from "./records";
 import { isRegisterObject, ListRequestError, listRowOf, type ListResponse, type ListRow, type ProjectedThrough, type SearchResponse } from "./lib/objects/listSpec";
@@ -217,6 +218,8 @@ export function convexObjectStore(ctx: MutationCtx, reads = { entries: 0 }): Obj
         orgId: org(orgId), streamId: e.streamId as Id<"canonEntities">, object: e.object, shard: e.shard, seq: e.seq,
         version: e.version, observedAt: e.observedAt, source: e.source, actor: e.actor, body: toStored(e.body),
       });
+      // A CRM sync holds these and wakes the readers itself (lib/heldWakes.ts).
+      if (wakesHeld(ctx)) return;
       await scheduleNudge(ctx, org(orgId));
       await scheduleWebhookFanout(ctx, org(orgId));
       await scheduleAutomationFanout(ctx, org(orgId));
@@ -1074,5 +1077,26 @@ export const read = action({
     if (account) return account;
     const contact = await client.getContact(caller.orgId, id);
     return contact ? { contact } : null;
+  },
+});
+
+/**
+ * Wake what a CRM sync's held writes left asleep (lib/heldWakes.ts): the readers of the org's ledger, and with `drain`
+ * (when the sync ends) the party mirror's drain, which writes `facts` for every record the sync wrote.
+ */
+export const wakeHeldWrites = internalMutation({
+  args: { orgId: v.id("organizations"), drain: v.optional(v.boolean()) },
+  handler: async (ctx, { orgId, drain }) => {
+    await scheduleNudge(ctx, orgId);
+    await scheduleWebhookFanout(ctx, orgId);
+    await scheduleAutomationFanout(ctx, orgId);
+    await scheduleModuleFeed(ctx, orgId);
+    await scheduleDealHistory(ctx, orgId);
+    if (!drain) return null;
+    const queued = await ctx.db.query("partyMirrorQueue").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).first();
+    if (!queued || (await ctx.db.query("partyMirrorDrains").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).first())) return null;
+    await ctx.db.insert("partyMirrorDrains", { orgId, scheduledAt: Date.now() });
+    await ctx.scheduler.runAfter(0, internal.canon.drainPartyMirror, { orgId });
+    return null;
   },
 });
