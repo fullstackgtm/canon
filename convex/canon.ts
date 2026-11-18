@@ -19,6 +19,7 @@
  * - backfillDeals: records every existing deal's values as an `import`.
  * - dealAsOf: replays a deal's facts through the policy at a point in time.
  */
+import { wakesHeld } from "./lib/heldWakes";
 import { ConvexError, v } from "convex/values";
 import { internalAction, internalMutation, internalQuery, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -655,6 +656,8 @@ async function queuePartyMirror(ctx: MutationCtx, job: MirrorJob) {
   await ctx.db.insert("partyMirrorQueue", { orgId, streamId: job.streamId as Id<"canonEntities">, job });
   // A later read of this record's facts in the same transaction runs this job first, as for any queued one.
   mirrorFlushed.get(ctx)?.delete(job.streamId);
+  // A CRM sync drains its queue when it ends (lib/heldWakes.ts, convex/objects.ts wakeHeldWrites).
+  if (wakesHeld(ctx)) return;
   const checked = mirrorDrainChecked.get(ctx) ?? new Set<string>();
   mirrorDrainChecked.set(ctx, checked);
   if (checked.has(orgId)) return;

@@ -547,6 +547,8 @@ const CONTACT_WRITE_GROUPS = 8;
 const LINK_FLUSH = 1000;
 // Pages an object writes at once (each in batches, lib/batchWrites.ts).
 const PAGE_WRITES = 3;
+// How often a sync wakes the readers of the writes it holds (lib/heldWakes.ts).
+const WAKE_MS = 20_000;
 // How often a step records its objects' progress for the panel.
 const OBJECTS_PUBLISH_MS = 3_000;
 // Pages an object reads ahead of its writes, as people and deals wait for companies (a page is 100-200 records),
@@ -719,6 +721,7 @@ async function runSyncSteps(ctx: any, state: SyncState, connector: HubspotWritab
   };
   // Published on a timer as well as on each page, so a stop lands while every lane waits on a slow page.
   const ticker = setInterval(() => void publishObjects(), OBJECTS_PUBLISH_MS);
+  const waker = setInterval(() => void ctx.runMutation(internal.objects.wakeHeldWrites, { orgId: state.orgId }).catch(() => undefined), WAKE_MS);
   try {
     while (Date.now() < deadline && state.lanes.some((lane) => !lane.done)) {
       await stopIfEnded(ctx, state.syncRunId);
@@ -738,6 +741,7 @@ async function runSyncSteps(ctx: any, state: SyncState, connector: HubspotWritab
     }
   } finally {
     clearInterval(ticker);
+    clearInterval(waker);
   }
   await publishObjects(true);
   if (state.lanes.some((lane) => !lane.done)) {
@@ -883,7 +887,7 @@ async function writeSyncPage(ctx: any, state: SyncState, object: SyncObject, row
           totals.accounts += rows.length;
           return;
         }
-        const result = await writeSlot<any>(() => ctx.runMutation(internal.hubspot.upsertAccounts, { orgId, accounts: batch }));
+        const result = await writeSlot<any>(() => ctx.runMutation(internal.hubspot.upsertAccounts, { orgId, accounts: batch, hold: true }));
         const left = batch.filter((r) => result.unprocessed.includes(r.crmId));
         totals.accounts += rows.length - left.length;
         totals.accountsCreated += result.created as number;
@@ -918,7 +922,7 @@ async function writeSyncPage(ctx: any, state: SyncState, object: SyncObject, row
     const written = await Promise.allSettled([...groups.values()].map((group) => writeInBatches(group.rows, {
       size: PARTY_SYNC_BATCH,
       submit: async (batch) => {
-        const result = await writeSlot<any>(() => ctx.runMutation(internal.hubspot.upsertContacts, { orgId, contacts: batch }), group.shards.size ? [...group.shards] : undefined);
+        const result = await writeSlot<any>(() => ctx.runMutation(internal.hubspot.upsertContacts, { orgId, contacts: batch, hold: true }), group.shards.size ? [...group.shards] : undefined);
         totals.contacts += result.synced as number;
         totals.contactsCreated += result.created as number;
         return batch.filter((r) => result.unprocessed.includes(r.crmId));
@@ -939,7 +943,7 @@ async function writeSyncPage(ctx: any, state: SyncState, object: SyncObject, row
           totals.updatedDeals += rows.length;
           return;
         }
-        const result = await writeSlot<any>(() => ctx.runMutation(internal.hubspot.upsertDeals, { orgId, deals: batch }));
+        const result = await writeSlot<any>(() => ctx.runMutation(internal.hubspot.upsertDeals, { orgId, deals: batch, hold: true }));
         totals.createdDeals += result.created as number;
         totals.updatedDeals += rows.length - batch.length + (result.updated as number);
         totals.skippedDeals += result.skipped as number;
@@ -1013,6 +1017,7 @@ async function finishSync(ctx: any, state: SyncState, progress: ProgressEmitter)
   });
   // A hygiene reading over the freshly synced rows builds the Home page's health trend. Scheduled (not awaited): a
   // scoring failure never fails the sync, and the capture action budgets its reads per table.
+  await ctx.runMutation(internal.objects.wakeHeldWrites, { orgId, drain: true });
   progress.stage(CRM_SYNC_STAGES[5], 5, CRM_SYNC_STAGES.length); // health
   await ctx.scheduler.runAfter(0, internal.healthSnapshots.captureForOrg, { orgId });
   progress.flush();
@@ -1034,6 +1039,8 @@ async function finishSync(ctx: any, state: SyncState, progress: ProgressEmitter)
 }
 
 async function failSync(ctx: any, syncRunId: Id<"integrationSyncRuns">, orgId: Id<"organizations">, error: any): Promise<never> {
+  // What the sync wrote before it stopped still reaches its readers.
+  await ctx.runMutation(internal.objects.wakeHeldWrites, { orgId, drain: true }).catch(() => undefined);
   // A stopped or ended run already says why; a later sync owns the connection's status now.
   if (error instanceof SyncRunEnded || !(await ctx.runQuery(internal.integrations.syncRunLive, { syncRunId }))) throw new ConvexError("Sync stopped");
   const message = error?.message ?? String(error);

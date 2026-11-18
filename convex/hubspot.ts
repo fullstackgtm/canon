@@ -16,6 +16,7 @@ import { crmDealValues, type DealValues } from "./lib/canon/dealLedger";
 
 import { syncPartyBatch } from "./lib/canon/partyLedger";
 import { NOT_WRITTEN, SYNC_STAMP_MS } from "./lib/syncUnchanged";
+import { holdWakes } from "./lib/heldWakes";
 import { syncAccountRow, syncContactRow, syncDealRow, accountSyncValue, contactSyncValue, dealSyncHash, dealSyncValue, dealSyncValues, accountUnchanged, contactUnchanged, dealUnchanged } from "./lib/hubspotSyncValue";
 import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
 
@@ -657,8 +658,11 @@ export const upsertAccounts = internalMutation({
   args: {
     orgId: v.id("organizations"),
     accounts: v.array(syncAccountRow),
+    // The sync holds its writes' wakes and wakes their readers itself (lib/heldWakes.ts).
+    hold: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    if (args.hold) holdWakes(ctx);
     const now = Date.now();
     // Return the crmId -> docId mapping as an ARRAY, not an object: Convex caps
     // a value at 1024 fields, and orgs can have far more accounts (this broke at
@@ -746,8 +750,11 @@ export const upsertContacts = internalMutation({
   args: {
     orgId: v.id("organizations"),
     contacts: v.array(syncContactRow),
+    // The sync holds its writes' wakes and wakes their readers itself (lib/heldWakes.ts).
+    hold: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    if (args.hold) holdWakes(ctx);
     const now = Date.now();
     let synced = 0;
     let created = 0;
@@ -797,8 +804,11 @@ export const upsertDeals = internalMutation({
   args: {
     orgId: v.id("organizations"),
     deals: v.array(syncDealRow),
+    // The sync holds its writes' wakes and wakes their readers itself (lib/heldWakes.ts).
+    hold: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    if (args.hold) holdWakes(ctx);
     const now = Date.now();
     const results = { created: 0, updated: 0, skipped: 0 };
     // The fields this workspace set to always follow HubSpot: part of each deal's fingerprint (lib/hubspotSyncValue.ts dealSyncHash).

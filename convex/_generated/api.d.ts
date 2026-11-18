@@ -263,6 +263,7 @@ import type * as lib_gtmNouns_core from "../lib/gtmNouns/core.js";
 import type * as lib_gtmNouns_extended from "../lib/gtmNouns/extended.js";
 import type * as lib_gtmNouns_index from "../lib/gtmNouns/index.js";
 import type * as lib_gtmWorkspace from "../lib/gtmWorkspace.js";
+import type * as lib_heldWakes from "../lib/heldWakes.js";
 import type * as lib_hierarchyCanon from "../lib/hierarchyCanon.js";
 import type * as lib_homepageFetch from "../lib/homepageFetch.js";
 import type * as lib_hubspotFixture from "../lib/hubspotFixture.js";
@@ -905,6 +906,7 @@ declare const fullApi: ApiFromModules<{
   "lib/gtmNouns/extended": typeof lib_gtmNouns_extended;
   "lib/gtmNouns/index": typeof lib_gtmNouns_index;
   "lib/gtmWorkspace": typeof lib_gtmWorkspace;
+  "lib/heldWakes": typeof lib_heldWakes;
   "lib/hierarchyCanon": typeof lib_hierarchyCanon;
   "lib/homepageFetch": typeof lib_homepageFetch;
   "lib/hubspotFixture": typeof lib_hubspotFixture;
