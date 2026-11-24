@@ -7,4 +7,8 @@ if [ "${1:-}" = "--pi-runtime" ]; then
 fi
 ./node_modules/.bin/next typegen
 ./node_modules/.bin/tsgo --noEmit -p tsconfig.json
-./node_modules/.bin/tsgo --noEmit -p convex/tsconfig.json
+# convex/tsconfig.json has no incremental build info of its own; keep one under node_modules so a rerun with no
+# convex change takes ~0.5 s instead of ~11 s. It is a cache: deleting it only makes the next run full.
+mkdir -p node_modules/.cache/canoncrm-typecheck
+./node_modules/.bin/tsgo --noEmit -p convex/tsconfig.json --incremental \
+  --tsBuildInfoFile node_modules/.cache/canoncrm-typecheck/convex.tsbuildinfo
