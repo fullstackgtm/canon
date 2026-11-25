@@ -33,7 +33,7 @@ const PROJECT: OrgObjectExtension & { apiName: string } = {
 };
 
 let user = ADMIN;
-const FILES = ["objects.ts", "records.ts", "deals.ts", "customObjects.ts", "permissions.ts", "canon.ts", "activityTargets.ts", "apiIdempotency.ts"];
+const FILES = ["objects.ts", "records.ts", "deals.ts", "customObjects.ts", "permissions.ts", "canon.ts", "activityTargets.ts", "apiIdempotency.ts", "leadConversion.ts"];
 const M = loadConvex(FILES, { "lib.ts": (real) => ({ ...real, getCurrentUser: async () => user, requireUser: async () => user }) });
 
 // ---- the workspace ----
@@ -585,4 +585,44 @@ test("bulk ledger admission checks every row before changing any row and retains
     const result = await runner("action")("objects:bulkScoped", { ...input, streamIds: [own] }) as { results: Array<{ result: { status: string } }> };
     assert.equal(result.results[0]!.result.status, "applied");
   } finally { user = ADMIN; }
+});
+
+
+test("scoped custom creates admit every row before any write and keep the server cap", async () => {
+  await withKit();
+  const run = (rows: Record<string, unknown>[], object = "custom_kit") => runner("action")("objects:createManyScoped", { object, rows });
+  const valid = { "custom.name": "Batch kit", "custom.sponsor": ADMIN._id };
+  const before = db.rows("ledgerEntries").length;
+  for (const invalid of [{ "custom.client": "acc_missing" }, { "custom.sponsor": GONE._id }, { "custom.seats": "not a number" }]) {
+    await assert.rejects(run([valid, { ...valid, ...invalid }]));
+    assert.equal(db.rows("ledgerEntries").length, before);
+  }
+  await assert.rejects(run(Array(26).fill(valid)));
+  await assert.rejects(run([valid], "account"));
+  user = REP;
+  try {
+    await assert.rejects(run([{ "custom.name": "Restricted", "custom.budget": 1 }], "custom_project"));
+    assert.equal(db.rows("ledgerEntries").length, before);
+  } finally { user = ADMIN; }
+  const result = await run([valid, valid]) as Array<{ status: string }>;
+  assert.deepEqual(Array.from(result, (r) => r.status), ["applied", "applied"]);
+  assert.equal(db.rows("ledgerEntries").length, before + 2);
+});
+
+test("conversion refuses a caller-supplied domain matching a hidden company before writing", async () => {
+  const domain = "hidden-conversion.example";
+  await runner("action")("records:upsert", { object: "account", accounts: [{ domain, name: "Hidden conversion", ownerId: ADMIN._id }], idempotencyKey: "hidden-conversion-fixture" });
+  const perms = await db.get("rolePermissions:rep");
+  const rules = structuredClone(perms!.rules);
+  await db.patch("rolePermissions:rep", { rules: [...perms!.rules as unknown[], { object: "account", visibility: "own", unowned: false }] });
+  user = REP;
+  try {
+    const lead = await runner("action")("objects:writeScoped", { object: "lead", values: { lastName: "Convert", company: "Hidden conversion", ownerId: REP._id } }) as { streamId: string };
+    const before = db.checkpoint();
+    await assert.rejects(runner("action")("leadConversion:convert", { leadId: lead.streamId, domain }));
+    assert.deepEqual(db.checkpoint(), before);
+  } finally {
+    user = ADMIN;
+    await db.patch("rolePermissions:rep", { rules });
+  }
 });

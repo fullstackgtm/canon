@@ -15,6 +15,7 @@ const WRITER = /\b(saveAsCaller|saveDealAsCaller|createDealAsUser|recordEditPort
 /** Calls on a caller's write path: each passes the caller's scope, so the writer checks the references. */
 const CHECKED = [
   "convex/objects.ts#writeAs", // objects.write, writeScoped: the record page, the record API and the MCP record tools
+  "convex/objects.ts#createManyAdmitted", // scoped create batch admits each row before the shared single writer
   "convex/objects.ts#bulkAs", // a list's bulk edit (objects.bulk, bulkScoped)
   "convex/deals.ts#create", "convex/deals.ts#createAdmitted", // New deal, the API's and MCP's deal create (deals.createScoped)
   "convex/activityTargets.ts#logAsUser", // Log activity, POST /api/v1/activities, canon_activities log

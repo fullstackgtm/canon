@@ -586,6 +586,54 @@ async function bulkAs(
 /** Rows one `createMany` call creates: each is a ledger entry, and a CSV import sends them one call after another. */
 export const CREATE_MANY_MAX = 25;
 
+const createManyArgs = { object: v.string(), rows: v.array(inputValues) };
+
+function requireCustomBatch(object: string, size: number) {
+  if (!isCustomObjectName(object)) throw new ConvexError("Batch create is open to custom objects only");
+  if (size > CREATE_MANY_MAX) throw new ConvexError(`Create at most ${CREATE_MANY_MAX} records at a time`);
+}
+
+/** Scoped counterpart of the CSV batch: all admission precedes the first save. */
+export const createManyScoped = action({
+  args: createManyArgs,
+  returns: v.array(saveResult),
+  handler: async (ctx, args): Promise<SaveResult[]> => {
+    requireCustomBatch(args.object, args.rows.length);
+    const caller = await requireCaller(ctx);
+    const client = callerClient(ctx, caller);
+    const admitted = [];
+    for (const values of args.rows) admitted.push(await admitRegisterIds(client, caller.orgId, values));
+    return ctx.runMutation(internal.objects.createManyAdmitted, { ...args, admitted });
+  },
+});
+
+export const createManyAdmitted = internalMutation({
+  args: { ...createManyArgs, admitted: v.array(v.array(v.string())) },
+  returns: v.array(saveResult),
+  handler: async (ctx, args): Promise<SaveResult[]> => {
+    requireCustomBatch(args.object, args.rows.length);
+    if (args.admitted.length !== args.rows.length) throw new ConvexError("Each row needs reference admission");
+    const user = await requireUser(ctx);
+    const access = await requireWriteAccess(ctx, user);
+    const saveCtx = await userSaveContext(ctx, user, args.object);
+    for (const [i, values] of args.rows.entries()) {
+      await requireWritable(ctx, user, access, args.object, "create", undefined, values);
+      const checked = coerce(saveCtx.def, values, { mode: "create", now: saveCtx.now });
+      const errors = await callerReferenceErrors(ctx, user, new Set(args.admitted[i]), saveCtx.def, values);
+      if (!checked.ok || errors.length) throw new ConvexError({ row: i, errors: [...(!checked.ok ? checked.errors : []), ...errors] });
+    }
+    const out: SaveResult[] = [];
+    for (const [i, values] of args.rows.entries()) {
+      const result = await writeAs(ctx, { object: args.object, values }, new Set(args.admitted[i]));
+      // Unique constraints (including collisions within this batch) are judged by the shared writer.
+      // Throwing rolls the whole transaction back rather than leaving a partial batch.
+      if (result.status === "invalid" || result.status === "conflict") throw new ConvexError({ row: i, result });
+      out.push(result);
+    }
+    return out;
+  },
+});
+
 /**
  * Create up to CREATE_MANY_MAX records of a custom object in one call, for a CSV import: each row is checked against the
  * registry as a form save is, and a row that fails comes back `invalid` without stopping the others.

@@ -128,6 +128,7 @@ test("CLI discovery and MCP requests use the internal address while configuratio
     await main(["login"]);
     await main(["whoami"]);
     const cases = [
+      ["records", "create", "canon_records", { object: "custom_kit", rows: [{ "custom.name": "Kit" }] }],
       ["records", "archive", "canon_records", { object: "lead", streamIds: ["s1"] }],
       ["integrations", "stop_sync", "canon_integrations", { provider: "hubspot", expectedRunIds: ["run"] }],
       ["tam", "list_suggestions", "canon_tam", {}],

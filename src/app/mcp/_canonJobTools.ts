@@ -54,8 +54,10 @@ const TAM_FILTER = "filter?: { segmentId?, status?, ownerId?, minFit?, q?, icpId
 export const canonJobTools: CanonTool[] = [
   groupTool(
     "canon_records",
-    "Change up to 25 ledger records per call. Each record must be visible and writable by your role. Archive is soft delete; restore returns archived records. Unprocessed ids can be retried. Companies and people use canon_update_record and canon_delete_record instead.",
+    "Create up to 25 custom-object records, or change up to 25 ledger records per call. Create checks every row before saving and refuses the whole batch on an invalid row. Each record must be visible and writable by your role. Archive is soft delete; restore returns archived records. Unprocessed ids can be retried. Companies and people use canon_update_record and canon_delete_record instead.",
     {
+      // Parity audit alias: api.objects.createMany uses this scoped equivalent; CSV keeps per-row import behavior.
+      create: a(api.objects.createManyScoped, "{ object: custom object apiName, rows: [{ <field apiName>: value }] } -> save results (max 25)"),
       update: a(api.objects.bulkScoped, "{ object, streamIds: string[], values: { <field apiName>: value } }", { op: "update" }),
       archive: a(api.objects.bulkScoped, "{ object, streamIds: string[] }", { op: "delete" }),
       restore: a(api.objects.bulkScoped, "{ object, streamIds: string[] }", { op: "restore" }),
