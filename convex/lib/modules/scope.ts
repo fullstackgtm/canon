@@ -18,6 +18,7 @@
  * - while a newer version installs, fills its index slots on every write and checks each write against its schema
  *   too, so the version serves complete once its backfill (`upgradeBatch`, here too) is done.
  */
+import { readableCrmAccount } from "../dealCompany";
 import { withModulePublication, moduleSource, ordinaryBackfillSource, scopeModuleSource, associateModuleSource, continuationSource, capturePackageState, rememberModuleRow, moduleRowBefore, writeModuleState, markModuleSemanticWriteAttempt, type ModuleSourceState } from "./activityCapture";
 import { canonCallProblems } from "../../../modules/kernel/canonOperations.ts";
 import { marketSampleRequest } from "../../../modules/kernel/freePopulation.ts";
@@ -3167,7 +3168,7 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
     if (!fields.includes("companyName")) return out;
     if (d.companyId) return { ...out, companyName: null, companyRef: d.companyId };
     const account = d.accountId ? await ctx.db.get(d.accountId) : null;
-    return { ...out, companyName: account && account.orgId === orgId ? account.name : null };
+    return { ...out, companyName: readableCrmAccount(system ? null : access, account && account.orgId === orgId ? account : null)?.name ?? null };
   };
   async function enrich(collection: string, list: ModuleDoc[], join: readonly string[], counts: Record<string, { view: string; by: string; of?: string; collect?: string }>) {
     const c = collectionOf(collection);

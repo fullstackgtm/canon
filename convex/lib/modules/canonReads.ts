@@ -1,3 +1,4 @@
+import { readableCrmAccount } from "../dealCompany";
 import { hasNegativeDealCondition } from "../outbound/related.ts";
 import { orgRecipe, termsFor } from "../recipes";
 import { sourceStatus } from "../../moduleMe";
@@ -296,7 +297,7 @@ export async function canonRead(ctx: QueryCtx, orgId: Id<"organizations">, acces
       const d = id ? await ctx.db.get(id) : null;
       if (d && d.orgId === orgId) add(d);
     }
-    return withCustom(await withCrmAccountNames(ctx, orgId, out));
+    return withCustom(await withCrmAccountNames(ctx, orgId, access, out));
   }
   // A change's two sides carry no company name: only a flat read of deals resolves it (convex/modules.ts fillCompanyNames).
   if (read === "deals.asOf" || read === "deals.changesBetween") return dealHistoryRead(ctx, orgId, access, read, args, read === "deals.changesBetween" ? fields.filter((f) => f !== "companyName") : fields, limit);
@@ -323,14 +324,14 @@ export async function canonRead(ctx: QueryCtx, orgId: Id<"organizations">, acces
     if (++scanned > DEALS_SCANNED_MAX) refuse(`${read} ${what} reads more than ${DEALS_SCANNED_MAX} deals; narrow it.`);
     add(d);
   }
-  return withCustom(await withCrmAccountNames(ctx, orgId, out));
+  return withCustom(await withCrmAccountNames(ctx, orgId, access, out));
 }
 
 /**
  * The deals' `companyName` where it names a CRM account (`{ crmAccount }`): that account's name, as `{ crm: name }`
  * (the call's action keeps it, where it reads a register company's id from the record service), or null.
  */
-async function withCrmAccountNames(ctx: QueryCtx, orgId: Id<"organizations">, deals: Array<Record<string, unknown>>) {
+async function withCrmAccountNames(ctx: QueryCtx, orgId: Id<"organizations">, access: Access | null, deals: Array<Record<string, unknown>>) {
   const names = new Map<string, string | null>();
   for (const d of deals) {
     const v = d.companyName;
@@ -338,7 +339,8 @@ async function withCrmAccountNames(ctx: QueryCtx, orgId: Id<"organizations">, de
     const id = String((v as { crmAccount: string }).crmAccount);
     if (!names.has(id)) {
       const row = await ctx.db.get(id as Id<"crmAccounts">);
-      names.set(id, row && row.orgId === orgId ? row.name : null);
+      const account = readableCrmAccount(access, row && row.orgId === orgId ? row : null);
+      names.set(id, account?.name ?? null);
     }
     const name = names.get(id);
     d.companyName = name ? { crm: name } : null;
@@ -612,7 +614,7 @@ async function dealHistoryRead(ctx: QueryCtx, orgId: Id<"organizations">, access
       out.push({ id: v.dealId, createdAt: d.createdAt, ...shape(v, d) });
     }
     // A deal as it stood carries no custom fields: those are read as they are now, on a flat read.
-    return withCrmAccountNames(ctx, orgId, out);
+    return withCrmAccountNames(ctx, orgId, access, out);
   }
   const { since, until } = args;
   if (typeof since !== "number" || typeof until !== "number" || since > until) return refuse("deals.changesBetween needs since and until, times in ms, since first.");
