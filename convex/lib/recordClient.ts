@@ -50,7 +50,7 @@ import { NONE, regionOf, sizeBandOf } from "../../modules/kernel/dimensions.ts";
 import { industryFilterKeys, industryKey, industryWeight } from "../../modules/kernel/industries.ts";
 import { indexObjectDef, resolveObjectDef, STANDARD_OBJECTS, type ObjectDef } from "./objects/registry.ts";
 import {
-  compileListRequest, companyRowsInMemory, compileSearch, IN_VALUES_MAX, isRegisterObject, LIST_LIMIT_MAX, listRowsInMemory, ListRequestError, ownerAdmitted, rankSearchHits, registerListDef, searchAdmits, registerListRow, searchRowsInMemory,
+  compileListRequest, companyRowsInMemory, compileSearch, matchesScope, IN_VALUES_MAX, isRegisterObject, LIST_LIMIT_MAX, listRowsInMemory, ListRequestError, ownerAdmitted, rankSearchHits, registerListDef, searchAdmits, registerListRow, searchRowsInMemory,
   type ListRequest, type ListResponse, type ListRow, type ProjectedThrough, type RegisterListResponse, type RegisterObject, type SearchRequest, type SearchResponse,
 } from "./objects/listSpec.ts";
 import { SHARDS } from "./objects/write.ts";
@@ -657,7 +657,12 @@ export function createFakeRecordClient(opts: {
       for (const a of want("account") ? accounts : []) {
         if (has(a.name, a.domain) && searchAdmits(s, "account", a.ownerId)) found.push({ object: "account", id: a.id, title: a.name, updatedAt: a.updatedAt, detail: { domain: a.domain } });
       }
-      const company = new Map(accounts.map((a) => [a.id, a.name]));
+      const accountDef = registerListDef("account", resolveObjectDef(STANDARD_OBJECTS.account));
+      const company = new Map(accounts.filter((a) => {
+        if (!s.company) return true;
+        const row = registerListRow("account", accountDef, a);
+        return s.company.name && row.status === "active" && matchesScope(row, s.company.scope);
+      }).map((a) => [a.id, a.name]));
       for (const p of want("contact") ? await store.allContacts(ws) : []) {
         const detail = { email: p.email || null, company: company.get(p.accountId) ?? null };
         if (has(p.fullName, p.email) && searchAdmits(s, "contact", p.ownerId)) found.push({ object: "contact", id: p.id, title: p.fullName, updatedAt: p.updatedAt, detail });
