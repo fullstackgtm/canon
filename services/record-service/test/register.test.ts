@@ -346,6 +346,12 @@ describe("one register of accounts and contacts", () => {
     const titles = (page: { rows: Array<{ title: string }> }) => page.rows.map((r) => r.title);
     const high = await list({ filter: [{ field: "custom.renewal_risk", op: "eq", value: "high" }] });
     assert.deepEqual(titles(high), ["A"]);
+    await ws(w).post("contacts/upsert", { records: [{ accountId: a, fullName: "At A" }, { accountId: b, fullName: "At B" }], source: "test", idempotencyKey: "company-contacts" });
+    const company = { fields: [], filter: [{ field: "custom.seats", op: "gte", value: 100 }] };
+    const people = await ws(w).post("register/contact/list", { company });
+    assert.equal(people.status, 200);
+    assert.deepEqual(titles(people.json), ["At A"]);
+    assert.equal((await ws(w).post("register/contact/list", { company: { ...company, filter: [{ field: "custom.old", op: "empty" }] } })).status, 400);
     assert.deepEqual(high.rows[0].values["custom.emails"], ["z@a.example", "b@a.example"], "the primary stays first");
     assert.equal("custom.old" in high.rows[0].values, false);
     assert.deepEqual(titles(await list({ sort: { field: "custom.seats", dir: "asc" } })), ["B", "A", "C"], "empty sorts last");

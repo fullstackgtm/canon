@@ -9,7 +9,7 @@
 // source by id. One GROUPING SETS query answers the groups, the subtotals (every
 // key but the last) and the total in a single scan; QUALIFY keeps the first GROUPS_MAX of each.
 import type { DuckDBConnection } from "@duckdb/node-api";
-import { fieldColumn, ListRequestError, type ListColumn, type Scalar } from "./core/objects/listSpec.ts";
+import { compileListRequest, fieldColumn, ListRequestError, type ListColumn, type Scalar } from "./core/objects/listSpec.ts";
 import { activityReportDef, compileAggregateRequest, CONTACT_COMPANY_VIA, GROUPS_MAX, relationsOf, type AggregateGroup, type AggregateResponse, type CompiledAggregate, type CompiledGroup } from "./core/objects/reportSpec.ts";
 import { ACTIVITY_OBJECT } from "./core/kernel/reportLanguage.ts";
 import type { ActivityAggregateRequest } from "./core/objects/moduleReport.ts";
@@ -34,6 +34,7 @@ function keySql(g: CompiledGroup, col: string): string {
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 
 export async function aggregateObject(w: Workspace | null, object: string, req: ActivityAggregateRequest): Promise<AggregateResponse> {
+  if (req.company !== undefined && object !== "contact") throw new HttpError(400, "company predicate requires the contact register");
   if (req.moduleActivities !== undefined && object !== ACTIVITY_OBJECT) throw new HttpError(400, "module activity sources belong only to Activities reports");
   if (!w && req.moduleActivities?.length) throw new HttpError(503, "Activity report projections are initializing. Try again shortly.");
   if (!w) return { ...emptyResponse(req.measures.length), projectedThrough: Object.fromEntries(Array.from({ length: SHARDS }, (_, s) => [String(s), 0])) };
@@ -42,24 +43,42 @@ export async function aggregateObject(w: Workspace | null, object: string, req: 
 
 async function aggregateIn(c: DuckDBConnection, object: string, req: ActivityAggregateRequest): Promise<AggregateResponse> {
   const through = await throughOf(c);
+  const sql = new Sql();
   let base = await objectSource(c, object);
+  if (req.company !== undefined) {
+    if (object !== "contact" || !base) throw new HttpError(400, "company predicate requires the contact register");
+    const account = await objectSource(c, "account");
+    const uses = [
+      ...(req.groupBy ?? []).map((g) => g.field),
+      ...req.measures.flatMap((m) => [m.field, m.weight].filter((f): f is string => !!f)),
+    ].filter((f) => f === "accountFit" || f === "accountIcpIds");
+    try {
+      const q = compileListRequest(base.def, { company: req.company, filter: req.filter }, account!.def);
+      // Aggregate keys and measures can use derived cells even without a contact filter.
+      const used = compileListRequest(base.def, { company: { ...req.company, filter: undefined }, filter: uses.map((field) => ({ field, op: "notEmpty" })) }, account!.def);
+      base = await objectSource(c, object, { ...q.company!, required: q.company!.required || used.company!.required }, sql);
+    } catch (e) {
+      if (e instanceof ListRequestError) throw new HttpError(400, e.message);
+      throw e;
+    }
+  }
   const union = !!req.moduleActivities?.length;
   if (!base && !union) return { ...emptyResponse(req.measures.length), projectedThrough: through };
   const sources = new Map<string, ObjectSource | null>([[object, base]]);
   const def = base?.def ?? activityReportDef();
   const relations = new Map(relationsOf(object, def).map((r) => [r.via, r.object]));
   for (const g of req.groupBy ?? []) {
+    if (req.company && g.via) throw new HttpError(400, "company predicates do not support related aggregate keys");
     const target = g.via === undefined ? undefined : relations.get(g.via);
     if (target && !sources.has(target)) sources.set(target, await objectSource(c, target));
   }
   let q;
   try {
-    q = compileAggregateRequest(object, def, req, (o) => sources.get(o)?.def);
+    q = compileAggregateRequest(object, def, { ...req, company: undefined }, (o) => sources.get(o)?.def);
   } catch (e) {
     if (e instanceof ListRequestError) throw new HttpError(400, e.message);
     throw e;
   }
-  const sql = new Sql();
   if (union) {
     const parts: string[] = [];
     if (base) {

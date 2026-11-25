@@ -12,7 +12,7 @@
  * Pure: no database access, no Node-only imports. The record service imports
  * a generated copy (scripts/sync-object-core.ts).
  */
-import { cellOf, compileListRequest, listColumns, ListRequestError, matchesFilter, matchesScope, type CompiledFilter, type CompiledScope, type ListColumn, type ListFilter, type ListRow, type OwnerScope, type ProjectedThrough, type Scalar } from "./listSpec.ts";
+import { cellOf, compileListRequest, listColumns, ListRequestError, matchesFilter, matchesScope, type CompanyPredicate, type CompiledFilter, type CompiledScope, type ListColumn, type ListFilter, type ListRow, type OwnerScope, type ProjectedThrough, type Scalar } from "./listSpec.ts";
 import { resolveObjectDef, type FieldDef, type ResolvedObjectDef } from "./registry.ts";
 import { ACTIVITY_OBJECT, MEASURE_FNS, REPORT_BUCKETS, type MeasureFn, type ReportBucket } from "../../../modules/kernel/reportLanguage.ts";
 
@@ -26,7 +26,7 @@ export type ReportGroup = { field: string; via?: string; bucket?: ReportBucket }
 /** `weight` (1.35.0): a field each value is multiplied by, as a weighted pipeline sums amount × probability (a fraction). */
 export type ReportMeasure = { fn: MeasureFn; field?: string; weight?: string };
 /** `scope` (CP14, 1.29.0) narrows the counted records to what the caller sees, as a list's scope does. */
-export type AggregateRequest = { filter?: readonly ListFilter[]; groupBy?: readonly ReportGroup[]; measures: readonly ReportMeasure[]; scope?: OwnerScope };
+export type AggregateRequest = { company?: CompanyPredicate; filter?: readonly ListFilter[]; groupBy?: readonly ReportGroup[]; measures: readonly ReportMeasure[]; scope?: OwnerScope };
 
 /** One group: its key values (a date bucket is the `YYYY-MM-DD` it starts on) and one value per measure. */
 export type AggregateGroup = { keys: (Scalar | null)[]; values: (number | null)[] };
@@ -115,6 +115,7 @@ export type CompiledAggregate = { object: string; filters: CompiledFilter[]; sco
 export function compileAggregateRequest(
   object: string, def: ResolvedObjectDef, req: AggregateRequest, defOf: (object: string) => ResolvedObjectDef | undefined,
 ): CompiledAggregate {
+  if (req.company !== undefined) throw new ListRequestError("company predicates require a scoped register source");
   const { filters, scope } = compileListRequest(def, { filter: req.filter ?? [], limit: 1, ...(req.scope ? { scope: req.scope } : {}) });
   const columns = listColumns(def);
   const groupBy = req.groupBy ?? [];

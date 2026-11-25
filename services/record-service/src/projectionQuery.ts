@@ -13,7 +13,7 @@
 import type { DuckDBConnection, DuckDBValue } from "@duckdb/node-api";
 import {
   cellOf, compileListRequest, compileSearch, encodeCursor, fieldColumn, isRegisterObject, ListRequestError, rankSearchHits, registerColumn, registerCustomKey, registerListDef,
-  registerListRow, SEARCH_DETAIL, type CompiledFilter, type CompiledList, type CompiledScope, type ListColumn, type ListRequest, type ListResponse, type ListRow,
+  registerListRow, SEARCH_DETAIL, type CompiledCompany, type CompiledFilter, type CompiledList, type CompiledScope, type ListColumn, type ListRequest, type ListResponse, type ListRow,
   type RegisterListResponse, type RegisterObject, type Scalar, type SearchHit, type SearchRequest, type SearchResponse,
 } from "./core/objects/listSpec.ts";
 import { ASSOCIATION_OBJECT, resolveObjectDef, STANDARD_OBJECTS, type ResolvedObjectDef } from "./core/objects/registry.ts";
@@ -29,6 +29,9 @@ import type { Workspace } from "./workspace.ts";
 export class Sql {
   readonly params: Record<string, DuckDBValue> = {};
   private n = 0;
+  constructor(seed?: Sql) {
+    if (seed) { Object.assign(this.params, seed.params); this.n = seed.n; }
+  }
   param(v: Scalar): string {
     const key = `p${this.n++}`;
     this.params[key] = v;
@@ -109,6 +112,7 @@ function rowOf(r: Record<string, unknown>, object: string, cols: readonly Column
 const emptyThrough = () => Object.fromEntries(Array.from({ length: SHARDS }, (_, s) => [String(s), 0]));
 
 export async function listProjected(w: Workspace | null, object: string, req: ListRequest): Promise<ListResponse> {
+  if (req.company) throw new HttpError(400, "company predicate requires the contact register");
   if (!w) return { rows: [], nextCursor: null, total: 0, projectedThrough: emptyThrough() };
   return w.snapshot((c) => listIn(c, object, req));
 }
@@ -136,7 +140,7 @@ export function activitySource(parts: readonly string[]): ObjectSource {
 }
 
 /** The source of `object` in a snapshot: the register for accounts and contacts, else its projection; null when nothing is projected. */
-export async function objectSource(c: DuckDBConnection, object: string): Promise<ObjectSource | null> {
+export async function objectSource(c: DuckDBConnection, object: string, company?: CompiledCompany | null, sql?: Sql): Promise<ObjectSource | null> {
   const builds = await buildsOf(c);
   if (object === ACTIVITY_OBJECT) {
     // Every note, task, call and meeting as one set, typed by which it is (lib/objects/reportSpec.ts activityReportDef).
@@ -147,7 +151,7 @@ export async function objectSource(c: DuckDBConnection, object: string): Promise
   }
   if (isRegisterObject(object)) {
     const def = registerListDef(object, builds.get(object)?.def ?? resolveObjectDef(STANDARD_OBJECTS[object]));
-    return { def, ...registerSource(object, def, (o) => builds.get(o)?.def), live: "deletedAt IS NULL" };
+    return { def, ...registerSource(object, def, (o) => builds.get(o)?.def, company, sql), live: "deletedAt IS NULL" };
   }
   const build = builds.get(object);
   if (!build) return null;
@@ -213,7 +217,7 @@ export async function listRegister(w: Workspace, object: RegisterObject, req: Li
     const def = registerListDef(object, builds.get(object)?.def ?? resolveObjectDef(STANDARD_OBJECTS[object]));
     let q: CompiledList;
     try {
-      q = compileListRequest(def, req);
+      q = compileListRequest(def, req, object === "contact" && req.company ? registerListDef("account", builds.get("account")?.def ?? resolveObjectDef(STANDARD_OBJECTS.account)) : undefined);
     } catch (e) {
       if (e instanceof ListRequestError) throw new HttpError(400, e.message);
       throw e;
@@ -239,7 +243,7 @@ function customSql(key: string, col: ListColumn): string {
 }
 
 /** A register list's rows and column SQL: custom fields from `custom`, a contact's account fit, formula and rollup fields computed. */
-function registerSource(object: RegisterObject, def: ResolvedObjectDef, defs: (object: string) => ResolvedObjectDef | undefined) {
+function registerSource(object: RegisterObject, def: ResolvedObjectDef, defs: (object: string) => ResolvedObjectDef | undefined, company?: CompiledCompany | null, sql = new Sql()) {
   const computedIds = new Set(def.fields.filter((f) => f.type === "formula").map((f) => f.fieldId as string));
   const colSql: ColumnSql = (col) => {
     if (col.fieldId !== null && computedIds.has(col.fieldId)) return ident(col.column);
@@ -268,9 +272,19 @@ function registerSource(object: RegisterObject, def: ResolvedObjectDef, defs: (o
     return filterSql(sql, f, colSql);
   };
   // A contact's account fit and ICPs are its account's, read with it (1.15.0); a deleted account leaves them empty.
+  let accountRows = "accounts";
+  if (company) {
+    const accountDef = registerListDef("account", defs("account") ?? resolveObjectDef(STANDARD_OBJECTS.account));
+    const source = registerSource("account", accountDef, defs);
+    const where = ["deletedAt IS NULL", ...company.filters.map((f) => source.filterOf(sql, f))];
+    if (company.scope) where.push(scopeSql(sql, company.scope, source.colSql));
+    accountRows = `(SELECT * FROM ${source.from} WHERE ${where.join(" AND ")})`;
+  }
+  const fit = !company || company.fields.includes("fit") ? "a.fit" : "CAST(NULL AS DOUBLE)";
+  const icps = !company || company.fields.includes("icpIds") ? "a.icpIds" : "CAST(NULL AS VARCHAR[])";
   const rows0 = object === "account"
     ? "accounts"
-    : "(SELECT c.*, a.fit AS accountFit, a.icpIds AS accountIcpIds FROM contacts c LEFT JOIN accounts a ON a.id = c.accountId AND a.deletedAt IS NULL)";
+    : `(SELECT c.*, ${fit} AS accountFit, ${icps} AS accountIcpIds FROM contacts c ${company?.required ? "INNER" : "LEFT"} JOIN ${accountRows} a ON a.id = c.accountId AND a.deletedAt IS NULL)`;
   // Formula and rollup fields (CP7c) are computed over the register rows, so they filter and sort like the row's own columns.
   const computed = computedColumns(def, defs, "t", colSql);
   const from = computed.cols.length ? `(SELECT t.*${computed.select} FROM ${rows0} t${computed.joins}) ${object}s` : `${rows0} ${object}s`;
@@ -280,12 +294,13 @@ function registerSource(object: RegisterObject, def: ResolvedObjectDef, defs: (o
 async function listRegisterIn(
   c: DuckDBConnection, object: RegisterObject, def: ResolvedObjectDef, q: CompiledList, defs: (object: string) => ResolvedObjectDef | undefined,
 ): Promise<RegisterListResponse> {
-  const { from: table, colSql, filterOf, computed } = registerSource(object, def, defs);
+  const sourceSql = new Sql();
+  const { from: table, colSql, filterOf, computed } = registerSource(object, def, defs, q.company, sourceSql);
   const dates = computed.cols.filter((col) => col.type === "date").map((col) => `CAST(${ident(col.name)} AS VARCHAR) AS ${ident(col.name)}`);
   const star = dates.length ? `* REPLACE (${dates.join(", ")})` : "*";
   const s = colSql(q.sort.col);
   const scope = (withKeyset: boolean) => {
-    const sql = new Sql();
+    const sql = new Sql(sourceSql);
     // The recycle bin leaves out rows merged into another (1.23.0): they come back by undoing the merge, not by a restore.
     const where = [q.deleted ? "deletedAt IS NOT NULL AND mergedInto IS NULL" : "deletedAt IS NULL", ...q.filters.map((f) => filterOf(sql, f))];
     if (q.scope) where.push(scopeSql(sql, q.scope, colSql));
