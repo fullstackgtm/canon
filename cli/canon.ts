@@ -387,7 +387,7 @@ const USAGE = `canon ${VERSION} — Canon from the command line (talks to <url>/
   canon plans [<planId>] [--status <s>]
   canon automations <list|get|check|propose|proposals|runs|dry_run|matches_now> [--args <json>]
                                        automation rules; propose waits for an admin to approve it
-  canon records <update|archive|restore> [--args <json>]   bulk ledger edits, at most 25 records
+  canon records <create|update|archive|restore> [--args <json>]   bulk ledger edits, at most 25 records
   canon integrations <list_runs|stop_sync> [--args <json>]   inspect and stop provider sync work
   canon tam <action> [--args <json>]   TAM segments, jobs and recommendation acceptance
   canon audiences <action> [--args <json>]   audiences and filtered contact CSV exports

@@ -57,7 +57,6 @@ export const gtmParityBaseline: Readonly<Record<string, GtmParityReason>> = {
   // todo
   // Batch/conversion admission evidence: docs/agent-write-parity.md.
   "api.addRecords.startAccounts": "todo",
-  "api.objects.createMany": "todo",
   "api.addRecords.startMarket": "todo",
   "api.csvImports.start": "todo",
   "api.leadConversion.convert": "todo",

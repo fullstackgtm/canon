@@ -174,6 +174,10 @@ test("missing TAM suggestions report a lookup miss through the grouped tool", as
 
 test("bulk actions fix the lifecycle operation and forward only the action args", async () => {
   const tool = canonTools.find((t) => t.name === "canon_records")!;
+  const create = fakeConvex();
+  const rows = [{ "custom.name": "Kit" }];
+  await tool.run(create.client, { action: "create", args: { object: "custom_kit", rows } });
+  assert.deepEqual(create.calls, [{ kind: "action", name: "objects:createManyScoped", args: { object: "custom_kit", rows } }]);
   for (const [action, op] of [["update", "update"], ["archive", "delete"], ["restore", "restore"]]) {
     const f = fakeConvex();
     await tool.run(f.client, { action, orgId: "ignored", args: { object: "lead", streamIds: ["s1"], op: "override" } });
