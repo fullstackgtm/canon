@@ -1,7 +1,7 @@
 /** Every area on the Settings page, grouped the way the table shows them. */
 import type { IntegrationFeature } from "../../../../convex/lib/integrationsAvailable.ts";
 
-export type SettingsKey = "workspace" | "targets" | "team" | "permissions" | "pipelines" | "billing" | "providers" | "api" | "webhooks" | "feeds" | "outbound" | "emailLog";
+export type SettingsKey = "audit" | "workspace" | "targets" | "team" | "permissions" | "pipelines" | "billing" | "providers" | "api" | "webhooks" | "feeds" | "outbound" | "emailLog";
 
 export type SettingsDef = {
   key: SettingsKey;
@@ -55,6 +55,7 @@ export const SETTINGS_GROUPS: { title: string; items: SettingsDef[] }[] = [
         href: "/dashboard/settings/permissions",
         adminOnly: true,
       },
+      { key: "audit", name: "Audit log", summary: "Who did what, and when", description: "Read recorded operations, module writes and data-model changes in this workspace. Sensitive payloads are omitted.", href: "/dashboard/settings/audit", adminOnly: true },
       {
         key: "pipelines",
         name: "Pipelines",
@@ -159,6 +160,8 @@ export function legacyTabHref(tab: string | null, search: URLSearchParams): stri
     case "team":
     case "teams":
       return "/dashboard/settings/team";
+    case "audit":
+      return "/dashboard/settings/audit";
     case "permissions":
       return "/dashboard/settings/permissions";
     case "billing":

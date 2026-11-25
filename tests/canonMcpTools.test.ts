@@ -21,6 +21,7 @@ function fakeConvex(recordRefs?: boolean) {
 }
 
 const SAMPLE_ARGS: Record<string, Record<string, unknown>> = {
+  canon_admin: { action: "audit_log", args: { paginationOpts: { numItems: 25, cursor: null } } },
   canon_get_deal: { dealId: "d1" },
   canon_field_receipts: { dealId: "d1", attribute: "nextStep" },
   canon_propose_facts: { agentId: "a", sourceKind: "call", title: "t", facts: [{ dealId: "d1", attribute: "nextStep", value: "x" }] },

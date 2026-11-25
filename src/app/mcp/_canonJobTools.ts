@@ -63,6 +63,7 @@ const VIEW_SPEC = "{ filter: [{ field, op, value? }] (canon_list_records' gramma
 const TAM_FILTER = "filter?: { segmentId?, status?, ownerId?, minFit?, q?, icpId?, industry?: string[], country?: string[], employeeMin?, employeeMax?, sizeBand?: string[], region?: string[], traits?: { <segmentKey>: string[] } }";
 
 export const canonJobTools: CanonTool[] = [
+  groupTool("canon_admin", "Read-only workspace administration. Requires permissions.manage (admins). Sensitive audit payloads are omitted.", { audit_log: q(api.adminAudit.list, "{ paginationOpts: { numItems: 1..50, cursor: string | null }, actorId?, operation?: exact operation, start?, end?: epoch milliseconds } -> { page, isDone, continueCursor }; pass continueCursor for the next page, even when filters leave page empty") }),
   groupTool(
     "canon_records",
     "Create up to 25 custom-object records, or change up to 25 ledger records per call. Create checks every row before saving and refuses the whole batch on an invalid row. Each record must be visible and writable by your role. Archive is soft delete; restore returns archived records. Unprocessed ids can be retried. Companies and people use canon_update_record and canon_delete_record instead.",

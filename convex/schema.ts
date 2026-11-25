@@ -492,7 +492,7 @@ export default defineSchema({
     // browser, as Canon's web server saw the request and signed them. Never from module code.
     evidence: v.optional(v.object({ ip: v.optional(v.string()), userAgent: v.optional(v.string()) })),
     at: v.number(),
-  }).index("by_orgId_moduleId_collection_key_at", ["orgId", "moduleId", "collection", "key", "at"]),
+  }).index("by_orgId_and_at", ["orgId", "at"]).index("by_orgId_moduleId_collection_key_at", ["orgId", "moduleId", "collection", "key", "at"]),
 
   moduleShareGrants: defineTable({
     orgId: v.id("organizations"), moduleId: v.string(), share: v.string(), policyHash: v.string(),
@@ -2767,6 +2767,7 @@ export default defineSchema({
     agentId: v.optional(v.id("agents")),
   })
     .index("by_orgId", ["orgId"])
+    .index("by_orgId_and_createdAt", ["orgId", "createdAt"])
     .index("by_patchPlanId", ["patchPlanId"])
     .index("by_agentId_and_createdAt", ["agentId", "createdAt"]),
 
