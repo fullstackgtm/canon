@@ -5,7 +5,7 @@ import { DRAWN, refuseSectionRename } from "../recipes/md/pointed.ts";
 // Customize mode's deterministic refusal: a model renamed the section the person pointed into. The live-model eval set
 // is scripts/page-customize-eval.mjs; these are its cases that need no model.
 const field = (text: string) => `${DRAWN}, reading "${text}" in the area headed "asdf"`;
-const opportunity = field("Opportunity nameSpeedeon - QuotaQueue commissions software");
+const opportunity = field("Opportunity nameAcme - Enterprise platform");
 
 test("a request about the title renames the section even when the click landed on a field row", () => {
   assert.equal(refuseSectionRename("change title to Overview", opportunity, "asdf"), null);
@@ -16,7 +16,7 @@ test("a request about the title renames the section even when the click landed o
 });
 
 test("a request about the drawn control is refused, not applied to the section", () => {
-  assert.equal(refuseSectionRename("rename this to Deal", opportunity, "asdf"), "Opportunity nameSpeedeon - QuotaQueue commissions software");
+  assert.equal(refuseSectionRename("rename this to Deal", opportunity, "asdf"), "Opportunity nameAcme - Enterprise platform");
   assert.ok(refuseSectionRename("rename Opportunity name to Deal name", opportunity, "asdf"));
   assert.ok(refuseSectionRename("change the opportunity name title to Deal", opportunity, "asdf"));
   assert.ok(refuseSectionRename("rename this to Find people", field("Search contacts"), "Choose who to reach first"));

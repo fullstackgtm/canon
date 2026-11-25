@@ -104,4 +104,4 @@ These stay the kernel's whatever a workspace or recipe says
 | Notifications beyond agent turns | A rules point. |
 | Signals, dedupe rules, hygiene rules, routing, call extractors | Their planned points (`docs/recipes.md`, "Points"). |
 | Revisions for AI field specs and agents | Versioned specs (`docs/recipes.md`, "The kernel"). |
-| Fiscal quotas and old targets plans | #520. |
+| Fiscal quotas and legacy target plans | Unifying quotas with the targets model. |

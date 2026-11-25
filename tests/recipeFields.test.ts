@@ -9,7 +9,7 @@ import { refOf, RECIPES } from "../recipes/index.ts";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
 const admin = { _id: "admin", orgId: "org", role: "admin", name: "Ada" };
-const loaded = loadConvex(["recipes.ts", "researchAgents.ts"], {
+const loaded = loadConvex(["recipes.ts", "researchAgents.ts", "dataModel.ts"], {
   "lib.ts": (real) => ({ ...real, getCurrentUser: async () => admin, requireUser: async () => admin, requireCap: async () => admin, agentClientOf: async () => null }),
 });
 const plain = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -90,4 +90,17 @@ test("a settings revision rewords every setting-bound field, people research's o
   const pricing = "Does this company show a price before a buyer talks to sales?";
   await w.recipes.saveSettings.handler(w.ctx, { recipeId: VELOCITY, settings: { pricingQuestion: pricing, primaryGoalQuestion: "What is this person paid to achieve this year?" }, baseRevision: null });
   assert.deepEqual(plain([w.field("pricing_model")!.question, typeof w.field("pricing_model")!.questionSince, w.field("primary_goal")!.question]), [pricing, "number", ours]);
+});
+
+
+test("AI and builder fields reserve each other's slugs, including archived builder columns", async () => {
+  const w = workspace();
+  const builder = loaded["dataModel.ts"].createField;
+  const spec = { object: "account", label: "Renewal risk", type: "text" };
+  const first = await builder.handler(w.ctx, spec);
+  await loaded["dataModel.ts"].setArchived.handler(w.ctx, { object: "account", fieldId: first.fieldId, archived: true });
+  const ai = await w.research.create.handler(w.ctx, { label: spec.label, kind: "qa", question: "Is renewal at risk?" });
+  assert.notEqual(ai.attribute, first.apiName);
+  const next = await builder.handler(w.ctx, spec);
+  assert.notEqual(next.apiName, ai.attribute);
 });

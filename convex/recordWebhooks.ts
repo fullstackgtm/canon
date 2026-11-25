@@ -29,8 +29,8 @@ import { fromStored } from "./lib/objects/validators";
 import type { ObjectDef } from "./lib/objects/registry";
 import type { EntryBody } from "./lib/objects/fold";
 import {
-  LEASE_MS, RECEIVER_TIMEOUT_MS, RECORD_EVENTS, backoffMs, destinationProblem, newSecret, planShard, publicAddresses, resolvesPrivate,
-  type EventEntry,
+  LEASE_MS, RECEIVER_TIMEOUT_MS, RECORD_EVENTS, allowLoopbackWebhooks, backoffMs, destinationProblem, newSecret, planShard,
+  type EventEntry, type WebhookPostResult,
 } from "./lib/recordWebhooks";
 
 const MAX_ENDPOINTS = 10;
@@ -39,11 +39,6 @@ const SHARD_BYTES = 400_000;
 const DELIVERIES_SHOWN = 25;
 const KEEP_FINISHED_MS = 14 * 24 * 60 * 60_000;
 const ERROR_MAX = 300;
-
-/** A local dev stack (loopback Convex site) may register loopback receivers; a deployed one never. */
-const localStack = () => {
-  try { return ["localhost", "127.0.0.1"].includes(new URL(process.env.CONVEX_SITE_URL ?? "").hostname); } catch { return false; }
-};
 
 const isAdmin = (user: Doc<"users">) => can(user, "webhooks.manage");
 
@@ -89,7 +84,7 @@ export const list = query({
       const last = await ctx.db.query("recordWebhookDeliveries").withIndex("by_endpointId_and_createdAt", (q) => q.eq("endpointId", e._id)).order("desc").first();
       out.push({ ...endpointView(e), lastDelivery: last ? { status: last.status, at: last.createdAt, statusCode: last.lastStatusCode ?? null } : null });
     }
-    return { endpoints: out, objects: defs.map((d) => ({ apiName: d.apiName, label: d.label })), events: [...RECORD_EVENTS], local: localStack() };
+    return { endpoints: out, objects: defs.map((d) => ({ apiName: d.apiName, label: d.label })), events: [...RECORD_EVENTS], local: allowLoopbackWebhooks() };
   },
 });
 
@@ -122,7 +117,7 @@ export const insertEndpoint = internalMutation({
   handler: async (ctx, args) => {
     const user = await admin(ctx);
     const url = args.url.trim();
-    const problem = destinationProblem(url, localStack());
+    const problem = destinationProblem(url, allowLoopbackWebhooks());
     if (problem) throw new ConvexError(problem);
     await checkChoices(ctx, user.orgId, args.objects, args.events);
     const existing = await ctx.db.query("recordWebhookEndpoints").withIndex("by_orgId", (q) => q.eq("orgId", user.orgId)).take(MAX_ENDPOINTS);
@@ -264,7 +259,7 @@ export const claim = internalMutation({
 });
 
 export const settle = internalMutation({
-  args: { deliveryId: v.id("recordWebhookDeliveries"), ok: v.boolean(), statusCode: v.optional(v.number()), error: v.optional(v.string()) },
+  args: { deliveryId: v.id("recordWebhookDeliveries"), ok: v.boolean(), statusCode: v.optional(v.number()), error: v.optional(v.string()), retry: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const d = await ctx.db.get(args.deliveryId);
     if (!d || d.status !== "pending") return null;
@@ -274,7 +269,7 @@ export const settle = internalMutation({
       await ctx.db.patch(d._id, { status: "delivered", nextAttemptAt: now, ...note });
       return null;
     }
-    const wait = backoffMs(d.attempts);
+    const wait = args.retry === false ? null : backoffMs(d.attempts);
     if (wait === null) {
       await ctx.db.patch(d._id, { status: "failed", nextAttemptAt: now, ...note });
       return null;
@@ -290,28 +285,26 @@ export const deliver = internalAction({
   handler: async (ctx, args): Promise<void> => {
     const job = await ctx.runMutation(internal.recordWebhooks.claim, { deliveryId: args.deliveryId });
     if (!job) return;
-    const settle = (r: { ok: boolean; statusCode?: number; error?: string }) => ctx.runMutation(internal.recordWebhooks.settle, { deliveryId: args.deliveryId, ...r });
+    const settle = (r: { ok: boolean; statusCode?: number; error?: string; retry?: boolean }) => ctx.runMutation(internal.recordWebhooks.settle, { deliveryId: args.deliveryId, ...r });
     try {
-      const local = localStack();
-      const problem = destinationProblem(job.url, local);
-      if (problem) return void (await settle({ ok: false, error: problem }));
-      const url = new URL(job.url);
-      if (!local && resolvesPrivate(await publicAddresses(url.hostname))) return void (await settle({ ok: false, error: "The hostname points to a private address" }));
+      const problem = destinationProblem(job.url, allowLoopbackWebhooks());
+      if (problem) return void (await settle({ ok: false, error: problem, retry: false }));
       const timestamp = Math.floor(Date.now() / 1000);
-      const res = await fetch(job.url, {
-        method: "POST",
-        redirect: "manual",
-        signal: AbortSignal.timeout(RECEIVER_TIMEOUT_MS),
-        headers: {
-          "content-type": "application/json",
-          "user-agent": "Canon-Webhooks/1",
-          "x-canon-event": job.event,
-          "x-canon-delivery": job.eventId,
-          "x-canon-timestamp": String(timestamp),
-          "x-canon-signature": await signWebhook(await decryptFromStorage(job.secret), timestamp, job.payload),
-        },
+      const headers = {
+        "content-type": "application/json",
+        "user-agent": "Canon-Webhooks/1",
+        "x-canon-event": job.event,
+        "x-canon-delivery": job.eventId,
+        "x-canon-timestamp": String(timestamp),
+        "x-canon-signature": await signWebhook(await decryptFromStorage(job.secret), timestamp, job.payload),
+      };
+      const res: WebhookPostResult = await ctx.runAction(internal.moduleWebActions.postWebhook, {
+        url: job.url,
+        headers,
         body: job.payload,
+        timeoutMs: RECEIVER_TIMEOUT_MS,
       });
+      if (!res.ok) return void (await settle({ ok: false, error: res.error, retry: res.retry }));
       await settle(res.status >= 200 && res.status < 300 ? { ok: true, statusCode: res.status } : { ok: false, statusCode: res.status, error: `Receiver answered ${res.status}` });
     } catch (cause) {
       await settle({ ok: false, error: cause instanceof Error ? cause.message : "Request failed" });

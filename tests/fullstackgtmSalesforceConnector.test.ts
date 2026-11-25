@@ -512,3 +512,97 @@ test("salesforce connector reads a sync's pages in Id order from a resumable cur
   assert.match(soql[4], /FROM Account WHERE Id IN \('001000000000000001'\)$/);
   assert.equal(named.length, 2000);
 });
+
+test("Salesforce reads back off with jitter, Retry-After seconds and dates", async () => {
+  let now = Date.UTC(2026, 0, 1);
+  const delays: number[] = [];
+  let calls = 0;
+  const connector = createSalesforceConnector({
+    getConnection: () => ({ accessToken: "test", instanceUrl: "https://org.my.salesforce.com" }),
+    now: () => now, random: () => 0,
+    sleep: async (ms) => { delays.push(ms); now += ms; },
+    fetchImpl: async () => {
+      calls++;
+      if (calls === 1) return new Response(null, { status: 500 });
+      if (calls === 2) return new Response(null, { status: 429, headers: { "Retry-After": "2" } });
+      if (calls === 3) return new Response(null, { status: 503, headers: { "Retry-After": new Date(now + 5000).toUTCString() } });
+      return Response.json({ records: [{ Id: "005A", Name: "Rep", IsActive: true }] });
+    },
+  });
+  assert.equal((await connector.fetchUsers()).length, 1);
+  assert.deepEqual(delays, [500, 2000, 4500]);
+  assert.equal(calls, 4);
+});
+
+test("Salesforce bounds attempts and shares its wait budget across reads", async () => {
+  let calls = 0;
+  let waited = 0;
+  const connector = createSalesforceConnector({
+    getConnection: () => ({ accessToken: "test", instanceUrl: "https://org.my.salesforce.com" }),
+    now: () => waited, random: () => 0,
+    sleep: async (ms) => { waited += ms; },
+    fetchImpl: async () => { calls++; return new Response(null, { status: 503, headers: { "Retry-After": "10" } }); },
+  });
+  await assert.rejects(connector.fetchUsers());
+  assert.equal(calls, 4);
+  assert.equal(waited, 30_000);
+  await assert.rejects(connector.fetchUsers());
+  assert.equal(calls, 5);
+  assert.equal(waited, 30_000);
+});
+
+test("Salesforce refuses over-budget Retry-After, other 4xx, network failures and write replay", async () => {
+  for (const status of [400, 401, 403, 429, 503]) {
+    let calls = 0;
+    const connector = createSalesforceConnector({
+      getConnection: () => ({ accessToken: "test", instanceUrl: "https://org.my.salesforce.com" }),
+      sleep: async () => { assert.fail("unexpected sleep"); },
+      fetchImpl: async () => { calls++; return new Response(null, { status, headers: { "Retry-After": "60" } }); },
+    });
+    await assert.rejects(connector.fetchUsers());
+    assert.equal(calls, 1);
+    assert.equal((await connector.applyOperation({ id: "op", objectType: "deal", objectId: "006A", operation: "set_field", field: "nextStep", beforeValue: null, afterValue: "Call", reason: "test", riskLevel: "low", approvalRequired: true })).status, "failed");
+    assert.equal(calls, 2);
+  }
+  for (const status of [429, 500, 503]) {
+    let calls = 0;
+    const connector = createSalesforceConnector({
+      getConnection: () => ({ accessToken: "test", instanceUrl: "https://org.my.salesforce.com" }),
+      sleep: async () => { assert.fail("write replay"); },
+      fetchImpl: async () => { calls++; return new Response(null, { status }); },
+    });
+    const result = await connector.applyOperation({ id: "op", objectType: "deal", objectId: "006A", operation: "set_field", field: "nextStep", beforeValue: null, afterValue: "Call", reason: "test", riskLevel: "low", approvalRequired: true });
+    assert.equal(result.status, "failed");
+    assert.equal(calls, 1);
+  }
+  let calls = 0;
+  const connector = createSalesforceConnector({
+    getConnection: () => ({ accessToken: "test", instanceUrl: "https://org.my.salesforce.com" }),
+    fetchImpl: async () => { calls++; throw new TypeError("offline"); },
+  });
+  await assert.rejects(connector.fetchUsers());
+  assert.equal(calls, 1);
+});
+
+
+test("late Salesforce pages can retry, with a timeout only on retry attempts", async () => {
+  let now = 0;
+  let calls = 0;
+  const connector = createSalesforceConnector({
+    getConnection: () => ({ accessToken: "test", instanceUrl: "https://org.my.salesforce.com" }),
+    now: () => now, random: () => 0,
+    sleep: async (ms) => { now += ms; },
+    fetchImpl: async (_input, init) => {
+      calls++;
+      if (calls === 1) {
+        assert.equal(init?.signal, undefined);
+        return new Response(null, { status: 503 });
+      }
+      assert.ok(init?.signal);
+      throw new DOMException("test timeout", "TimeoutError");
+    },
+  });
+  now += 120_000;
+  await assert.rejects(connector.fetchUsers());
+  assert.equal(calls, 2);
+});

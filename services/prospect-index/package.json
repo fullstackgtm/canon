@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build:index": "node --experimental-strip-types src/build.ts",
-    "test": "node ../../scripts/dev/node-test.mjs --default-concurrency=auto -- test/*.test.ts",
+    "test": "node --experimental-strip-types --test ${CANONCRM_TEST_CONCURRENCY:+--test-concurrency=$CANONCRM_TEST_CONCURRENCY} test/*.test.ts",
     "bench": "node --experimental-strip-types src/bench.ts",
     "typecheck": "tsc --noEmit"
   },

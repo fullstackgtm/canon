@@ -3,7 +3,7 @@
  * free of Worker and Node APIs: Web Crypto only.
  *
  *   POST /run  x-recipe-timestamp: <ms>  x-recipe-signature: <hex HMAC-SHA256(secret, "<ms>.<body>")>
- *   body  { bundle: { hash, code? }, settings, calls: [{ fn, input, with? }] }
+ *   body  { bundle: { hash, code? }, isolate, settings, calls: [{ fn, input, with? }] }
  *   200   { results: [{ ok: true, value } | { ok: false, error: { kind, message } }] }   one per call
  *   409   { need: "code" }   the runtime has no isolate for `hash`: send it again with `code`
  *   401   bad or stale signature    400 bad body    500 { error } the isolate failed (CPU limit, a crash)
@@ -13,7 +13,7 @@ export const SIGNATURE_HEADER = "x-recipe-signature";
 /** A request signed further than this from the runtime's clock is refused. */
 export const MAX_SKEW_MS = 60_000;
 
-export type RunBody = { bundle: { hash: string; code?: string }; settings: Record<string, unknown>; calls: unknown[] };
+export type RunBody = { bundle: { hash: string; code?: string }; isolate: string; settings: Record<string, unknown>; calls: unknown[] };
 export type ModuleBody = {
   bundle: { hash: string; code?: string };
   isolate: string;
@@ -28,6 +28,8 @@ export const MODULE_CPU_MS = 1000;
 export const MODULE_BODY_MAX = 4_000_000;
 /** `<orgId>:system` or `<orgId>:user:<userId>`: whose code state an isolate holds. */
 export const ISOLATE_SCOPE = /^[a-z0-9]{1,64}:(system|user:[a-z0-9]{1,64})$/;
+/** Non-empty tenant scope (`<orgId>` or `<orgId>:<recipeId>`) isolating recipe play state per workspace. */
+export const RUN_ISOLATE_SCOPE = /^[A-Za-z0-9][A-Za-z0-9@_./:-]{0,159}$/;
 
 const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
 const utf8 = (s: string) => new TextEncoder().encode(s);

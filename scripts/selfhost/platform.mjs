@@ -34,18 +34,42 @@ export function newTokenEncryptionKey() {
   return randomBytes(32).toString("base64");
 }
 
+const CONVEX_BACKEND_ENV_KEYS = [
+  "PATH", "HOME", "TMPDIR", "TZ", "LANG", "LC_ALL",
+  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+  "NODE_ENV", "NODE_OPTIONS", "DISABLE_BEACON", "DISABLE_METRICS_ENDPOINT", "DO_NOT_TRACK",
+  "INSTANCE_NAME", "INSTANCE_SECRET", "DATA_DIR", "CREDENTIALS_DIR",
+  "CONVEX_CLOUD_ORIGIN", "CONVEX_SITE_ORIGIN",
+  "ISOLATE_ANALYZE_USER_TIMEOUT_SECONDS", "DATABASE_UDF_USER_TIMEOUT_SECONDS",
+  "REDACT_LOGS_TO_CLIENT", "RUST_LOG", "RUST_BACKTRACE", "DO_NOT_REQUIRE_SSL",
+  "CONVEX_LOCAL_STORAGE_DIR", "POSTGRES_URL", "MYSQL_URL",
+  "S3_STORAGE_EXPORTS_BUCKET", "S3_STORAGE_SNAPSHOT_IMPORTS_BUCKET",
+  "S3_STORAGE_MODULES_BUCKET", "S3_STORAGE_FILES_BUCKET", "S3_STORAGE_SEARCH_BUCKET",
+  "S3_ENDPOINT_URL", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+];
+
 /**
  * The environment the Convex backend runs with. It is told the browser's address (CONVEX_CLOUD_ORIGIN), which its
  * storage URLs need, and its Node action runner calls the backend back there too. The runner loads
  * nodeActionFetch.mjs, which sends those calls to the backend's in-container addresses instead, whatever the host port.
+ * Only the allowlisted backend variables are forwarded (function secrets are pushed via the admin API).
+ * @param {Record<string, string | undefined>} env
+ * @param {{ backend: string, backendSite: string }} addresses
+ * @returns {NodeJS.ProcessEnv}
  */
 export function backendEnv(env, { backend, backendSite }) {
   // It imports src/lib/internalUrl.ts, which a Node 22 before 22.18 loads only with the flag.
   const preload = `--experimental-strip-types --import=${fileURLToPath(new URL("./nodeActionFetch.mjs", import.meta.url))}`;
-  return {
-    ...env,
+  /** @type {Record<string, string | undefined>} */
+  const filtered = {};
+  for (const key of CONVEX_BACKEND_ENV_KEYS) {
+    if (env[key] !== undefined) filtered[key] = env[key];
+  }
+  return /** @type {NodeJS.ProcessEnv} */ ({
+    ...filtered,
     CANON_INTERNAL_CONVEX_URL: backend,
     CANON_INTERNAL_CONVEX_SITE_URL: backendSite,
-    NODE_OPTIONS: env.NODE_OPTIONS ? `${env.NODE_OPTIONS} ${preload}` : preload,
-  };
+    NODE_OPTIONS: filtered.NODE_OPTIONS ? `${filtered.NODE_OPTIONS} ${preload}` : preload,
+  });
 }

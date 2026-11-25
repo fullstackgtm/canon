@@ -107,7 +107,11 @@ test("public address classification rejects generated non-global ranges and perm
     const address = [...components, ...suffix].join(".");
     assert.equal(ipIsPrivate(address), true, `${address} is not globally routable`);
   }
-  for (const address of ["::127.0.0.1", "::ffff:7f00:1", "64:ff9b::7f00:1", "2002:7f00:1::", "fc00::1", "fe80::1", "ff02::1", "2001:db8::1"]) {
+  for (const address of [
+    "::127.0.0.1", "::ffff:7f00:1", "::ffff:0:127.0.0.1", "::ffff:0:93.184.216.34",
+    "64:ff9b::7f00:1", "64:ff9b::127.0.0.1", "64:ff9b::93.184.216.34", "64:ff9b:1::1",
+    "2002:7f00:1::", "fc00::1", "fe80::1", "fec0::1", "feff::1", "ff02::1", "2001:db8::1",
+  ]) {
     assert.equal(ipIsPrivate(address), true, `${address} must not bypass the SSRF guard`);
   }
   for (const address of ["1.1.1.1", "8.8.8.8", "93.184.216.34", "2606:4700:4700::1111", "2001:4860:4860::8888"]) {

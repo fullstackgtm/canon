@@ -1,5 +1,6 @@
 {
   "kind": "module",
+  "catalog": "hidden",
   "visibility": "open",
   "id": "@canon/icps",
   "version": "0.8.0",

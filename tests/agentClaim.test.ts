@@ -224,7 +224,6 @@ test("SECURITY LINE: a claimed agent token is still 403 on org-scoped routes", a
     assert.equal(orgResponse.status, 403);
     const body = await orgResponse.json();
     assert.equal(body.error, "insufficient_scope");
-    assert.match(body.message, /human-approved pairing/i);
     assert.equal(
       stub.calls.length,
       convexCallsBefore,

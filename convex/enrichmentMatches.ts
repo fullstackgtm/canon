@@ -37,9 +37,13 @@ const byRecord = (ctx: QueryCtx, orgId: Id<"organizations">, recordId: string) =
   ctx.db.query("enrichmentMatches").withIndex("by_orgId_and_recordId", (q) => q.eq("orgId", orgId).eq("recordId", recordId)).first();
 
 export const upsert = internalMutation({
-  args: { orgId: v.id("organizations"), matches: v.array(matchValidator) },
+  args: { orgId: v.id("organizations"), matches: v.array(matchValidator), unmatchedRecordIds: v.optional(v.array(v.string())) },
   handler: async (ctx, args) => {
-    if (args.matches.length > UPSERT_BATCH) throw new ConvexError(`At most ${UPSERT_BATCH} matches per call.`);
+    if (args.matches.length + (args.unmatchedRecordIds?.length ?? 0) > UPSERT_BATCH) throw new ConvexError(`At most ${UPSERT_BATCH} matches per call.`);
+    for (const recordId of new Set(args.unmatchedRecordIds ?? [])) {
+      const existing = await byRecord(ctx, args.orgId, recordId);
+      if (existing) await ctx.db.delete(existing._id);
+    }
     const matchedAt = Date.now();
     for (const match of args.matches) {
       const doc = { orgId: args.orgId, ...match, matchedAt };
@@ -56,10 +60,10 @@ export const forRecords = internalQuery({
   args: { orgId: v.id("organizations"), recordIds: v.array(v.string()) },
   handler: async (ctx, args) => {
     if (args.recordIds.length > LOOKUP_BATCH) throw new ConvexError(`At most ${LOOKUP_BATCH} records per call.`);
-    const out: Record<string, Pick<Doc<"enrichmentMatches">, "source" | "values">> = {};
+    const out: Record<string, Pick<Doc<"enrichmentMatches">, "source" | "values" | "domain">> = {};
     for (const recordId of new Set(args.recordIds)) {
       const match = await byRecord(ctx, args.orgId, recordId);
-      if (match) out[recordId] = { source: match.source, values: match.values };
+      if (match) out[recordId] = { source: match.source, values: match.values, domain: match.domain };
     }
     return out;
   },

@@ -59,6 +59,9 @@ export type SalesforceConnectorOptions = {
   apiVersion?: string;
   /** Injectable fetch for testing. */
   fetchImpl?: typeof fetch;
+  sleep?: (milliseconds: number) => Promise<void>;
+  now?: () => number;
+  random?: () => number;
   /** Per-page snapshot-pull progress (presentation only — errors are swallowed). */
   onProgress?: (progress: SnapshotProgress) => void;
   /**
@@ -112,6 +115,12 @@ export function createSalesforceConnector(
   const apiVersion = options.apiVersion ?? DEFAULT_API_VERSION;
   const fetchImpl = options.fetchImpl ?? fetch;
   const mappings = options.fieldMappings;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const random = options.random ?? Math.random;
+  // Shared across all pages so a large snapshot cannot multiply its retry wait.
+  let retryWaitRemaining = 30_000;
+  let retriesRemaining = 6;
   // create:<Name> dedup within one connector lifetime (one apply run).
   const createdAccountsByName = new Map<string, string>();
   // create_record contact dedup (keyed by matchKey:matchValue), same lifetime.
@@ -179,21 +188,42 @@ export function createSalesforceConnector(
     }
     const url = resolved.href;
     let response: Response;
-    try {
-      response = await fetchImpl(url, {
-        ...init,
-        redirect: "manual",
-        headers: {
-          Authorization: `Bearer ${connection.accessToken}`,
-          "Content-Type": "application/json",
-          ...(init.headers ?? {}),
-        },
-      });
-    } catch (error) {
-      const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : "";
-      throw new Error(
-        `Cannot reach Salesforce at ${instanceUrl}${cause}. Check SALESFORCE_INSTANCE_URL (your My Domain URL, e.g. https://yourco.my.salesforce.com) and network access.`,
-      );
+    const read = ["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase());
+    const started = now();
+    for (let attempt = 0; ; attempt++) {
+      try {
+        response = await fetchImpl(url, {
+          ...init,
+          redirect: "manual",
+          signal: init.signal ?? (attempt > 0 ? AbortSignal.timeout(15_000) : undefined),
+          headers: {
+            Authorization: `Bearer ${connection.accessToken}`,
+            "Content-Type": "application/json",
+            ...(init.headers ?? {}),
+          },
+        });
+      } catch (error) {
+        if (error instanceof Error && error.name === "TimeoutError") {
+          throw new Error("Salesforce read retry timed out. Resume the read later.");
+        }
+        const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : "";
+        throw new Error(
+          `Cannot reach Salesforce at ${instanceUrl}${cause}. Check SALESFORCE_INSTANCE_URL (your My Domain URL, e.g. https://yourco.my.salesforce.com) and network access.`,
+        );
+      }
+      // Writes and transport failures are never replayed: their outcome can be uncertain.
+      if (!read || (response.status !== 429 && !(response.status >= 500 && response.status <= 599)) || attempt === 3) break;
+      const retryAfter = response.headers.get("Retry-After");
+      const seconds = retryAfter === null ? NaN : Number(retryAfter);
+      const dateDelay = retryAfter && !Number.isFinite(seconds) ? Date.parse(retryAfter) - now() : NaN;
+      const backoff = 1_000 * 2 ** attempt * (0.5 + random() * 0.5);
+      const delay = Math.max(backoff, Number.isFinite(seconds) ? seconds * 1_000 : Number.isFinite(dateDelay) ? dateDelay : 0);
+      // Never shorten Retry-After to fit the budget; fail and let the caller resume later.
+      if (retriesRemaining === 0 || delay > retryWaitRemaining || now() - started + delay > 30_000) break;
+      await response.body?.cancel();
+      retryWaitRemaining -= delay;
+      retriesRemaining--;
+      await sleep(delay);
     }
     if (!response.ok) {
       // Status line only — the body echoes submitted field values and the

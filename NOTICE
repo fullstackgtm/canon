@@ -1,0 +1,52 @@
+CanonCRM
+Copyright (c) Full Stack GTM LLC
+
+Licensing
+---------
+- `engine/` and `modules/kernel/` are licensed under the Apache License,
+  Version 2.0 (see `engine/LICENSE` and `modules/kernel/LICENSE`).
+- All other CanonCRM files in this repository are licensed under the GNU Affero
+  General Public License v3.0 only (AGPL-3.0-only, see `LICENSE`).
+
+Third-Party Notices
+-------------------
+The CanonCRM source tree and self-hosted Docker image incorporate or bundle the
+following major third-party open-source components, each governed by its own
+license:
+
+1. Convex Open-Source Backend
+   - Component: `ghcr.io/convex/convex-backend` (bundled in `Dockerfile.selfhost`)
+   - Copyright: Convex, Inc.
+   - License: Functional Source License, Version 1.1, Apache 2.0 Future License
+     (FSL-1.1-Apache-2.0)
+   - Source: https://github.com/get-convex/convex-backend
+
+2. DuckDB
+   - Component: `@duckdb/node-api` (used by `services/record-service`)
+   - Copyright: Stichting DuckDB Foundation and DuckDB Contributors
+   - License: MIT License
+   - Source: https://github.com/duckdb/duckdb
+
+3. Cloudflare workerd
+   - Component: `@cloudflare/workerd` (bundled in `Dockerfile.selfhost` for
+     `services/recipe-runtime`)
+   - Copyright: Cloudflare, Inc.
+   - License: Apache License, Version 2.0
+   - Source: https://github.com/cloudflare/workerd
+
+4. IBM Plex Fonts
+   - Component: `src/app/fonts/IBMPlex*.woff2`
+   - Copyright: Copyright (c) 2017 IBM Corp. with Reserved Font Name "Plex"
+   - License: SIL Open Font License, Version 1.1 (OFL-1.1); full license text
+     included at `src/app/fonts/OFL.txt`
+   - Source: https://github.com/IBM/plex
+
+5. tini
+   - Component: container init process (installed in `Dockerfile.selfhost`)
+   - Copyright: Thomas Orozco
+   - License: MIT License
+   - Source: https://github.com/krallin/tini
+
+Additional Node.js package dependencies and their license metadata are declared
+in `package-lock.json`, `services/record-service/package-lock.json`, and
+`services/recipe-runtime/package-lock.json`.

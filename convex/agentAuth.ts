@@ -258,9 +258,9 @@ export const validate = mutation({
 });
 
 /**
- * Registrations are platform-level (org-less), so listing/revoking is
- * restricted to admins — stricter than cliAuth's admin-or-manager because
- * there is no org boundary to additionally scope by.
+ * Workspace admins see only registrations claimed within their own workspace
+ * (`claimedByOrgId === user.orgId`). Unclaimed and other tenants'
+ * registrations are never exposed across workspaces.
  */
 export const list = query({
   args: {},
@@ -269,6 +269,7 @@ export const list = query({
     if (!user || !can(user, "grants.manage")) return [];
     const registrations = await ctx.db
       .query("agentRegistrations")
+      .withIndex("by_claimedByOrgId", (q) => q.eq("claimedByOrgId", user.orgId))
       .order("desc")
       .take(200);
     const now = Date.now();
@@ -289,23 +290,26 @@ export const list = query({
 });
 
 /**
- * Admins can revoke anything; a user who has CLAIMED a registration can
- * revoke that registration ("revocable as theirs" — the useful half of
- * ownership). Claiming still never widens read access anywhere.
+ * Workspace admins can revoke registrations claimed within their own workspace;
+ * a user who claimed a registration can revoke their own registration.
+ * Unclaimed and other tenants' registrations are never revocable here.
  */
 export const revoke = mutation({
   args: { registrationId: v.id("agentRegistrations") },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    const existing = await ctx.db.get(args.registrationId);
-    const ownsClaim = Boolean(existing && existing.claimedByUserId === user._id);
-    if (!can(user, "grants.manage") && !ownsClaim) {
+    const registration = await ctx.db.get(args.registrationId);
+    if (!registration) throw new ConvexError("Agent registration not found");
+    const ownsClaim = registration.claimedByUserId === user._id;
+    const inCallerOrg = registration.claimedByOrgId === user.orgId;
+    if (!ownsClaim && !inCallerOrg) {
+      throw new ConvexError("Agent registration not found");
+    }
+    if (!ownsClaim && !can(user, "grants.manage")) {
       throw new ConvexError(
         "Only admins or the user who claimed a registration can revoke it",
       );
     }
-    const registration = await ctx.db.get(args.registrationId);
-    if (!registration) throw new ConvexError("Agent registration not found");
     if (registration.revokedAt) return { ok: true, alreadyRevoked: true };
     await ctx.db.patch(args.registrationId, { revokedAt: Date.now() });
     return { ok: true };

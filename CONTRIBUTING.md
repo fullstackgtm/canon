@@ -35,8 +35,9 @@ Use synthetic data and reserved example domains in tests. Never commit credentia
 or customer information.
 
 Keep changes focused. Describe the behavior you changed and how you verified it
-in the pull request. Report security issues privately to the maintainers rather
-than including credentials or exploit details in a public issue.
+in the pull request. Report security issues privately by following
+[SECURITY.md](SECURITY.md) rather than including credentials or exploit details
+in a public issue.
 
 ## License
 

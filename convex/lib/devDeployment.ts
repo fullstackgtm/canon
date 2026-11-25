@@ -12,3 +12,8 @@ export function isDevOrLocalDeployment(env: Record<string, string | undefined>):
     return false;
   }
 }
+
+/** Web app origin per known Convex deployment, when APP_URL is not set. */
+export const KNOWN_APP_URLS: Record<string, string> = {
+  [DEV_DEPLOYMENT]: "https://dev.canoncrm.com",
+};

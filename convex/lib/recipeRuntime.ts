@@ -15,7 +15,7 @@ import type { ActionCtx } from "../_generated/server";
 import { RECIPE_BUNDLES } from "../../recipes/_bundles.generated.ts";
 import { runCalls, type CallResult, type PlayCall, type ResultsOf } from "../../recipes/run.ts";
 import { firstPartyCode, isFirstParty, mismatch, type EvalResult, type RecipeEval, type RecipeRef, type Settings } from "../../recipes/index.ts";
-import { MODULE_BODY_MAX, SIGNATURE_HEADER, TIMESTAMP_HEADER, bundleHash, sign, type ModuleBody, type ModuleResult } from "../../services/recipe-runtime/src/protocol.ts";
+import { MODULE_BODY_MAX, RUN_ISOLATE_SCOPE, SIGNATURE_HEADER, TIMESTAMP_HEADER, bundleHash, sign, type ModuleBody, type ModuleResult } from "../../services/recipe-runtime/src/protocol.ts";
 import { NO_PLAYS } from "./recipes.ts";
 
 /** Per request. A deal page's batch answers in a few milliseconds; a cold isolate in well under a second. */
@@ -23,12 +23,21 @@ export const RUNTIME_TIMEOUT_MS = 5_000;
 
 /** An installed package's bundle, loaded only when the runtime asks for the code. */
 export type Bundle = { hash: string; code: () => Promise<string> };
-/** What a batch runs against: a recipe on settings, and for an installed package its bundle. */
-export type Target = { id: string; settings: Settings; installed: Bundle | null };
+/** What a batch runs against: a recipe on settings, its tenant isolate key, and for an installed package its bundle. */
+export type Target = { id: string; isolate: string; settings: Settings; installed: Bundle | null };
 
 const wire = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const fail = (message: string): never => { throw new ConvexError(`Customization runtime: ${message}`); };
+
+/** Tenant-scoped isolate key for `/run` (`<orgId>` or `<orgId>:<recipeId>`). Fails closed on blank or malformed keys. */
+export function recipeIsolate(orgId: string, recipeId?: string): string {
+  const tenant = orgId.trim();
+  const suffix = recipeId?.trim();
+  const isolate = suffix ? `${tenant}:${suffix}` : tenant;
+  if (!tenant || !RUN_ISOLATE_SCOPE.test(isolate)) fail("a valid tenant isolate scope is required");
+  return isolate;
+}
 
 const CODES_KEPT = 16;
 const codes = new Map<string, string>();
@@ -50,9 +59,9 @@ export function isMissingBundle(error: unknown): boolean {
   return error instanceof ConvexError && typeof error.data === "object" && error.data !== null && "kind" in error.data && error.data.kind === "recipe_bundle_missing";
 }
 
-export function targetOf(ctx: ActionCtx, ref: RecipeRef): Target {
+export function targetOf(ctx: ActionCtx, ref: RecipeRef, isolate: string): Target {
   const b = ref.bundle;
-  return { id: ref.id, settings: ref.settings, installed: b ? { hash: b.hash, code: () => storedCode(ctx, b.hash, b.storageId) } : null };
+  return { id: ref.id, isolate: recipeIsolate(isolate, ref.id), settings: ref.settings, installed: b ? { hash: b.hash, code: () => storedCode(ctx, b.hash, b.storageId) } : null };
 }
 
 /**
@@ -60,9 +69,9 @@ export function targetOf(ctx: ActionCtx, ref: RecipeRef): Target {
  * an installed bundle from storage, and is required so a query or mutation can't call this. Throws a ConvexError
  * carrying NO_PLAYS for a recipe without plays, and a ConvexError naming the call for any call that fails.
  */
-export async function runPlays<const C extends readonly PlayCall[]>(ctx: ActionCtx, ref: RecipeRef, calls: C): Promise<ResultsOf<C>> {
+export async function runPlays<const C extends readonly PlayCall[]>(ctx: ActionCtx, ref: RecipeRef, calls: C, isolate: string): Promise<ResultsOf<C>> {
   if (!ref.plays) throw new ConvexError(NO_PLAYS);
-  const results = await runSettled(targetOf(ctx, ref), calls);
+  const results = await runSettled(targetOf(ctx, ref, isolate), calls);
   return results.map((r, i) => (r.ok ? r.value : fail(`${calls[i].fn} failed (${r.error.kind}): ${r.error.message}`))) as ResultsOf<C>;
 }
 
@@ -120,7 +129,9 @@ async function post<T>(url: string, path: string, bundle: Bundle, payload: Recor
 }
 
 async function remote(url: string, target: Target, bundle: Bundle, calls: readonly PlayCall[]): Promise<CallResult[]> {
-  const out = await post<{ results?: CallResult[] }>(url, "/run", bundle, { settings: target.settings, calls }, RUNTIME_TIMEOUT_MS, target.id);
+  const isolate = target.isolate?.trim();
+  if (!isolate || !RUN_ISOLATE_SCOPE.test(isolate)) return fail("a valid tenant isolate scope is required");
+  const out = await post<{ results?: CallResult[] }>(url, "/run", bundle, { isolate, settings: target.settings, calls }, RUNTIME_TIMEOUT_MS, target.id);
   return out.results ?? fail(`${target.id} answered without results`);
 }
 

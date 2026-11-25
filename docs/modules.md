@@ -901,7 +901,8 @@ reclamation. This change does not add an orphan cleanup sweep.
   reads nothing (an empty list, or null) rather than refusing.
 - **Report reads**: `{ "report": { "collection", "rows"?, "columns"?, "values"?, "filter"? } }` is an aggregate over
   every doc of a reported collection the caller reads (see "Reports and charts"), from the record service: its
-  `groups` (`keys`, `values`), `total`, `rows` and `behind`, never the docs. So a wide status count needs no 5,000-doc
+  `groups` (`keys`, `values`), `total`, `rows`, `behind` and `truncated`, never the docs.
+  `truncated: true` means the group limit cut the result short; refuse the calculation or show it as incomplete. So a wide status count needs no 5,000-doc
   read. Its `filter` is `[{ field, op, value? }]` over the doc's own dimensions (`eq`, `neq`, `in`, `gt`, `gte`, `lt`,
   `lte`, `empty`, `notEmpty`), its values from the call (constants, arguments, the caller, date conversions). It runs as
   the caller in the call's action, outside the plan's one query, so it may be a second behind; a system call can't read
@@ -1485,8 +1486,7 @@ answer, not successful semantic adoption or workflow completion.
 
 ## Jobs, watches and schedules
 
-Module activity producer publication is documented in [Module activity publication](module-activity-publication.md).
-It captures source changes and retains inactive activity-watch baselines. Watch delivery and mixed-source
+Module activity producer publication captures source changes and retains inactive activity-watch baselines. Watch delivery and mixed-source
 freshness still use their existing behavior until W3-C. Producer status exposes pending publications and failures.
 A failed publication retains its package pin and blocks that organization's readable activity prefix.
 
@@ -4376,3 +4376,13 @@ companies and people"). Outbound effects (shared gap P4, first half) let a modul
 send: Slack posts to channel names an admin maps, signed webhooks for its events, and its notices by email, each one a row
 of the outbox decided in the write that asks for it (see "Outbound"). The test
 fixture `tests/fixtures/modules/visit-log/` is an early version of Canon's first example module, kept for the tests.
+
+### Catalog availability
+
+A bundled manifest may set `catalog: "hidden"` to keep a module out of Customization Browse and refuse new `canon:` installs, or `catalog: "beta"` to label it Beta. Omission means generally available. This is separate from `visibility`, which governs source distribution. Deployment operators can set `CANON_INTERNAL_MODULES=1` in the backend environment to browse and install hidden modules. Workspace admins cannot enable that override from the app.
+
+Catalog availability does not change default seeding, installed modules, their runtime access, or updates to installed modules. The CLI and `/mcp` list installed/enabled workspace modules through `modules.list`, rather than the Browse catalog; those lists intentionally retain hidden modules already in use.
+
+Legacy competitive generation now refuses without writing claims; use `@canon/win-loss` with verbatim evidence. Legacy forecasting calls also refuse; use `@canon/forecast` and workspace Targets. Existing API names remain as refusals for old HTTP, GTM, MCP and CLI clients.
+
+Legacy `/api/gtm/pipeline`, the `gtm pipeline` command and `gtm_pipeline` MCP tool are retired with their forecast dependency. They now return the same retirement error instead of a summary with a fabricated zero target. `deal.inspect` retains call insights and marks its forecast component as retired. Revenue and Health bookmarks fall back to the current Deals and Accounts pages, which work without installing optional modules.

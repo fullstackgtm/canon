@@ -20,7 +20,7 @@ test("protected-resource metadata carries the required RFC 9728 fields", () => {
   assert.equal(metadata.resource, "https://canoncrm.com");
   // Clerk (humans/orgs) plus the app itself (agent registration/device flow).
   assert.deepEqual(metadata.authorization_servers, [
-    "https://clerk.fullstackgtm.com",
+    "https://clerk.canoncrm.com",
     "https://canoncrm.com",
   ]);
   assert.deepEqual(metadata.bearer_methods_supported, ["header"]);
@@ -63,7 +63,7 @@ test("GET /.well-known/oauth-protected-resource returns cacheable JSON", async (
   const body = await response.json();
   assert.equal(body.resource, "https://canoncrm.com");
   assert.deepEqual(body.authorization_servers, [
-    "https://clerk.fullstackgtm.com",
+    "https://clerk.canoncrm.com",
     "https://canoncrm.com",
   ]);
   assert.deepEqual(body.bearer_methods_supported, ["header"]);
@@ -114,7 +114,7 @@ test("AS metadata carries a spec-complete auth.md agent_auth block", async () =>
     },
     credential_types_supported: ["bearer_token"],
     registration_scopes: ["read:evals"],
-    revocation_contact: "ryan@fullstackgtm.com",
+    revocation_contact: "support@canoncrm.com",
     documentation: `${issuer}/auth.md`,
   });
 });
@@ -135,7 +135,7 @@ test("GET /auth.md describes both tiers and points at the metadata", async () =>
   assert.match(body, /claim_token/);
   assert.match(body, /never grants organization data access/);
   // Tier 2: human-approved pairing, both the CLI shortcut and RFC 8628.
-  assert.match(body, /fullstackgtm login --via https:\/\/canoncrm\.com/);
+  assert.match(body, /canon login --url https:\/\/canoncrm\.com/);
   assert.match(body, /api\/oauth\/device_authorization/);
   assert.match(body, /urn:ietf:params:oauth:grant-type:device_code/);
   // Discovery pointers.
@@ -143,7 +143,7 @@ test("GET /auth.md describes both tiers and points at the metadata", async () =>
   assert.match(body, /\.well-known\/oauth-authorization-server/);
   assert.match(
     body,
-    /https:\/\/clerk\.fullstackgtm\.com\/\.well-known\/openid-configuration/,
+    /https:\/\/clerk\.canoncrm\.com\/\.well-known\/openid-configuration/,
   );
 });
 

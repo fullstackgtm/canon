@@ -14,6 +14,7 @@ import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hubspot as hubspotGet } from "./enrichFreeFill";
+import { normalizeDomain } from "./lib/enrich/freeFill";
 import { accessTokenForOrg, connectorForOrg as hubspotConnectorForOrg } from "./hubspotActions";
 import { connectorForOrg as salesforceConnectorForOrg, credentialsForOrg } from "./salesforceActions";
 import { resolveLlm } from "./lib/llmResolver";
@@ -114,7 +115,7 @@ async function readerFor(ctx: ActionCtx, orgId: Id<"organizations">, object: Col
       },
       async *pages(fields) {
         const enriched = fields.filter(isEnrichmentName);
-        const properties = fields.filter((f) => !isEnrichmentName(f));
+        const properties = [...new Set([...fields.filter((f) => !isEnrichmentName(f)), ...(enriched.length ? ["domain"] : [])])];
         let after: string | undefined;
         do {
           const q = new URLSearchParams({ limit: "100", archived: "false", properties: properties.join(",") });
@@ -126,7 +127,12 @@ async function readerFor(ctx: ActionCtx, orgId: Id<"organizations">, object: Col
           }));
           if (enriched.length && rows.length) {
             const matches = await ctx.runQuery(internal.enrichmentMatches.forRecords, { orgId, recordIds: rows.map((r) => r.id) });
-            for (const row of rows) for (const f of enriched) row.values[f] = enrichmentValue(f, matches[row.id]);
+            for (const row of rows) {
+              const match = matches[row.id];
+              const domain = normalizeDomain(row.values.domain);
+              const current = domain && match && normalizeDomain(match.domain) === domain ? match : undefined;
+              for (const f of enriched) row.values[f] = enrichmentValue(f, current);
+            }
           }
           yield rows;
           after = page.paging?.next?.after;

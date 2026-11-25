@@ -4,6 +4,7 @@ import { createPublicKey, generateKeyPairSync, verify } from "node:crypto";
 import { jwksFor, signServiceJwt } from "../src/lib/canonServiceJwt.ts";
 import { hashPassword, verifyPassword, signLocalSessionToken } from "../src/lib/localAuthCrypto.ts";
 import { localAuthGate } from "../src/lib/localAuthGate.ts";
+import { isLocalAuthOriginAllowed, localAuthCookieSecure } from "../src/lib/localAuthOrigin.ts";
 import { setupCodeMatches } from "../src/lib/setupCode.ts";
 import { newSetupCode } from "../scripts/selfhost/platform.mjs";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
@@ -117,4 +118,25 @@ test("paired CLI tokens resolve active members and remain agents in convex auth 
   await db.patch("user", { isActive: false });
   assert.equal(await lib.getCurrentUser(ctx), null);
   assert.equal(await loaded["agentIdentityData.ts"].clerkIdentity.handler({ db }, { userId: "user", orgId: "org" }), null);
+});
+
+test("local auth origin check and Secure cookie flag honor SITE_URL, APP_URL, and NEXT_PUBLIC_SITE_URL behind reverse proxies", () => {
+  const proxied = (origin?: string) => new Request("http://127.0.0.1:3000/api/local-auth", {
+    method: "POST",
+    headers: origin ? { origin, "content-type": "application/json" } : { "content-type": "application/json" },
+  });
+  assert.equal(isLocalAuthOriginAllowed(proxied("https://crm.example.com"), { SITE_URL: "https://crm.example.com" }), true);
+  assert.equal(isLocalAuthOriginAllowed(proxied("https://crm.example.com"), { SITE_URL: "https://crm.example.com/" }), true);
+  assert.equal(isLocalAuthOriginAllowed(proxied("https://app.example.com"), { APP_URL: "https://app.example.com" }), true);
+  assert.equal(isLocalAuthOriginAllowed(proxied("https://pub.example.com"), { NEXT_PUBLIC_SITE_URL: "https://pub.example.com" }), true);
+  assert.equal(isLocalAuthOriginAllowed(proxied("http://127.0.0.1:3000"), {}), true);
+  assert.equal(isLocalAuthOriginAllowed(proxied("https://evil.example.com"), { SITE_URL: "https://crm.example.com" }), false);
+  assert.equal(isLocalAuthOriginAllowed(proxied(), { SITE_URL: "https://crm.example.com" }), false);
+
+  assert.equal(localAuthCookieSecure(proxied("https://crm.example.com"), { SITE_URL: "https://crm.example.com" }), true);
+  assert.equal(localAuthCookieSecure(proxied("https://app.example.com"), { APP_URL: "https://app.example.com" }), true);
+  assert.equal(localAuthCookieSecure(proxied("https://pub.example.com"), { NEXT_PUBLIC_SITE_URL: "https://pub.example.com" }), true);
+  assert.equal(localAuthCookieSecure(proxied("http://localhost:3000"), { SITE_URL: "http://localhost:3000" }), false);
+  assert.equal(localAuthCookieSecure(proxied("http://127.0.0.1:3000"), {}), false);
+  assert.equal(localAuthCookieSecure(new Request("https://crm.example.com/api/local-auth"), {}), true);
 });

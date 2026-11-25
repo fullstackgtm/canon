@@ -1412,6 +1412,8 @@ export type ModuleManifest = {
   kind: "module";
   /** Source distribution policy. Older installed and third-party manifests may omit it. */
   visibility?: "open" | "private";
+  /** Browse availability; independent of source distribution and installed runtime access. */
+  catalog?: "hidden" | "beta";
   /** `@scope/name`, as a recipe package's. Data is keyed by it, so it survives upgrades. */
   id: string;
   version: string;
@@ -2085,6 +2087,7 @@ const shareCheck = obj({
 const MANIFEST = obj({
   kind: oneOf(["module"]),
   visibility: oneOf(["open", "private"]),
+  catalog: oneOf(["hidden", "beta"]),
   id: str(3, 104, PACKAGE_ID, "a namespaced id like @agency/module-name"),
   version: str(5, 32, SEMVER, "a version like 1.2.0"),
   title: text(80),
@@ -2229,7 +2232,7 @@ const MANIFEST = obj({
       link: obj({ label: text(60), path: str(1, 200) }),
     }, ["roles", "replaces", "bind", "link"]), MAX_PANELS, 1) })])),
   }, ["people", "deals", "team", ...PANEL_PAGES.map((p) => `${p}Page`)]),
-}, ["visibility", "shares", "nav", "links", "default", "imports", "reports", "dashboards", "machines", "reads", "facts", "proposes", "outbound", "templates", "provides", "uses", "server", "calls", "jobs", "watches", "feeds", "schedules", "exports", "csvImports", "migrations", "upgrade", "contributes"]);
+}, ["visibility", "catalog", "shares", "nav", "links", "default", "imports", "reports", "dashboards", "machines", "reads", "facts", "proposes", "outbound", "templates", "provides", "uses", "server", "calls", "jobs", "watches", "feeds", "schedules", "exports", "csvImports", "migrations", "upgrade", "contributes"]);
 
 const fieldsOf = (c: CollectionDecl) => c.schema.value;
 

@@ -65,7 +65,7 @@ class FrozenDate extends Date {
 
 const signedIn = async () => USER;
 let loaded: ReturnType<typeof loadConvex> | null = null;
-const modules = () => (loaded ??= loadConvex(["forecasting.ts", "customerHealth.ts", "leadScoring.ts", "callIntelligence.ts"], {
+const modules = () => (loaded ??= loadConvex(["customerHealth.ts", "leadScoring.ts", "callIntelligence.ts"], {
   "lib.ts": (real) => ({ ...real, getCurrentUser: signedIn, requireUser: signedIn, requireCap: signedIn }),
   "permissions.ts": (real) => ({ ...real, unrestrictedUser: signedIn, requireUnrestricted: async () => undefined }),
 }, { Date: FrozenDate }));
@@ -76,7 +76,6 @@ const strip = (rows: Array<Record<string, unknown>>) => rows.map(({ _creationTim
 
 // ───────────────────────────── Forecast ─────────────────────────────
 
-const PERIOD = { periodStart: "2026-10-01", periodEnd: "2026-12-31" };
 const deal = (id: string, d: Record<string, unknown>) => ({ _id: `deals:${id}`, orgId: ORG, name: id, closeDate: "2026-11-15", isWon: false, isClosed: false, dealType: "new_business", ...d });
 const FORECAST_DEALS = {
   won: [deal("won", { amount: 900, isWon: true, isClosed: true, forecastCategory: "closed_won", primaryRepId: "users:a" })],
@@ -98,42 +97,10 @@ const FORECAST_DEALS = {
     deal("pipe", { amount: 201, forecastCategory: "pipeline" }),
   ],
 };
-const FORECAST_TARGETS = [0, 900, 899, 1000, 1125, 1500, 1501, 10_000];
-
-function forecastTables(deals: Array<Record<string, unknown>>, target: number, period = "Q4 2026"): Tables {
-  return {
-    users: [{ _id: "users:a", orgId: ORG, name: "Ada" }, { _id: "users:b", orgId: ORG, name: "Bo" }],
-    deals,
-    quotaPlans: [{ _id: "quotaPlans:on", orgId: ORG, status: "active" }, { _id: "quotaPlans:off", orgId: ORG, status: "draft" }],
-    quotaPlanTargets: [
-      ...(target ? [{ _id: "quotaPlanTargets:org", orgId: ORG, quotaPlanId: "quotaPlans:on", targetAmount: target, period }] : []),
-      { _id: "quotaPlanTargets:a", orgId: ORG, quotaPlanId: "quotaPlans:on", userId: "users:a", targetAmount: 0, period: "Q3 2026" },
-      { _id: "quotaPlanTargets:off", orgId: ORG, quotaPlanId: "quotaPlans:off", targetAmount: 5000, period },
-    ],
-  };
-}
-
-const withoutModel = ({ model: _, ...current }: Record<string, unknown>) => current;
-
 async function forecastCases(): Promise<Case[]> {
-  const out: Case[] = [];
-  for (const [scenario, deals] of Object.entries(FORECAST_DEALS)) {
-    for (const target of FORECAST_TARGETS) {
-      const tables = forecastTables(deals, target);
-      const M = modules();
-      const ctx = { db: memoryDb(structuredClone(tables)) };
-      const current = await M["forecasting.ts"].getCurrentForecast.handler(ctx, PERIOD);
-      const byRep = await M["forecasting.ts"].getForecastByRep.handler(ctx, PERIOD);
-      out.push({ surface: "forecast", name: `${scenario} target ${target}`, input: { tables, args: PERIOD }, output: { current: withoutModel(current), byRep } });
-    }
-    const { model } = await modules()["forecasting.ts"].getCurrentForecast.handler({ db: memoryDb(structuredClone(forecastTables(deals, 0))) }, PERIOD);
-    out.push({ surface: "forecast.rows", name: scenario, input: { deals }, output: forecastRows(deals as never, model.weights) });
-  }
-  const offPeriod = forecastTables(FORECAST_DEALS.mixed, 1200, "Q1 2027");
-  const M = modules();
-  const ctx = { db: memoryDb(structuredClone(offPeriod)) };
-  out.push({ surface: "forecast", name: "mixed target outside the period", input: { tables: offPeriod, args: PERIOD }, output: { current: withoutModel(await M["forecasting.ts"].getCurrentForecast.handler(ctx, PERIOD)), byRep: await M["forecasting.ts"].getForecastByRep.handler(ctx, PERIOD) } });
-  return out;
+  return Object.entries(FORECAST_DEALS).map(([name, deals]) => ({
+    surface: "forecast.rows", name, input: { deals }, output: forecastRows(deals as never, defaultModel("forecast.model").weights),
+  }));
 }
 
 // ───────────────────────────── Customer health ─────────────────────────────

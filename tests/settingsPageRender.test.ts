@@ -46,3 +46,9 @@ test("settings renders its areas and detail rail without the relocated-area foot
   assert.match(html, /href="\/dashboard\/settings\/workspace"/);
   assert.doesNotMatch(html, /href="\/dashboard\/(?:integrations|recipes|agents)(?:[?"#])/);
 });
+
+
+test("recording is absent from settings and old tabs reach the working Dialer", () => {
+  assert.equal(catalog.isSettingsKey("recording"), false);
+  assert.equal(catalog.legacyTabHref("recording", new URLSearchParams()), "/dashboard/integrations/dialer");
+});

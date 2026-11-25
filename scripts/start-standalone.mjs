@@ -4,11 +4,23 @@ import { existsSync, lstatSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, relative, resolve } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import nextEnv from "@next/env";
 
 const require = createRequire(import.meta.url);
-const projectDir = process.cwd();
 const { loadEnvConfig } = nextEnv;
+
+/**
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function requiresClerkPublishableKey(env = /** @type {Record<string, string | undefined>} */ (process.env)) {
+  return (
+    env.CANON_AUTH !== "local" &&
+    env.CANON_AUTH !== "convex" &&
+    !env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+    env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS !== "true"
+  );
+}
 
 function consumeValue(args, index, name) {
   const value = args[index + 1];
@@ -47,16 +59,6 @@ function applyCliArgs(args) {
   }
 }
 
-loadEnvConfig(projectDir, false);
-applyCliArgs(process.argv.slice(2));
-
-const serverPath = resolve(projectDir, ".next/standalone/server.js");
-
-if (!existsSync(serverPath)) {
-  console.error("Missing .next/standalone/server.js. Run `npm run build` before `npm start`.");
-  process.exit(1);
-}
-
 function ensureSymlink(source, target) {
   if (!existsSync(source)) return;
 
@@ -71,22 +73,35 @@ function ensureSymlink(source, target) {
   symlinkSync(relative(dirname(target), source), target, "dir");
 }
 
-ensureSymlink(resolve(projectDir, ".next/static"), resolve(projectDir, ".next/standalone/.next/static"));
-ensureSymlink(resolve(projectDir, "public"), resolve(projectDir, ".next/standalone/public"));
+function main() {
+  const projectDir = process.cwd();
+  loadEnvConfig(projectDir, false);
+  applyCliArgs(process.argv.slice(2));
 
-if (
-  process.env.CANON_AUTH !== "local" &&
-  !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-  process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS !== "true"
-) {
-  console.error(
-    [
-      "Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.",
-      "Production-style serving requires Clerk configuration for dashboard routes.",
-      "For local smoke checks only, rebuild with NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS=true and set FSGTM_SMOKE_BYPASS_TOKEN.",
-    ].join("\n"),
-  );
-  process.exit(1);
+  const serverPath = resolve(projectDir, ".next/standalone/server.js");
+
+  if (!existsSync(serverPath)) {
+    console.error("Missing .next/standalone/server.js. Run `npm run build` before `npm start`.");
+    process.exit(1);
+  }
+
+  ensureSymlink(resolve(projectDir, ".next/static"), resolve(projectDir, ".next/standalone/.next/static"));
+  ensureSymlink(resolve(projectDir, "public"), resolve(projectDir, ".next/standalone/public"));
+
+  if (requiresClerkPublishableKey(process.env)) {
+    console.error(
+      [
+        "Missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.",
+        "Production-style serving requires Clerk configuration for dashboard routes.",
+        "For local smoke checks only, rebuild with NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS=true and set FSGTM_SMOKE_BYPASS_TOKEN.",
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
+
+  require(serverPath);
 }
 
-require(serverPath);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

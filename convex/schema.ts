@@ -1725,7 +1725,8 @@ export default defineSchema({
     .index("by_operatorContact", ["operatorContact"])
     .index("by_ipHash_createdAt", ["registrationIpHash", "createdAt"])
     .index("by_claimTokenHash", ["claimTokenHash"])
-    .index("by_claimedByUserId", ["claimedByUserId"]),
+    .index("by_claimedByUserId", ["claimedByUserId"])
+    .index("by_claimedByOrgId", ["claimedByOrgId"]),
 
   crmAccounts: defineTable({
     orgId: v.id("organizations"),

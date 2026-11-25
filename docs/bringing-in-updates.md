@@ -54,9 +54,13 @@ so if the release looks unfinished. Then ask. So far only git's objects changed.
    `npm run selfhost:backup -- --verify <archive>`
    ([updating.md](updating.md#back-up-and-restore)). Do not skip this.
 2. Fast-forward `main` to the branch and run `docker compose up -d --build`.
-3. Run each listed migration, in the order printed, against this installation.
-   If one fails, stop: check out the previous commit, run `docker compose build`,
-   then `npm run selfhost:restore -- <archive> --replace`.
+3. Wait for the container to become healthy and check `docker compose logs canoncrm`
+   to confirm any migrations the release listed completed — the container's
+   entrypoint runs them automatically on boot in order and records the volume's
+   new data epoch (restarting the container retries a failed migration; see
+   [updating.md](updating.md)). If a migration still fails, stop: check out the
+   previous commit, run `docker compose build`, then
+   `npm run selfhost:restore -- <archive> --replace`.
 4. Run `node scripts/selfhost/verify.mjs` as after installing, and report it.
 5. Only after that passes, run
    `node scripts/selfhost/releases.mjs --no-fetch --mark-data-current`. Until then

@@ -52,7 +52,8 @@ import { asDoc, renderTemplate, type Rendered } from "../../../modules/kernel/ou
 import { enqueueModuleMailboxEmail, previewModuleMailboxEmail, mailboxPeople } from "../outbound/moduleMailbox";
 import { outputProblems } from "../../../modules/kernel/calls.ts";
 import { digestAt, enqueue, noticeMode, type Enqueue } from "../outbound/queue";
-import { appUrl } from "../operatorConfig";
+import { appUrl } from "../runtimeConfig";
+import { secretsEqual, signedModuleFileUrl } from "./fileSecurity";
 import { migrationProblems, patched, type Expect, type Intent, type MigrationDoc, type MigrationResult, type ReadValue, type Workspace } from "../../../modules/kernel/calls.ts";
 import type { RecordReadSpec } from "./recordReads";
 import type { ListFilter } from "../objects/listSpec";
@@ -3292,8 +3293,10 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
     const row = await getRow(collection, key);
     if (!row || !(await readable(row)) || !filesIn(row.data, c.schema).some((f) => f.id === file)) return null;
     const f = await fileRow(file);
-    const url = f?.storageId ? await ctx.storage.getUrl(f.storageId) : null;
-    return f && url ? { name: f.name, type: f.type, bytes: f.bytes, url } : null;
+    if (!f?.storageId || !(await ctx.storage.getUrl(f.storageId))) return null;
+    const url = await signedModuleFileUrl(f.storageId, f.name);
+    if (!url) return refuse("This deployment cannot sign file downloads.");
+    return { name: f.name, type: f.type, bytes: f.bytes, url };
   }
   async function shareDocs(share: ShareDecl, rootKey: string): Promise<Record<string, ModuleDoc[]>> {
     const root = await getRow(share.collection, rootKey);
@@ -3794,7 +3797,7 @@ export async function unseedDocs(ctx: MutationCtx, scope: ModuleScope, collectio
 async function ticketProblem(db: QueryCtx["db"], ticket: string, secret: string, now: number) {
   const tid = db.normalizeId("moduleFiles", ticket);
   const row = tid ? await db.get(tid) : null;
-  if (!row || row.visitorUpload || !row.uploadedBy || !row.secret || row.secret !== secret || row.storageId !== undefined) return { row: null, why: "That upload ticket isn't valid, or it is used. Upload the file again." };
+  if (!row || row.visitorUpload || !row.uploadedBy || !row.secret || !secret || !(await secretsEqual(row.secret, secret)) || row.storageId !== undefined) return { row: null, why: "That upload ticket isn't valid, or it is used. Upload the file again." };
   if (now - row.at > UPLOAD_TICKET_MS) return { row: null, why: "That upload ticket expired. Upload the file again." };
   return { row, why: null };
 }

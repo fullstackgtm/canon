@@ -28,7 +28,7 @@ RUN mkdir .recipe-runtime && node_modules/.bin/esbuild services/recipe-runtime/s
   && rm -rf services/recipe-runtime/node_modules
 # The entrypoint runs the standalone server, with the app's own node_modules in place of its traced copy and the
 # static files and public/ it serves linked in.
-RUN npm run build && rm -rf .next/cache .next/standalone/node_modules \
+RUN node_modules/.bin/next build && rm -rf .next/cache .next/standalone/node_modules \
   && ln -s ../../node_modules .next/standalone/node_modules && ln -s ../../static .next/standalone/.next/static \
   && ln -s ../../public .next/standalone/public && npm prune --omit=dev --no-audit --no-fund
 
@@ -42,9 +42,9 @@ COPY --from=build --chown=canon:canon /app /app
 ARG RELEASE_GIT_SHA
 LABEL org.opencontainers.image.revision=$RELEASE_GIT_SHA
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 DISABLE_BEACON=true DO_NOT_TRACK=1
-ENV CANON_INTERNAL_URL=http://127.0.0.1:3000 CANON_HOME=/data/canon-cli
+ENV CANON_HOME=/data/canon-cli
 ENV RELEASE_GIT_SHA=$RELEASE_GIT_SHA APP_ENVIRONMENT=selfhost CANON_AUTH=local NEXT_PUBLIC_CANON_SELFHOST=true
 VOLUME ["/data"]
-EXPOSE 3000 3210 3211
+EXPOSE 3000
 HEALTHCHECK --interval=5s --timeout=5s --start-period=180s --retries=3 CMD ["node", "scripts/selfhost/health.mjs"]
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "node", "--experimental-strip-types", "--no-warnings", "scripts/selfhost/entrypoint.mjs"]

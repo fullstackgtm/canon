@@ -447,8 +447,22 @@ function FilePicker({ id, spec, value, onChange, label }: { id: string; spec: Fi
     setBusy(true);
     try {
       const { url } = await uploadUrl({ module: env.module });
+      // Send ticket credentials in headers rather than query params so they stay out of URLs and proxy logs.
+      const target = new URL(url, window.location.href);
+      const ticket = target.searchParams.get("ticket");
+      const secret = target.searchParams.get("secret");
+      if (ticket && secret) {
+        target.searchParams.delete("ticket");
+        target.searchParams.delete("secret");
+      }
+      target.searchParams.set("name", file.name);
+      const headers: Record<string, string> = { "Content-Type": file.type || "application/octet-stream" };
+      if (ticket && secret) {
+        headers["X-Canon-Ticket"] = ticket;
+        headers["X-Canon-Secret"] = secret;
+      }
       // The upload route stores the file and records it as this person's in one step (convex/lib/modules/uploadRoute.ts).
-      const res = await fetch(`${url}&${new URLSearchParams({ name: file.name })}`, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+      const res = await fetch(target.toString(), { method: "POST", headers, body: file });
       const added = (await res.json().catch(() => ({ error: `The upload failed (${res.status}).` }))) as { id: string; name: string; bytes: number; error?: string };
       if (!res.ok || added.error) throw new Error(added.error ?? `The upload failed (${res.status}).`);
       setMine((m) => ({ ...m, [added.id]: added }));

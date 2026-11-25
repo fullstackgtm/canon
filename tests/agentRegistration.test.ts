@@ -40,7 +40,7 @@ test("POST /api/agents/register mints a scoped fsgtm_agent_ token", async () => 
     assert.equal(body.token_type, "Bearer");
     assert.equal(body.expires_at, new Date(expiresAt).toISOString());
     assert.deepEqual(body.scopes, ["read:evals"]);
-    assert.equal(body.revocation.contact, "ryan@fullstackgtm.com");
+    assert.equal(body.revocation.contact, "support@canoncrm.com");
     assert.match(body.revocation.instructions, /revoke/i);
     assert.match(body.docs_url, /\/auth\.md$/);
     assert.match(body.endpoints.leaderboard, /\/api\/public\/leaderboard$/);

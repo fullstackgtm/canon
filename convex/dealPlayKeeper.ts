@@ -20,7 +20,7 @@ import { requireCaller } from "./records";
 import { may } from "./lib/access";
 import { decryptFromStorage } from "./lib/tokenHelpers";
 import { postToSlack } from "./lib/agents/slack";
-import { appUrl } from "./lib/operatorConfig";
+import { appUrl } from "./lib/runtimeConfig";
 import { buildPlane, type ControlPlane, type PlaneCaller, type PlayStep } from "./dealPlays";
 import { HEALTH_LABEL, summaryOf } from "./lib/plays/model";
 import { FIRST_TOUCH_BATCH } from "./lib/plays/prospectSelection";
@@ -47,17 +47,17 @@ function draftable(plane: ControlPlane, s: PlayStep, horizon: string | null): bo
  * Draft one step on `userId`'s plan, then have the model review it (emails and LinkedIn notes). A review that
  * fails leaves the draft without one; the rule checks still run on it.
  */
-async function writeDraft(ctx: ActionCtx, userId: Id<"users">, plane: ControlPlane, step: PlayStep, sender: string): Promise<{ subject?: string; body: string; review?: DraftReview } | null> {
+async function writeDraft(ctx: ActionCtx, orgId: Id<"organizations">, userId: Id<"users">, plane: ControlPlane, step: PlayStep, sender: string): Promise<{ subject?: string; body: string; review?: DraftReview } | null> {
   const llm = await resolveLlm(ctx, userId);
   if (!llm) return null;
   const plays = playsFor(plane.recipe);
   const model = llm.model ?? DEFAULT_MODELS[llm.provider];
   const input = draftInputOf(plane, step, sender, Date.now(), plays);
   // A prompt per call: each waits on the model's draft before it, which takes seconds against the runtime's milliseconds.
-  const [prompt] = await runPlays(ctx, plane.recipe, [{ fn: "drafts.prompt", input: [input] }]);
+  const [prompt] = await runPlays(ctx, plane.recipe, [{ fn: "drafts.prompt", input: [input] }], orgId);
   const draft = cleanDraft(step.channel, await forcedToolCall(prompt, DRAFT_TOOL, draftSchema(plays, plane.recipe.settings), model, llm));
   if (!draft || !plays.drafts.reviewed.includes(step.channel)) return draft;
-  const [reviewPrompt] = await runPlays(ctx, plane.recipe, [{ fn: "drafts.reviewPrompt", input: [input, draft] }]);
+  const [reviewPrompt] = await runPlays(ctx, plane.recipe, [{ fn: "drafts.reviewPrompt", input: [input, draft] }], orgId);
   const review = await forcedToolCall(termReviewPrompt(reviewPrompt, draft, termsFor(plays)), REVIEW_TOOL, reviewSchema(plays, plane.recipe.settings), model, llm)
     .then((raw) => cleanReview(raw, input.pointOfView !== null, termsFor(plays)))
     .catch((cause) => { console.warn(`keeper review ${plane.streamId}: ${cause instanceof Error ? cause.message : cause}`); return null; });
@@ -132,7 +132,7 @@ async function check(ctx: ActionCtx, caller: PlaneCaller, streamId: string, opts
     const drafts: Array<{ stepId: Id<"dealPlaySteps">; contactId: string; subject?: string; body: string; review?: DraftReview }> = [];
     for (const step of plane.steps.filter((s) => draftable(plane, s, horizon) && !(researching && s.channel === "call")).slice(0, plays.drafts.perCheck)) {
       try {
-        const d = await writeDraft(ctx, opts.llmUserId, plane, step, caller.name ?? "the account owner");
+        const d = await writeDraft(ctx, orgId, opts.llmUserId, plane, step, caller.name ?? "the account owner");
         if (d) drafts.push({ stepId: step.id, contactId: step.targetId!, ...d });
       } catch (cause) {
         error = cause instanceof Error ? cause.message.slice(0, 300) : String(cause);
@@ -232,7 +232,7 @@ export const draftStep = action({
     }
     const userId = caller.userId as Id<"users">;
     if (!(await resolveLlm(ctx, userId))) throw new ConvexError("Drafts are written on your ChatGPT plan. Sign in with ChatGPT under Integrations → ChatGPT.");
-    const draft = await writeDraft(ctx, userId, plane, step, caller.name ?? "the account owner");
+    const draft = await writeDraft(ctx, caller.orgId as Id<"organizations">, userId, plane, step, caller.name ?? "the account owner");
     if (!draft) throw new ConvexError("The model returned no draft. Try again.");
     await ctx.runMutation(internal.dealPlays.saveDrafts, { orgId: caller.orgId as Id<"organizations">, streamId: args.streamId, drafts: [{ stepId: step.id, contactId: step.targetId!, ...draft }] });
     return draft;
@@ -280,7 +280,7 @@ export const firstTouches = action({
     let error: string | null = null;
     for (const step of plane.steps.filter((s) => s.targetId && ids.includes(s.targetId) && draftable(plane!, { ...s, draft: s.draft?.by === "keeper" ? null : s.draft }, null))) {
       try {
-        const d = await writeDraft(ctx, userId, plane, step, caller.name ?? "the account owner");
+        const d = await writeDraft(ctx, orgId, userId, plane, step, caller.name ?? "the account owner");
         if (d) drafts.push({ stepId: step.id, contactId: step.targetId!, ...d });
       } catch (cause) {
         error = cause instanceof Error ? cause.message.slice(0, 300) : String(cause);

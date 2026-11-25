@@ -10,7 +10,7 @@
  */
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
-import { derivedSecret } from "../operatorConfig";
+import { derivedSecret } from "../runtimeConfig";
 import { hmacHex } from "../agents/grants";
 import { roleIn } from "../../permissions";
 import { grantFits, type ProposalRow } from "../../../modules/kernel/proposals.ts";

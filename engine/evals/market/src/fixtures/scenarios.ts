@@ -19,11 +19,11 @@ export const scenarios: MarketEvalScenario[] = [
     category: "creative-intelligence",
     vendors: [
       {
-        id: "vidmob",
-        name: "VidMob",
-        domain: "vidmob.example",
-        urls: { home: "https://vidmob.example/", pricing: null, product: ["https://vidmob.example/platform"] },
-        aliases: ["vidmob"],
+        id: "framecraft",
+        name: "FrameCraft",
+        domain: "framecraft.example",
+        urls: { home: "https://framecraft.example/", pricing: null, product: ["https://framecraft.example/platform"] },
+        aliases: ["framecraft"],
       },
       {
         id: "motion",
@@ -48,8 +48,8 @@ export const scenarios: MarketEvalScenario[] = [
       },
     ],
     pages: {
-      "https://vidmob.example/": `<html><body><h1>Creative intelligence for enterprise brands</h1><p>VidMob unifies creative data API access with brand governance workflows.</p><p>Our pre-flight quality score predicts whether every asset is on-brand before launch.</p></body></html>`,
-      "https://vidmob.example/platform": `<html><body><h1>Platform</h1><p>Inclusive representation analytics and local-market adaptation help global teams review every campaign.</p><p>Fatigue detection is available in analyst services for managed accounts.</p></body></html>`,
+      "https://framecraft.example/": `<html><body><h1>Creative intelligence for enterprise brands</h1><p>FrameCraft unifies creative data API access with brand governance workflows.</p><p>Our pre-flight quality score predicts whether every asset is on-brand before launch.</p></body></html>`,
+      "https://framecraft.example/platform": `<html><body><h1>Platform</h1><p>Inclusive representation analytics and local-market adaptation help global teams review every campaign.</p><p>Fatigue detection is available in analyst services for managed accounts.</p></body></html>`,
       "https://motion.example/": `<html><body><h1>Creative analytics for paid social teams</h1><p>Detect ad fatigue, compare hooks, and find winners across Meta and TikTok.</p><p>Motion tracks creative performance but does not run enterprise approval workflows.</p></body></html>`,
       "https://motion.example/pricing": `<html><body><h1>Pricing</h1><p>Self-serve plans start at $99 per month with transparent pricing for small teams.</p></body></html>`,
       "https://pencil.example/": `<html><body><h1>Generate ads from your data</h1><p>Pencil uses AI generation from product feeds and brand assets to create new ad variants.</p><p>Brand guardrails keep generated ads inside approved colors, claims, and tone.</p></body></html>`,
@@ -64,11 +64,11 @@ export const scenarios: MarketEvalScenario[] = [
       { id: "creative-data-api", capability: "Creative data API", aliases: ["creative data api", "api access", "data api"], definition: "Programmatic access to creative intelligence data." },
     ],
     goldCells: [
-      { vendorId: "vidmob", claimId: "preflight-quality-score", intensity: "loud", evidence: ["pre-flight quality score predicts whether every asset is on-brand before launch"] },
-      { vendorId: "vidmob", claimId: "enterprise-governance", intensity: "loud", evidence: ["brand governance workflows"] },
-      { vendorId: "vidmob", claimId: "fatigue-detection", intensity: "quiet", evidence: ["Fatigue detection is available in analyst services"] },
-      { vendorId: "vidmob", claimId: "ai-generation-from-data", intensity: "absent" },
-      { vendorId: "vidmob", claimId: "creative-data-api", intensity: "loud", evidence: ["creative data API access"] },
+      { vendorId: "framecraft", claimId: "preflight-quality-score", intensity: "loud", evidence: ["pre-flight quality score predicts whether every asset is on-brand before launch"] },
+      { vendorId: "framecraft", claimId: "enterprise-governance", intensity: "loud", evidence: ["brand governance workflows"] },
+      { vendorId: "framecraft", claimId: "fatigue-detection", intensity: "quiet", evidence: ["Fatigue detection is available in analyst services"] },
+      { vendorId: "framecraft", claimId: "ai-generation-from-data", intensity: "absent" },
+      { vendorId: "framecraft", claimId: "creative-data-api", intensity: "loud", evidence: ["creative data API access"] },
 
       { vendorId: "motion", claimId: "preflight-quality-score", intensity: "absent" },
       { vendorId: "motion", claimId: "enterprise-governance", intensity: "absent" },

@@ -65,9 +65,9 @@ idempotent; a claim token already claimed by another user returns 409.
 
 ## Tier 2 — human-approved pairing (organization access)
 
-- **CLI / agent pairing**: run \`fullstackgtm login --via ${resource}\` — a
-  device-flow pairing that a signed-in operator must approve in the dashboard
-  before a broker token is issued. Tokens are never granted automatically.
+- **CLI / agent pairing**: run \`canon login --url ${resource}\` — a
+  human-approved sign-in through the hosted MCP OAuth flow, or device pairing
+  on self-hosted deployments. Organization access requires operator approval.
 - **Standard RFC 8628 device flow** (same approval, standards-shaped):
   \`POST ${resource}/api/oauth/device_authorization\`, send the user to
   ${resource}/activate, then poll \`POST ${resource}/api/oauth/token\` with

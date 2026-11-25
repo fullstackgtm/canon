@@ -18,7 +18,7 @@ import { queueWorkspaceEmail, wake } from "./lib/outbound/queue";
 import { approveOwnerEmail } from "./lib/outbound/mailboxQueue";
 import { boundMailboxRow, isMailboxRow } from "./lib/outbound/mailboxBinding";
 import { visibleMailboxRows } from "./lib/outbound/mailboxVisibility";
-import { destinationProblem, newSecret } from "./lib/recordWebhooks";
+import { allowLoopbackWebhooks, destinationProblem, newSecret } from "./lib/recordWebhooks";
 import { encryptForStorage } from "./lib/tokenHelpers";
 import { accessFor, roleIn, workspaceMembers } from "./permissions";
 import { OUTBOUND_CHANNELS, OUTBOX_ACTIONS, OUTBOX_STATES, type OutboxAction } from "../modules/kernel/outbound.ts";
@@ -196,7 +196,7 @@ export const addWebhook = mutation({
   args: { name: v.string(), url: v.string(), events: v.array(v.string()) },
   handler: async (ctx, args): Promise<{ id: Id<"outboundTargets">; secret: string }> => {
     const user = await requireManager(ctx);
-    const problem = destinationProblem(args.url.trim(), deliveryMode() === "sink");
+    const problem = destinationProblem(args.url.trim(), allowLoopbackWebhooks());
     if (problem) throw new ConvexError(problem);
     const events = [...new Set(args.events.map((e) => e.trim()).filter(Boolean))];
     if (!events.length || events.length > 20 || !events.every((e) => /^[a-z0-9][a-z0-9._-]{0,59}$/.test(e))) throw new ConvexError("Pick 1 to 20 events, named as the modules name them.");

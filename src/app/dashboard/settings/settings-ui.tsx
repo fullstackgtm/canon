@@ -40,7 +40,6 @@ export function useSettingsSummaries(): Record<SettingsKey, SettingsSummary> {
   const users = useQuery(api.users.context)?.users;
   const permissions = useQuery(api.permissions.settings);
   const credits = useQuery(api.credits.summary);
-  const recording = useQuery(api.recordingPolicy.get);
   const webhooks = useQuery(api.recordWebhooks.list);
   const feeds = useQuery(api.connectors.health);
   const outbound = useQuery(api.outbound.settings, outboundAvailable ? {} : "skip");
@@ -126,12 +125,6 @@ export function useSettingsSummaries(): Record<SettingsKey, SettingsSummary> {
           facts: [["Paired", num(liveTokens.length)], ["Revoked or expired", num(tokens.length - liveTokens.length)]],
         }
       : { facts: [] },
-    recording: recording
-      ? {
-          value: `${recording.consent === "explicit" ? "Explicit consent" : "Notice"} · ${recording.retentionDays} days`,
-          facts: [["Consent", recording.consent === "explicit" ? "Explicit" : "Notice"], ["Internal meetings", recording.internalRecording ? "On" : "Off"], ["Retention", `${recording.retentionDays} days`], ["Region", recording.region.toUpperCase()], ["Dialer recording", recording.callRecording ? "On" : "Off"]],
-        }
-      : { value: recording === null ? "" : undefined, facts: [] },
     webhooks: webhooks
       ? {
           value: endpoints.length ? plural(endpoints.length, "endpoint") + (failing ? ` · ${num(failing)} failing` : "") : "None yet",

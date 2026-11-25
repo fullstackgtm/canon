@@ -77,7 +77,7 @@ export const POST = gtmApi(async ({ request, client }) => {
           {
             status: 401,
             headers: {
-              "WWW-Authenticate": 'Bearer realm="fullstackgtm", error="invalid_token"',
+              "WWW-Authenticate": 'Bearer realm="canoncrm", error="invalid_token"',
             },
           },
         );

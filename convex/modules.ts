@@ -131,6 +131,7 @@ type CanonSource = { kind: "canon"; id: string; ref: string; sha: string };
 type DevelopmentSource = { kind: "development"; id: string; ref: string; sha: string };
 type ModuleSource = PinnedSource | CanonSource | DevelopmentSource;
 const CANON_PREFIX = "canon:";
+const catalogVisible = (m: ModuleManifest) => m.catalog !== "hidden" || process.env.CANON_INTERNAL_MODULES === "1";
 /** How a source reads: `github:owner/repo/path@ref`, `canon:<example>` for one Canon ships, or a development install. */
 const moduleSourceText = (s: ModuleSource) => (s.kind === "canon" ? `${CANON_PREFIX}${s.id}` : s.kind === "development" ? DEVELOPMENT_SOURCE : sourceText(s));
 /** Whether two sources are the same package: one repo and path, one example of Canon's, or a development install. */
@@ -249,11 +250,12 @@ export const examples = query({
     const rows = await ctx.db.query("modulePackages").withIndex("by_orgId_and_status", (q) => q.eq("orgId", caller.user.orgId).eq("status", "installed")).take(50);
     return {
       canEdit: mayDecide(caller),
-      examples: Object.entries(MODULE_EXAMPLES).map(([slug, ex]) => {
+      examples: Object.entries(MODULE_EXAMPLES).flatMap(([slug, ex]) => {
         const m = JSON.parse(ex.manifest) as ModuleManifest;
+        if (!catalogVisible(m)) return [];
         const row = rows.find((r) => r.moduleId === m.id);
         return {
-          slug, source: `${CANON_PREFIX}${slug}`, moduleId: m.id, title: m.title, description: m.description, version: m.version, nav: navOf(m), links: linksOf(m), default: m.default === true,
+          catalog: m.catalog ?? null, slug, source: `${CANON_PREFIX}${slug}`, moduleId: m.id, title: m.title, description: m.description, version: m.version, nav: navOf(m), links: linksOf(m), default: m.default === true,
           installed: row ? { version: row.version, fromCanon: row.source.kind === "canon", current: row.source.sha === ex.sha || (row.pending?.source.sha === ex.sha && !row.pending.error) } : null,
         };
       }),
@@ -271,6 +273,12 @@ export const installed = query({
     const modules = await Promise.all(rows.map(async (pkg) => {
       const m = manifestOf(pkg);
       return {
+        availableUpdate: (() => {
+          const id = pkg.source.kind === "canon" ? pkg.source.id : null;
+          const ex = id ? MODULE_EXAMPLES[id] : null;
+          if (pkg.source.kind !== "canon" || !ex || pkg.source.sha === ex.sha || (pkg.pending?.source.sha === ex.sha && !pkg.pending.error)) return null;
+          return { version: (JSON.parse(ex.manifest) as ModuleManifest).version, source: `${CANON_PREFIX}${id}` };
+        })(),
         moduleId: m.id, slug: pkg.slug, title: m.title, description: m.description, version: pkg.version, author: m.author.org,
         source: moduleSourceText(pkg.source), development: pkg.source.kind === "development", sha: pkg.source.sha, enabled: await isEnabled(ctx, caller.user.orgId, m.id), nav: navOf(m), links: linksOf(m),
         collections: Object.keys(m.collections), pages: m.pages.length,
@@ -775,7 +783,7 @@ async function runCall(ctx: ActionCtx, a: CallArgs, system?: Id<"organizations">
   const reads = structuredClone(snap.reads);
   for (const [name, spec] of Object.entries(snap.reports ?? {})) {
     const run = await runReport(ctx, { module: a.module, spec });
-    reads[name] = { groups: run.groups.map((g) => ({ keys: g.keys, values: g.values })), total: run.total, rows: run.rows, behind: run.behind } satisfies ReportReadValue;
+    reads[name] = { groups: run.groups.map((g) => ({ keys: g.keys, values: g.values })), total: run.total, rows: run.rows, behind: run.behind, truncated: run.truncated } satisfies ReportReadValue;
   }
   for (const [name, spec] of Object.entries(snap.aggregates ?? {})) reads[name] = await runAggregate(ctx, { module: a.module, call: a.call, read: name, spec }, system);
   await readRecordsOf(ctx, snap, reads, system, who);
@@ -2693,6 +2701,7 @@ async function fetchModule(ctx: ActionCtx, source: string, sha: string | null, b
   if (source.startsWith(CANON_PREFIX)) {
     // An example Canon ships: no GitHub. What it is now is what installs; a sha from a preview that differs refuses.
     const { ex, checked, sha: now } = await canonExample(source);
+    if (!catalogVisible(checked.manifest) && ![...state.installed, ...state.kept].some((row) => row.moduleId === checked.manifest.id)) throw new ConvexError("This module is not available in the catalog.");
     if (sha !== null && sha !== now) throw new ConvexError("Canon has shipped a newer build of this module since you previewed it. Preview it again.");
     const code = checked.manifest.server ? ex.bundle : null;
     if (checked.manifest.server && code === null) throw new ConvexError(`${source} declares server code that Canon didn't build.`);

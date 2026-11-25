@@ -13,7 +13,7 @@ import { RECIPE_MAX_BYTES } from "../../recipes/manifest.ts";
 import { parseRecipe, type CompiledRecipe } from "../../recipes/md/parse.ts";
 import { bundleHash } from "../../services/recipe-runtime/src/protocol.ts";
 import { unifiedDiff } from "./recipeAgentDiff.ts";
-import type { Target } from "./recipeRuntime.ts";
+import { recipeIsolate, type Target } from "./recipeRuntime.ts";
 
 /** The first answer and at most two retries. */
 export const MAX_ATTEMPTS = 3;
@@ -55,6 +55,7 @@ export type Proposal = {
 
 export type AgentDeps = {
   skill: string;
+  isolate: string;
   call(prompt: string): Promise<unknown>;
   /** Charges a call before it is made, and throws when it would cross the budget. */
   charge(prompt: string): void;
@@ -124,13 +125,13 @@ const answerOf = (raw: unknown): { markdown: string; summary: string } | null =>
  * install of it would run, where an installed recipe runs (the recipe runtime). A recipe whose play code is its own
  * TypeScript isn't bundled here, so its evals wait until it is packaged.
  */
-export async function proposalEvals(recipe: CompiledRecipe, markdown: string, runEvals: AgentDeps["runEvals"], settings = recipe.defaults): Promise<{ evals: EvalResult[]; notRun: string | null }> {
+export async function proposalEvals(recipe: CompiledRecipe, markdown: string, runEvals: AgentDeps["runEvals"], isolate: string, settings = recipe.defaults): Promise<{ evals: EvalResult[]; notRun: string | null }> {
   if (!recipe.evals.length) return { evals: [], notRun: null };
   const names = codeNames(recipe);
   if (names.length || recipe.code.length) return { evals: [], notRun: `this customization runs its own TypeScript (${names.map((n) => `${n.kind} ${n.name}`).join(", ") || "```ts blocks"}), so its evals run when it is packaged` };
   try {
     const code = markdownBundle(BUILTINS_BUNDLE, recipe, await bundleHash(markdown));
-    return { evals: await runEvals({ id: recipe.meta.id, settings, installed: { hash: await bundleHash(code), code: async () => code } }, recipe.evals), notRun: null };
+    return { evals: await runEvals({ id: recipe.meta.id, isolate: recipeIsolate(isolate, recipe.meta.id), settings, installed: { hash: await bundleHash(code), code: async () => code } }, recipe.evals), notRun: null };
   } catch (error) {
     return { evals: [], notRun: error instanceof Error ? error.message : String(error) };
   }
@@ -158,7 +159,7 @@ export async function proposeRecipeEdit(input: EditInput, deps: AgentDeps): Prom
     prompt = retryPrompt(deps.skill, input, last);
   }
   const done = last!;
-  const { evals, notRun } = done.recipe ? await proposalEvals(done.recipe, done.markdown, deps.runEvals) : { evals: [], notRun: "the customization.md has problems" };
+  const { evals, notRun } = done.recipe ? await proposalEvals(done.recipe, done.markdown, deps.runEvals, deps.isolate) : { evals: [], notRun: "the customization.md has problems" };
   return {
     markdown: done.markdown, summary: done.summary, diff: unifiedDiff(input.baseMarkdown, done.markdown),
     problems: done.problems, evals, evalsNotRun: notRun, attempts, tokens: deps.spent(),

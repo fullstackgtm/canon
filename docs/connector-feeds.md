@@ -28,7 +28,7 @@ export const webhook = {
 
 - `scope` is `member` (one link per member: their recorder, their LinkedIn
   sender, their phone line) or `workspace` (links an admin adds).
-- `env` names the Canon env vars the connector needs. They live in Doppler.
+- `env` names the Canon backend environment variables the connector needs.
   The Feeds page lists the missing ones by name, never a value.
 - A feed's name starts with its connector's id. Its `fields` are all an item
   may carry; anything else is dropped before it is stored. Field types are

@@ -330,6 +330,7 @@ var calls = {
    * the approved reviews; how many reviews are approved; and where lost deals were lost.
    */
   trends(_ctx, reads) {
+    if ([reads.all, reads.byCompetitor, reads.byRep, reads.byTeam, reads.bySegment, reads.byQuarter, reads.byRegion, reads.bySource, reads.byDealType, reads.status].some((r) => r?.truncated)) throw new Error("Report is incomplete. Narrow the report filters and try again.");
     const reasons = new Map(reads.reasons.map((r) => [r.key, String(r.data.label)]));
     const competitors = new Map(reads.competitors.map((c) => [c.key, String(c.data.name)]));
     const members = new Map(reads.members.map((m) => [m.id, m.name ?? m.id]));
@@ -424,6 +425,7 @@ ${text}` }, expect: [{ collection: "cards", key: card.key, version: card.version
   },
   /** The Competitors page: win rate against each over every closed deal the caller sees, losses, the top loss reason, and updates to review. */
   competitorBoard(_ctx, reads) {
+    if ([reads.rates].some((r) => r?.truncated)) throw new Error("Report is incomplete. Narrow the report filters and try again.");
     const rates = new Map(winRates(reads.rates.groups).map((r) => [r.group, r]));
     const reasons = new Map(reads.reasons.map((r) => [r.key, String(r.data.label)]));
     const published = reads.published.map((p) => p.data);
@@ -447,6 +449,7 @@ ${text}` }, expect: [{ collection: "cards", key: card.key, version: card.version
   },
   /** One competitor's page: the win rate against them, why we lose to them, and what buyers said, from approved reviews. */
   competitorDetail(ctx, reads) {
+    if ([reads.rates].some((r2) => r2?.truncated)) throw new Error("Report is incomplete. Narrow the report filters and try again.");
     const [r] = winRates(reads.rates.groups);
     const reasons = new Map(reads.reasons.map((x) => [x.key, String(x.data.label)]));
     const published = reads.published.filter((p) => p.data.status === "live");

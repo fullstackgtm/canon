@@ -44,7 +44,7 @@ test("R-005: text doctor defaults to compact workspace readiness and next action
     await cli(["audit", "--demo", "--save"]);
     const result = await cli(["doctor"]);
     assert.equal(result.status, 0);
-    assert.match(result.stdout, /Setup needed · fullstackgtm/);
+    assert.match(result.stdout, /Setup needed · \S+ \d/);
     assert.match(result.stdout, /CRM +not connected/);
     assert.match(result.stdout, /\/100.*1 audit\(s\) saved/);
     assert.match(result.stdout, /Plans +1 awaiting approval · patch_plan_/);

@@ -1,8 +1,5 @@
-"use client";
-
-import { SettingsPage } from "../settings-ui";
-import { RecordingTab } from "../recording-tab";
+import { redirect } from "next/navigation";
 
 export default function RecordingSettingsPage() {
-  return <SettingsPage area="recording"><RecordingTab /></SettingsPage>;
+  redirect("/dashboard/integrations/dialer");
 }

@@ -8,9 +8,9 @@ import { api } from "../../convex/_generated/api";
 
 // Agent-driven steps carry a prompt to paste into the agent instead of a page.
 const STEP_META: Record<string, { label: string; href?: string; skippable?: boolean }> = {
-  connect_agent: { label: "Connect your agent" },
-  review_icp: { label: "Confirm your ICP" },
-  research_accounts: { label: "Research accounts + contacts" },
+  connect_agent: { label: "Connect your agent", skippable: true },
+  review_icp: { label: "Confirm your ICP", href: "/dashboard/icps" },
+  research_accounts: { label: "Research accounts + contacts", href: "/dashboard/accounts" },
   connect_crm: { label: "Connect your CRM", href: "/dashboard/integrations", skippable: true },
   invite_team: { label: "Invite your team", href: "/dashboard/settings/team", skippable: true },
 };
@@ -30,7 +30,7 @@ export function useOnboardingSteps(): OnboardingStep[] {
     .map((step) => ({
       id: step.id,
       ...STEP_META[step.id],
-      prompt: (step.id === "connect_agent" ? starterPrompt(origin, domain) : stepPrompt(step.id, domain)) ?? undefined,
+      prompt: (step.id === "connect_agent" ? starterPrompt(origin, domain) : agent?.connected ? stepPrompt(step.id, domain) : null) ?? undefined,
       done: step.done,
     }));
   if (!plan) return defaults;

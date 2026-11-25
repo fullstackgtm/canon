@@ -407,8 +407,8 @@ async function main(argv: string[]) {
     process.env.RECIPE_RUNTIME_SECRET = key;
     const velocity = await velocityPackage();
     list.push(
-      { name: `FSGTM enterprise through the runtime at ${url}`, run: viaWorker(url, (settings) => ({ id: "fsgtm-enterprise-deal", settings, installed: null })), recipe: RECIPES["fsgtm-enterprise-deal"] },
-      { name: `Velocity through the runtime at ${url}, as an installed package`, run: viaWorker(url, (settings) => ({ id: velocity.definition.id, settings, installed: { hash: velocity.hash, code: async () => velocity.code } })), recipe: velocity.definition },
+      { name: `FSGTM enterprise through the runtime at ${url}`, run: viaWorker(url, (settings) => ({ id: "fsgtm-enterprise-deal", isolate: "recipe-check:fsgtm-enterprise-deal", settings, installed: null })), recipe: RECIPES["fsgtm-enterprise-deal"] },
+      { name: `Velocity through the runtime at ${url}, as an installed package`, run: viaWorker(url, (settings) => ({ id: velocity.definition.id, isolate: `recipe-check:${velocity.definition.id}`, settings, installed: { hash: velocity.hash, code: async () => velocity.code } })), recipe: velocity.definition },
     );
   }
   for (const t of list) {
@@ -420,9 +420,9 @@ async function main(argv: string[]) {
     const page = Array.from({ length: 12 }, (_, i) => dealPageBatch(i + 1)).sort((a, b) => b.calls.length - a.calls.length || JSON.stringify(b).length - JSON.stringify(a).length)[0];
     const ctx = {} as never;
     console.log(`\ndeal page batch: ${page.calls.length} calls, ${JSON.stringify(page).length} bytes`);
-    console.log(`in-process          ${await time(runs, () => { delete process.env.RECIPE_RUNTIME_URL; return runPlays(ctx, page.ref, page.calls); })}`);
-    console.log(`runtime, empty      ${await time(runs, () => { process.env.RECIPE_RUNTIME_URL = url; return runPlays(ctx, page.ref, []); })}`);
-    console.log(`runtime, deal page  ${await time(runs, () => { process.env.RECIPE_RUNTIME_URL = url; return runPlays(ctx, page.ref, page.calls); })}`);
+    console.log(`in-process          ${await time(runs, () => { delete process.env.RECIPE_RUNTIME_URL; return runPlays(ctx, page.ref, page.calls, "recipe-check"); })}`);
+    console.log(`runtime, empty      ${await time(runs, () => { process.env.RECIPE_RUNTIME_URL = url; return runPlays(ctx, page.ref, [], "recipe-check"); })}`);
+    console.log(`runtime, deal page  ${await time(runs, () => { process.env.RECIPE_RUNTIME_URL = url; return runPlays(ctx, page.ref, page.calls, "recipe-check"); })}`);
   }
   console.log(differ ? "\nSomething differs: see above." : "\nEvery call is the same.");
   process.exitCode = differ ? 1 : 0;

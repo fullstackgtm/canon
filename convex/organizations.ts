@@ -241,9 +241,7 @@ export const upsertFromClerk = internalMutation({
 // Removes everything a CRM/call-provider sync wrote into an org (mirror rows,
 // sync runs, health readings, call data, derived scores) WITHOUT touching org
 // config, users, memberships, or governance ledgers (patchPlans /
-// operationAuditLog stay — they are audit trail). Built for the 2026-07-02
-// incident where the pre-#192 webhook bug landed CanonCRM's HubSpot
-// sync inside the Vidmob org; reusable for any org reset.
+// operationAuditLog stay — they are audit trail). Reusable for any org reset.
 
 // Tables holding synced or CRM-derived rows, all org-scoped. Config tables
 // (icpProfiles, leadScoringModels, callInsightTags, scorecardConfigs) are

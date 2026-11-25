@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import { nextSecurityHeaders, serverActionAllowedOrigins } from "./src/lib/nextSecurityConfig.ts";
+
+const allowedOrigins = serverActionAllowedOrigins(process.env);
 
 const nextConfig: NextConfig = {
   env: { NEXT_PUBLIC_CANON_AUTH: process.env.CANON_AUTH ?? "clerk" },
@@ -13,7 +16,7 @@ const nextConfig: NextConfig = {
     serverActions: {
       // Clerk's post-sign-in cache action carries the public site's Origin
       // through the reverse proxy.
-      allowedOrigins: [new URL(process.env.SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://dev.canoncrm.com").host, "dev.fullstackgtm.com"],
+      allowedOrigins,
     },
   },
   turbopack: {
@@ -39,29 +42,7 @@ const nextConfig: NextConfig = {
     ];
   },
   async headers() {
-    return [
-      {
-        source: "/(.*)",
-        headers: [
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          {
-            key: "Referrer-Policy",
-            value: "strict-origin-when-cross-origin",
-          },
-          {
-            key: "Permissions-Policy",
-            // The dialer's browser audio needs the microphone on Canon's own pages (docs/dialer.md, D2); frames and other origins stay blocked.
-            value: "camera=(), microphone=(self), geolocation=()",
-          },
-          { key: "X-DNS-Prefetch-Control", value: "on" },
-        ],
-      },
-    ];
+    return nextSecurityHeaders(process.env);
   },
 };
 

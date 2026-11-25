@@ -43,6 +43,7 @@ export const proposeEdit = action({
     const meter = turnMeter(PROPOSAL_BUDGET, Date.now());
     const proposal = await proposeRecipeEdit({ ...args, request }, {
       skill: CANON_LAYOUT_SKILL,
+      isolate: caller.orgId,
       call: async (prompt) => (llm ? forcedToolCall(prompt, EDIT_TOOL, EDIT_SCHEMA, llm.model ?? DEFAULT_MODELS[llm.provider], llm) : standInAnswer(args.baseMarkdown, request)),
       charge: (prompt) => meter.charge(prompt),
       spent: () => meter.spent.tokens,

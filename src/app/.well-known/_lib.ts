@@ -21,13 +21,12 @@ import { siteUrl } from "../../lib/siteUrl.ts";
  * per-scope on /api/public/* (default-deny; see src/app/api/public/_lib.ts).
  */
 
-// Production Clerk issuer, verified via the pk_live_ publishable key and the
-// issuer's /.well-known/openid-configuration. CLERK_JWT_ISSUER_DOMAIN (same
-// value the app and Convex use for JWT verification) overrides this per env.
-const DEFAULT_AUTHORIZATION_SERVER = "https://clerk.fullstackgtm.com";
+// Canon Clerk issuer default. CLERK_JWT_ISSUER_DOMAIN (the value used for
+// JWT verification by the app and Convex) overrides this per deployment.
+const DEFAULT_AUTHORIZATION_SERVER = "https://clerk.canoncrm.com";
 
 export const AGENT_SCOPES = ["read:evals"];
-export const AGENT_REVOCATION_CONTACT = "ryan@fullstackgtm.com";
+export const AGENT_REVOCATION_CONTACT = "support@canoncrm.com";
 
 function normalizeOrigin(value: string | undefined, fallback: string): string {
   const trimmed = value?.trim().replace(/\/+$/, "");

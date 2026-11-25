@@ -13,7 +13,7 @@ test("doctor reports a fresh machine with no credentials", () => {
   const report = doctorReport({});
 
   assert.equal(report.node.ok, true);
-  assert.equal(report.package.name, "fullstackgtm-app");
+  assert.equal(report.package.name, "canoncrm");
   assert.notEqual(report.package.version, "unknown");
   assert.equal(report.credentialStore.exists, false);
   assert.equal(report.broker.paired, false);

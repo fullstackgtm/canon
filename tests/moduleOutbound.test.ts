@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { sendPostmark, sendSlack, sendWebhook } from "../convex/lib/outbound/adapters.ts";
+import type { deliverPinnedWebhook as DeliverPinnedWebhook } from "../convex/moduleWebActions.ts";
 import { parseModuleManifest } from "../modules/kernel/manifest.ts";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
@@ -19,10 +20,11 @@ const members = [
 ];
 let testNow: number | undefined;
 const caller: { user: Record<string, unknown> | null } = { user: null };
-const loaded = loadConvex(["modules.ts", "outbound.ts", "outboundDispatch.ts"], {
+const loaded = loadConvex(["modules.ts", "outbound.ts", "outboundDispatch.ts", "moduleWebActions.ts"], {
   "lib.ts": (r) => ({ ...r, getCurrentUser: async () => caller.user, requireUser: async () => caller.user, agentClientOf: async () => null }),
 }, { Date: class extends Date { static now() { return testNow ?? Date.now(); } }, fetch: (...a: Parameters<typeof fetch>) => globalThis.fetch(...a) });
-const fn = { ...loaded["modules.ts"], ...loaded["outbound.ts"], ...loaded["outboundDispatch.ts"] };
+const fn = { ...loaded["modules.ts"], ...loaded["outbound.ts"], ...loaded["outboundDispatch.ts"], ...loaded["moduleWebActions.ts"] };
+const deliverPinnedWebhook = loaded["moduleWebActions.ts"].deliverPinnedWebhook as unknown as typeof DeliverPinnedWebhook;
 
 /** The fixture module with a Slack channel, workspace notices and a webhook declared, each turned on and mapped. */
 function outboxOn(slackUrl: string, edit?: (m: Record<string, any>) => void) {
@@ -41,7 +43,12 @@ function outboxOn(slackUrl: string, edit?: (m: Record<string, any>) => void) {
   });
   const scheduled: string[] = [];
   const ctx = () => ({ db, scheduler: { runAfter: async (_ms: number, ref: unknown) => { scheduled.push(String(ref)); } }, auth: { getUserIdentity: async () => null } });
-  const act = { scheduler: ctx().scheduler, runMutation: (ref: unknown, args: unknown) => fn[String(ref).split(".").pop()!].handler(ctx(), args), runQuery: (ref: unknown, args: unknown) => fn[String(ref).split(".").pop()!].handler(ctx(), args) };
+  const act = {
+    scheduler: ctx().scheduler,
+    runMutation: (ref: unknown, args: unknown) => fn[String(ref).split(".").pop()!].handler(ctx(), args),
+    runQuery: (ref: unknown, args: unknown) => fn[String(ref).split(".").pop()!].handler(ctx(), args),
+    runAction: (ref: unknown, args: unknown) => fn[String(ref).split(".").pop()!].handler(ctx(), args),
+  };
   const call = (name: string, args: Record<string, unknown> = {}) => fn[name].handler(name === "dispatch" ? act : ctx(), args);
   const as = (id: string) => { caller.user = members.find((u) => u._id === id)!; };
   /** A visit `as` makes and marks done. */
@@ -156,15 +163,67 @@ test("a local stack never sends for real: Postmark's key changes nothing, and a 
   assert.deepEqual(calls, ["https://api.postmarkapp.com/email"]);
 });
 
-test("a webhook is signed over its timestamp and body, and names its row", async () => {
+test("a webhook is signed over its timestamp and body, names its row, refuses loopback without explicit opt-in, and routes through DNS-pinned Node delivery", async (t) => {
+  const prevSite = process.env.CONVEX_SITE_URL;
+  const prevAllow = process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS;
+  t.after(() => {
+    if (prevSite === undefined) delete process.env.CONVEX_SITE_URL; else process.env.CONVEX_SITE_URL = prevSite;
+    if (prevAllow === undefined) delete process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS; else process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS = prevAllow;
+  });
   const sink = await receiver();
   try {
     const body = JSON.stringify({ id: "row-1", event: "visit.done", data: { title: "Acme" } });
-    assert.deepEqual(await sendWebhook({ url: sink.url, secret: "whsec_test", id: "row-1", body }), { ok: true, providerId: "local" });
+    // Even when CONVEX_SITE_URL is loopback (self-hosted Docker), loopback webhooks are refused without explicit opt-in.
+    process.env.CONVEX_SITE_URL = "http://127.0.0.1:3211";
+    delete process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS;
+    const refused = await sendWebhook({ url: sink.url, secret: "whsec_test", id: "row-1", body }, (req) => deliverPinnedWebhook(req));
+    assert.equal(refused.ok, false);
+    assert.equal(sink.seen.length, 0);
+
+    // With explicit opt-in, loopback delivery succeeds over the pinned Node transport.
+    process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS = "true";
+    assert.deepEqual(await sendWebhook({ url: sink.url, secret: "whsec_test", id: "row-1", body }, (req) => deliverPinnedWebhook(req)), { ok: true, providerId: "local" });
     const [{ headers, body: got }] = sink.seen;
     const [, ms, sig] = String(headers["canon-signature"]).match(/^t=(\d+),v1=([0-9a-f]{64})$/)!;
     assert.equal(sig, createHmac("sha256", "whsec_test").update(`${ms}.${got}`).digest("hex"));
     assert.equal(headers["canon-event-id"], "row-1");
+
+    // In live mode, a webhook dispatched through outboundDispatch uses the pinned Node action (never unpinned fetch).
+    process.env.CONVEX_SITE_URL = "https://canon-dev.convex.site";
+    delete process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS;
+    const h = outboxOn("https://hooks.slack.com/services/T/B/x");
+    h.as("admin");
+    await assert.rejects(() => h.call("addWebhook", { name: "Local", url: "http://127.0.0.1:8787/hook", events: ["visit.done"] }));
+    await h.db.insert("outboundTargets", { _id: "hook-live", orgId: "org", channel: "webhook", name: "Visits", events: ["visit.done"], url: "https://hooks.example.com/canon", secret: "whsec_live", createdBy: "admin", createdAt: 1 });
+    await h.db.insert("outboundMessages", {
+      orgId: "org", module: ID, cause: "live-webhook-row", channel: "webhook", kind: "automated",
+      to: { event: "visit.done", endpoint: "hook-live" }, target: "webhook:hook-live", rendered: { text: '{"title":"Acme"}' },
+      state: "queued", notBefore: 0, idempotencyKey: "live-webhook-row", at: 0,
+    });
+    const actionRefs: string[] = [];
+    const dispatchCtx = {
+      scheduler: { runAfter: async () => {} },
+      runMutation: (ref: unknown, args: unknown) => fn[String(ref).split(".").pop()!].handler({ db: h.db, scheduler: { runAfter: async () => {} }, auth: { getUserIdentity: async () => null } }, args),
+      runAction: async (ref: unknown, args: Record<string, unknown>) => {
+        actionRefs.push(String(ref));
+        return deliverPinnedWebhook(args as Parameters<typeof DeliverPinnedWebhook>[0], {
+          lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+          requestHop: async (_url, addresses) => {
+            assert.deepEqual(addresses, [{ address: "93.184.216.34", family: 4 }]);
+            return { status: 202, headers: new Headers(), body: new Uint8Array() };
+          },
+        });
+      },
+    };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error("unpinned fetch must not be called"); }) as typeof fetch;
+    try {
+      await fn.dispatch.handler(dispatchCtx, {});
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    assert.deepEqual(actionRefs, ["internal.moduleWebActions.postWebhook"]);
+    assert.deepEqual(h.rows().map((r) => [r.state, r.providerId]), [["sent", "http-202"]]);
   } finally {
     sink.close();
   }

@@ -162,7 +162,8 @@ async function resolveMatches(ctx: ActionCtx, orgId: Id<"organizations">, compan
     else matches.set(c.id, m);
   }
 
-  if (!tregKey("company.enrich")) return { matches, gaps, lookup };
+  let complete = !lookup.error;
+  if (!tregKey("company.enrich")) return { matches, gaps, lookup, complete };
   const meta = { customer: String(orgId), feature: "free_fill" };
   const deadline = Math.min(until, Date.now() + PROVIDER_BUDGET_MS);
   const timeoutMs = () => Math.max(1000, Math.min(60_000, deadline - Date.now()));
@@ -173,6 +174,7 @@ async function resolveMatches(ctx: ActionCtx, orgId: Id<"organizations">, compan
   const crust = new Map<string, SharedCompanyDetail>();
   for (let i = 0; i < missingDomains.length && Date.now() < deadline; i += IDENTIFY_BATCH) {
     const found = await patiently(deadline, () => identifyDetails({ domains: missingDomains.slice(i, i + IDENTIFY_BATCH), meta, timeoutMs: timeoutMs() }));
+    if (found === null) complete = false;
     for (const [d, row] of found ?? []) crust.set(d, row);
   }
   for (const c of missing) {
@@ -188,12 +190,14 @@ async function resolveMatches(ctx: ActionCtx, orgId: Id<"organizations">, compan
   const nameless = companies.filter((c) => gaps.get(c.id) === "noDomain" && distinctiveName(c.properties.name));
   const resolved = new Map<string, string>();
   await pool(nameless, 5, async (c) => {
-    if (Date.now() >= deadline) return;
+    if (Date.now() >= deadline) { complete = false; return; }
     const d = await patiently(deadline, () => companyDomain({ name: c.properties.name!, meta, timeoutMs: timeoutMs() }));
     if (d) resolved.set(c.id, d);
+    else complete = false;
   });
   if (resolved.size) {
-    const { index: byName } = await lookupIndex(ctx, [...new Set(resolved.values())]);
+    const { index: byName, lookup: nameLookup } = await lookupIndex(ctx, [...new Set(resolved.values())]);
+    if (nameLookup.error) complete = false;
     for (const c of nameless) {
       const d = resolved.get(c.id);
       const row = d ? byName.get(d) : undefined;
@@ -203,19 +207,24 @@ async function resolveMatches(ctx: ActionCtx, orgId: Id<"organizations">, compan
       }
     }
   }
-  return { matches, gaps, lookup };
+  return { matches, gaps, lookup, complete: complete && Date.now() < deadline };
 }
 
 /**
  * Keep each match's raw values for field consolidation's enrichment columns. A match found by company name alone fills
  * only the domain here, so it is not kept as a source either.
  */
-async function saveMatches(ctx: ActionCtx, orgId: Id<"organizations">, matches: Map<string, Match>) {
+async function saveMatches(ctx: ActionCtx, orgId: Id<"organizations">, matches: Map<string, Match>, companies: HubspotCompany[], complete: boolean) {
   const rows = [...matches]
     .filter(([, m]) => m.via !== "lookup")
     .map(([recordId, m]) => ({ recordId, source: m.source, via: m.via, domain: m.domain, values: sourceValues(m) }));
-  for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
-    await ctx.runMutation(internal.enrichmentMatches.upsert, { orgId, matches: rows.slice(i, i + UPSERT_BATCH) });
+  const byRecord = new Map(rows.map((r) => [r.recordId, r]));
+  for (let i = 0; i < companies.length; i += UPSERT_BATCH) {
+    const ids = companies.slice(i, i + UPSERT_BATCH).map((c) => c.id);
+    await ctx.runMutation(internal.enrichmentMatches.upsert, {
+      orgId, matches: ids.flatMap((id) => byRecord.has(id) ? [byRecord.get(id)!] : []),
+      unmatchedRecordIds: complete ? ids.filter((id) => !byRecord.has(id)) : [],
+    });
   }
 }
 
@@ -270,8 +279,8 @@ export const matchChunk = internalAction({
     if (!(await ctx.runQuery(internal.enrichFreeFillRuns.live, { runKey: args.runKey }))) return;
     try {
       const options = await industryOptions(await hubspot(ctx, args.orgId));
-      const { matches, gaps, lookup } = await resolveMatches(ctx, args.orgId, args.companies);
-      await saveMatches(ctx, args.orgId, matches);
+      const { matches, gaps, lookup, complete } = await resolveMatches(ctx, args.orgId, args.companies);
+      await saveMatches(ctx, args.orgId, matches, args.companies, complete);
       const { report } = coverageReport(args.companies, matches, options, gaps);
       await ctx.runMutation(internal.enrichFreeFillRuns.chunkMatched, { runKey: args.runKey, report: JSON.parse(JSON.stringify(report)), lookup });
     } catch (error) {

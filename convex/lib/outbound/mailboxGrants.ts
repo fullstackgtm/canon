@@ -3,7 +3,7 @@ import type { QueryCtx } from "../../_generated/server";
 import { roleIn } from "../../permissions";
 import { hmacHex } from "../agents/grants";
 import { installedModule, isEnabled, manifestOf } from "../modules/packages";
-import { derivedSecret } from "../operatorConfig";
+import { derivedSecret } from "../runtimeConfig";
 import { normalizeSuppression } from "../suppressions/domain";
 import type { ModuleManifest } from "../../../modules/kernel/manifest.ts";
 import type { TemplateDecl } from "../../../modules/kernel/outbound.ts";

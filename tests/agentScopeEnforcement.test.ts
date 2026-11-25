@@ -38,7 +38,7 @@ test("convexClient rejects agent tokens with a teaching 403", async () => {
   assert.equal(error.status, 403);
   const body = await error.json();
   assert.equal(body.error, "insufficient_scope");
-  assert.match(body.message, /fullstackgtm login --via/);
+  assert.match(body.message, /canon login --url/);
   assert.match(body.message, /\/api\/public\//);
   assert.ok(body.register_uri.endsWith("/api/agents/register"));
   assert.match(error.headers.get("www-authenticate") ?? "", /insufficient_scope/);
@@ -50,7 +50,8 @@ test("an org-scoped /api/gtm route rejects an agent token end to end", async () 
   );
   assert.equal(response.status, 403);
   const body = await response.json();
-  assert.match(body.message, /human-approved pairing/i);
+  assert.equal(body.error, "insufficient_scope");
+  assert.equal(body.docs_url, "http://localhost/auth.md");
 });
 
 test("/api/cli/token and /api/cli/run reject agent tokens without touching Convex", async () => {

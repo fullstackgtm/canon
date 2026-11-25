@@ -1,7 +1,8 @@
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
-import { derivedSecret } from "../operatorConfig";
-import { grantState, grantStateLabel, usageSince, type StoredGrant } from "./grants";
+import { activeRoleIn } from "../membership";
+import { derivedSecret } from "../runtimeConfig";
+import { grantState, grantStateLabel, usageSince, type GrantState, type StoredGrant } from "./grants";
 import type { AgentReadBudget } from "./readBudget";
 
 type ReadCtx = Pick<QueryCtx, "db">;
@@ -15,6 +16,11 @@ export function termsOf(g: Doc<"agentGrants">): StoredGrant {
     expiresAt: g.expiresAt, createdBy: g.createdBy, createdAt: g.createdAt, signature: g.signature,
     ...(g.revokedAt !== undefined ? { revokedAt: g.revokedAt } : {}),
   };
+}
+
+/** Whether a stored agent grant may approve anything now, including that its creator is still an active admin in `orgId`. */
+export async function storedGrantState(ctx: ReadCtx, g: Doc<"agentGrants">, key: string | null, now: number): Promise<GrantState> {
+  return grantState(termsOf(g), key, now, async () => (await activeRoleIn(ctx, { _id: g.createdBy }, g.orgId)) === "admin");
 }
 
 const MAX_APPROVALS = 1000;
@@ -44,7 +50,7 @@ async function shapeGrants(ctx: ReadCtx, agent: Doc<"agents">, now: number, rows
   const grants = [];
   for (const g of rows) {
     if (g.orgId !== agent.orgId) continue;
-    const state = await grantState(termsOf(g), key, now);
+    const state = await storedGrantState(ctx, g, key, now);
     const field = await ctx.db.query("researchAgents").withIndex("by_orgId_and_slug", (q) => q.eq("orgId", g.orgId).eq("slug", g.attribute.slice("custom.".length))).unique();
     const creator = await ctx.db.get(g.createdBy);
     grants.push({

@@ -10,6 +10,7 @@
  */
 import type { EntryBody } from "./objects/fold.ts";
 import type { ObjectDef } from "./objects/registry.ts";
+import { ipIsPrivate } from "../../engine/src/portable/ipAddress.ts";
 
 export const RECORD_EVENTS = ["record.created", "record.updated", "record.deleted", "record.restored"] as const;
 export type RecordEvent = (typeof RECORD_EVENTS)[number];
@@ -71,30 +72,39 @@ export const RECEIVER_TIMEOUT_MS = 10_000;
 /** An attempt that has not settled this long after it began is presumed dead and may be sent again. */
 export const LEASE_MS = 120_000;
 
-const privateV4 = (a: number, b: number): boolean =>
-  a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
-  (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19));
+/**
+ * Loopback webhook targets (`localhost`, `127.0.0.1`, `[::1]`) are refused by
+ * default — including in self-hosted installs where `CONVEX_SITE_URL` points to
+ * `127.0.0.1` — and require an explicit opt-in flag for local dev/testing.
+ */
+export const allowLoopbackWebhooks = (env: Record<string, string | undefined> = process.env): boolean =>
+  env.CANON_ALLOW_LOOPBACK_WEBHOOKS === "true";
 
-/** Whether an address is loopback, private, link-local, carrier-grade NAT, multicast or unspecified (IPv4 dotted or IPv6). */
+export type WebhookPostResult =
+  | { ok: true; status: number }
+  | { ok: false; error: string; retry: boolean; kind?: "ssrf" | "timeout" | "network" };
+
+export type WebhookPoster = (req: {
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+  timeoutMs: number;
+}) => Promise<WebhookPostResult>;
+
+/** Whether an address is loopback, private, link-local, carrier-grade NAT, SIIT, NAT64, site-local, multicast or unspecified. */
 export function privateAddress(ip: string): boolean {
-  const v4 = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) return privateV4(Number(v4[1]), Number(v4[2]));
-  const v6 = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  if (!v6.includes(":")) return false;
-  const mapped = v6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return privateAddress(mapped[1]);
-  return v6 === "::" || v6 === "::1" || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith("ff") || v6.startsWith("::ffff:");
+  return ipIsPrivate(ip.replace(/^\[|\]$/g, ""));
 }
 
 /**
  * Why a URL cannot be a webhook destination, or null when it can. https only
- * (http or https to a loopback host is allowed on a local dev stack,
- * `local: true`); no credentials in the URL; no IP literal at all, so no
- * private, loopback or link-local one; and no `localhost`, `.local`,
- * `.internal` or dotless name. The URL parser has already turned decimal, hex
- * and octal IPv4 spellings into dotted form, which the literal rule catches.
- * A public name that resolves to a private address is caught at delivery
- * (`resolvesPrivate`).
+ * (http or https to a loopback host is allowed only when `local: true` via
+ * `CANON_ALLOW_LOOPBACK_WEBHOOKS=true`); no credentials in the URL; no IP
+ * literal at all, so no private, loopback or link-local one; and no `localhost`,
+ * `.local`, `.internal` or dotless name. The URL parser has already turned
+ * decimal, hex and octal IPv4 spellings into dotted form, which the literal
+ * rule catches. A public name that resolves to a private address is refused at
+ * delivery time by the DNS-pinned Node transport (`publicHttpPost`).
  */
 export function destinationProblem(raw: string, local = false): string | null {
   let url: URL;
@@ -111,21 +121,6 @@ export function destinationProblem(raw: string, local = false): string | null {
 
 /** Whether any address a name resolved to is private: a public-looking name must not lead inside a network. */
 export const resolvesPrivate = (addresses: readonly string[]): boolean => addresses.some(privateAddress);
-
-/** A public-looking name must not point inside a network: resolve it over DNS-over-HTTPS and refuse private answers. */
-export async function publicAddresses(host: string): Promise<string[]> {
-  const out: string[] = [];
-  for (const type of ["A", "AAAA"]) {
-    const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`, {
-      headers: { accept: "application/dns-json" }, signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) throw new Error("Could not check where the hostname points");
-    const body = (await res.json()) as { Answer?: Array<{ type: number; data: string }> };
-    for (const a of body.Answer ?? []) if (a.type === 1 || a.type === 28) out.push(a.data);
-  }
-  if (!out.length) throw new Error("The hostname does not resolve");
-  return out;
-}
 
 export const newSecret = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(32));

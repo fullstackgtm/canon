@@ -15,10 +15,16 @@ const PROCESSORS: Array<[string, string]> = [
   ["Amazon Web Services (virtual machine)", "Application hosting"],
   ["Cloudflare", "Network, security and access control"],
   ["Stripe", "Payments, invoicing and tax"],
+  ["Metronome", "Credit balance tracking and usage metering"],
   ["OpenRouter and TypeSafe", "AI inference and evidence checks that Canon runs"],
   ["ScrapingBee", "Fetching public web pages for research"],
   ["Licensed data providers", "Company and business contact data, and email verification"],
+  ["Telnyx", "Voice calling, phone numbers and call recording when you use the dialer"],
+  ["Postmark", "Inbound email processing for email logging"],
   ["Unipile", "LinkedIn actions you choose to automate, and email you send from a Gmail account you link"],
+  ["Granola", "Meeting notes and transcripts you choose to import"],
+  ["Avoma", "Call recordings and transcripts you choose to import"],
+  ["Explee", "Outbound campaign hot-lead syncing you choose to connect"],
 ];
 
 export default function PrivacyPage() {
@@ -146,8 +152,9 @@ export default function PrivacyPage() {
           </tbody>
         </table>
         <p>
-          The marketing site also loads its typeface from Google Fonts, which receives your IP
-          address. We also share information:
+          During the website research preview on <code>/start</code>, your browser fetches company
+          favicons from Google (<code>google.com/s2/favicons</code>), which receives your IP address
+          and the queried domain. We also share information:
         </p>
         <ul>
           <li>with services you connect, when you ask us to sync or act in them;</li>
