@@ -13,7 +13,6 @@
 !modules/**
 !recipes/**
 !packages/**
-!scripts/dev/resource-runner.py
 !scripts/selfhost/**
 !services/record-service/package.json
 !services/record-service/package-lock.json
@@ -21,7 +20,6 @@
 !services/recipe-runtime/package.json
 !services/recipe-runtime/package-lock.json
 !services/recipe-runtime/src/**
-!services/pi-runtime/src/**
 **/node_modules
 **/.next
 **/.env*

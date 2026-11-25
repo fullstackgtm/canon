@@ -145,12 +145,7 @@ export function buildStartingPlan(args: {
   };
   const researchEvidence = args.company?.evidence ?? [];
   if (researchEvidence.length) {
-    add(
-      "@canon/icps",
-      "Ideal customers",
-      "Review the buyers identified from your website.",
-      researchEvidence,
-    );
+    // @canon/icps stays out of auto-install until the I6 cutover retires /dashboard/icps.
     add(
       "@canon/work",
       "Work",

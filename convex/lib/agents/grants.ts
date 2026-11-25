@@ -76,13 +76,24 @@ function sameHex(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export type GrantState = "live" | "expired" | "revoked" | "invalid";
+export type GrantState = "live" | "expired" | "revoked" | "invalid" | "lapsed";
 
-/** Whether a grant may approve anything now. No key means nothing verifies: every grant is invalid. */
-export async function grantState(g: StoredGrant, key: string | null, now: number): Promise<GrantState> {
+/**
+ * Whether a grant may approve anything now. No key means nothing verifies:
+ * every grant is invalid. A grant whose creator is no longer an active admin
+ * of `orgId` lapses immediately.
+ */
+export async function grantState(
+  g: StoredGrant,
+  key: string | null,
+  now: number,
+  isCreatorAdmin: boolean | (() => boolean | Promise<boolean>),
+): Promise<GrantState> {
   if (g.revokedAt !== undefined) return "revoked";
   if (!key || g.operation !== GRANT_OPERATION || !sameHex(await signGrant(g, key), g.signature)) return "invalid";
-  return g.expiresAt > now ? "live" : "expired";
+  if (g.expiresAt <= now) return "expired";
+  const activeAdmin = typeof isCreatorAdmin === "function" ? await isCreatorAdmin() : isCreatorAdmin;
+  return activeAdmin ? "live" : "lapsed";
 }
 
 export const grantStateLabel: Record<GrantState, string> = {
@@ -90,6 +101,7 @@ export const grantStateLabel: Record<GrantState, string> = {
   expired: "Expired",
   revoked: "Revoked",
   invalid: "Inert: its signature doesn't verify",
+  lapsed: "Inert: the admin who gave it no longer is one",
 };
 
 /** Does this one fact fit the grant's terms? (The grant's liveness is checked separately.) */

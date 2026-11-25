@@ -1,6 +1,6 @@
 import { query, mutation, action, internalQuery, internalMutation, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { appUrl } from "./lib/operatorConfig";
+import { appUrl } from "./lib/runtimeConfig";
 import { orgRolesOf, requireRoleKey, roleBasesOf } from "./permissions";
 import { baseRole } from "./lib/roles";
 import { can, refusal } from "./lib/capabilities";

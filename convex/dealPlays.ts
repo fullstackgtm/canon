@@ -596,13 +596,13 @@ export async function buildPlane(ctx: ActionCtx, caller: PlaneCaller, streamId: 
       }] },
       ...variants.map((v) => ({ fn: "fanOut" as const, input: [rowsFor(v.buyer)] as [Array<Omit<Prospect, "suggested">>] })),
       ...drafted.map((s) => ({ fn: "drafts.check" as const, input: [s.channel, s.draft!.subject, s.draft!.body] as [Channel, string | null, string] })),
-    ]);
+    ], orgId);
     const fanOuts = rest.slice(0, variants.length) as Prospect[][];
     const checks = new Map(drafted.map((s, i) => [s.id, rest[variants.length + i] as DraftCheck[]]));
     const picked = variants.findIndex((v) => v.icpId === (pov?.icpId ?? null));
     // A recipe may pick an ICP the account isn't in; its fan-out then takes a second call.
     const prospects = picked >= 0 ? fanOuts[picked]
-      : (await runPlays(ctx, loaded.recipe, [{ fn: "fanOut", input: [rowsFor(icps.find((i) => i.id === pov?.icpId)?.buyer ?? null)] }]))[0];
+      : (await runPlays(ctx, loaded.recipe, [{ fn: "fanOut", input: [rowsFor(icps.find((i) => i.id === pov?.icpId)?.buyer ?? null)] }], orgId))[0];
     return {
       streamId: args.streamId, recipe: loaded.recipe, actions: agentActions(loaded.page, stage), canEdit: loaded.canEdit, started: Boolean(play),
       recipeData: { stages: plays.stages, peopleFields: plays.people.fields, peopleSlugs: plays.people.slugs },

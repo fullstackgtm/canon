@@ -2,7 +2,6 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
 import { getCurrentUser } from "./lib";
-import { internal } from "./_generated/api";
 
 const outcome = v.union(v.literal("changed"), v.literal("unchanged"), v.literal("refused"), v.literal("error"));
 

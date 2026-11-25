@@ -1,6 +1,6 @@
 // Fetch the shared prospect index (services/prospect-index) from R2 onto the volume.
-// Copied from services/prospect-index/src/fetch.ts (this service builds from its own directory),
-// using the same R2 credentials as backups. Called in the background at startup.
+// Kept in sync with prospect-index/src/fetch.ts by tests/pdlFetchParity.test.ts.
+// Each service builds from its own directory; only credential variable names differ.
 //
 // R2 layout (bucket BACKUP_S3_BUCKET):
 //   shared/pdl_companies/latest.json                  {version, key, bytes, sha256, ...}

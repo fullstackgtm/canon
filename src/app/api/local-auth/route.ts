@@ -5,6 +5,7 @@ import { ConvexError } from "convex/values";
 import { api } from "../../../../convex/_generated/api";
 import { LOCAL_SESSION_COOKIE } from "@/lib/authMode";
 import { hashLocalSecret, hashPassword, localAuthBroker, localSession, mintLocalToken, newLocalSecret, SESSION_SECONDS, verifyPassword } from "@/lib/localAuth";
+import { isLocalAuthOriginAllowed, localAuthCookieSecure } from "@/lib/localAuthOrigin";
 import { setupCodeMatches } from "@/lib/setupCode";
 import { rateLimit } from "../cli/_lib";
 
@@ -26,15 +27,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   if (process.env.CANON_AUTH !== "local") return new Response(null, { status: 404 });
-  const origin = request.headers.get("origin");
-  if (!origin || (origin !== new URL(request.url).origin && origin !== process.env.NEXT_PUBLIC_SITE_URL) ||
+  if (!isLocalAuthOriginAllowed(request) ||
       !request.headers.get("content-type")?.startsWith("application/json")) return new Response(null, { status: 403 });
   if (!rateLimit(request, 15)) return Response.json({ error: "Too many attempts. Try again in a minute." }, { status: 429 });
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Enter a valid email, name, and a password of at least 12 characters." }, { status: 400 });
   const body = parsed.data;
   const broker = localAuthBroker();
-  const secure = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? request.url).protocol === "https:";
+  const secure = localAuthCookieSecure(request);
   try {
     if (body.kind === "sign-out") {
       const { cookies } = await import("next/headers");

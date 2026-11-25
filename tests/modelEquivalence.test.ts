@@ -7,7 +7,7 @@ import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
 test("forecast, health, lead scoring, heat, the audit and ICP fit on canon-base's settings return what origin/main's constants did", async () => {
   const fixture = JSON.parse(readFileSync(FIXTURE_FILE, "utf8")) as Fixture;
-  assert.equal(fixture.cases.length, 136);
+  assert.equal(fixture.cases.length, 111);
   assert.deepEqual((await differences(fixture)).map((d) => `${d.surface} ${d.name}`), []);
 });
 

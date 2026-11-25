@@ -1,12 +1,17 @@
 import { query, type QueryCtx } from "./_generated/server";
 import { currentPeriod } from "./targets";
 import { lastDay, periodOf } from "../modules/kernel/pacing";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 // CP14: these pages read the CRM mirror and deal tables whole, so a role whose rules narrow its reads sees them empty.
 import { unrestrictedUser } from "./permissions";
 import type { Doc, Id } from "./_generated/dataModel";
 import { modelSettings } from "./lib/recipes";
 import { defaultModel, type ForecastModel } from "../recipes/index.ts";
+
+// Retained signatures for legacy API/CLI consumers until their removal. Never return mirror-based forecasts.
+function retiredForecast(): void {
+  throw new ConvexError("Legacy forecasting is retired. Use @canon/forecast and workspace Targets instead.");
+}
 
 type ForecastCategory = "closed_won" | "commit" | "best_case" | "pipeline" | "omit";
 
@@ -60,6 +65,7 @@ function coverage(value: number, target: number) {
 export const getCurrentForecast = query({
   args: period,
   handler: async (ctx, given) => {
+    retiredForecast();
     const user = await unrestrictedUser(ctx);
     const args = await periodOr(ctx, user, given);
     if (!user) return {
@@ -176,6 +182,7 @@ export const getCurrentForecast = query({
 export const getForecastByRep = query({
   args: period,
   handler: async (ctx, given) => {
+    retiredForecast();
     const user = await unrestrictedUser(ctx);
     const args = await periodOr(ctx, user, given);
     if (!user) return [];

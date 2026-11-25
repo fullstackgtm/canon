@@ -7,7 +7,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalAction, internalMutation, type MutationCtx } from "./_generated/server";
+import { internalAction, internalMutation, type ActionCtx, type MutationCtx } from "./_generated/server";
 import { installedModule, isEnabled, manifestOf } from "./lib/modules/packages";
 import { sendPostmark, sendSlack, sendWebhook, type Delivery } from "./lib/outbound/adapters";
 import { judge, type Draft } from "./lib/outbound/gate";
@@ -167,11 +167,16 @@ export const settleMailbox = internalMutation({
   handler: async (ctx, { expected, result }): Promise<{ state: "recorded" | "duplicate" | "refused" }> => settleMailboxEmail(ctx, expected, result),
 });
 
-async function deliver(job: Job): Promise<Delivery> {
+async function deliver(ctx: ActionCtx, job: Job): Promise<Delivery> {
   try {
     if (job.channel === "mailbox") return await sendMailboxEmail(job.delivery);
     if (job.channel === "slack") return await sendSlack(await decryptFromStorage(job.url), job.text);
-    if (job.channel === "webhook") return await sendWebhook({ url: await decryptFromStorage(job.url), secret: await decryptFromStorage(job.secret), id: job.id, body: job.body });
+    if (job.channel === "webhook") {
+      return await sendWebhook(
+        { url: await decryptFromStorage(job.url), secret: await decryptFromStorage(job.secret), id: job.id, body: job.body },
+        (req) => ctx.runAction(internal.moduleWebActions.postWebhook, req),
+      );
+    }
     return await sendPostmark({ to: job.to, subject: job.subject, text: job.text });
   } catch {
     return { ok: false, error: "Sending failed.", retry: job.channel === "webhook", ...(job.channel !== "webhook" ? { unknown: true as const } : {}) };
@@ -186,7 +191,7 @@ export const dispatch = internalAction({
       const jobs: Job[] = await ctx.runMutation(internal.outboundDispatch.claim, {});
       if (!jobs.length) return null;
       for (const job of jobs) {
-        const result = await deliver(job);
+        const result = await deliver(ctx, job);
         if (job.channel === "mailbox") await ctx.runMutation(internal.outboundDispatch.settleMailbox, { expected: job.expected, result });
         else await ctx.runMutation(internal.outboundDispatch.settle, { ids: job.ids, result });
       }

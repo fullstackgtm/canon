@@ -1,5 +1,6 @@
 {
   "kind": "module",
+  "catalog": "beta",
   "visibility": "open",
   "id": "@canon/sequences",
   "version": "0.7.0",

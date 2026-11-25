@@ -185,6 +185,7 @@ export const storeCopy = internalMutation({
 // ───────────────────────────── Edit, save and revert ─────────────────────────────
 
 type EditBase = {
+  orgId: Id<"organizations">;
   canDecide: boolean; revision: number; markdown: string; markdownHash: string; bundle: WorkspaceSource["bundle"]; bundleHash: string; storageId: Id<"_storage">;
   target: string | null; overrides: Record<string, unknown>; forkedFrom: WorkspaceSource["forkedFrom"];
   /** A revert on a kept bundle: the bundle the revision it goes back to ran on, which the revert puts back. */
@@ -221,6 +222,7 @@ export const editBase = internalQuery({
     const target = args.revertTo === undefined ? null : await revisionAt(ctx, orgId, args.recipeId, args.revertTo);
     if (args.revertTo !== undefined && !target) throw new ConvexError(`No revision ${args.revertTo}`);
     return {
+      orgId,
       canDecide: mayDecide(caller), revision: current.revision, markdown: current.markdown, markdownHash: current.markdownHash,
       bundle: pkg.source.bundle, bundleHash: pkg.bundleHash, storageId: pkg.bundleStorageId, target: target?.markdown ?? null,
       overrides: (await currentRevision(ctx, orgId, args.recipeId))?.settings ?? {}, forkedFrom: pkg.source.forkedFrom,
@@ -253,7 +255,7 @@ async function saveMarkdown(ctx: ActionCtx, base: EditBase, args: { recipeId: st
   // A kept bundle's evals would run its own TypeScript, which only a package's install runs; a builtins copy's run in the runtime.
   const def = fromManifest(manifest);
   const { evals, notRun } = base.bundle === "kept" ? { evals: [], notRun: "this copy runs the TypeScript bundle it copied, so its evals run where that package's do" }
-    : await proposalEvals(recipe, args.markdown, runEvals, { ...def.settings, ...parseOverrides(def, base.overrides).overrides });
+    : await proposalEvals(recipe, args.markdown, runEvals, base.orgId, { ...def.settings, ...parseOverrides(def, base.overrides).overrides });
   const failing = evals.filter((e) => !e.ok).length;
   if (failing && !args.acceptFailingEvals) return { revision: base.revision, changed: false, ignoredSettings: [], evals, evalsNotRun: notRun, blocked: true };
   // A kept copy stores a bundle only when a merge brings one it doesn't have; a revert reuses the revision's.

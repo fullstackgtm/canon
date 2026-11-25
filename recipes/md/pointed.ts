@@ -21,7 +21,7 @@ export function refuseSectionRename(request: string, pointed: string | undefined
   const what = drawnText(pointed);
   if (what === null) return null;
   const said = request.toLowerCase();
-  // The control's own text usually starts with its label; a field row reads "Opportunity nameSpeedeon - …".
+  // The control's own text usually starts with its label; a field row reads "Opportunity nameAcme - …".
   const label = what.split(/(?<=[a-z])(?=[A-Z])/)[0]?.trim().toLowerCase() ?? "";
   // Only what's being renamed counts, not the new words: "change section title to Opportunity name" is the section.
   const subject = said.split(/\s(?:to|into|as)\s/)[0] ?? said;

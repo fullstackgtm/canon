@@ -5,16 +5,16 @@ import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
 test("Avoma meeting and transcription normalize with participants, metadata and explicit speaker sides", async () => {
   const call = normalizeAvomaCall({
-    uuid: "meeting-1", subject: "Vidmob discovery", start_at: "2026-10-26T14:00:00Z", duration: 1800.5,
+    uuid: "meeting-1", subject: "Acme discovery", start_at: "2026-10-26T14:00:00Z", duration: 1800.5,
     attendees: [
-      { email: "riley@vidmob.example", name: "Riley", uuid: "attendee-1" },
+      { email: "riley@acme.example", name: "Riley", uuid: "attendee-1" },
       { email: "sam@buyer.example", name: "Sam" },
       { email: "pat@buyer.example", name: "Pat" },
     ],
   }, {
     uuid: "transcript-1", meeting_uuid: "meeting-1",
     speakers: [
-      { id: 0, email: "riley@vidmob.example", name: "Riley", is_rep: true },
+      { id: 0, email: "riley@acme.example", name: "Riley", is_rep: true },
       { id: 1, email: "sam@buyer.example", name: "Sam", is_rep: false },
     ],
     transcript: [
@@ -23,10 +23,10 @@ test("Avoma meeting and transcription normalize with participants, metadata and 
     ],
   }, { meeting_uuid: "meeting-1", video_url: "https://media.example/recording", valid_till: "2026-10-28T00:00:00Z" });
   assert.deepEqual(call, {
-    externalCallId: "avoma:meeting-1", title: "Vidmob discovery", callDate: "2026-10-26T14:00:00Z",
+    externalCallId: "avoma:meeting-1", title: "Acme discovery", callDate: "2026-10-26T14:00:00Z",
     durationSeconds: 1800.5, recordingUrl: "https://media.example/recording",
     participants: [
-      { email: "riley@vidmob.example", name: "Riley", uuid: "attendee-1", id: 0, is_rep: true, role: "rep" },
+      { email: "riley@acme.example", name: "Riley", uuid: "attendee-1", id: 0, is_rep: true, role: "rep" },
       { email: "sam@buyer.example", name: "Sam", id: 1, is_rep: false, role: "customer" },
       { email: "pat@buyer.example", name: "Pat" },
     ],

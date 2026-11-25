@@ -6,14 +6,13 @@ import { hasAgentConnection } from "./agentConnections";
 import { readIcps } from "./lib/icpsInterface";
 
 export const STEP_IDS = ["connect_agent", "review_icp", "research_accounts", "triage_tam", "connect_crm", "invite_team"] as const;
-/** Optional steps: Canon is the CRM, and a solo workspace has no one to invite. */
-export const SKIPPABLE_STEP_IDS: readonly string[] = ["connect_crm", "invite_team"];
+/** Optional steps: workspaces can run without an agent, Canon is the CRM, and a solo workspace has no one to invite. */
+export const SKIPPABLE_STEP_IDS: readonly string[] = ["connect_agent", "connect_crm", "invite_team"];
 
 /**
- * Native onboarding checklist. Onboarding is agent-driven: connecting an agent
- * comes first, and the ICP and research steps are done from that agent.
+ * Native onboarding checklist. Steps can be completed or skipped in any order.
  * A row in `orgOnboardingSteps` marks a step done, whether it was done
- * (`markStep`) or skipped (`skipStep`).
+ * (`markStep` / `completePlanTask`) or skipped (`skipStep`).
  * Read budget: 1 range of marks + 4 index probes + 2 users.
  */
 export const getSteps = query({

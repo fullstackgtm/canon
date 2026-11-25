@@ -61,7 +61,6 @@
  * These are what recipes/theme.ts derives for Ledger (tests/recipeTheme.test.ts keeps them equal); a workspace's
  * theme recipe overrides them on <body> (src/components/shell/workspace-theme.tsx).
  *   bottle #1e4d3a · oxblood #7a2232 · orange #b3401a · ochre #8f6400
- * Exploration and market research: docs/brand-lab/.
  */
 :root {
   color-scheme: light;

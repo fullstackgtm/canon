@@ -97,8 +97,6 @@ hubspot.config.yml
 # local anonymous Convex deployment state written by `convex dev --local`
 /.convex/
 
-# Brand lab competitor screenshots: regenerate with docs/brand-lab/tools/capture.py
-/docs/brand-lab/shots/
 
 # UI hill climb captures and reference screenshots (local only; references hold personal data)
 /.hillclimb/
@@ -111,3 +109,6 @@ hubspot.config.yml
 
 # the module kit's build output (modules/kernel, npm pack)
 /modules/kernel/dist/
+
+/playwright-report/
+/test-results/

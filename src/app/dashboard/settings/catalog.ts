@@ -1,7 +1,7 @@
 /** Every area on the Settings page, grouped the way the table shows them. */
 import type { IntegrationFeature } from "../../../../convex/lib/integrationsAvailable.ts";
 
-export type SettingsKey = "workspace" | "targets" | "team" | "permissions" | "pipelines" | "billing" | "providers" | "api" | "webhooks" | "feeds" | "outbound" | "recording" | "emailLog";
+export type SettingsKey = "workspace" | "targets" | "team" | "permissions" | "pipelines" | "billing" | "providers" | "api" | "webhooks" | "feeds" | "outbound" | "emailLog";
 
 export type SettingsDef = {
   key: SettingsKey;
@@ -45,15 +45,6 @@ export const SETTINGS_GROUPS: { title: string; items: SettingsDef[] }[] = [
         description:
           "Everyone in the workspace, their role and manager, and the teams they're on. Teams decide what \"their teams' records\" means in Permissions.",
         href: "/dashboard/settings/team",
-      },
-      {
-        key: "recording",
-        name: "Recording",
-        summary: "Consent, exclusions, retention and dialer call recording",
-        description:
-          "Prepare consent, exclusions, retention and region for future meeting recording. Control Dialer call recording today.",
-        href: "/dashboard/settings/recording",
-        adminOnly: true,
       },
       {
         key: "permissions",
@@ -161,6 +152,8 @@ export function isSettingsKey(value: string | null | undefined): value is Settin
  */
 export function legacyTabHref(tab: string | null, search: URLSearchParams): string | null {
   switch (tab) {
+    case "recording":
+      return "/dashboard/integrations/dialer";
     case "workspace":
       return "/dashboard/settings/workspace";
     case "team":

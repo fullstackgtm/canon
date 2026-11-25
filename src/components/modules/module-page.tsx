@@ -681,7 +681,7 @@ function Page({ view, query, setQuery, more, addWait, embedded, fallback, frame 
     // On a call's row an update names its doc by key; a create takes its values from the row.
     setDialog({ ref: a, row: target ?? undefined, from: row });
   };
-  const reportEnv: ReportEnv = { module: view.module.slug, dashboards: view.dashboards, readOnly: !!view.preview, members: view.members, palette: view.reports as Record<string, Palette>, query, setQuery, fiscalYearStartMonth: view.fiscalYearStartMonth };
+  const reportEnv: ReportEnv = { currency: view.currency, module: view.module.slug, dashboards: view.dashboards, readOnly: !!view.preview, members: view.members, palette: view.reports as Record<string, Palette>, query, setQuery, fiscalYearStartMonth: view.fiscalYearStartMonth };
   const editor: EditorAccess = {
     allowed: (ref) => !!view.calls[ref.call]?.allowed && !view.preview,
     invoke: async (ref: EditorCall, row: Doc, inputs: Record<string, unknown>) => {

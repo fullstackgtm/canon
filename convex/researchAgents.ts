@@ -393,7 +393,7 @@ export const create = mutation({
     try { spec = checkSpec(args); } catch (e) { throw new ConvexError(e instanceof Error ? e.message : String(e)); }
     const existing = await ctx.db.query("researchAgents").withIndex("by_orgId_and_slug", (q) => q.eq("orgId", user.orgId)).take(MAX_AGENTS + 1);
     if (existing.length >= MAX_AGENTS) throw new ConvexError(`A workspace can have up to ${MAX_AGENTS} AI fields.`);
-    const slug = await freeSlug(ctx, user.orgId, spec.label, existing);
+    const slug = await freeSlug(ctx, user.orgId, entityType, spec.label, existing);
     // Only an admin may change the write gate, so only an admin's field starts with auto-accept on.
     const autoAccept = can(user, "writeGate.edit") ? DEFAULT_AUTO_ACCEPT : undefined;
     const now = Date.now();
@@ -464,8 +464,12 @@ export async function setResearchAutoAccept(ctx: MutationCtx, args: { slug: stri
  * facts and rule stay in the ledger, so reusing its slug would show its old
  * answers under a new question and skip those accounts.
  */
-async function freeSlug(ctx: MutationCtx, orgId: Id<"organizations">, label: string, existing: Array<Doc<"researchAgents">>) {
+async function freeSlug(ctx: MutationCtx, orgId: Id<"organizations">, object: string, label: string, existing: Array<Doc<"researchAgents">>) {
   const taken = new Set(existing.map((a) => a.slug));
+  const def = await ctx.db.query("objectDefs").withIndex("by_orgId_apiName", (q) => q.eq("orgId", orgId).eq("apiName", object)).unique();
+  for (const field of def?.customFields ?? []) {
+    if (field.apiName.startsWith("custom.")) taken.add(field.apiName.slice("custom.".length));
+  }
   const rules = await ctx.db.query("canonAutoAcceptRules").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(500);
   for (const r of rules) if (r.attribute.startsWith("custom.")) taken.add(r.attribute.slice("custom.".length));
   for (;;) {

@@ -37,7 +37,7 @@ const loaded = loadConvex(["modules.ts", "moduleDefaults.ts", "moduleActivityPub
   "lib.ts": (r) => ({ ...r, getCurrentUser: async () => caller.user, requireUser: async () => caller.user, agentClientOf: async () => caller.agent }),
   "lib/modules/imports.ts": (r) => { Object.assign(canonImports, r.MODULE_IMPORTS); return { ...r, MODULE_IMPORTS: fixtureImports }; },
 }, { process: configuration });
-const fn = { ...loaded["modules.ts"], ...loaded["moduleDefaults.ts"], ...loaded["researchSessions.ts"] };
+const fn: (typeof loaded)[string] = { ...loaded["modules.ts"], ...loaded["moduleDefaults.ts"], ...loaded["researchSessions.ts"], examples: loaded["modules.ts"].examples };
 const shipped = loaded["../modules/examples/_examples.generated.ts"] as unknown as { MODULE_EXAMPLES: Record<string, Example> };
 const originalExamples = shipped.MODULE_EXAMPLES;
 
@@ -79,7 +79,7 @@ function harness(examples?: Record<string, Example>, imports: Record<string, Mod
     auth: { getUserIdentity: async () => (caller.user ? { email: caller.user.email, emailVerified: true } : null) } });
   const action = { storage, scheduler, runQuery, runMutation };
   const actions = new Set(["reconcile", "previewInstall", "install", "previewDevelopment", "installDevelopment"]);
-  const queries = new Set(["list", "installed", "migrationRead"]);
+  const queries = new Set(["list", "installed", "examples", "migrationRead"]);
   const task = (ref: string, args: Record<string, unknown>) => ref === "internal.moduleActivityPublications.run" || actions.has(ref.split(".")[2])
     ? handler(ref).handler(action, args) : queries.has(ref.split(".")[2]) ? runQuery(ref, args) : runMutation(ref, args);
   async function advancePublications() {
@@ -571,7 +571,7 @@ test("claims build missing plans for admins, import without module changes for m
     assert.equal((await h.run("claim", { token: "automatic" })).redirect, "/dashboard/accounts");
     const org = await h.db.get("org");
     const plan = org?.startingPlan as { modules: Array<{ id: string }> } | undefined;
-    assert.deepEqual(plain(plan?.modules.map((m) => m.id) ?? []), role === "admin" && agent === null ? ["@canon/icps", "@canon/work"] : []);
+    assert.deepEqual(plain(plan?.modules.map((m) => m.id) ?? []), role === "admin" && agent === null ? ["@canon/work"] : []);
     assert.equal((await h.rows("researchSessions"))[0].importStatus, "pending");
   }
   caller.user = admin;
@@ -601,4 +601,26 @@ test("a development install is refused on a hosted deployment; self-hosted, it i
   // The install screen sends its consent with an upgrade, as for a GitHub source.
   await h.run("installDevelopment", { ...files("Dev, rebuilt"), manifestHash: rebuilt.manifestHash, approveReads: false, drop: [] });
   assert.equal((await h.run("installed")).modules.find((m: { moduleId: string }) => m.moduleId === ID).title, "Dev, rebuilt");
+});
+
+
+test("Browse hides catalog-only modules, gates new installs, and leaves installed/default runtime access intact", async () => {
+  const h = harness({ fixture: example({ ...WORK, catalog: "hidden" }, "a"), beta: example({ ...WORK, id: "@canon/beta", default: undefined, catalog: "beta" }, "b") });
+  assert.deepEqual(plain((await h.run("examples")).examples.map((e: { slug: string; catalog: string }) => [e.slug, e.catalog])), [["beta", "beta"]]);
+  await assert.rejects(h.run("previewInstall", { source: "canon:fixture" }));
+  configuration.env = { CANON_INTERNAL_MODULES: "1" };
+  assert.equal((await h.run("examples")).examples.length, 2);
+  await h.run("previewInstall", { source: "canon:fixture" });
+  configuration.env = {};
+  await h.seed(h.ctx(), "org");
+  await h.drain();
+  assert.ok((await h.run("installed")).modules.some((m: { moduleId: string; enabled: boolean }) => m.moduleId === WORK.id && m.enabled));
+  assert.ok((await h.run("list")).some((m: { moduleId: string }) => m.moduleId === WORK.id));
+  await h.run("previewInstall", { source: "canon:fixture" });
+  shipped.MODULE_EXAMPLES.fixture = example({ ...WORK, version: "0.2.0", catalog: "hidden" }, "c");
+  assert.deepEqual(plain((await h.run("installed")).modules.find((m: { moduleId: string }) => m.moduleId === WORK.id).availableUpdate), { version: "0.2.0", source: "canon:fixture" });
+  await h.run("setEnabled", { moduleId: WORK.id, enabled: false });
+  await h.run("uninstall", { moduleId: WORK.id });
+  await h.run("previewInstall", { source: "canon:fixture" });
+  assert.deepEqual(plain((await h.run("examples")).examples.map((e: { slug: string }) => e.slug)), ["beta"]);
 });

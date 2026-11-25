@@ -5,9 +5,14 @@
   "type": "module",
   "description": "Runs recipe play code in Cloudflare Dynamic Worker isolates for Convex (docs/recipes.md, R3).",
   "scripts": {
-    "dev": "wrangler dev --local"
+    "dev": "wrangler dev --local",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.2"
   },
   "devDependencies": {
+    "typescript": "^5.9.3",
     "wrangler": "^4.150.0"
   }
 }

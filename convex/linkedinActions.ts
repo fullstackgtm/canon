@@ -12,7 +12,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { LinkedinCaller } from "./linkedin";
 import { validTimezone } from "./lib/linkedin/limits";
-import { appUrl } from "./lib/operatorConfig";
+import { appUrl } from "./lib/runtimeConfig";
 import { RISK_TEXT_VERSION } from "./lib/linkedin/risk";
 import { NOTIFY_PATH, STATE_TTL_MS, WEBHOOK_PATH_PREFIX, signState, verifyState, webhookToken } from "./lib/linkedin/state";
 import { UnipileError } from "./lib/linkedin/unipile";

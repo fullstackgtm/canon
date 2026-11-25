@@ -56,7 +56,7 @@ import { cn, getErrorMessage } from "@/lib/utils";
 type Run = FunctionReturnType<typeof api.modules.report>;
 type Of<C extends Node["c"]> = Extract<Node, { c: C }>;
 export type Palette = { fields: ReportField[]; none: boolean; title?: string };
-export type ReportEnv = { module: string; dashboards?: string | null; readOnly?: boolean; members: ReadonlyArray<{ id: string; name: string }>; palette: Readonly<Record<string, Palette>>; query: Readonly<Record<string, string>>; setQuery: (c: Record<string, string | null>) => void; fiscalYearStartMonth?: number };
+export type ReportEnv = { module: string; currency?: string; dashboards?: string | null; readOnly?: boolean; members: ReadonlyArray<{ id: string; name: string }>; palette: Readonly<Record<string, Palette>>; query: Readonly<Record<string, string>>; setQuery: (c: Record<string, string | null>) => void; fiscalYearStartMonth?: number };
 
 const btn = "inline-flex items-center gap-1 border border-border px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50";
 const eyebrow = "text-[11px] font-medium uppercase tracking-wide text-muted-foreground";
@@ -763,11 +763,11 @@ function linkedShape(raw: string): { rows?: ReportKey[]; columns?: ReportKey[]; 
  * A chart's bars as the page declares them (docs/modules.md, "Reports and charts"): ordered by their value rather than
  * their label, only the `top` of them, and values shown as a percent (of a fraction), money or a number.
  */
-export function shapeChart(p: Presented, n: Pick<Of<"chart">, "order" | "dir" | "top" | "format">): Presented {
+export function shapeChart(p: Presented, n: Pick<Of<"chart">, "order" | "dir" | "top" | "format">, currency = "USD"): Presented {
   let out = p;
   const pct = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 });
   if (n.format === "percent") out = { ...out, format: (i, v) => (i === 0 && v !== null ? pct.format(v) : p.format(i, v)), formatCompact: (i, v) => (i === 0 ? pct.format(v) : p.formatCompact(i, v)), whole: false };
-  if (n.format === "money") out = { ...out, format: (i, v) => (i === 0 && v !== null ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v / 100) : p.format(i, v)), formatCompact: (i, v) => (i === 0 ? `$${new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(v / 100)}` : p.formatCompact(i, v)) };
+  if (n.format === "money") out = { ...out, format: (i, v) => (i === 0 && v !== null ? new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 0 }).format(v / 100) : p.format(i, v)), formatCompact: (i, v) => (i === 0 ? new Intl.NumberFormat("en-US", { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 }).format(v / 100) : p.formatCompact(i, v)) };
   const two = out.keyLabels.length > 1;
   const byValue = (a: { values: (number | null)[] }, b: { values: (number | null)[] }) => ((b.values[0] ?? -Infinity) - (a.values[0] ?? -Infinity)) * (n.dir === "asc" ? -1 : 1);
   let groups = out.groups, subtotals = out.subtotals;
@@ -802,7 +802,7 @@ function ReportShapeChart({ n, env }: { n: Of<"chart">; env: ReportEnv }) {
   const palette = env.palette[n.report!.collection];
   const spec = useMemo(() => specOf(n.report!, chartKind(n.kind)), [n]);
   const { result, error, retry } = useReportRun(env.module, palette && !palette.none ? spec : null);
-  const p = useMemo(() => (result ? shapeChart(presentRun(result, env.members, env.palette[result.spec.object]?.title ?? "records"), n) : null), [result, env.members, env.palette, n]);
+  const p = useMemo(() => (result ? shapeChart(presentRun(result, env.members, env.palette[result.spec.object]?.title ?? "records"), n, env.currency) : null), [result, env.members, env.palette, n, env.currency]);
   if (!palette || palette.none) return null;
   return <ChartFrame title={n.title} error={error} retry={retry}>{p ? <ReportChart p={p} kind={chartKind(n.kind)} /> : null}</ChartFrame>;
 }
@@ -870,8 +870,8 @@ function RowsChart({ n, env, rows, onPick }: { n: Of<"chart">; env: ReportEnv; r
       ? a.keys[0] - b.keys[0] : String(a.keys[0]).localeCompare(String(b.keys[0])));
     const spec = { groupBy: keysOf.map((k) => ({ field: k, ...(kind(k) === "date" ? { bucket } : {}) })), measures: [n.y ? { fn: "sum" as const, field: n.y } : { fn: "count" as const }] };
     return shapeChart(present(spec, { groups: sorted(groups), subtotals: sorted(subs), total: [total], rows: rows.rows.length, truncated: false },
-      keysOf.map(info), [n.y ? { label: info(n.y).label, type: rows.kinds[n.y] === "number" && /amount|pipeline|money/i.test(n.y) ? "currency" : "number" } : undefined], env.members.map((m) => ({ _id: m.id, name: m.name }))), n);
-  }, [n, rows, env.members]);
+      keysOf.map(info), [n.y ? { label: info(n.y).label, type: rows.kinds[n.y] === "number" && /amount|pipeline|money/i.test(n.y) ? "currency" : "number" } : undefined], env.members.map((m) => ({ _id: m.id, name: m.name }))), n, env.currency);
+  }, [n, rows, env.members, env.currency]);
   return <ChartFrame title={n.title} note={rows.complete ? undefined : `Drawn from the first ${rows.rows.length} rows only.`}><ReportChart p={p} kind={chartKind(n.kind)} onPick={onPick} /></ChartFrame>;
 }
 

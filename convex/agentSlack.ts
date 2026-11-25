@@ -12,7 +12,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
-import { appUrl } from "./lib/operatorConfig";
+import { appUrl } from "./lib/runtimeConfig";
 import { escapeSlack, postToSlack, shouldNotify, slackMessage, webhookUrlProblem, type SlackDelivery } from "./lib/agents/slack";
 import { withEventDefinition } from "./lib/agents/definitions";
 import { standing } from "./agents";

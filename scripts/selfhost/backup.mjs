@@ -334,18 +334,35 @@ export async function restore(archive, { repo, replace = false, log = console.lo
   }
   await volume.dropAside();
   mkdirSync(join(repo, ".canon"), { recursive: true, mode: 0o700 });
-  writeFileSync(join(repo, ".canon/data-epoch"), `${manifest.dataEpoch}\n`);
-  return { manifest, migrations: plan.migrations };
+  writeFileSync(join(repo, ".canon/data-epoch"), `${contract.epoch}\n`);
+  return { manifest, migrations: plan.migrations, dataEpoch: contract.epoch };
 }
 
 const docker = (args, options = {}) => execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...options }).trim();
 const delay = (ms) => new Promise((done) => setTimeout(done, ms));
 
+/** Select the image for `service` from `docker compose config --format json`, falling back safely when a single service omits `image`. */
+export function composeServiceImage(config, service = "canoncrm", fallbackImages = []) {
+  const serviceConfig = config?.services?.[service];
+  if (typeof serviceConfig?.image === "string" && serviceConfig.image.trim()) return serviceConfig.image.trim();
+  const images = fallbackImages.map((line) => line.trim()).filter(Boolean);
+  if (serviceConfig && typeof config?.name === "string" && config.name.trim()) {
+    const derived = `${config.name.trim()}-${service}`;
+    const matched = images.find((image) => image === derived || image.startsWith(`${derived}:`));
+    if (matched) return matched;
+  }
+  const serviceNames = Object.keys(config?.services ?? {});
+  if (serviceNames.length <= 1 && (!serviceNames.length || serviceNames[0] === service)) {
+    return images[0] ?? null;
+  }
+  return null;
+}
+
 function compose(repo, service = "canoncrm") {
   const run = (...args) => docker(["compose", ...args], { cwd: repo });
   const config = JSON.parse(run("config", "--format", "json"));
   const volume = config.volumes?.data?.name;
-  const image = run("config", "--images").split("\n").find(Boolean);
+  const image = composeServiceImage(config, service) ?? composeServiceImage(config, service, run("config", "--images").split("\n"));
   if (!volume || !image) throw new Error("docker compose config has no data volume or image. Run this from the Canon checkout");
   const container = () => run("ps", "-a", "-q", service) || null;
   const running = (id) => id !== null && docker(["inspect", "--format", "{{.State.Running}}", id]) === "true";

@@ -3,7 +3,7 @@
  * no env and a CPU limit. Convex calls it from actions (convex/lib/recipeRuntime.ts) and keeps all state: recipe
  * code only returns data. The wire is in protocol.ts.
  */
-import { ISOLATE_SCOPE, MODULE_BODY_MAX, MODULE_CPU_MS, SIGNATURE_HEADER, TIMESTAMP_HEADER, bundleHash, verify, type ModuleBody, type ModuleResult, type RunBody } from "./protocol.ts";
+import { ISOLATE_SCOPE, MODULE_BODY_MAX, MODULE_CPU_MS, RUN_ISOLATE_SCOPE, SIGNATURE_HEADER, TIMESTAMP_HEADER, bundleHash, verify, type ModuleBody, type ModuleResult, type RunBody } from "./protocol.ts";
 
 import { extract, EXTRACT_BODY_MAX, type ExtractionAI } from "./extraction.ts";
 
@@ -79,6 +79,7 @@ function parse(text: string): RunBody | null {
   try {
     const b = JSON.parse(text) as RunBody;
     const ok = b && typeof b.bundle?.hash === "string" && /^[0-9a-f]{32}$/.test(b.bundle.hash) && (b.bundle.code === undefined || typeof b.bundle.code === "string")
+      && typeof b.isolate === "string" && RUN_ISOLATE_SCOPE.test(b.isolate)
       && b.settings && typeof b.settings === "object" && !Array.isArray(b.settings) && Array.isArray(b.calls);
     return ok ? b : null;
   } catch {
@@ -143,11 +144,11 @@ export async function handle(req: Request, env: Env): Promise<Response> {
   if (url.pathname === "/extract") return extract(text, env.AI);
   if (url.pathname === "/module") return runModule(text, env);
   const body = parse(text);
-  if (!body) return json(400, { error: "body must be { bundle: { hash, code? }, settings, calls: [] }" });
+  if (!body) return json(400, { error: "body must be { bundle: { hash, code? }, isolate, settings, calls: [] }" });
   const known = await codeFor(body.bundle);
   if (known instanceof Response) return known;
   const hash = body.bundle.hash;
-  const worker = env.LOADER.get(hash, () => ({
+  const worker = env.LOADER.get(`${hash}:${body.isolate}`, () => ({
     compatibilityDate: COMPATIBILITY_DATE, mainModule: "main.js", modules: { "main.js": MAIN, "recipe.js": known },
     globalOutbound: null, env: {}, limits: { cpuMs: CPU_MS },
   }));

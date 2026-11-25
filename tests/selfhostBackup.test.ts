@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import test from "node:test";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { ASIDE, directoryVolume, pack, restore, restorePlan, verifyArchive } from "../scripts/selfhost/backup.mjs";
+import { ASIDE, composeServiceImage, directoryVolume, pack, restore, restorePlan, verifyArchive } from "../scripts/selfhost/backup.mjs";
 
 function snapshot(dir: string): Record<string, string> {
   const files: Record<string, string> = {};
@@ -53,7 +53,7 @@ function setup() {
   return { temp, repo, source, archive, target, service, calls, expected, done: () => rmSync(temp, { recursive: true, force: true }) };
 }
 
-test("a backup restores the same files into an empty volume and records the backup's data epoch", async () => {
+test("a backup restores the same files into an empty volume and records the post-migration data epoch", async () => {
   const t = setup();
   try {
     const file = await t.archive("backup.tar.gz");
@@ -62,7 +62,7 @@ test("a backup restores the same files into an empty volume and records the back
     const result = await restore(file, { repo: t.repo, log: () => {}, volume: directoryVolume(volume, null), service: t.service([true]) });
     assert.deepEqual(snapshot(volume), t.expected);
     assert.deepEqual(result.migrations, ["npm run migrate-two"]);
-    assert.equal(readFileSync(join(t.repo, ".canon/data-epoch"), "utf8"), "1\n");
+    assert.equal(readFileSync(join(t.repo, ".canon/data-epoch"), "utf8"), "2\n");
     assert.deepEqual(t.calls, ["stop", "start"]);
   } finally { t.done(); }
 });
@@ -122,4 +122,18 @@ test("putting back a partly set-aside volume keeps the originals that were never
     await steps.putBack();
     assert.deepEqual(snapshot(volume), original);
   } finally { t.done(); }
+});
+
+test("composeServiceImage picks the canoncrm service image even when caddy is present in compose config", () => {
+  const multi = {
+    name: "canon",
+    services: {
+      caddy: { image: "caddy:2.10@sha256:c3d7ee5d2b11f9dc54f947f68a734c84e9c9666c92c88a7f30b9cba5da182adb" },
+      canoncrm: { image: "ghcr.io/fullstackgtm/canon:2026-11-24" },
+    },
+  };
+  assert.equal(composeServiceImage(multi, "canoncrm", [multi.services.caddy.image, multi.services.canoncrm.image]), "ghcr.io/fullstackgtm/canon:2026-11-24");
+  assert.equal(composeServiceImage({ name: "canon", services: { caddy: { image: "caddy:2.10" }, canoncrm: { build: {} } } }, "canoncrm", ["caddy:2.10", "canon-canoncrm:latest"]), "canon-canoncrm:latest");
+  assert.equal(composeServiceImage({ name: "canon", services: { caddy: { image: "caddy:2.10" }, canoncrm: { build: {} } } }, "canoncrm", ["caddy:2.10"]), null);
+  assert.equal(composeServiceImage({ name: "canon", services: { canoncrm: { build: {} } } }, "canoncrm", ["canon-canoncrm"]), "canon-canoncrm");
 });

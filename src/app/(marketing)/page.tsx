@@ -1,13 +1,25 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { CanonSections } from "@/components/marketing/canon-sections";
 import { DomainStartForm } from "@/components/marketing/domain-start-form";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: { absolute: "CanonCRM: a CRM that fills itself and stays clean" },
   description: "Canon builds your market from your website when you sign up, and every field shows where it came from.",
 };
 
-export default function HomePage() {
+export default async function HomePage() {
+  if (process.env.NEXT_PUBLIC_CANON_SELFHOST === "true" || process.env.CANON_AUTH === "local") {
+    if (process.env.CANON_AUTH === "local") {
+      const { localSession } = await import("@/lib/localAuth");
+      const session = await localSession().catch(() => null);
+      redirect(session ? "/dashboard" : "/sign-in");
+    }
+    redirect("/dashboard");
+  }
+
   return (
     <>
       <section className="home-hero" id="start">

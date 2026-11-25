@@ -168,7 +168,7 @@ export const runResearch = internalAction({
       };
 
       const now = new Date();
-      const [planPrompt] = await runPlays(ctx, loaded.recipe, [{ fn: "research.planPrompt", input: [subject, now.getUTCFullYear()] }]);
+      const [planPrompt] = await runPlays(ctx, loaded.recipe, [{ fn: "research.planPrompt", input: [subject, now.getUTCFullYear()] }], orgId);
       const plays = playsFor(loaded.recipe);
       const limits = researchLimits(plays);
       const planned = (await call(planPrompt, PLAN_TOOL, planSchema(plays))) as { queries?: unknown };
@@ -203,7 +203,7 @@ export const runResearch = internalAction({
       if (!pages.length) return await fail("Canon couldn't read the company's site or any search result.");
 
       const today = now.toISOString().slice(0, 10);
-      const [briefPrompt] = await runPlays(ctx, loaded.recipe, [{ fn: "research.briefPrompt", input: [subject, pages, today] }]);
+      const [briefPrompt] = await runPlays(ctx, loaded.recipe, [{ fn: "research.briefPrompt", input: [subject, pages, today] }], orgId);
       const raw = await call(briefPrompt, BRIEF_TOOL, briefSchema(plays, loaded.recipe.settings, questions.length));
       const screened = screenFindings(raw, pages, [...known.values()], today, questions);
       await ctx.runMutation(internal.dealPlays.saveResearch, {
@@ -348,7 +348,7 @@ export const finishPeopleResearch = internalAction({
       }
 
       // The capability hypothesis: only with something that says what the seller sells, and some research to tie it to.
-      const [product] = await runPlays(ctx, plane.recipe, [{ fn: "people.productContext", input: [{ context: plane.brief.context }, plane.pointOfView] }]);
+      const [product] = await runPlays(ctx, plane.recipe, [{ fn: "people.productContext", input: [{ context: plane.brief.context }, plane.pointOfView] }], orgId);
       const researched = rows.filter((r) => r.goal || r.systems);
       let capabilities = new Map<string, string | null>();
       // Started without a ChatGPT plan: the one capability call for the deal runs on Canon's research model.
@@ -356,12 +356,12 @@ export const finishPeopleResearch = internalAction({
       if (!product) notes.push("Add a product brief or an ICP point of view to get each person's new capability.");
       else if (researched.length && !llm) notes.push("Sign in with ChatGPT under Integrations → ChatGPT to get each person's new capability.");
       else if (llm) {
-        const [prompt] = await runPlays(ctx, plane.recipe, [{ fn: "people.capability.prompt", input: [{ company: plane.deal.companyName ?? "the account", product, people: researched }] }]);
+        const [prompt] = await runPlays(ctx, plane.recipe, [{ fn: "people.capability.prompt", input: [{ company: plane.deal.companyName ?? "the account", product, people: researched }] }], orgId);
         const raw = await forcedToolCall(prompt, spec.capability.tool, spec.capability.schema, llm.model ?? DEFAULT_MODELS[llm.provider], llm).catch((cause) => {
           notes.push(`The capability step failed: ${cause instanceof Error ? cause.message.slice(0, 200) : String(cause)}.`);
           return null;
         });
-        const [cleaned] = await runPlays(ctx, plane.recipe, [{ fn: "people.capability.clean", input: [raw, researched.map((r) => r.contactId)] }]);
+        const [cleaned] = await runPlays(ctx, plane.recipe, [{ fn: "people.capability.clean", input: [raw, researched.map((r) => r.contactId)] }], orgId);
         capabilities = new Map(cleaned);
       }
 

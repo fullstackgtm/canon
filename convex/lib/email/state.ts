@@ -7,7 +7,7 @@
  *
  * Pure and runtime-neutral (Web Crypto only).
  */
-import { hmacSha256Hex, sha256Hex } from "../publicCrypto.ts";
+import { hmacSha256Hex, sha256Hex } from "../webCrypto.ts";
 
 export const EMAIL_NOTIFY_PATH = "/email/unipile/notify";
 

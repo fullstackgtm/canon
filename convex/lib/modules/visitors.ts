@@ -20,6 +20,7 @@ import type { RoomTarget } from "./roomAttribution";
 import { appendObservations } from "../../observations";
 import { visitorDomain, visitorEmail, visitorEmailAllowed } from "../../../modules/kernel/visitorIdentity.ts";
 import { queueWorkspaceEmail } from "../outbound/queue";
+import { secretsEqual } from "./fileSecurity";
 
 const DAY = 86_400_000;
 export const sharesEnabled = () => process.env.MODULE_SHARES === "on" || isDevAuthBypassEnabled();
@@ -315,7 +316,7 @@ async function refundUpload(ctx: MutationCtx, row: NonNullable<Awaited<ReturnTyp
 
 export async function visitorUploadTicket(ctx: MutationCtx, ticket: string, secret: string) {
   const row = await visitorUploadRow(ctx, ticket), upload = row?.visitorUpload;
-  if (!row || !upload || row.secret !== secret || !secret || upload.state === "released") return null;
+  if (!row || !upload || !row.secret || !secret || !(await secretsEqual(row.secret, secret)) || upload.state === "released") return null;
   if (upload.state === "reserved" && upload.expiresAt <= Date.now()) { await refundUpload(ctx, row); return null; }
   if (upload.state === "stored" && upload.expiresAt <= Date.now()) return null;
   const visitor = await ctx.db.get(upload.visitorId), grant = await ctx.db.get(upload.grantId);

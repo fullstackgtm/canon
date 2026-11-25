@@ -11,12 +11,13 @@ report it.
 `docker compose up` starts one container from `Dockerfile.selfhost`: built on your
 machine with `--build`, or the image published for a signed release, which
 `scripts/selfhost/install.sh` pulls. Its entrypoint, `scripts/selfhost/entrypoint.mjs`, runs as user `canon` (uid 1001)
-under `tini` and starts four things in order:
+under `tini` and starts five things in order (four if you set `RECIPE_RUNTIME_URL` to use an external runtime):
 
 | Process | Listens on | What it is |
 |---|---|---|
+| Recipe runtime (`workerd`) | 127.0.0.1:8790, inside the container | Bundled `workerd` running `services/recipe-runtime` via `scripts/selfhost/recipe-runtime.capnp` when `RECIPE_RUNTIME_URL` is unset. Executes recipe and module server code in Dynamic Worker isolates with `globalOutbound: null` (no outbound network) and empty `env: {}`. |
 | Convex backend | 127.0.0.1:3210 and 3211, inside the container | The open-source Convex backend, an image pinned by digest. It stores the database in SQLite. |
-| Convex CLI, at each start | nothing | Pushes the app's functions from `convex/` to that backend when they changed, then asks it whether the first owner exists, and exits. |
+| Convex CLI, at each start | nothing | Pushes the app's functions from `convex/` to that backend when they changed, runs any data-epoch migrations after the app starts, asks whether the first owner exists, and exits. |
 | Record service | 127.0.0.1:8787, inside the container | `services/record-service`, a Node and DuckDB store for records. |
 | Next.js | 0.0.0.0:3000, inside the container | The web app. It forwards `/convex` and `/convex-site` to the backend. |
 
@@ -24,8 +25,15 @@ Compose publishes only port 3000, and only on the host's loopback address
 (`127.0.0.1:${FRONTEND_PORT}`). Nothing is reachable from other machines until
 you add an SSH tunnel or a reverse proxy.
 
-The recipe runtime, which runs modules' server code, is off unless you set
-`RECIPE_RUNTIME_URL` and `RECIPE_RUNTIME_SECRET`.
+By default (when `RECIPE_RUNTIME_URL` is unset), the container runs the bundled
+`workerd` recipe runtime on `127.0.0.1:8790`, authenticated with a generated
+shared secret stored at `/data/credentials/recipe_runtime_secret`. `workerd`
+receives only `PATH` and `RECIPE_RUNTIME_SECRET` in its environment (Next.js and
+the record service never receive that secret), and every module or recipe bundle
+executes in an isolate with `globalOutbound: null` and `env: {}`. A watchdog
+restarts `workerd` if a call stuck in a loop stops it from answering. If you set
+`RECIPE_RUNTIME_URL` and `RECIPE_RUNTIME_SECRET`, the container does not start
+the bundled `workerd` process and calls your runtime instead.
 
 ## What it stores
 
@@ -35,7 +43,7 @@ Everything lives in the Compose volume `data`, mounted at `/data`:
 |---|---|
 | `/data/convex` | The Convex database and file storage |
 | `/data/records` | The record service's database |
-| `/data/credentials` | Keys the container makes on first start: the backend's instance secret and admin key, the record service token, the key that encrypts stored vendor tokens, the RSA key that signs sign-in sessions, and the setup code |
+| `/data/credentials` | Keys the container makes on first start: the backend's instance secret and admin key, the record service token, the key that encrypts stored vendor tokens, the RSA key that signs sign-in sessions, the recipe runtime secret (`recipe_runtime_secret`, when using the built-in runtime), and the setup code |
 
 The first owner registers with the setup code, which the container prints in its
 log until an owner exists, or the `CANON_SETUP_CODE` you set. Everyone else joins
@@ -58,7 +66,7 @@ workflow, from the commit the signed release tag names.
 | ghcr.io | The Convex backend image, pinned by digest |
 | public.ecr.aws, Docker Hub | The `node:22-bookworm-slim` and `ubuntu:24.04` base images |
 | deb.debian.org, archive.ubuntu.com | System packages |
-| registry.npmjs.org | `npm ci` for the app and the record service |
+| registry.npmjs.org | `npm ci` for the app, the record service and the recipe runtime |
 
 Fonts are bundled, so the build makes no font downloads.
 

@@ -13,7 +13,7 @@ import { action, internalMutation, internalQuery, query, type ActionCtx } from "
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { getCurrentUser } from "./lib";
-import { appUrl } from "./lib/operatorConfig";
+import { appUrl } from "./lib/runtimeConfig";
 import { stripeClient } from "./lib/stripeBilling";
 
 /** What Settings -> Billing shows. */
@@ -104,7 +104,7 @@ export const openPortal = action({
     const stripe = stripeClient();
     if (!stripe) throw new ConvexError("Billing isn't configured on this deployment.");
     const org = await ctx.runQuery(internal.billing.adminOrg, {});
-    if (!org.stripeCustomerId) throw new ConvexError("This workspace has no billing account yet. Subscribe first.");
+    if (!org.stripeCustomerId) throw new ConvexError("This workspace has no billing account yet. Buy a credit pack first.");
     const session = await stripe.billingPortal.sessions.create({ customer: org.stripeCustomerId, return_url: `${origin()}/dashboard/settings/billing` });
     return { url: session.url };
   },

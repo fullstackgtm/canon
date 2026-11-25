@@ -4,8 +4,7 @@ The Customization page (formerly Recipes) calls a recipe a **package**
 (`docs/customization.md`). Agents use `canon_customization`; `canon_recipes`
 remains an alias. Ids, Convex functions and `recipe.md` keep the word recipe.
 
-Status: **R1 to R6, G1 to G7, E1, E2, E3 and E4b built** (2026-10-14). E1 lets a workspace customize any recipe into its own copy and edit that copy's markdown in the app ("Customizing in the app"); E2 adds a live preview, evals before save and merging upstream updates, E3 edits a page's layout visually without markdown ("Visual layout mode"), and E4b asks Canon for an edit in words ("Editing with an agent"). G6 made the account and contact pages points like the deal page ("Record pages"). G1 made recipes packages of contributions to registered points, with install and enable kept apart and a Customization page of their own ("Packages, contributions and points"). G3 lets a recipe ship templates, rows a workspace installs once ("Templates"). G2 added model points: the forecast, customer health, lead scoring, signal heat and hygiene audit numbers are canon-base's settings, which a workspace edits and another recipe can replace ("Model points"). G5 did the same for calls: what a call's next step, close date and opportunity mean, and the words behind each call insight ("Calls"). G4 lets a recipe ship AI fields, which a workspace turns on one by one ("Fields"). G7 made ICP fit weights a model point too, `scoring.fit`, and a change to them rescores the workspace. R6 writes recipes as markdown and TypeScript, and the markdown lays out the deal page: its sections, their order and folding, and its actions. The methodology the kernel still held (the research and people research cadences, a research run's limits, the draft input caps, the first-touch channel, and what the review, account plan and buyer-fit answers ask) is the recipe's too ("Methodology and kernel"). Decisions are Ryan's, from the thread that
-followed the deal page work (#361 to #404). Builds on Canon's org agents, Signal
+Status: **R1 to R6, G1 to G7, E1, E2, E3 and E4b built** (2026-10-14). E1 lets a workspace customize any recipe into its own copy and edit that copy's markdown in the app ("Customizing in the app"); E2 adds a live preview, evals before save and merging upstream updates, E3 edits a page's layout visually without markdown ("Visual layout mode"), and E4b asks Canon for an edit in words ("Editing with an agent"). G6 made the account and contact pages points like the deal page ("Record pages"). G1 made recipes packages of contributions to registered points, with install and enable kept apart and a Customization page of their own ("Packages, contributions and points"). G3 lets a recipe ship templates, rows a workspace installs once ("Templates"). G2 added model points: the forecast, customer health, lead scoring, signal heat and hygiene audit numbers are canon-base's settings, which a workspace edits and another recipe can replace ("Model points"). G5 did the same for calls: what a call's next step, close date and opportunity mean, and the words behind each call insight ("Calls"). G4 lets a recipe ship AI fields, which a workspace turns on one by one ("Fields"). G7 made ICP fit weights a model point too, `scoring.fit`, and a change to them rescores the workspace. R6 writes recipes as markdown and TypeScript, and the markdown lays out the deal page: its sections, their order and folding, and its actions. The methodology the kernel still held (the research and people research cadences, a research run's limits, the draft input caps, the first-touch channel, and what the review, account plan and buyer-fit answers ask) is the recipe's too ("Methodology and kernel"). Builds on Canon's org agents, Signal
 agents, deal plays and deal prep loop.
 
 ## Problem
@@ -632,7 +631,7 @@ deal page. An action id is unique on its page.
 another recipe's. FSGTM's recipes don't lay them out. The company's page lives
 at `/dashboard/accounts/<id>`; it merged the Accounts page (fit and score) and
 the Companies record page, and `/dashboard/records/account/<id>` redirects to
-it. `scripts/record-page-parity.ts` is the lever for both pages: it captures
+it. A record-page parity check captures
 every seeded account's and contact's sections, fields and controls from a
 running stack, and compares two captures. Against `origin/main` 9014e65d it
 found 0 differences on the 3 seeded accounts and 2 contacts, past the merge's
@@ -736,8 +735,8 @@ writes can loosen them.
 
 `canon_deal_play get` returns the same actions for the deal's stage, each with
 its method, so an agent sees what a person sees.
-`scripts/deal-page-parity.ts` renders the deal page from this checkout and
-from a git ref on the same control planes, and lists every control per
+A deal-page parity check renders the deal page from two git refs
+on the same control planes, and lists every control per
 section, stage and edit right. When the actions were first wired it found 0
 differences from the hard-coded buttons in 3,876 section renders.
 

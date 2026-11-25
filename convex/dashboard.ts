@@ -3,22 +3,8 @@ import { query } from "./_generated/server";
 import { unrestrictedUser } from "./permissions";
 import { createTracer } from "./lib/profiler";
 
-/**
- * Read budget (Convex caps one query at 4096 document reads):
- *   deals 3500 + users 400 + integrations 20 + org 1 + viewer lookup ~2
- *   ≈ 3,923 worst case; realistic org (3k deals, 100 users) ≈ 3,103.
- * Account/contact counts come from organizations.crmCounts (maintained at
- * sync end) — scanning 10k contacts + 5k accounts here used to put this
- * query at ~18k reads, past the cap. Deals are still scanned (bounded)
- * because mtdRevenue/winRate need per-deal close dates the counters don't
- * carry; orgs beyond 3,500 deals get date-filtered metrics computed over the
- * 3,500 most recently created deals (see `capped` in the trace).
- */
-const DASHBOARD_LIMITS = {
-  deals: 3500,
-  integrations: 20,
-  users: 400,
-};
+// At most 2,724 data reads, leaving headroom for authorization and index boundaries.
+const DASHBOARD_LIMITS = { deals: 1000, window: 1500, integrations: 20, users: 200 };
 
 function ymd(date: Date): string {
   return date.toISOString().split("T")[0];
@@ -74,44 +60,57 @@ export const summary = query({
     const org = await ctx.db.get(user.orgId);
     // Maintained aggregates (refreshed at sync end). Zero when never synced.
     const crmCounts = org?.crmCounts;
+    const currentMonth = monthRange(0);
+    const previousMonth = monthRange(-1);
+    const currentQuarter = quarterRange(0);
+    const previousQuarter = quarterRange(-1);
+    const windowRows = await trace.track("windowDeals", () =>
+      ctx.db.query("deals")
+        .withIndex("by_orgId_closeDate", (q) => q.eq("orgId", user.orgId)
+          .gte("closeDate", previousQuarter.start).lte("closeDate", currentQuarter.end))
+        .take(DASHBOARD_LIMITS.window + 1),
+    );
+    const windowDeals = windowRows.slice(0, DASHBOARD_LIMITS.window).filter((deal) => deal.archivedAt === undefined);
     const deals = await trace.track("deals", () =>
       ctx.db
         .query("deals")
         .withIndex("by_orgId_archivedAt", (q) => q.eq("orgId", user.orgId).eq("archivedAt", undefined))
-        .take(DASHBOARD_LIMITS.deals),
+        .take(DASHBOARD_LIMITS.deals + 1),
     );
     const users = await trace.track("users", () =>
       ctx.db
         .query("users")
         .withIndex("by_orgId", (q) => q.eq("orgId", user.orgId))
-        .take(DASHBOARD_LIMITS.users),
+        .take(DASHBOARD_LIMITS.users + 1),
     );
     const integrations = await trace.track("integrations", () =>
       ctx.db
         .query("integrations")
         .withIndex("by_orgId", (q) => q.eq("orgId", user.orgId))
-        .take(DASHBOARD_LIMITS.integrations),
+        .take(DASHBOARD_LIMITS.integrations + 1),
     );
 
-    const currentMonth = monthRange(0);
-    const previousMonth = monthRange(-1);
-    const currentQuarter = quarterRange(0);
-    const previousQuarter = quarterRange(-1);
+    const truncated = {
+      deals: deals.length > DASHBOARD_LIMITS.deals,
+      window: windowRows.length > DASHBOARD_LIMITS.window,
+      users: users.length > DASHBOARD_LIMITS.users,
+      integrations: integrations.length > DASHBOARD_LIMITS.integrations,
+    };
 
     const openDeals = deals.filter((deal) => !deal.isClosed);
-    const wonDeals = deals.filter(
+    const wonDeals = windowDeals.filter(
       (deal) => deal.isClosed && deal.isWon && deal.forecastCategory === "closed_won",
     );
-    const closedDeals = deals.filter((deal) => deal.isClosed);
+    const closedDeals = windowDeals.filter((deal) => deal.isClosed);
     const currentQuarterClosed = closedDeals.filter((deal) =>
       inRange(deal.closeDate, currentQuarter),
     );
 
     const openPipeline = openDeals.reduce((sum, deal) => sum + (deal.amount ?? 0), 0);
-    const currentQuarterPipeline = openDeals
+    const currentQuarterPipeline = windowDeals.filter((deal) => !deal.isClosed)
       .filter((deal) => inRange(deal.closeDate, currentQuarter))
       .reduce((sum, deal) => sum + (deal.amount ?? 0), 0);
-    const previousQuarterPipeline = openDeals
+    const previousQuarterPipeline = windowDeals.filter((deal) => !deal.isClosed)
       .filter((deal) => inRange(deal.closeDate, previousQuarter))
       .reduce((sum, deal) => sum + (deal.amount ?? 0), 0);
     const mtdRevenue = wonDeals
@@ -133,42 +132,32 @@ export const summary = query({
       (integration) => integration.isActive,
     );
 
-    // A span whose docs == its cap means the result is TRUNCATED: the
-    // date-filtered metrics (mtdRevenue/winRate/changes) are computed over a
-    // partial deal list. Counter-backed metrics (accounts/contacts, and
-    // pipeline/deal counts when crmCounts is set) are exact regardless.
-    trace.end({
-      orgId: user.orgId,
-      crmCountsAgeMs: crmCounts ? Date.now() - crmCounts.updatedAt : null,
-      capped: {
-        deals: deals.length === DASHBOARD_LIMITS.deals,
-        users: users.length === DASHBOARD_LIMITS.users,
-      },
-    });
+    trace.end({ orgId: user.orgId, truncated });
 
     return {
+      truncated,
       orgName: org?.name ?? "Workspace",
       metrics: {
         // Prefer the maintained counters (exact at any scale); the bounded
         // deal scan is the fallback for orgs that have never synced.
-        openPipeline: crmCounts?.openPipeline ?? openPipeline,
-        mtdRevenue,
-        winRate,
-        activeTeam: activeUsers.length,
-        openDeals: crmCounts?.openDeals ?? openDeals.length,
-        totalDeals: crmCounts?.deals ?? deals.length,
+        openPipeline: crmCounts?.openPipeline ?? (truncated.deals ? null : openPipeline),
+        mtdRevenue: truncated.window ? null : mtdRevenue,
+        winRate: truncated.window ? null : winRate,
+        activeTeam: truncated.users ? null : activeUsers.length,
+        openDeals: crmCounts?.openDeals ?? (truncated.deals ? null : openDeals.length),
+        totalDeals: crmCounts?.deals ?? (truncated.deals ? null : deals.length),
         accounts: crmCounts?.accounts ?? 0,
         contacts: crmCounts?.contacts ?? 0,
         unownedDeals:
-          crmCounts?.unownedDeals ?? deals.filter((deal) => !deal.primaryRepId).length,
-        connectedCrmCount: connectedIntegrations.length,
+          crmCounts?.unownedDeals ?? (truncated.deals ? null : deals.filter((deal) => !deal.primaryRepId).length),
+        connectedCrmCount: truncated.integrations ? null : connectedIntegrations.length,
       },
       changes: {
-        openPipeline: percentChange(
+        openPipeline: truncated.window ? undefined : percentChange(
           currentQuarterPipeline,
           previousQuarterPipeline,
         ),
-        mtdRevenue: percentChange(mtdRevenue, previousMonthRevenue),
+        mtdRevenue: truncated.window ? undefined : percentChange(mtdRevenue, previousMonthRevenue),
       },
       teamMembers: activeUsers.slice(0, 6).map((member) => ({
         _id: member._id,

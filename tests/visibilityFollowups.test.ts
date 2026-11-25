@@ -178,7 +178,7 @@ test("a narrowed manager reviews facts only on the records they see: the queue a
   assert.deepEqual(morgan.mutations.map((m) => m.args.admitted), [[]]);
   assert.match((await refusal(fn("internal.canonGate.decideAdmitted").handler(morgan.ctx, morgan.mutations[0]!.args)))!, /Fact not found/);
   // A whole-CRM job is refused to him.
-  assert.match((await refusal(fn("competitive.generateFromDeals").handler(morgan.ctx, {})))!, /sees only some records/);
+  await assert.rejects(fn("competitive.generateFromDeals").handler(morgan.ctx, {}), /retired/);
   // With no rules saved: the live queue shows both, as before.
   const open = await as(seed(facts, false), MORGAN);
   assert.deepEqual((await fn("canonGate.reviewQueue").handler(open.ctx, {})).proposed.map((p: { label: string }) => p.label).sort(), ["Atlas Cloud", "Northstar Data"]);

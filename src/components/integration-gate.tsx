@@ -1,12 +1,15 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
+
 import { useQuery } from "convex/react";
 import { usePathname } from "next/navigation";
 import { api } from "../../convex/_generated/api";
 import { ACTION_INTEGRATIONS, INTEGRATIONS_AVAILABLE, integrationNeeds, type IntegrationFeature } from "../../convex/lib/integrationsAvailable.ts";
 import { ACTION_CAPABILITIES } from "../../convex/lib/providers/registry.ts";
 import type { ProviderCapability } from "../../modules/kernel/providers.ts";
+
+const subscribe = () => () => {};
 
 export function useIntegrationAvailable(feature: IntegrationFeature): boolean {
   return useQuery(api.integrationsAvailable.status)?.[feature] === true;
@@ -16,7 +19,9 @@ export type IntegrationRequirement = IntegrationFeature | readonly IntegrationFe
 
 export function IntegrationGate({ feature, children, note = false }: { feature: IntegrationRequirement; children: ReactNode; note?: boolean }) {
   const available = useQuery(api.integrationsAvailable.status);
-  if (!available) return null;
+  // A cached Convex result may arrive before hydration; SSR rendered this gate empty.
+  const hydrated = useSyncExternalStore(subscribe, () => true, () => false);
+  if (!hydrated || !available) return null;
   const features = typeof feature === "string" ? [feature] : feature;
   if (!features.some((key) => available[key])) return note ? <p className="p-4 text-sm text-muted-foreground">This feature is off. {features.map(integrationNeeds).join(" or ")}.</p> : null;
   return children;

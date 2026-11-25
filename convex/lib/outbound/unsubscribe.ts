@@ -1,6 +1,6 @@
 import type { Id } from "../../_generated/dataModel";
 import { hmacHex } from "../agents/grants";
-import { derivedSecret } from "../operatorConfig";
+import { derivedSecret } from "../runtimeConfig";
 import { normalizeSuppression } from "../suppressions/domain";
 
 const DOMAIN = "canon.outbound.unsubscribe.v1";

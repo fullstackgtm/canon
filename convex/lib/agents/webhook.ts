@@ -9,7 +9,7 @@
  * A request without both, with a timestamp more than TOLERANCE_S away, or with
  * another signature is refused before anything is recorded.
  */
-import { hmacSha256Hex, sha256Hex } from "../publicCrypto.ts";
+import { hmacSha256Hex, sha256Hex } from "../webCrypto.ts";
 import { normalizeDomain, type RecordClient } from "../recordClient.ts";
 import type { AccountRow } from "../recordContract.ts";
 

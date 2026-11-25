@@ -10,7 +10,7 @@ import { integrationEnabled } from "../integrationsAvailable.ts";
 import { postToSlack, webhookUrlProblem } from "../agents/slack.ts";
 import { signWebhook } from "../agents/webhook.ts";
 import { bodyHtml } from "../email/compose.ts";
-import { RECEIVER_TIMEOUT_MS, destinationProblem, publicAddresses, resolvesPrivate } from "../recordWebhooks.ts";
+import { RECEIVER_TIMEOUT_MS, allowLoopbackWebhooks, destinationProblem, type WebhookPoster } from "../recordWebhooks.ts";
 
 export type Delivery =
   | { ok: true; providerId: string }
@@ -18,7 +18,7 @@ export type Delivery =
   | { ok: false; error: string; retry: boolean; unknown?: true };
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const hostOf = (url: string) => { try { return new URL(url).hostname; } catch { return ""; } };
+const hostOf = (url: string) => { try { return new URL(url).hostname.toLowerCase().replace(/\.$/, ""); } catch { return ""; } };
 const loopback = (url: string) => LOOPBACK.has(hostOf(url));
 
 /** "live" only on a deployment: its Convex site is an https address that isn't loopback. Everything else is a sink. */
@@ -60,26 +60,27 @@ export const canonSignature = async (secret: string, ms: number, body: string) =
 
 /**
  * A signed webhook POST. `id` (the outbox row's) goes out as Canon-Event-Id, so a receiver that saw it already drops a
- * retry: a timeout or a 5xx is sent again. https only and never a private address on a deployment.
+ * retry: a timeout or a 5xx is sent again. Delivery must go through a DNS-pinned Node transport (`post`), never unpinned
+ * `fetch`; loopback targets require explicit `CANON_ALLOW_LOOPBACK_WEBHOOKS=true`.
  */
-export async function sendWebhook(a: { url: string; secret: string; id: string; body: string }, fetchImpl: typeof fetch = fetch): Promise<Delivery> {
+export async function sendWebhook(
+  a: { url: string; secret: string; id: string; body: string },
+  post: WebhookPoster,
+): Promise<Delivery> {
   const mode = deliveryMode();
   if (mode === "sink" && !loopback(a.url)) return { ok: true, providerId: "local" };
-  if (mode === "live") {
-    const problem = destinationProblem(a.url, false);
-    if (problem) return { ok: false, error: problem, retry: false };
-    try {
-      if (resolvesPrivate(await publicAddresses(hostOf(a.url)))) return { ok: false, error: "The hostname points to a private address.", retry: false };
-    } catch (cause) {
-      return { ok: false, error: cause instanceof Error ? cause.message : "Couldn't check where the hostname points.", retry: true };
-    }
-  }
+  const problem = destinationProblem(a.url, allowLoopbackWebhooks());
+  if (problem) return { ok: false, error: problem, retry: false };
   const ms = Date.now();
+  const headers = {
+    "content-type": "application/json",
+    "user-agent": "Canon-Outbound/1",
+    "canon-event-id": a.id,
+    "canon-signature": await canonSignature(a.secret, ms, a.body),
+  };
   try {
-    const res = await fetchImpl(a.url, {
-      method: "POST", redirect: "manual", signal: AbortSignal.timeout(RECEIVER_TIMEOUT_MS), body: a.body,
-      headers: { "content-type": "application/json", "user-agent": "Canon-Outbound/1", "canon-event-id": a.id, "canon-signature": await canonSignature(a.secret, ms, a.body) },
-    });
+    const res = await post({ url: a.url, headers, body: a.body, timeoutMs: RECEIVER_TIMEOUT_MS });
+    if (!res.ok) return { ok: false, error: res.error, retry: res.retry };
     if (res.status >= 200 && res.status < 300) return { ok: true, providerId: mode === "sink" ? "local" : `http-${res.status}` };
     return { ok: false, error: `The endpoint answered ${res.status}.`, retry: res.status === 429 || res.status >= 500 };
   } catch (cause) {

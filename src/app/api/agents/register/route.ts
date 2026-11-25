@@ -2,6 +2,7 @@ import { ConvexError } from "convex/values";
 import { api } from "../../../../../convex/_generated/api.js";
 import { publicGtmApi, readJsonBody } from "../../gtm/_lib.ts";
 import { plainConvexClient, rateLimit, sha256 } from "../../cli/_lib.ts";
+import { AGENT_REVOCATION_CONTACT } from "../../../.well-known/_lib.ts";
 import {
   AGENT_IDENTITY_TYPES,
   hashClientIp,
@@ -148,7 +149,7 @@ export const POST = publicGtmApi(async (request) => {
         "Organization CRM access requires a human-approved pairing — see the device flow in " +
         `${base}/.well-known/oauth-authorization-server and ${base}/auth.md`,
       revocation: {
-        contact: "ryan@fullstackgtm.com",
+        contact: AGENT_REVOCATION_CONTACT,
         instructions:
           "Email the contact with your registration name and operator_contact to revoke a token; admins can also revoke server-side at any time. Store this token securely — it is shown exactly once.",
       },

@@ -147,17 +147,19 @@ export default function TermsPage() {
           problem.
         </p>
 
-        <h2>8. Plans, payment and credits</h2>
+        <h2>8. Pricing, payment and credits</h2>
         <ul>
           <li>
-            Paid plans are billed in advance through Stripe, monthly or annually, and renew
-            automatically until cancelled. You can cancel at any time. Cancellation takes effect at
-            the end of the current billing period.
+            CanonCRM is free to use. Additional prepaid credit packs and optional paid add-ons
+            are billed through Stripe at the prices shown when you buy them.
           </li>
           <li>
-            Some work is metered and paid from prepaid credits, such as verified emails and deep
-            research. The Service shows a run&rsquo;s cost before you start it. Credits are not cash,
-            cannot be transferred, and may expire as stated when you buy them.
+            Metered work, such as contacts from paid sources and research on Canon&rsquo;s hosted
+            model, draws from your workspace&rsquo;s credits. Free monthly credits are spent first
+            and reset on the 1st; purchased credits last 10 years.
+          </li>
+          <li>
+            Credits are not cash and cannot be transferred.
           </li>
           <li>
             Fees exclude taxes. You pay applicable taxes, which we collect where required.
@@ -167,15 +169,11 @@ export default function TermsPage() {
             charge is wrong, tell us within 60 days.
           </li>
           <li>
-            We may change prices with at least 30 days&rsquo; notice. The change applies from your
-            next billing period.
+            We may change prices with at least 30 days&rsquo; notice. Changes to credit-pack prices
+            apply to future purchases.
           </li>
           <li>We may suspend paid features if an invoice is more than 15 days overdue.</li>
         </ul>
-        <p>
-          Free trials last for the period shown at sign-up. At the end of a trial, you need a paid
-          plan to keep using paid features.
-        </p>
 
         <h2>9. Our property and feedback</h2>
         <p>

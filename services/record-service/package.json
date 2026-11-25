@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node --experimental-strip-types --no-warnings src/main.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --no-warnings ../../scripts/dev/node-test.mjs --default-concurrency=1 -- test/durability.test.ts && node --no-warnings ../../scripts/dev/node-test.mjs --default-concurrency=4 -- $(ls test/*.test.ts | grep -v durability)",
+    "test": "node --experimental-strip-types --no-warnings --test --test-concurrency=1 test/durability.test.ts && node --experimental-strip-types --no-warnings --test --test-concurrency=${CANONCRM_TEST_CONCURRENCY:-4} $(ls test/*.test.ts | grep -v durability)",
     "backup": "node --experimental-strip-types --no-warnings scripts/backup.ts",
     "restore": "node --experimental-strip-types --no-warnings scripts/restore.ts",
     "load-pdl": "node --experimental-strip-types --no-warnings scripts/load-pdl.ts",

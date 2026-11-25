@@ -23,22 +23,22 @@ test("starting plans keep unknowns, combine archetypes, cap modules and use ship
     [
       { crm: "none", sellers: "0-2" },
       ["Z0", "G4"],
-      ["icps", "work", "customer-success", "sequences", "dialer"],
+      ["work", "customer-success", "sequences", "dialer"],
     ],
     [
       { crm: "hubspot", sellers: "3-10" },
       ["B1", "G4"],
-      ["icps", "work", "customer-success", "sequences", "dialer"],
+      ["work", "customer-success", "sequences", "dialer"],
     ],
     [
       { crm: "salesforce", sellers: "11-49" },
       ["S2", "G4"],
-      ["icps", "work", "customer-success", "reports", "forecast"],
+      ["work", "customer-success", "reports", "forecast"],
     ],
     [
       { crm: "salesforce", sellers: "50+" },
       ["S2", "M3", "G4"],
-      ["icps", "work", "customer-success", "reports", "forecast"],
+      ["work", "customer-success", "reports", "forecast"],
     ],
   ];
   for (const [answers, archetypes, slugs] of fixtures) {

@@ -1,5 +1,6 @@
 {
   "kind": "module",
+  "catalog": "hidden",
   "visibility": "open",
   "id": "@canon/monthly-goals",
   "version": "1.2.0",

@@ -174,3 +174,11 @@ test("adding a list row with one available choice submits the value shown", () =
   add();
   assert.deepEqual(JSON.parse(JSON.stringify(form.fromDraft(field, draft))), ["fit"]);
 });
+
+test("money charts format full and compact amounts in the workspace currency", () => {
+  const { shapeChart } = load<Pick<typeof import("../src/components/modules/module-report"), "shapeChart">>("../src/components/modules/module-report.tsx", {});
+  const p = { keyLabels: [], measureLabels: [], groups: [], subtotals: [], total: [], rows: 0, truncated: false, additive: true, whole: false, format: () => "fallback", formatCompact: () => "fallback" };
+  const shaped = shapeChart(p, { format: "money" }, "EUR");
+  assert.equal(shaped.format(0, 120000), new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(1200));
+  assert.equal(shaped.formatCompact(0, 120000), new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR", notation: "compact", maximumFractionDigits: 1 }).format(1200));
+});

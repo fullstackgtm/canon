@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomBytes, generateKeyPairSync, createPublicKey } from "node:crypto";
-import { chown, mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { chown, lchown, lstat, mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { INTEGRATIONS_AVAILABLE, integrationEnabled, integrationNeeds } from "../../convex/lib/integrationsAvailable.ts";
 import { functionsDigest, mustPush } from "./functions.mjs";
 import { advanceDataEpoch, checkDataEpoch, imageContract } from "./dataEpoch.mjs";
@@ -15,15 +16,186 @@ const BACKEND = "http://127.0.0.1:3210";
 const BACKEND_SITE = "http://127.0.0.1:3211";
 const RECORDS = "http://127.0.0.1:8787";
 const PUSHED = "/data/convex/pushed-functions.json";
+const READY_FILE = "/tmp/canoncrm-ready";
+const LEGACY_CLI_ENV_FILE = "/tmp/canoncrm-convex.env";
 
-process.umask(0o077);
+const BASE_ENV_KEYS = [
+  "PATH", "HOME", "TMPDIR", "TZ", "LANG", "LC_ALL",
+  "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+];
+
+const ADMIN_KEY_GEN_ENV_KEYS = [
+  ...BASE_ENV_KEYS, "INSTANCE_NAME", "INSTANCE_SECRET", "DATA_DIR", "CREDENTIALS_DIR",
+];
+
+const CONVEX_CLI_ENV_KEYS = [
+  ...BASE_ENV_KEYS, "NODE_ENV", "DISABLE_BEACON", "DO_NOT_TRACK",
+  "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY",
+];
+
+const RECORD_SERVICE_ENV_KEYS = [
+  ...BASE_ENV_KEYS, "NODE_ENV", "DO_NOT_TRACK", "RECORD_SERVICE_TOKEN",
+  "MAX_OPEN", "WS_MEMORY_LIMIT", "WS_THREADS", "READ_POOL", "MAX_GROUP",
+  "CHECKPOINT_INTERVAL_MS", "PROJECTOR_POLL_MS", "GIT_SHA", "RELEASE_GIT_SHA",
+  "BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_ACCESS_KEY_ID",
+  "BACKUP_S3_SECRET_ACCESS_KEY", "BACKUP_S3_REGION", "BACKUP_PREFIX",
+  "BACKUP_INTERVAL_HOURS", "BACKUP_FIRST_DELAY_MS",
+  "PDL_INDEX_FROM_R2", "PDL_INDEX_MANIFEST",
+];
+
+const NEXT_ENV_KEYS = [
+  ...BASE_ENV_KEYS, "NODE_ENV", "NODE_OPTIONS", "NEXT_TELEMETRY_DISABLED",
+  "DISABLE_BEACON", "DO_NOT_TRACK",
+  "SITE_URL", "APP_URL", "NEXT_PUBLIC_SITE_URL",
+  "NEXT_PUBLIC_CONVEX_URL", "NEXT_PUBLIC_CONVEX_SITE_URL",
+  "CONVEX_CLOUD_ORIGIN", "CONVEX_SITE_ORIGIN",
+  "CANON_INTERNAL_CONVEX_URL", "CANON_INTERNAL_CONVEX_SITE_URL", "CANON_INTERNAL_URL",
+  "CANON_HOME", "RELEASE_GIT_SHA", "APP_ENVIRONMENT",
+  "CANON_AUTH", "NEXT_PUBLIC_CANON_AUTH", "NEXT_PUBLIC_CANON_SELFHOST",
+  "CANON_SETUP_CODE",
+  "CANON_SERVICE_JWT_PRIVATE_KEY", "CANON_SERVICE_JWT_ISSUER", "CANON_SERVICE_JWT_KID",
+  "CLERK_SECRET_KEY", "CLERK_JWT_ISSUER_DOMAIN", "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+  "NEXT_PUBLIC_CLERK_SIGN_IN_URL", "NEXT_PUBLIC_CLERK_SIGN_UP_URL",
+  "NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL", "NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL",
+  "AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_RESEND_KEY", "AUTH_EMAIL_FROM",
+  "CUSTOM_AUTH_SITE_URL",
+  "CANON_API_TOKEN_READS_PER_MINUTE", "CANON_API_TOKEN_WRITES_PER_MINUTE",
+  "CANON_API_WORKSPACE_READS_PER_MINUTE", "CANON_API_WORKSPACE_WRITES_PER_MINUTE",
+  "CANON_CLIENT_IP_HEADER", "CANON_WEBHOOK_SECRET", "MCP_REMOTE_ENABLED",
+  "FSGTM_AGENT_IP_SALT", "RESEARCH_IP_SALT",
+  "FSGTM_SMOKE_BYPASS_TOKEN", "FSGTM_UI_SMOKE_BYPASS_TOKEN",
+  "NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS", "NEXT_PUBLIC_AGENT_GATE", "NEXT_PUBLIC_SF_SYNC_FAKE",
+];
+
+/**
+ * @param {Record<string, string | undefined>} source
+ * @param {string[]} keys
+ * @returns {Record<string, string | undefined>}
+ */
+function pickEnv(source, keys) {
+  /** @type {Record<string, string | undefined>} */
+  const out = {};
+  for (const key of keys) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  return out;
+}
+
+/**
+ * Resolve CANON_INTERNAL_URL dynamically from PORT when unset or left at the default 3000 address.
+ * @param {Record<string, string | undefined>} env
+ * @param {string | number} port
+ */
+export function resolveInternalUrl(env, port) {
+  const value = env.CANON_INTERNAL_URL?.trim();
+  if (!value || value === "http://127.0.0.1:3000") return `http://127.0.0.1:${port}`;
+  return value;
+}
+
+/**
+ * Minimal env allowlist for the built-in workerd recipe runtime.
+ * @param {Record<string, string | undefined>} env
+ * @returns {Record<string, string | undefined>}
+ */
+export function workerdEnv(env) {
+  return pickEnv(env, ["PATH", "RECIPE_RUNTIME_SECRET"]);
+}
+
+/**
+ * Minimal env allowlist for the in-container record service (DuckDB).
+ * @param {Record<string, string | undefined>} env
+ * @param {{ backendSite?: string }} [options]
+ * @returns {Record<string, string | undefined>}
+ */
+export function recordServiceEnv(env, { backendSite = BACKEND_SITE } = {}) {
+  const out = pickEnv(env, RECORD_SERVICE_ENV_KEYS);
+  if (!out.GIT_SHA && env.RELEASE_GIT_SHA) out.GIT_SHA = env.RELEASE_GIT_SHA;
+  return {
+    ...out,
+    DATA_DIR: "/data/records",
+    PORT: "8787",
+    HOST: "127.0.0.1",
+    PROJECTOR_SOURCE_URL: backendSite,
+  };
+}
+
+/**
+ * Minimal env allowlist for the Next.js server (no admin key, instance secret, encryption key, or record/runtime secrets).
+ * @param {Record<string, string | undefined>} env
+ * @param {{ port?: string | number, setupCode?: string, backend?: string, backendSite?: string }} [options]
+ * @returns {Record<string, string | undefined>}
+ */
+export function nextEnv(env, { port = env.PORT || "3000", setupCode, backend = BACKEND, backendSite = BACKEND_SITE } = {}) {
+  return {
+    ...pickEnv(env, NEXT_ENV_KEYS),
+    HOSTNAME: "0.0.0.0",
+    PORT: String(port),
+    ...(setupCode !== undefined ? { CANON_SETUP_CODE: setupCode } : {}),
+    CANON_INTERNAL_CONVEX_URL: backend,
+    CANON_INTERNAL_CONVEX_SITE_URL: backendSite,
+    CANON_INTERNAL_URL: resolveInternalUrl(env, port),
+  };
+}
+
+/**
+ * Minimal env allowlist for short-lived Convex CLI commands (passed directly to spawn, no temp file).
+ * @param {Record<string, string | undefined>} env
+ * @param {{ backend?: string }} [options]
+ * @returns {Record<string, string | undefined>}
+ */
+export function convexCliEnv(env, { backend = BACKEND } = {}) {
+  return {
+    ...pickEnv(env, CONVEX_CLI_ENV_KEYS),
+    CONVEX_SELF_HOSTED_URL: backend,
+  };
+}
+
+/**
+ * Recursively chown a directory tree without following symlinks.
+ * @param {string} root
+ * @param {number} uid
+ * @param {number} gid
+ * @param {{ lstat: typeof lstat, readdir: typeof readdir, chown: (path: string, uid: number, gid: number) => Promise<void>, lchown: (path: string, uid: number, gid: number) => Promise<void> }} [ops]
+ */
+export async function chownRecursive(root, uid, gid, ops = { lstat, readdir, chown, lchown }) {
+  const info = await ops.lstat(root);
+  if (info.isSymbolicLink()) {
+    await ops.lchown(root, uid, gid);
+    return;
+  }
+  if (info.isDirectory()) {
+    for (const name of await ops.readdir(root)) {
+      await chownRecursive(join(root, name), uid, gid, ops);
+    }
+  }
+  await ops.chown(root, uid, gid);
+}
+
+/** Run pending data-epoch migrations before marking the container ready; fail startup if any migration fails. */
+export async function finalizeStartup({
+  dataDir = "/data",
+  contract,
+  fromEpoch,
+  runMigration,
+  readyFile = READY_FILE,
+  markReady = () => writeFile(readyFile, "ready\n"),
+}) {
+  const advanced = await advanceDataEpoch(dataDir, contract, fromEpoch, runMigration);
+  if (advanced.failed) {
+    throw new Error(`Migration ${advanced.failed.run} failed (${advanced.failed.error}). The volume stays at data epoch ${fromEpoch}; restart this release to run it again (docs/updating.md).`);
+  }
+  await markReady();
+  return advanced;
+}
+
 const children = new Set();
 let stopping = false;
 
 async function stop(code) {
   if (stopping) return;
   stopping = true;
-  await rm("/tmp/canoncrm-ready", { force: true });
+  await rm(READY_FILE, { force: true });
   const deadline = setTimeout(() => {
     for (const child of children) child.kill("SIGKILL");
     process.exit(code || 1);
@@ -35,8 +207,6 @@ async function stop(code) {
   clearTimeout(deadline);
   process.exit(code);
 }
-
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => void stop(0));
 
 function start(name, command, args, env, cwd = "/app", capture = false) {
   if (stopping) throw new Error("Container is stopping");
@@ -118,12 +288,13 @@ async function convexEnvNames(dir) {
 
 async function main() {
   if (process.getuid() === 0) {
-    await chown("/data", 1001, 1001);
+    await chownRecursive("/data", 1001, 1001);
     process.setgroups([]);
     process.setgid(1001);
     process.setuid(1001);
   }
-  await rm("/tmp/canoncrm-ready", { force: true });
+  await rm(READY_FILE, { force: true });
+  await rm(LEGACY_CLI_ENV_FILE, { force: true });
   const port = process.env.PORT || "3000";
   if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535 || [3210, 3211, 8787, 8790].includes(Number(port))) {
     throw new Error("PORT must be an available TCP port other than 3210, 3211, 8787, or 8790");
@@ -143,6 +314,7 @@ async function main() {
   for (const key of ["CONVEX_DEPLOYMENT", "CONVEX_DEPLOY_KEY", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY"]) delete env[key];
   Object.assign(env, {
     SITE_URL: site, APP_URL: site, NEXT_PUBLIC_SITE_URL: site,
+    CANON_INTERNAL_URL: resolveInternalUrl(process.env, port),
     NEXT_PUBLIC_CONVEX_URL: BACKEND, NEXT_PUBLIC_CONVEX_SITE_URL: publicActions,
     CONVEX_SELF_HOSTED_URL: BACKEND,
     DATA_DIR: "/data/convex", CREDENTIALS_DIR: credentials,
@@ -157,7 +329,7 @@ async function main() {
   env.DATABASE_UDF_USER_TIMEOUT_SECONDS ||= "30";
   env.INSTANCE_SECRET = await persisted(`${credentials}/instance_secret`, () => randomBytes(32).toString("hex"));
   env.CONVEX_SELF_HOSTED_ADMIN_KEY = await persisted(`${credentials}/admin_key`, () =>
-    start("admin key generation", "/convex/generate_admin_key.sh", [], env, "/convex", true).done);
+    start("admin key generation", "/convex/generate_admin_key.sh", [], pickEnv(env, ADMIN_KEY_GEN_ENV_KEYS), "/convex", true).done);
   env.RECORD_SERVICE_TOKEN = await persisted(`${credentials}/record_service_token`, () => randomBytes(32).toString("hex"));
   env.TOKEN_ENCRYPTION_KEY = await persisted(`${credentials}/token_encryption_key`, newTokenEncryptionKey);
   env.CANON_SERVICE_JWT_PRIVATE_KEY = await persisted(`${credentials}/service_jwt_private.pem`, () =>
@@ -177,7 +349,7 @@ async function main() {
   if (runtime.builtIn) {
     env.RECIPE_RUNTIME_URL = runtime.url;
     env.RECIPE_RUNTIME_SECRET = await persisted(`${credentials}/recipe_runtime_secret`, () => randomBytes(32).toString("hex"));
-    const workerd = { PATH: env.PATH, RECIPE_RUNTIME_SECRET: env.RECIPE_RUNTIME_SECRET };
+    const workerd = workerdEnv(env);
     keepAlive({
       launch: () => {
         const { child, done } = start("Recipe runtime", "/app/.recipe-runtime/workerd", ["serve", "--experimental", "config.capnp"], workerd, "/app/.recipe-runtime");
@@ -210,9 +382,8 @@ async function main() {
     method: "POST", headers: { Authorization: `Convex ${env.CONVEX_SELF_HOSTED_ADMIN_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ changes }),
   });
   if (!updated.ok) throw new Error(`Setting backend environment failed (${updated.status})`);
-  const cliEnvFile = "/tmp/canoncrm-convex.env";
-  await writeFile(cliEnvFile, `CONVEX_SELF_HOSTED_URL=${BACKEND}\nCONVEX_SELF_HOSTED_ADMIN_KEY=${env.CONVEX_SELF_HOSTED_ADMIN_KEY}\n`, { mode: 0o600 });
-  const cli = async (args) => start("Convex CLI", process.execPath, ["node_modules/convex/bin/main.js", ...args, "--env-file", cliEnvFile], env).done;
+  const cliEnv = convexCliEnv(env, { backend: BACKEND });
+  const cli = async (args, capture = false) => start("Convex CLI", process.execPath, ["node_modules/convex/bin/main.js", ...args], cliEnv, "/app", capture).done;
   const digest = functionsDigest({
     source: await readFile("/app/.source-sha256", "utf8").catch(() => null),
     backend: await (await fetch(`${BACKEND}/version`)).text(),
@@ -229,12 +400,9 @@ async function main() {
       await rename(`${PUSHED}.tmp`, PUSHED);
     }
   } else console.log("Functions match the last push; not pushing them again");
-  // Next and the record service never call the runtime, so they never hold its secret.
-  const appEnv = { ...env };
-  delete appEnv.RECIPE_RUNTIME_SECRET;
   // Convex names its public site URL as the ledger source in every nudge; this pins the address beside it.
   daemon("Record service", process.execPath, ["--experimental-strip-types", "--no-warnings", "src/main.ts"],
-    { ...appEnv, DATA_DIR: "/data/records", PORT: "8787", HOST: "127.0.0.1", PROJECTOR_SOURCE_URL: BACKEND_SITE }, "/app/services/record-service");
+    recordServiceEnv(env, { backendSite: BACKEND_SITE }), "/app/services/record-service");
   await waitFor(`${RECORDS}/healthz`);
   if (env.FSGTM_ENABLE_DEMO_DATA === "true") {
     await cli(["run", "devSeed:ensureWorkspace"]);
@@ -242,21 +410,28 @@ async function main() {
   }
   // Next fetches the URLs Convex hands back (storage, upload routes), which carry the browser's address; these map them back inside.
   daemon("Next", process.execPath, [".next/standalone/server.js"],
-    { ...appEnv, HOSTNAME: "0.0.0.0", PORT: port, CANON_SETUP_CODE: setupCode, CANON_INTERNAL_CONVEX_URL: BACKEND, CANON_INTERNAL_CONVEX_SITE_URL: BACKEND_SITE });
+    nextEnv(env, { port, setupCode, backend: BACKEND, backendSite: BACKEND_SITE }));
   await waitFor(`http://127.0.0.1:${port}/api/public/version`);
-  await writeFile("/tmp/canoncrm-ready", "ready\n");
-  const advanced = await advanceDataEpoch("/data", contract, epoch.epoch, async (m) => {
-    console.log(`Running migration ${m.run}`);
-    await cli(["run", m.run]);
+  await finalizeStartup({
+    dataDir: "/data",
+    contract,
+    fromEpoch: epoch.epoch,
+    runMigration: async (m) => {
+      console.log(`Running migration ${m.run}`);
+      await cli(["run", m.run]);
+    },
   });
-  if (advanced.failed) console.log(`Migration ${advanced.failed.run} failed (${advanced.failed.error}). The volume stays at data epoch ${epoch.epoch}; restart this release to run it again (docs/updating.md).`);
   console.log(`CanonCRM ready at ${site}. Recipe runtime: ${runtime.builtIn ? `built in, at ${runtime.url}` : "the one RECIPE_RUNTIME_URL names"}.`);
-  const pending = await start("Convex CLI", process.execPath, ["node_modules/convex/bin/main.js", "run", "localAuth:setupPending", "--env-file", cliEnvFile], env, "/app", true)
-    .done.then((out) => out.trim() === "true", () => false);
+  const pending = await cli(["run", "localAuth:setupPending"], true)
+    .then((out) => out.trim() === "true", () => false);
   if (pending && env.CANON_AUTH === "local") {
     const code = process.env.CANON_SETUP_CODE?.trim() ? "the CANON_SETUP_CODE value in this install's settings" : setupCode;
     console.log(`\nNo owner yet. Open ${site}/sign-in and enter setup code: ${code}\nThe first person to enter it owns this install. Back up after setup: see docs/updating.md.\n`);
   }
 }
 
-main().catch((error) => { console.error(error.message); void stop(1); });
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => void stop(0));
+  process.umask(0o077);
+  main().catch((error) => { console.error(error.message); void stop(1); });
+}

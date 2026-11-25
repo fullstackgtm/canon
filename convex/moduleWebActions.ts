@@ -4,7 +4,8 @@ import { ConvexError, v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
-import { publicHttpGet } from "../engine/src/publicHttp.ts";
+import { PublicHttpSsrfError, publicHttpGet, publicHttpPost, type PublicLookup, type PublicRequestHop } from "../engine/src/publicHttp.ts";
+import { RECEIVER_TIMEOUT_MS, allowLoopbackWebhooks, destinationProblem, type WebhookPostResult } from "./lib/recordWebhooks";
 import { websiteText, websiteMeta } from "../modules/kernel/websiteSources.ts";
 import { marketSampleRequest } from "../modules/kernel/freePopulation.ts";
 import { freePopulationQuery } from "./lib/modules/freePopulation";
@@ -129,4 +130,50 @@ export const sample = internalAction({
     } });
     return sizes.map((size, i) => ({ id: a.queries[i], ...(size ? { size } : {}), transport: fake ? "fake" : "quickenrich" }));
   },
+});
+
+/**
+ * Deliver a signed outbound webhook over a DNS-pinned Node socket: validates the
+ * destination URL, resolves DNS once, refuses private/internal ranges, pins the
+ * verified IP directly onto the socket, and refuses redirects (`maxRedirects: 0`).
+ */
+export async function deliverPinnedWebhook(
+  req: { url: string; headers: Record<string, string>; body: string; timeoutMs?: number },
+  deps: { lookup?: PublicLookup; requestHop?: PublicRequestHop; env?: Record<string, string | undefined> } = {},
+): Promise<WebhookPostResult> {
+  const allowLoopback = allowLoopbackWebhooks(deps.env);
+  const problem = destinationProblem(req.url, allowLoopback);
+  if (problem) return { ok: false, error: problem, retry: false, kind: "ssrf" };
+  const timeoutMs = Math.max(1_000, Math.min(req.timeoutMs ?? RECEIVER_TIMEOUT_MS, RECEIVER_TIMEOUT_MS));
+  try {
+    const res = await publicHttpPost(req.url, {
+      headers: req.headers,
+      body: req.body,
+      timeoutMs,
+      maxBytes: 0,
+      maxRedirects: 0,
+      allowLoopback,
+      lookup: deps.lookup,
+      requestHop: deps.requestHop,
+    });
+    return { ok: true, status: res.status };
+  } catch (cause) {
+    if (cause instanceof PublicHttpSsrfError || (cause instanceof Error && (cause as { code?: string }).code === "SSRF_REFUSED")) {
+      return { ok: false, error: "The hostname points to a private address.", retry: false, kind: "ssrf" };
+    }
+    if (cause instanceof Error && cause.name === "TimeoutError") {
+      return { ok: false, error: "The endpoint didn't answer in time.", retry: true, kind: "timeout" };
+    }
+    return { ok: false, error: cause instanceof Error ? cause.message : "Couldn't reach the endpoint.", retry: true, kind: "network" };
+  }
+}
+
+export const postWebhook = internalAction({
+  args: {
+    url: v.string(),
+    headers: v.record(v.string(), v.string()),
+    body: v.string(),
+    timeoutMs: v.optional(v.number()),
+  },
+  handler: async (_ctx, args): Promise<WebhookPostResult> => deliverPinnedWebhook(args),
 });

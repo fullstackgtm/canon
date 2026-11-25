@@ -80,11 +80,9 @@ export function agentTokenRejection(
     {
       error: "insufficient_scope",
       message:
-        "Self-registered agent tokens are read-only and only valid on the public endpoints (/api/public/leaderboard). Organization CRM data requires a human-approved pairing: run `fullstackgtm login --via " +
+        "Self-registered agent tokens are read-only and only valid on the public endpoints (/api/public/leaderboard). Organization CRM data requires human approval: run `canon login --url " +
         base +
-        "` and have an org admin approve the code at " +
-        base +
-        "/activate. Details: " +
+        "` and follow the sign-in or pairing instructions. For the RFC 8628 device flow, see " +
         base +
         "/auth.md",
       register_uri: `${base}/api/agents/register`,
@@ -94,7 +92,7 @@ export function agentTokenRejection(
     {
       status: 403,
       headers: {
-        "WWW-Authenticate": `Bearer realm="fullstackgtm", error="insufficient_scope", error_description="agent tokens cannot access organization data"`,
+        "WWW-Authenticate": `Bearer realm="canoncrm", error="insufficient_scope", error_description="agent tokens cannot access organization data"`,
       },
     },
   );

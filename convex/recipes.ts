@@ -13,7 +13,7 @@ import { invalidateFit } from "./lib/fitInvalidation";
 import { action, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { agentClientOf, getCurrentUser, requireUser } from "./lib";
 import { contributionIn, currentRevision, enabledFor, enabledRows, enablementRow, modelSettings, orgConnections, orgRecipe, orgSettings, orgTheme, packageRecipe, packageRow, recipeIdValidator, recipeIn, requireRecipe, storedOverrides, upstreamChange, type FoundRecipe } from "./lib/recipes";
-import { runEvals as evaluate, runSettled, targetOf } from "./lib/recipeRuntime";
+import { recipeIsolate, runEvals as evaluate, runSettled, targetOf } from "./lib/recipeRuntime";
 import { installContribution, installView, type InstallView } from "./lib/templates";
 import { ensureField } from "./researchAgents";
 import { fieldsOf, resolveField, type RecipeField } from "../recipes/fields.ts";
@@ -436,7 +436,7 @@ const packageView = (pkg: Doc<"recipePackages"> | null): PackageView | null =>
 /** The recipe a view names, rebuilt in an action: a first-party one by id, an installed one from its manifest. */
 const recipeOfView = (recipeId: string, pkg: PackageView | null): RecipeDefinition => (pkg ? packageRecipe(pkg) : RECIPES[recipeId as keyof typeof RECIPES]);
 
-type Base = { recipeId: string; parent: number | null; overrides: Settings; pkg: PackageView | null };
+type Base = { orgId: Id<"organizations">; recipeId: string; parent: number | null; overrides: Settings; pkg: PackageView | null };
 
 /** What a proposal starts from: the caller's workspace's revision in force for the recipe, and its package. */
 export const proposalBase = internalQuery({
@@ -446,7 +446,7 @@ export const proposalBase = internalQuery({
     if (!user) throw new ConvexError("Not authenticated");
     const found = await chosen(ctx, user.orgId, args.recipeId);
     const current = await currentRevision(ctx, user.orgId, found.recipe.id);
-    return { recipeId: found.recipe.id, parent: current?.revision ?? null, overrides: storedOverrides(found.recipe, current), pkg: packageView(found.pkg) };
+    return { orgId: user.orgId, recipeId: found.recipe.id, parent: current?.revision ?? null, overrides: storedOverrides(found.recipe, current), pkg: packageView(found.pkg) };
   },
 });
 
@@ -463,7 +463,7 @@ async function trial(ctx: ActionCtx, args: { recipeId?: string; changes: Record<
   const slow = recipe.settingsSchema.filter((d) => d.kind === "phrases" && diff.some((x) => x.key === d.key) && slowPattern(String(overrides[d.key])));
   if (slow.length) throw new ConvexError(`${slow.map((d) => d.label).join(", ")} took too long on a long draft. Use a simpler pattern.`);
   const ref = refOf(recipe, { ...recipe.settings, ...overrides }, base.pkg ? { hash: base.pkg.bundleHash, storageId: base.pkg.bundleStorageId } : null);
-  const evals: EvalResult[] = await evaluate(targetOf(ctx, ref), recipe.evals);
+  const evals: EvalResult[] = await evaluate(targetOf(ctx, ref, base.orgId), recipe.evals);
   return { recipeId: base.recipeId, parent: base.parent, settings: overrides, diff, evals };
 }
 
@@ -569,7 +569,7 @@ export type CheckedPackage = { manifest: Manifest; manifestText: string; code: s
  * a markdown-only package Canon's built-ins bundle carrying its recipe. A shipped bundle must have been built from
  * this recipe.md and register exactly the names it uses, which the runtime answers for (`recipe.about`).
  */
-export async function checkPackage(markdown: string, shipped: string | null): Promise<CheckedPackage> {
+export async function checkPackage(markdown: string, shipped: string | null, isolate?: string): Promise<CheckedPackage> {
   const refuse = (why: string): never => { throw new ConvexError(`customization.md isn't a package Canon can install: ${why}.`); };
   const listed = (errors: string[]) => `${errors.slice(0, ERRORS_SHOWN).join("; ")}${errors.length > ERRORS_SHOWN ? ` (and ${errors.length - ERRORS_SHOWN} more)` : ""}`;
   const { recipe, problems } = parseRecipe(markdown);
@@ -590,7 +590,8 @@ export async function checkPackage(markdown: string, shipped: string | null): Pr
   }
   const hash = await bundleHash(code);
   if (shipped !== null) {
-    const [about] = await runSettled({ id: manifest.id, settings: manifest.defaults, installed: { hash, code: async () => shipped } }, [{ fn: "recipe.about", input: [] }]);
+    if (!isolate) throw new ConvexError("Customization runtime: a tenant isolate scope is required");
+    const [about] = await runSettled({ id: manifest.id, isolate: recipeIsolate(isolate, manifest.id), settings: manifest.defaults, installed: { hash, code: async () => shipped } }, [{ fn: "recipe.about", input: [] }]);
     if (!about.ok) throw new ConvexError(`${BUNDLE_FILE} wasn't built by Canon's scripts/recipe-package.ts (${about.error.message}).`);
     const got = about.value as RecipeAbout;
     if (got.markdown !== markdownHash) throw new ConvexError(`${BUNDLE_FILE} was built from another customization.md. Build the package again.`);
@@ -603,16 +604,16 @@ export async function checkPackage(markdown: string, shipped: string | null): Pr
 }
 
 /** A package at a pinned commit, fetched and checked. */
-async function fetchChecked(reader: SourceReader, sha: string): Promise<CheckedPackage> {
+async function fetchChecked(reader: SourceReader, sha: string, isolate: string): Promise<CheckedPackage> {
   const { markdown, code } = await reader.fetchPackage(sha);
-  return checkPackage(markdown, code);
+  return checkPackage(markdown, code, isolate);
 }
 
 /** The package's evals on `settings`, in the recipe runtime: the bundle isn't stored yet, so its code is in hand. */
-const packageEvals = (manifest: Manifest, hash: string, code: string, settings: Settings) =>
-  evaluate({ id: manifest.id, settings, installed: { hash, code: async () => code } }, manifest.evals);
+const packageEvals = (manifest: Manifest, hash: string, code: string, settings: Settings, isolate: string) =>
+  evaluate({ id: manifest.id, isolate: recipeIsolate(isolate, manifest.id), settings, installed: { hash, code: async () => code } }, manifest.evals);
 
-type InstallState = { canDecide: boolean; installed: Array<{ recipeId: string; source: PinnedSource; version: string }>; connections: Connection[] };
+type InstallState = { orgId: Id<"organizations">; canDecide: boolean; installed: Array<{ recipeId: string; source: PinnedSource; version: string }>; connections: Connection[] };
 
 /** Whether the caller may install, what their workspace has installed, and the GitHub accounts it connected. */
 export const installState = internalQuery({
@@ -622,6 +623,7 @@ export const installState = internalQuery({
     if (!caller) throw new ConvexError("Not authenticated");
     const rows = await installedPackages(ctx, caller.user.orgId);
     return {
+      orgId: caller.user.orgId,
       canDecide: mayDecide(caller),
       installed: rows.flatMap(({ pkg }) => (pkg!.source.kind === "workspace" ? [] : [{ recipeId: pkg!.recipeId, source: pkg!.source, version: pkg!.version }])),
       connections: await orgConnections(ctx, caller.user.orgId),
@@ -644,16 +646,16 @@ export const previewInstall = action({
     let pkg: CheckedPackage;
     if (args.markdown !== undefined) {
       if (args.markdown.length > RECIPE_MAX_BYTES) throw new ConvexError(`A customization.md is at most ${RECIPE_MAX_BYTES / 1024} KB.`);
-      pkg = await checkPackage(args.markdown, null);
+      pkg = await checkPackage(args.markdown, null, state.orgId);
     } else {
       const source = await resolveSource(parseSource(args.source!), state.connections);
       const reader = await openSource(source, state.connections);
       const sha = await reader.resolveSha();
-      pkg = await fetchChecked(reader, sha);
+      pkg = await fetchChecked(reader, sha, state.orgId);
       from = { source: sourceText(source), pinned: { ...source, sha }, private: source.kind === "github-app" };
     }
     const { manifest: m } = pkg;
-    const evals = await packageEvals(m, pkg.hash, pkg.code, m.defaults);
+    const evals = await packageEvals(m, pkg.hash, pkg.code, m.defaults, state.orgId);
     const existing = state.installed.find((p) => p.recipeId === m.id) ?? null;
     return {
       source: from?.source ?? null, pinned: from?.pinned ?? null, private: from?.private ?? false, bundleHash: pkg.hash, bundleBytes: pkg.code.length, hasCode: pkg.hasCode, parts: pkg.parts,
@@ -672,7 +674,7 @@ export const install = action({
     const state: InstallState = await ctx.runQuery(internal.recipes.installState, {});
     if (!state.canDecide) throw new ConvexError(AGENT_REFUSED);
     const source = await resolveSource(parseSource(args.source), state.connections);
-    const pkg = await fetchChecked(await openSource(source, state.connections), args.sha);
+    const pkg = await fetchChecked(await openSource(source, state.connections), args.sha, state.orgId);
     if (pkg.hash !== args.bundleHash) throw new ConvexError("The package at this commit isn't the one you previewed. Preview it again.");
     const storageId = await ctx.storage.store(new Blob([pkg.code], { type: "text/javascript" }));
     try {
@@ -731,7 +733,7 @@ export const uninstall = mutation({
   },
 });
 
-type UpgradeBase = { pkg: PackageView & { source: PinnedSource }; overrides: Settings; revision: number | null; connections: Connection[] };
+type UpgradeBase = { orgId: Id<"organizations">; pkg: PackageView & { source: PinnedSource }; overrides: Settings; revision: number | null; connections: Connection[] };
 
 /** An installed package, the workspace's overrides on it and its GitHub connections, for an upgrade. */
 export const upgradeBase = internalQuery({
@@ -744,7 +746,7 @@ export const upgradeBase = internalQuery({
     const { source } = found.pkg;
     if (source.kind === "workspace") throw new ConvexError(`${args.recipeId} is this workspace's own copy; it changes when you edit it.`);
     const current = await currentRevision(ctx, caller.user.orgId, found.recipe.id);
-    return { pkg: { ...packageView(found.pkg)!, source }, overrides: storedOverrides(found.recipe, current), revision: current?.revision ?? null, connections: await orgConnections(ctx, caller.user.orgId) };
+    return { orgId: caller.user.orgId, pkg: { ...packageView(found.pkg)!, source }, overrides: storedOverrides(found.recipe, current), revision: current?.revision ?? null, connections: await orgConnections(ctx, caller.user.orgId) };
   },
 });
 
@@ -790,7 +792,7 @@ export const checkUpgrade = action({
     const reader = await openSource(base.pkg.source, base.connections);
     const target = await newer(reader, base.pkg.source);
     if (!target) return { recipeId: args.recipeId, from, to: null, lines: [], labels: {} as Record<string, string>, permissions: { added: [], removed: [] }, sections: { added: [], removed: [] }, evals: [], parts: [] as Part[], hasCode: false };
-    const next = await fetchChecked(reader, target.sha);
+    const next = await fetchChecked(reader, target.sha, base.orgId);
     if (next.manifest.id !== args.recipeId) throw new ConvexError(`${sourceText({ ...base.pkg.source, ref: target.ref })} is now ${next.manifest.id}, a different package.`);
     const was = packageRecipe(base.pkg), now = fromManifest(next.manifest);
     const lines: UpgradeLine[] = upgradeDiff(was, now, base.overrides);
@@ -799,7 +801,7 @@ export const checkUpgrade = action({
     const labels = Object.fromEntries([...was.settingsSchema, ...now.settingsSchema].map((d) => [d.key, d.label]));
     return {
       recipeId: args.recipeId, from, to: { version: next.manifest.version, ref: target.ref, sha: target.sha, bundleHash: next.hash },
-      lines, labels, ...changes(was, now), evals: await packageEvals(next.manifest, next.hash, next.code, { ...now.settings, ...overrides }),
+      lines, labels, ...changes(was, now), evals: await packageEvals(next.manifest, next.hash, next.code, { ...now.settings, ...overrides }, base.orgId),
       parts: next.parts, hasCode: next.hasCode,
     };
   },
@@ -817,7 +819,7 @@ export const upgrade = action({
     if (!state.canDecide) throw new ConvexError(AGENT_REFUSED);
     const base: UpgradeBase = await ctx.runQuery(internal.recipes.upgradeBase, { recipeId: args.recipeId });
     const source = { ...base.pkg.source, ref: checkRef(args.ref) };
-    const next = await fetchChecked(await openSource(source, base.connections), args.sha);
+    const next = await fetchChecked(await openSource(source, base.connections), args.sha, base.orgId);
     if (next.hash !== args.bundleHash) throw new ConvexError("The package at this commit isn't the one you checked. Check for updates again.");
     if (next.manifest.id !== args.recipeId) throw new ConvexError(`That commit holds ${next.manifest.id}, a different package.`);
     const storageId = await ctx.storage.store(new Blob([next.code], { type: "text/javascript" }));

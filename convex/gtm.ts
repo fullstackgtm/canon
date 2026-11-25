@@ -644,8 +644,7 @@ const actionOperations: Record<string, ActionHandler> = {
   "account.bootstrap": (ctx) => ctx.runAction(api.hubspotActions.syncAll, {}),
   "account.enrich": (ctx) => ctx.runMutation(api.research.generateFromCrm, {}),
   "deal.inspect": async (ctx, args) => ({
-    forecast: await ctx.runQuery(api.forecasting.getCurrentForecast, dateRangeArgs(args)),
-    byRep: await ctx.runQuery(api.forecasting.getForecastByRep, dateRangeArgs(args)),
+    forecast: { retired: true, replacement: "@canon/forecast" },
     calls: await ctx.runQuery(api.callIntelligence.listInsights, { limit: numberArg(args, "limit", 100) }),
   }),
   "call.import": (ctx, args) => ctx.runAction(api.callProviderActions.syncProvider, {

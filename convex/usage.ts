@@ -4,7 +4,7 @@ import { getCurrentUser } from "./lib";
 import { EMAIL_LOOKUPS_PER_DAY, PAID_EMAIL_HITS_PER_MONTH } from "./lib/providers/registry";
 import { categorizeProviderCalls, isPaidEmailHit, utcMonthWindow } from "./lib/usage";
 
-/** This UTC month's metered work for the caller's workspace. Admins and managers only. */
+/** This UTC month's data activity for the caller's workspace. Admins and managers only. */
 export const summary = query({
   args: {},
   handler: async (ctx) => {
@@ -22,15 +22,18 @@ export const summary = query({
       .query("emailLookups")
       .withIndex("by_orgId_and_day", (q) => q.eq("orgId", orgId).eq("day", day))
       .unique();
-    const categories = categorizeProviderCalls(calls);
+    // Never expose upstream provider COGS (costMicro / totalMicro) to customer workspaces.
+    const categories = categorizeProviderCalls(calls).map(({ feature, label, calls: count, hits }) => ({
+      feature,
+      label,
+      calls: count,
+      hits,
+    }));
     return {
       monthStart: start,
       resetsAt,
-      paidEmailHits: calls.filter(isPaidEmailHit).length,
-      paidEmailAllowance: PAID_EMAIL_HITS_PER_MONTH,
       emailLookupsToday: today?.count ?? 0,
       emailLookupsPerDay: EMAIL_LOOKUPS_PER_DAY,
-      totalMicro: categories.reduce((sum, c) => sum + c.costMicro, 0),
       categories,
     };
   },

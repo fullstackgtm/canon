@@ -1,5 +1,4 @@
 import { ConvexError, v } from "convex/values";
-import { can, refusal } from "./lib/capabilities";
 import { query, mutation } from "./_generated/server";
 import { requireCap } from "./lib";
 // CP14: these pages read the CRM mirror and deal tables whole, so a role whose rules narrow its reads sees them empty.
@@ -15,7 +14,7 @@ function competitorReadinessFromRows(competitors: any[], battlecards: any[], win
     configured: competitors.length > 0,
     lifecycle: competitors.length > 0 ? "tracked" : relevant ? "evidence_only" : "not_relevant_yet",
     signals: { competitorCount: competitors.length, battlecardCount: battlecards.length, winLossRecords: winLoss.length },
-    nextActions: competitors.length > 0 ? ["review battlecards", "find win/loss patterns"] : ["do competitor.bootstrap", "parse competitive_notes"],
+    nextActions: competitors.length > 0 ? ["review battlecards", "find win/loss patterns"] : ["Use @canon/win-loss with verbatim evidence"],
   };
 }
 
@@ -31,73 +30,6 @@ function emptyCompetitorReadiness() {
   };
 }
 
-function normalizeName(name: string) {
-  return name.trim().replace(/\s+/g, " ");
-}
-
-function lowerName(name: string) {
-  return normalizeName(name).toLowerCase();
-}
-
-function generatedCompetitorPayload(name: string, now: number) {
-  const isStatusQuo = lowerName(name).includes("status quo");
-  return {
-    name,
-    description: isStatusQuo
-      ? "Default competitive bucket for deals lost to no decision, internal spreadsheets, or existing process."
-      : `Competitor inferred from CRM deal competitive mentions for ${name}.`,
-    strengths: isStatusQuo
-      ? ["already adopted", "no procurement cycle", "low switching effort"]
-      : ["existing vendor relationship", "point solution familiarity", "feature-specific depth"],
-    weaknesses: isStatusQuo
-      ? ["manual effort", "poor GTM visibility", "limited forecasting rigor"]
-      : ["fragmented workflow", "limited GTM operating model", "higher admin burden"],
-    positioning:
-      "Position CanonCRM as the operating layer that replaces disconnected spreadsheets with shared GTM primitives across planning, execution, and analysis.",
-    pricingNotes:
-      "Anchor on total cost of manual RevOps, spreadsheet maintenance, and delayed decisions rather than license comparison alone.",
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function defaultBattlecards(competitorName: string) {
-  return [
-    {
-      title: `${competitorName} overview`,
-      category: "overview" as const,
-      content:
-        "Summarize the account's current GTM workflow, where data lives today, and which spreadsheet or point-solution gaps are creating operating drag.",
-    },
-    {
-      title: "Objection handling",
-      category: "objection_handling" as const,
-      content:
-        "If the buyer says the current process is good enough, quantify time lost to model updates, manual reconciliation, and delayed planning decisions.",
-    },
-    {
-      title: "Landmine",
-      category: "landmine" as const,
-      content:
-        "Ask how quota, headcount, forecast, commissions, and account strategy changes flow between systems after the CRM syncs.",
-    },
-  ];
-}
-
-function primaryReason(deal: Doc<"deals">, competitorName: string) {
-  if (deal.isWon) return "strong_business_case";
-  if (lowerName(competitorName).includes("status quo")) return "status_quo";
-  return "competitive_displacement";
-}
-
-// ── Queries ───────────────────────────────────────────────────────
-
-/**
- * Read budget: competitors 200 + battlecards 200 + winLoss probe 250 +
- * viewer lookup ~2 ≈ 652 worst case, realistic well under (tens of
- * competitors/battlecards). Counts are presence signals — winLossRecords
- * saturates at 250 ("250 = 250 or more").
- */
 export const readiness = query({
   args: {},
   handler: async (ctx) => {
@@ -439,152 +371,10 @@ export const recordWinLoss = mutation({
   },
 });
 
+/** Kept as a refusal for old GTM, HTTP and CLI callers; no generated claims are written. */
 export const generateFromDeals = mutation({
   args: {},
-  handler: async (ctx) => {
-    const user = await requireCap(ctx, "strategy.edit");
-    await requireUnrestricted(ctx, "win-loss over the CRM");
-    if (!can(user, "strategy.edit")) throw new ConvexError(refusal("strategy.edit"));
-
-    // Read budget: competitors 100 + battlecards 500 + deals 1000 + one
-    // winLossRecords.by_dealId point probe per closed deal (≤1000) + viewer
-    // lookup ~2 ≈ 2,602 worst case. The old dedupe built an in-memory set
-    // from take(500) winLossRecords, so re-runs duplicated records past 500;
-    // the per-deal index probe (below) is exact at any record count.
-    const now = Date.now();
-    const [competitors, battlecards, deals] = await Promise.all([
-      ctx.db
-        .query("competitors")
-        .withIndex("by_orgId", (q) => q.eq("orgId", user.orgId))
-        .take(100),
-      ctx.db
-        .query("battlecards")
-        .withIndex("by_orgId", (q) => q.eq("orgId", user.orgId))
-        .take(500),
-      ctx.db
-        .query("deals")
-        .withIndex("by_orgId_archivedAt", (q) => q.eq("orgId", user.orgId).eq("archivedAt", undefined))
-        .take(1000),
-    ]);
-
-    const competitorByName = new Map(
-      competitors.map((competitor) => [lowerName(competitor.name), competitor]),
-    );
-    const competitorNames = new Set<string>();
-    for (const deal of deals) {
-      for (const name of deal.competitorMentioned ?? []) {
-        const normalized = normalizeName(name);
-        if (normalized) competitorNames.add(normalized);
-      }
-    }
-
-    const closedDeals = deals.filter((deal) => deal.isClosed);
-    if (competitorNames.size === 0) {
-      competitorNames.add("Status Quo");
-    }
-
-    let competitorsCreated = 0;
-    let competitorsUpdated = 0;
-    const competitorIdByName = new Map<string, Id<"competitors">>();
-    for (const competitorName of Array.from(competitorNames)) {
-      const key = lowerName(competitorName);
-      const existing = competitorByName.get(key);
-      const payload = generatedCompetitorPayload(competitorName, now);
-      if (existing) {
-        competitorIdByName.set(key, existing._id);
-        if (!existing.positioning || !existing.pricingNotes) {
-          await ctx.db.patch(existing._id, {
-            positioning: existing.positioning ?? payload.positioning,
-            pricingNotes: existing.pricingNotes ?? payload.pricingNotes,
-            updatedAt: now,
-          });
-          competitorsUpdated++;
-        }
-      } else {
-        const competitorId = await ctx.db.insert("competitors", {
-          orgId: user.orgId,
-          ...payload,
-        });
-        competitorIdByName.set(key, competitorId);
-        competitorsCreated++;
-      }
-    }
-
-    const cardKeys = new Set(
-      battlecards.map((card) => `${card.competitorId}:${card.category}:${lowerName(card.title)}`),
-    );
-    let battlecardsCreated = 0;
-    for (const [competitorNameKey, competitorId] of Array.from(competitorIdByName.entries())) {
-      const competitorName =
-        competitorByName.get(competitorNameKey)?.name ??
-        Array.from(competitorNames).find(
-          (candidate) => lowerName(candidate) === competitorNameKey,
-        ) ??
-        "Competitor";
-      for (const card of defaultBattlecards(competitorName)) {
-        const key = `${competitorId}:${card.category}:${lowerName(card.title)}`;
-        if (cardKeys.has(key)) continue;
-        await ctx.db.insert("battlecards", {
-          orgId: user.orgId,
-          competitorId,
-          title: card.title,
-          category: card.category,
-          content: card.content,
-          isActive: true,
-          createdBy: user._id,
-          createdAt: now,
-          updatedAt: now,
-        });
-        cardKeys.add(key);
-        battlecardsCreated++;
-      }
-    }
-
-    let winLossCreated = 0;
-    for (const deal of closedDeals) {
-      // Exact idempotency via the by_dealId index — one point read per closed
-      // deal instead of an in-memory set that went blind past 500 records.
-      const existingRecord = await ctx.db
-        .query("winLossRecords")
-        .withIndex("by_dealId", (q) => q.eq("dealId", deal._id))
-        .first();
-      if (existingRecord) continue;
-      const mentionedCompetitor = deal.competitorMentioned?.[0];
-      const competitorName = mentionedCompetitor
-        ? normalizeName(mentionedCompetitor)
-        : deal.isWon
-          ? undefined
-          : "Status Quo";
-      const competitorId = competitorName
-        ? competitorIdByName.get(lowerName(competitorName))
-        : undefined;
-
-      await ctx.db.insert("winLossRecords", {
-        orgId: user.orgId,
-        dealId: deal._id,
-        outcome: deal.isWon ? "won" : "lost",
-        competitorId,
-        primaryReason: competitorName
-          ? primaryReason(deal, competitorName)
-          : "strong_business_case",
-        reasons: competitorName
-          ? [primaryReason(deal, competitorName)]
-          : ["strong_business_case"],
-        notes: competitorName
-          ? `${deal.name} ${deal.isWon ? "won against" : "lost to"} ${competitorName}.`
-          : `${deal.name} closed won with no competitor recorded in CRM.`,
-        recordedBy: user._id,
-        createdAt: now,
-      });
-      winLossCreated++;
-    }
-
-    return {
-      competitorsCreated,
-      competitorsUpdated,
-      battlecardsCreated,
-      winLossCreated,
-      competitors: competitorsCreated + competitorsUpdated,
-    };
+  handler: async (): Promise<{ competitorsCreated: number; competitorsUpdated: number; battlecardsCreated: number; winLossCreated: number; competitors: number }> => {
+    throw new ConvexError("Legacy competitive generation is retired. Use @canon/win-loss with verbatim evidence instead.");
   },
 });

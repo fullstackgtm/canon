@@ -18,7 +18,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
-import { MAX_GRANTS, signingKey, termsOf, usedToday } from "./lib/agents/grantRead";
+import { MAX_GRANTS, signingKey, storedGrantState, termsOf, usedToday } from "./lib/agents/grantRead";
 import { agentReader } from "./lib/agentReads";
 import { accessFor } from "./permissions";
 import { convexLedgerStore, mirrorDecidedFacts } from "./canon";
@@ -29,7 +29,7 @@ import { isStructuredAttribute } from "./lib/canon/attributes";
 import { attributeFor } from "./lib/research/agentLoop";
 import type { ActingAgent } from "./lib/agents/attribution";
 import {
-  GRANT_OPERATION, approvalDigest, grantRequestRefusal, grantState, planFits, planHash, signGrant,
+  GRANT_OPERATION, approvalDigest, grantRequestRefusal, planFits, planHash, signGrant,
   type GrantFact, type StoredGrant,
 } from "./lib/agents/grants";
 import { withEventDefinition } from "./lib/agents/definitions";
@@ -37,14 +37,13 @@ import { withEventDefinition } from "./lib/agents/definitions";
 const MAX_PLAN_FACTS = 500;
 type ReadCtx = { db: QueryCtx["db"] };
 
-/** The agent's grants that verify, are unexpired and unrevoked now. */
+/** The agent's grants that verify, are unexpired, unrevoked and still backed by an active admin now. */
 export async function liveGrants(ctx: ReadCtx, agentId: Id<"agents">, now: number): Promise<StoredGrant[]> {
   const key = await signingKey();
   if (!key) return [];
   const out: StoredGrant[] = [];
   for (const g of await ctx.db.query("agentGrants").withIndex("by_agentId", (q) => q.eq("agentId", agentId)).take(MAX_GRANTS)) {
-    const t = termsOf(g);
-    if ((await grantState(t, key, now)) === "live") out.push(t);
+    if ((await storedGrantState(ctx, g, key, now)) === "live") out.push(termsOf(g));
   }
   return out;
 }
@@ -76,7 +75,7 @@ export async function approveUnderGrant(ctx: MutationCtx, a: {
     if (isStructuredAttribute(f.entityType, f.attribute) || Array.isArray(f.value)) return { approved: false, reason: "standing grants do not approve structured fact values" };
     gate.push({ id: f._id, status: f.status, entityId: f.entityId, entityType: f.entityType, attribute: f.attribute, value: f.value, evidence: f.evidence, actor: f.actor });
   }
-  const fit = planFits(terms, await grantState(terms, key, now), a.agent._id, gate, ops.length, await usedToday(ctx, grant._id, now));
+  const fit = planFits(terms, await storedGrantState(ctx, grant, key, now), a.agent._id, gate, ops.length, await usedToday(ctx, grant._id, now));
   if (!fit.ok) return { approved: false, reason: fit.reason };
   const hash = await planHash(plan._id, gate);
   const digest = await approvalDigest(key, grant._id, grant.signature, hash);

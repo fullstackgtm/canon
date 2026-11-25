@@ -52,9 +52,9 @@ export type AggregateReadValue = { withheld: false; owners: number; count: numbe
 /**
  * A report read's value: each group's keys (its dimensions' values: a member's or a doc's id, a date bucket's first
  * day) and values (its measures, in order), the total over every doc, how many docs it counted, and whether some
- * changes hadn't reached the record service yet.
+ * changes hadn't reached the record service yet. `truncated` means the group limit cut the result short.
  */
-export type ReportReadValue = { groups: Array<{ keys: Array<string | number | boolean | null>; values: Array<number | null> }>; total: Array<number | null>; rows: number; behind: boolean };
+export type ReportReadValue = { groups: Array<{ keys: Array<string | number | boolean | null>; values: Array<number | null> }>; total: Array<number | null>; rows: number; behind: boolean; truncated: boolean };
 
 /**
  * What a call function receives besides its reads. `now` is its only clock: Date and Math.random are frozen. A system

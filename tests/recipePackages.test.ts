@@ -200,7 +200,7 @@ test("an installed recipe's code never runs in-process: with no runtime, runPlay
   const loads: string[] = [];
   const ctx = { storage: { get: async (id: string) => { loads.push(id); return null; } } } as never;
   const ref = refOf(fromManifest(manifest), manifest.defaults, { hash, storageId: "stored-bundle" });
-  await assert.rejects(runPlays(ctx, ref, [{ fn: "stage", input: [{ probability: 0.5, members: [] }] }]), (e) => e instanceof ConvexError && /only in the customization runtime/.test(String(e.data)));
+  await assert.rejects(runPlays(ctx, ref, [{ fn: "stage", input: [{ probability: 0.5, members: [] }] }], "org"), (e) => e instanceof ConvexError && /only in the customization runtime/.test(String(e.data)));
   assert.deepEqual(loads, []);
 });
 

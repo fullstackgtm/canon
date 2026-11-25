@@ -1,5 +1,5 @@
 {
-  "name": "fullstackgtm-app",
+  "name": "canoncrm",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -7,6 +7,7 @@
     "node": ">=22.6"
   },
   "scripts": {
+    "dev": "next dev",
     "pretest": "npm ci --prefix services/record-service",
     "canon": "node --experimental-strip-types cli/canon.ts",
     "build": "next build",
@@ -59,8 +60,9 @@
     "zod": "^4.4.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22.20.5",
     "@types/papaparse": "^5.3.15",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -80,5 +82,14 @@
       "@modelcontextprotocol/sdk": "$@modelcontextprotocol/sdk"
     }
   },
-  "type": "module"
+  "type": "module",
+  "description": "Canon: an open-source, self-hostable CRM.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fullstackgtm/canon.git"
+  },
+  "homepage": "https://github.com/fullstackgtm/canon#readme",
+  "bugs": {
+    "url": "https://github.com/fullstackgtm/canon/issues"
+  }
 }

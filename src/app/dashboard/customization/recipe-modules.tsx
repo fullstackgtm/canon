@@ -22,10 +22,10 @@ type NavEntry = { section: string; label: string; href: string };
 const navEntries = (m: { nav: NavEntry | null; links: readonly NavEntry[] }): NavEntry[] => [...m.links, ...(m.nav ? [m.nav] : [])];
 
 /** Where a module came from, and the newer build Canon ships when it has one. */
-export function moduleStatus(m: Pick<Installed, "moduleId" | "source">, examples: readonly Example[]) {
+export function moduleStatus(m: Pick<Installed, "moduleId" | "source"> & { availableUpdate?: { version: string; source: string } | null }, examples: readonly Example[]) {
   const ex = examples.find((x) => x.moduleId === m.moduleId);
   const fromCanon = m.source.startsWith("canon:");
-  return { fromCanon, update: fromCanon && ex?.installed && !ex.installed.current ? { version: ex.version, source: ex.source } : null };
+  return { fromCanon, update: m.availableUpdate ?? (fromCanon && ex?.installed && !ex.installed.current ? { version: ex.version, source: ex.source } : null) };
 }
 /** What `reads.records` grants: the Canon objects a module reports on, each as the reading person's role shows it. */
 const recordGrants = (names: readonly string[]) =>
@@ -164,7 +164,7 @@ export function CanonModules({ onUpgrade }: { onUpgrade: (source: string) => voi
       {view.examples.map((x) => (
         <li key={x.slug} className="flex flex-col gap-2 border border-border bg-card p-4">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-sm font-semibold">{x.title}</span>
+            <span className="text-sm font-semibold">{x.title}{x.catalog === "beta" && <span className={cn(tag, "ml-2")}>Beta</span>}</span>
             <span className="text-xs tabular-nums text-muted-foreground">v{x.version}</span>
           </div>
           <p className="line-clamp-3 text-xs leading-5 text-muted-foreground" title={x.description}>{x.description}</p>

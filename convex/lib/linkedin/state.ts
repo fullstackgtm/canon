@@ -13,7 +13,7 @@
  *
  * Pure and runtime-neutral (Web Crypto only).
  */
-import { hmacSha256Hex, sha256Hex } from "../publicCrypto.ts";
+import { hmacSha256Hex, sha256Hex } from "../webCrypto.ts";
 
 /** A connect link is good for this long; Unipile's hosted page expires sooner on its own. */
 export const STATE_TTL_MS = 2 * 60 * 60_000;

@@ -71,3 +71,22 @@ test("usage groups provider spend by feature and counts only Hunter hits against
   assert.equal(window.resetsAt, Date.UTC(2026, 10, 1));
   assert.equal(utcMonthWindow(Date.UTC(2026, 11, 31)).resetsAt, Date.UTC(2027, 0, 1));
 });
+
+
+test("customer usage counts activity without returning upstream costs or the retired monthly meter", async () => {
+  const { loadConvex, memoryDb } = await import("./convexHandlers.ts");
+  const user = { _id: "u1", orgId: "org1", role: "admin" };
+  const loaded = loadConvex(["usage.ts"], {
+    "lib.ts": (real) => ({ ...real, getCurrentUser: async () => user }),
+  });
+  const db = memoryDb({ providerCalls: [
+    { _id: "c1", orgId: "org1", endpoint: "hunter.people.email.find", feature: "find_email", costMicro: 250_000, outcome: "hit", at: Date.now() },
+    { _id: "c2", orgId: "other", endpoint: "hunter.people.email.find", feature: "find_email", costMicro: 250_000, outcome: "hit", at: Date.now() },
+  ], emailLookups: [] });
+  const summary = await loaded["usage.ts"].summary.handler({ db }, {});
+  assert.deepEqual(Object.keys(summary).sort(), ["categories", "emailLookupsPerDay", "emailLookupsToday", "monthStart", "resetsAt"]);
+  assert.equal(summary.categories.length, 1);
+  assert.deepEqual(Object.keys(summary.categories[0]).sort(), ["calls", "feature", "hits", "label"]);
+  assert.equal(summary.categories[0].calls, 1);
+  assert.equal(summary.categories[0].hits, 1);
+});
