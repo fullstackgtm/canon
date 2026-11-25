@@ -15,6 +15,7 @@ const stubs: Record<string, unknown> = {
   "./_generated/server": { query: register, mutation: register, internalQuery: register, internalMutation: register },
   "./_generated/api": { internal },
   "./lib/capabilities": capabilities,
+  "./lib/access": { narrowsReads: () => false },
   "./lib": { getCurrentUser: async () => user, requireUser: async () => user },
   "./permissions": { accessFor: async () => ({ userId: "user", role: "admin", teamOwners: ["user"], rules: {} }) },
   "./savedViews": { listedDef: async () => ({}) },

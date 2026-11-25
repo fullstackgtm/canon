@@ -84,3 +84,14 @@ test("latest closed deals apply caller row and field admission before the bounde
   const hiddenClosed = structuredClone(access); hiddenClosed.rules.deal.fields.push({ apiName: "isWon", level: "hidden" });
   assert.deepEqual(Array.from(await reads.canonRead({ db }, orgId, hiddenClosed, grant, "deals.latestClosed", { won: true }, 15)), []);
 });
+
+test("module audience sizes hide system summaries from narrowed readers", async () => {
+  const { accessOf } = await import("../convex/lib/access.ts");
+  const db = memoryDb({ users: [ADMIN], audiences: [{ _id: "aud", orgId: ADMIN.orgId, shared: true, createdBy: ADMIN._id, name: "People", summary: { total: 23 } }] });
+  for (const restricted of [true, false]) {
+    const access = accessOf({ userId: ADMIN._id, role: "rep", rules: restricted ? [{ object: "contact", visibility: "own", unowned: false }] : [] });
+    const rows = await reads.canonRead({ db }, ADMIN.orgId, access, { reads: { audiences: ["name", "size"] } }, "audiences.all", {}, 10);
+    assert.equal(rows[0].size, restricted ? null : 23);
+    assert.equal(rows[0].name, "People");
+  }
+});

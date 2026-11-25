@@ -804,10 +804,11 @@ export const hotRows = query({
  * The register's list rows carry no custom values; the ledger stream does.
  */
 export const customFieldValues = internalQuery({
-  args: { orgId: v.id("organizations"), streamIds: v.array(v.string()) },
+  args: { orgId: v.id("organizations"), streamIds: v.array(v.string()), accesses: v.array(v.any()) },
   handler: async (ctx, args) => {
     const def = await loadDef(ctx, args.orgId, "contact");
-    const custom = def.fields.filter((f) => !f.system && f.type !== "formula" && f.apiName.startsWith("custom."));
+    const hidden = new Set((args.accesses as Access[]).flatMap((a) => hiddenFields(a, "contact")));
+    const custom = def.fields.filter((f) => !hidden.has(f.apiName) && !f.system && f.type !== "formula" && f.apiName.startsWith("custom."));
     const out: Record<string, Record<string, string | number | boolean>> = {};
     if (!custom.length) return out;
     for (const streamId of args.streamIds) {

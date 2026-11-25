@@ -26,7 +26,7 @@ import type { QueryCtx } from "../../_generated/server";
 import { dealVisible } from "../../permissions";
 import { canSee } from "../../audiences";
 import { withRole } from "../../lib";
-import { fieldLevel, isRestricted, permissionOf, type Access } from "../access";
+import { fieldLevel, isRestricted, narrowsReads, permissionOf, type Access } from "../access";
 import { stateForReader } from "../plays/state";
 import { mayReadText } from "../conversations/intake";
 import { runsRead } from "../runs";
@@ -251,7 +251,7 @@ export async function canonRead(ctx: QueryCtx, orgId: Id<"organizations">, acces
     const sees = await audienceViewer(ctx, orgId, access);
     const list = (await ctx.db.query("audiences").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(AUDIENCES_SCANNED_MAX)).filter(sees);
     if (list.length > limit) over("audiences you can see");
-    return list.map((a) => ({ id: a._id as string, createdAt: a.createdAt, ...Object.fromEntries(fields.map((f) => [f, AUDIENCE_FIELDS[f](a)])) }));
+    return list.map((a) => ({ id: a._id as string, createdAt: a.createdAt, ...Object.fromEntries(fields.map((f) => [f, f === "size" && access && access.userId !== "system" && narrowsReads(access) ? null : AUDIENCE_FIELDS[f](a)])) }));
   }
 
   if (!permissionOf(access, "deal").read) return [];
