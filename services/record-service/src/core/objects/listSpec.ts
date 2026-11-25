@@ -13,7 +13,7 @@
  * a generated copy (scripts/sync-object-core.ts).
  */
 import { project, titleOf, type FoldState, type Lifecycle } from "./fold.ts";
-import { ASSOCIATION_OBJECT, CUSTOM_FIELD_API_NAME, isMultiValueType, type FieldDef, type FieldId, type FieldType, type FieldValue, type ResolvedObjectDef } from "./registry.ts";
+import { resolveObjectDef, STANDARD_OBJECTS, ASSOCIATION_OBJECT, CUSTOM_FIELD_API_NAME, isMultiValueType, type FieldDef, type FieldId, type FieldType, type FieldValue, type ResolvedObjectDef } from "./registry.ts";
 import type { FilterOp } from "../kernel/reportLanguage.ts";
 
 export const LIST_LIMIT_MAX = 200;
@@ -63,7 +63,8 @@ export type ProjectedThrough = Record<string, number>;
 export type ListResponse = { rows: ListRow[]; nextCursor: string | null; total: number; projectedThrough: ProjectedThrough };
 
 /** `perObject` bounds each object's hits; `limit` bounds them all. `scopes` narrows an object's hits to what the caller sees (OwnerScope). */
-export type SearchRequest = { q: string; limit?: number; perObject?: number; objects?: readonly string[]; scopes?: Readonly<Record<string, OwnerScope>> };
+export type SearchCompany = { scope?: OwnerScope; fields: readonly "name"[] };
+export type SearchRequest = { company?: SearchCompany; q: string; limit?: number; perObject?: number; objects?: readonly string[]; scopes?: Readonly<Record<string, OwnerScope>> };
 /** Accounts and contacts are register rows (their record-service id); other objects are streams. */
 export type SearchHit = { object: string; id: string; title: string; updatedAt: number; detail?: Record<string, Scalar | null> };
 export type SearchResponse = { hits: SearchHit[]; projectedThrough: ProjectedThrough };
@@ -443,7 +444,7 @@ export function listRowsInMemory(def: ResolvedObjectDef, rows: readonly ListRow[
   return { rows: page.map((k) => k.row), nextCursor, total, projectedThrough };
 }
 
-export type CompiledSearch = { q: string; limit: number; perObject: number; objects: readonly string[] | null; scopes: Readonly<Record<string, OwnerScope>> };
+export type CompiledSearch = { q: string; limit: number; perObject: number; objects: readonly string[] | null; scopes: Readonly<Record<string, OwnerScope>>; company: { scope: CompiledScope | null; name: boolean } | null };
 
 export function compileSearch(req: SearchRequest): CompiledSearch {
   const q = req.q.trim().toLowerCase();
@@ -456,7 +457,12 @@ export function compileSearch(req: SearchRequest): CompiledSearch {
   for (const scope of Object.values(scopes)) {
     if (!Array.isArray(scope.owners) || scope.owners.length > SCOPE_IDS_MAX) throw new ListRequestError(`scope owners must be at most ${SCOPE_IDS_MAX} ids`);
   }
-  return { q, limit, perObject, objects: req.objects?.length ? req.objects : null, scopes };
+  const company = req.company ? {
+    scope: compileScope(listColumns(registerListDef("account", resolveObjectDef(STANDARD_OBJECTS.account))), req.company.scope),
+    name: req.company.fields.includes("name"),
+  } : null;
+  if (req.company?.fields.some((f) => f !== "name")) throw new ListRequestError("unknown search company field");
+  return { q, limit, perObject, objects: req.objects?.length ? req.objects : null, scopes, company };
 }
 
 /** The values a hit carries beside its title: a company's domain, a person's email and company, a deal's amount and stage. */

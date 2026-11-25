@@ -25,6 +25,27 @@ describe("contact company predicate", () => {
     assert.equal(r.status, 200, JSON.stringify(r.json));
     return r.json;
   };
+  it("masks search company names in the same snapshot without changing hits or rank", async () => {
+    await ctx.app.registry.with("company", (w) => w.write((c) => c.run("UPDATE contacts SET ownerId = 'contact-user'")));
+    const request = { q: "Person", objects: ["contact"], limit: 50, scopes: { contact: { field: "ownerId", owners: ["contact-user"], unowned: false } } };
+    const legacy = await post(request, "p/search");
+    assert.equal(legacy.hits.length, 8);
+    const masked = await post({ ...request, company: { scope: company.scope, fields: ["name"] } }, "p/search");
+    assert.deepEqual(masked.hits.map((h: any) => ({ ...h, detail: { ...h.detail, company: null } })), legacy.hits.map((h: any) => ({ ...h, detail: { ...h.detail, company: null } })));
+    for (const hit of masked.hits) assert.equal(hit.detail.company, hit.title.startsWith("Person 0-") ? "mine" : null);
+    const hidden = await post({ ...request, company: { fields: [] } }, "p/search");
+    assert.ok(hidden.hits.every((h: any) => h.detail.company === null));
+    assert.deepEqual(await post(request, "p/search"), legacy);
+    assert.deepEqual((await post({ q: "peer", objects: ["contact"], company: { scope: company.scope, fields: ["name"] } }, "p/search")).hits, []);
+    const byId = await post({ ...request, company: { scope: { field: "id", owners: [ids[0]], unowned: false }, fields: ["name"] } }, "p/search");
+    assert.deepEqual(byId, masked);
+    const unowned = await post({ ...request, company: { scope: { ...company.scope, unowned: true }, fields: ["name"] } }, "p/search");
+    assert.ok(unowned.hits.some((h: any) => h.detail.company === "empty"));
+    for (const predicate of [{ fields: ["fit"] }, { fields: ["name"], scope: { ...company.scope, field: "missing" } }]) {
+      assert.equal((await ctx.client.ws("company").post("p/search", { ...request, company: predicate })).status, 400);
+    }
+    await ctx.app.registry.with("company", (w) => w.write((c) => c.run("UPDATE contacts SET ownerId = NULL")));
+  });
   it("preserves legacy requests and masks inaccessible company cells", async () => {
     const request = { sort: { field: "accountFit", dir: "desc" }, limit: 2 };
     const old = await post(request);

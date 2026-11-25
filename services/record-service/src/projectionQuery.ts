@@ -338,11 +338,10 @@ export async function searchProjected(w: Workspace | null, req: SearchRequest): 
   const want = (o: string) => !s.objects || s.objects.includes(o);
   const top = (title: string, updated: string, id = "id") => `ORDER BY starts_with(lower(${title}), $q) DESC, ${updated} DESC, ${id} LIMIT ${s.perObject}`;
   /** An object's visibility scope over its owner column (SQL), as an AND clause; an object with a scope and no owner column finds nothing. */
-  const scoped = (object: string, ownerCol: string | null, params: Record<string, DuckDBValue>) => {
+  const scoped = (object: string, ownerCol: string | null, params: Record<string, DuckDBValue>, sql = new Sql()) => {
     const scope = s.scopes[object];
     if (!scope) return "";
     if (!ownerCol) return " AND FALSE";
-    const sql = new Sql();
     const clause = ownerSql(sql, `nullif(${ownerCol}, '')`, scope);
     // Sql names its parameters p0, p1, ..., apart from the search's own $q.
     Object.assign(params, sql.params);
@@ -377,9 +376,14 @@ export async function searchProjected(w: Workspace | null, req: SearchRequest): 
     }
     if (want("contact")) {
       const params: Record<string, DuckDBValue> = { q: s.q };
-      const scope = scoped("contact", "p.ownerId", params);
-      add("contact", await all(c, `SELECT p.id, p.fullName AS title, p.updatedAt AS updated_at, nullif(p.email, '') AS email, a.name AS company
-        FROM contacts p LEFT JOIN accounts a ON a.id = p.accountId
+      const sql = new Sql();
+      const scope = scoped("contact", "p.ownerId", params, sql);
+      const companyScope = s.company?.scope ? ` AND ${scopeSql(sql, s.company.scope, (col) => `a.${ident(registerColumn("account", col))}`)}` : "";
+      Object.assign(params, sql.params);
+      const companyName = !s.company || s.company.name ? "a.name" : "CAST(NULL AS VARCHAR)";
+      const companyLive = s.company ? " AND a.deletedAt IS NULL" : "";
+      add("contact", await all(c, `SELECT p.id, p.fullName AS title, p.updatedAt AS updated_at, nullif(p.email, '') AS email, ${companyName} AS company
+        FROM contacts p LEFT JOIN accounts a ON a.id = p.accountId${companyLive}${companyScope}
         WHERE p.deletedAt IS NULL AND (contains(lower(p.fullName), $q) OR contains(lower(p.email), $q)
           OR contains(array_to_string(coalesce(p.additionalEmails, []::VARCHAR[]), ' '), $q))${scope} ${top("p.fullName", "p.updatedAt", "p.id")}`, params), SEARCH_DETAIL.contact);
     }
