@@ -24,7 +24,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       profile(params) {
         const email = typeof params.email === "string" ? params.email.trim().toLowerCase() : "";
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Enter a valid email address");
-        return { email };
+        return { email, ...(typeof params.setupCode === "string" ? { setupCode: params.setupCode } : {}) };
       },
       ...(emailEnabled ? { reset: Resend({ ...email.options, id: "password-reset" }) } : {}),
     }),

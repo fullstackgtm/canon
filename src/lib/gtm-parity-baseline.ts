@@ -55,6 +55,7 @@ export const gtmParityBaseline: Readonly<Record<string, GtmParityReason>> = {
   "api.salesforceActions.getAuthUrl": "human-only-candidate",
   "api.tamSettings.setSeatPrice": "human-only-candidate",
   // todo
+  // Batch/conversion admission evidence: docs/agent-write-parity.md.
   "api.addRecords.startAccounts": "todo",
   "api.objects.createMany": "todo",
   "api.addRecords.startMarket": "todo",
@@ -64,11 +65,9 @@ export const gtmParityBaseline: Readonly<Record<string, GtmParityReason>> = {
   "api.emailActions.sendToContact": "todo",
   "api.expleeActions.syncNow": "todo",
   "api.hubspotActions.syncAll": "todo",
-  "api.integrations.stopSync": "todo",
   "api.linkedinCadences.enroll": "todo",
   "api.marketActions.runCapture": "todo",
   "api.marketActions.runClassify": "todo",
-  "api.objects.bulkScoped": "todo",
   "api.paidRuns.start": "todo",
   "api.providerTests.run": "todo",
   "api.salesforceActions.syncAll": "todo",

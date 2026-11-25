@@ -33,12 +33,7 @@ export function evidenceSigner(env: Record<string, string | undefined> = process
   }
 }
 
-/** The request's IP address as Canon's edge reports it: Cloudflare's, else the first X-Forwarded-For hop, else X-Real-IP. */
-export function requestIp(headers: Headers): string | null {
-  const first = headers.get("cf-connecting-ip") ?? headers.get("x-forwarded-for")?.split(",")[0] ?? headers.get("x-real-ip");
-  const ip = first?.trim();
-  return ip && /^[0-9a-fA-F:.]{2,64}$/.test(ip) ? ip : null;
-}
+export { trustedClientIp as requestIp } from "./clientIp.ts";
 
 /** A token carrying `ip` and `userAgent` for one transition, for `subject` (the person's Clerk id) when known. */
 export function signEvidence(config: ServiceJwtConfig, act: EvidenceAct, seen: { ip: string | null; userAgent: string | null }, subject: string | null, now = Math.floor(Date.now() / 1000)): string {

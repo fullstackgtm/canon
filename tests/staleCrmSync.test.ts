@@ -6,8 +6,9 @@ import { loadConvex, memoryDb } from "./convexHandlers.ts";
 const scheduler = { runAfter: async () => null };
 const MIN = 60_000;
 const admin = { _id: "users:1", orgId: "org1", role: "admin", name: "Ana", email: "ana@x.co" };
+let agent: string | null = null;
 const { "integrations.ts": integrations } = loadConvex(["integrations.ts"], {
-  "lib.ts": (real) => ({ ...real, requireUser: async () => admin }),
+  "lib.ts": (real) => ({ ...real, agentClientOf: async () => agent, requireUser: async () => admin }),
 });
 
 function world(runs: Array<{ provider: string; startedAt: number }>) {
@@ -84,4 +85,21 @@ test("a sync's per-object progress never moves back to an older snapshot", async
   await integrations.updateRunObjects.handler({ db, scheduler }, snapshot(200, true, 2000));
   await integrations.updateRunObjects.handler({ db, scheduler }, snapshot(100, false, 1000));
   assert.deepEqual((await db.get("integrationSyncRuns:0"))!.objects, snapshot(200, true, 2000).objects);
+});
+
+
+test("agent cancellation requires the observed provider run set and never touches another tenant", async () => {
+  const db = world([{ provider: "salesforce", startedAt: Date.now() - MIN }]);
+  await db.insert("integrationSyncRuns", { orgId: "other", provider: "salesforce", status: "in_progress", startedAt: Date.now() });
+  await db.insert("integrationSyncRuns", { orgId: "org1", provider: "hubspot", status: "in_progress", startedAt: Date.now() });
+  agent = "agent-client";
+  try {
+    for (const expectedRunIds of [undefined, [], ["foreign"]]) {
+      await assert.rejects(integrations.stopSync.handler({ db, scheduler }, { provider: "salesforce", expectedRunIds }));
+      assert.equal((await db.get("integrationSyncRuns:0"))!.status, "in_progress");
+      assert.equal(db.rows("operationAuditLog").length, 0);
+    }
+    assert.equal((await integrations.stopSync.handler({ db, scheduler }, { provider: "salesforce", expectedRunIds: ["integrationSyncRuns:0"] })).stopped, 1);
+    assert.equal(db.rows("integrationSyncRuns").filter((r) => r.status === "in_progress").length, 2);
+  } finally { agent = null; }
 });

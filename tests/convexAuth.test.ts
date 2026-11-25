@@ -4,7 +4,7 @@ import { convexAuthError } from "../src/lib/convexAuthError.ts";
 import { ConvexError } from "convex/values";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
-const env = { CANON_AUTH: "convex", CANON_SERVICE_JWT_ISSUER: "https://canon.test/service", FSGTM_ENABLE_DEMO_DATA: "true" };
+const env = { CANON_AUTH: "convex", CANON_SETUP_CODE: "setup-code-123456", CANON_SERVICE_JWT_ISSUER: "https://canon.test/service", FSGTM_ENABLE_DEMO_DATA: "true" };
 let loginTime: number | undefined;
 const modules = loadConvex(["convexAuthUsers.ts", "lib.ts", "cliAuth.ts", "agentIdentityData.ts"], {}, { process: { env }, Date: { now: () => loginTime ?? Date.now() } });
 const create = modules["convexAuthUsers.ts"].createOrUpdateUser as unknown as (ctx: unknown, args: unknown) => Promise<string>;
@@ -13,7 +13,7 @@ const args = (email: string, extra = {}) => ({ existingUserId: null, type: "oaut
 
 test("verified email links an invite or migrated member without duplicating the workspace", async () => {
   for (const clerkUserId of ["member:ada", "user_clerk_ada"]) {
-    const db = memoryDb({ organizations: [{ _id: "org" }], users: [{ _id: "ada", email: "ada@example.com", clerkUserId, orgId: "org", role: "rep", isActive: true }] });
+    const db = memoryDb({ organizations: [{ _id: "org" }], users: [{ _id: "ada", email: "ada@example.com", clerkUserId, invitedAt: 1, orgId: "org", role: "rep", isActive: true }] });
     assert.equal(await create({ db }, args("ada@example.com")), "ada");
     assert.equal(await create({ db }, args("ada@example.com", { existingUserId: "ada" })), "ada");
     assert.equal(db.rows("users").length, 1);
@@ -25,7 +25,7 @@ test("verified email links an invite or migrated member without duplicating the 
 
 test("password creates one workspace with defaults; unverified email cannot claim another member", async () => {
   const db = memoryDb({});
-  const input = args("New@Example.com", { type: "credentials", profile: { email: "New@Example.com" } });
+  const input = args("New@Example.com", { type: "credentials", profile: { email: "New@Example.com", setupCode: env.CANON_SETUP_CODE } });
   const ctx = { db, scheduler: { runAfter: async () => "scheduled" } };
   const id = await create(ctx, input);
   assert.equal(await create(ctx, { ...input, existingUserId: id }), id);

@@ -1,3 +1,4 @@
+import { constantTimeEqual } from "./lib/encryption.ts";
 import { ConvexError } from "convex/values";
 import type { ConvexAuthConfig } from "@convex-dev/auth/server";
 import type { MutationCtx } from "./_generated/server";
@@ -22,6 +23,7 @@ export async function createOrUpdateUser(ctx: MutationCtx, args: UserArgs): Prom
   if (matches.length > 1) throw new ConvexError("Multiple members use this email. Ask an administrator to resolve them.");
   const member = matches[0];
   if (member) {
+    if (!member.isActive || (awaitsLogin(member.clerkUserId) && !member.invitedAt)) throw new ConvexError("An active invitation is required");
     if (member.emailVerificationTime === undefined && await ctx.db.query("authAccounts")
       .withIndex("userIdAndProvider", (q) => q.eq("userId", member._id).eq("provider", "password")).first()) {
       // An unverified password account must not retain access when the address owner arrives via OAuth/email.
@@ -34,6 +36,13 @@ export async function createOrUpdateUser(ctx: MutationCtx, args: UserArgs): Prom
       ...(verified ? { emailVerificationTime: now } : {}), lastLoginAt: now,
     });
     return member._id;
+  }
+  if (await ctx.db.query("users").first()) throw new ConvexError("Ask an administrator for an invitation");
+  const normalize = (s: string) => s.toUpperCase().replace(/[\s-]/g, "");
+  const expected = process.env.CANON_SETUP_CODE;
+  const supplied = args.profile.setupCode;
+  if (!expected || normalize(expected).length < 12 || typeof supplied !== "string" || !constantTimeEqual(normalize(supplied), normalize(expected))) {
+    throw new ConvexError("A valid CANON_SETUP_CODE is required for the first owner");
   }
   const key = crypto.randomUUID();
   const orgId = await ctx.db.insert("organizations", {

@@ -1,6 +1,7 @@
+import { rateLimitHit } from "./lib/rateLimit";
 import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
-import { internalMutation, internalQuery, mutation, query, type ActionCtx } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser, withRole } from "./lib";
 import { credentialMember } from "./lib/membership";
@@ -22,12 +23,6 @@ const crmProviderValidator = v.union(v.literal("hubspot"), v.literal("salesforce
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 
-// Backstop ceiling on concurrently-pending requests. This is NOT a per-user
-// gate (the edge route does per-IP limiting): it only stops unbounded table
-// growth and caps a flood, while leaving legitimate pairing unaffected even
-// under contention because expired rows are swept first.
-const MAX_PENDING_REQUESTS = 200;
-
 async function sweepExpired(ctx: { db: any }, now: number) {
   const stale = await ctx.db
     .query("cliAuthRequests")
@@ -40,16 +35,27 @@ async function sweepExpired(ctx: { db: any }, now: number) {
   }
 }
 
-export const start = mutation({
-  args: {
-    deviceCodeHash: v.string(),
-    userCode: v.string(),
-    requesterLabel: v.optional(v.string()),
-    provider: v.optional(crmProviderValidator),
-    // RFC 8628 route asks for 900s; the legacy CLI route keeps the 600s
-    // default. Clamped so a caller can never mint a long-lived pending code.
-    ttlSeconds: v.optional(v.number()),
+const startArgs = {
+  deviceCodeHash: v.string(),
+  userCode: v.string(),
+  requesterLabel: v.optional(v.string()),
+  provider: v.optional(crmProviderValidator),
+  // RFC 8628 route asks for 900s; the legacy CLI route keeps the 600s
+  // default. Clamped so a caller can never mint a long-lived pending code.
+  ttlSeconds: v.optional(v.number()),
+  registrationIpHash: v.string(),
+};
+
+export const startFromServer = action({
+  args: startArgs,
+  handler: async (ctx, args): Promise<{ expiresInSeconds: number }> => {
+    await requireAuthBroker(ctx);
+    return ctx.runMutation(internal.cliAuth.start, args);
   },
+});
+
+export const start = internalMutation({
+  args: startArgs,
   handler: async (ctx, args) => {
     const now = Date.now();
     await sweepExpired(ctx, now);
@@ -58,13 +64,13 @@ export const start = mutation({
         ? PAIRING_TTL_MS
         : Math.min(Math.max(Math.floor(args.ttlSeconds), 60), 900) * 1000;
 
-    const pending = await ctx.db
-      .query("cliAuthRequests")
-      .withIndex("by_expiresAt", (q) => q.gte("expiresAt", now))
-      .take(MAX_PENDING_REQUESTS + 1);
-    if (pending.filter((request) => request.status === "pending").length >= MAX_PENDING_REQUESTS) {
-      throw new ConvexError("Too many pending CLI pairing requests; try again shortly.");
-    }
+    const key = `auth-pairing:${args.registrationIpHash}`;
+    const bucket = await ctx.db.query("moduleRateLimits").withIndex("by_key", (q) => q.eq("key", key)).unique();
+    const { allowed, next } = rateLimitHit(bucket, now, { limit: 10, windowMs: 60_000 });
+    if (!allowed) throw new ConvexError("Too many pairing requests from this address");
+    const value = { ...next, expiresAt: next.windowStart + 60_000 };
+    if (bucket) await ctx.db.patch(bucket._id, value);
+    else await ctx.db.insert("moduleRateLimits", { key, ...value });
 
     const cliAuthRequestId = await ctx.db.insert("cliAuthRequests", {
       deviceCodeHash: args.deviceCodeHash,
@@ -309,3 +315,10 @@ export const touchToken = internalMutation({
     if (token && lastUsedIsStale(token.lastUsedAt, now)) await ctx.db.patch(args.cliTokenId, { lastUsedAt: now });
   },
 });
+
+export async function requireAuthBroker(ctx: Pick<ActionCtx, "auth">) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!process.env.CANON_SERVICE_JWT_ISSUER || identity?.issuer !== process.env.CANON_SERVICE_JWT_ISSUER || identity?.subject !== "auth_broker_server") {
+    throw new ConvexError("Auth broker required");
+  }
+}

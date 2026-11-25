@@ -16,7 +16,7 @@ const steps = [{ kind: "invite", note: "private-note" }, { kind: "message", body
 function setup() {
   now = Date.parse("2026-10-20T16:00:00Z");
   const db = memoryDb({
-    users: [{ _id: "users:sender", orgId: "organizations:org", role: "member" }],
+    users: [{ _id: "users:sender", orgId: "organizations:org", role: "member", isActive: true }],
     linkedinAccounts: [{
       _id: "linkedinAccounts:sender", orgId: "organizations:org", userId: "users:sender",
       unipileAccountId: "private-unipile", profileName: "Ada", publicIdentifier: "private-profile",

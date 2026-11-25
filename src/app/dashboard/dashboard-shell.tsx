@@ -37,7 +37,7 @@ import { LocalInviteDialog, LocalOrgSwitcher, LocalUserButton } from "@/componen
 
 const DEV_MODE =
   (process.env.NODE_ENV !== "production" && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) ||
-  process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true";
+  (process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true");
 
 /** Overdue plus due-today tasks of the signed-in user; nothing when there are none. */
 function DueTasksBadge({ collapsed }: { collapsed?: boolean }) {

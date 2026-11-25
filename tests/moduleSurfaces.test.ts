@@ -113,7 +113,8 @@ test("only moduleScope names the module data tables, and every module function i
   assert.match(source.slice(source.indexOf("async function runCall(")), RUN_CALL, "runCall reads and writes through callPlan and applyCall");
   assert.match(source.slice(source.indexOf("async function printedPage(")).split(/^}/m)[0], /api\.modules\.page\b[\s\S]*runCall\(/, "a printed page reads as api.modules.page and its calls run through runCall");
   const all = ROOTS.flatMap((r) => files(join(root, r))).map((p) => relative(root, p));
-  assert.deepEqual(all.filter((p) => !["convex/schema.ts", "convex/lib/modules/visitors.ts"].includes(p) && /["'`](moduleShareGrants|moduleVisitors|moduleVisitCodes|moduleRateLimits)["'`]/.test(readFileSync(p, "utf8"))), [], "only visitors.ts accesses share grants");
+  assert.deepEqual(all.filter((p) => !["convex/schema.ts", "convex/lib/modules/visitors.ts"].includes(p) && /["'`](moduleShareGrants|moduleVisitors|moduleVisitCodes)["'`]/.test(readFileSync(p, "utf8"))), [], "only visitors.ts accesses share grants");
+  assert.deepEqual(all.filter((p) => !["convex/schema.ts", "convex/lib/modules/visitors.ts", "convex/cliAuth.ts"].includes(p) && /["'`](moduleRateLimits)["'`]/.test(readFileSync(p, "utf8"))), [], "only visitor and auth brokers access rate buckets");
   assert.deepEqual(all.filter((p) => p !== "convex/lib/modules/scope.ts" && /\bshareDocs\(/.test(readFileSync(p, "utf8"))), ["convex/lib/modules/visitors.ts"], "only visitors.ts receives raw share docs");
 
   for (const capability of ["shareFileInfo", "recordVisitEvent", "recordVisitorDay", "writeShareDoc", "shareUploadField", "reserveVisitorUpload", "visitorUploadRow", "expiredVisitorUploads", "releaseVisitorUpload", "storeVisitorUpload", "shareFileDownload"]) assert.deepEqual(all.filter((p) => !["convex/lib/modules/scope.ts", "convex/lib/modules/visitors.ts"].includes(p) && new RegExp(`\\b${capability}\\s*\\(`).test(readFileSync(p, "utf8"))), []);

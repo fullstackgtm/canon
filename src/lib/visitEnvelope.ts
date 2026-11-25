@@ -1,3 +1,4 @@
+import { trustedClientIp } from "./clientIp.ts";
 import { createHash, createPrivateKey, createSign, randomBytes } from "node:crypto";
 import type { ServiceJwtConfig } from "./canonServiceJwt.ts";
 import { canonicalJson } from "../../modules/kernel/integrity.ts";
@@ -6,13 +7,7 @@ import type { VisitArgs, VisitFunction } from "../../modules/kernel/visit.ts";
 export const visitHash = (value: string) => createHash("sha256").update(value).digest("hex");
 export const visitSecret = () => randomBytes(32).toString("base64url");
 
-export function visitRequestIp(headers: Headers, env: Record<string, string | undefined> = process.env): string {
-  const name = env.CANON_CLIENT_IP_HEADER?.toLowerCase();
-  if (!name) return "unknown";
-  const raw = headers.get(name);
-  const ip = (name === "x-forwarded-for" ? raw?.split(",").at(-1) : raw)?.trim();
-  return ip && /^[0-9a-fA-F:.]{2,64}$/.test(ip) ? ip : "unknown";
-}
+export const visitRequestIp = (headers: Headers, env: Record<string, string | undefined> = process.env) => trustedClientIp(headers, env) ?? "unknown";
 
 export function signVisitEnvelope(config: ServiceJwtConfig, fn: VisitFunction, args: VisitArgs, seen: { ip: string; ua: string }, now = Math.floor(Date.now() / 1000)): string {
   const claims = {

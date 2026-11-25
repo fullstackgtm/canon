@@ -1,7 +1,7 @@
 import { ConvexError } from "convex/values";
 import { api } from "../../../../../convex/_generated/api.js";
 import { publicGtmApi, readJsonBody } from "../../gtm/_lib.ts";
-import { plainConvexClient, rateLimit, sha256 } from "../../cli/_lib.ts";
+import { authBrokerClient, rateLimit, sha256 } from "../../cli/_lib.ts";
 import { AGENT_REVOCATION_CONTACT } from "../../../.well-known/_lib.ts";
 import {
   AGENT_IDENTITY_TYPES,
@@ -82,10 +82,10 @@ export const POST = publicGtmApi(async (request) => {
   // bearer token so a signed-in user can later bind (claim) this anonymous
   // registration at /api/agents/claim. Stored hashed, like the bearer token.
   const claimToken = newAgentClaimToken();
-  const client = plainConvexClient();
+  const client = authBrokerClient();
   let registration: { expiresAt: number; scopes: string[] };
   try {
-    registration = await client.mutation(api.agentAuth.register, {
+    registration = await client.action(api.agentAuth.registerFromServer, {
       name,
       operatorContact,
       platform: platform || undefined,

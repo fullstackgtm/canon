@@ -15,7 +15,7 @@ import { permissionOf, type Access } from "../access";
 import { dealVisible, roleIn, sightJudge } from "../../permissions";
 import { moduleDealTarget } from "./dealTarget";
 import { canonicalJson } from "../../../modules/kernel/integrity.ts";
-import { userBelongsToOrg } from "../../lib";
+import { userRowBelongsToOrg } from "../../lib";
 import { markDirty } from "./jobs";
 import { systemScope } from "./scope";
 import { treeSpecOf } from "./territories";
@@ -116,7 +116,7 @@ const nameOf = async (db: QueryCtx["db"], orgId: Id<"organizations">, id: string
   if (id === null) return "no owner";
   const uid = db.normalizeId("users", id);
   const u = uid ? await db.get(uid) : null;
-  return u && (await userBelongsToOrg({ db } as QueryCtx, u, orgId)) ? u.name : null;
+  return u && (await userRowBelongsToOrg({ db } as QueryCtx, u, orgId)) ? u.name : null;
 };
 
 /**

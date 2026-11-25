@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { z } from "zod/v4";
 import { getFunctionName } from "convex/server";
-import { canonTools } from "../src/app/mcp/_canonTools.ts";
+import { canonTools, toolResultText } from "../src/app/mcp/_canonTools.ts";
 
 /** Records which Convex functions a tool calls, and how. */
 function fakeConvex(recordRefs?: boolean) {
@@ -52,7 +52,7 @@ test("read tools only read; every write tool and destructive tool is marked", as
       assert.ok(c.kind === "query" || (c.kind === "action" && READ_ACTIONS.has(c.name)), `${tool.name} is read-only but called ${c.kind} ${c.name}`);
     }
   }
-  assert.deepEqual(canonTools.filter((t) => t.destructive).map((t) => t.name), ["canon_update_record", "canon_delete_record", "canon_review", "canon_data_model", "canon_duplicates"]);
+  assert.deepEqual(canonTools.filter((t) => t.destructive).map((t) => t.name), ["canon_update_record", "canon_delete_record", "canon_records", "canon_integrations", "canon_review", "canon_data_model", "canon_duplicates"]);
 });
 
 test("update_record edits accounts through the register and other objects with a version check", async () => {
@@ -156,4 +156,27 @@ test("single-record tools retain the scoped ledger's custom values and account c
   assert.deepEqual(deal.record, record);
   const company = await canonTools.find((t) => t.name === "canon_get_record")!.run(client, { accountRecordId: "r1" });
   assert.deepEqual(company, { ...account, record });
+});
+
+
+test("missing TAM suggestions report a lookup miss through the grouped tool", async () => {
+  const tool = canonTools.find((t) => t.name === "canon_tam")!;
+  const input = { action: "list_suggestions", args: {} };
+  assert.equal(z.object(tool.inputSchema).safeParse(input).success, true);
+  const calls: string[] = [];
+  const result = await tool.run({ query: async (ref: never) => { calls.push(getFunctionName(ref)); return null; } } as never, input);
+  assert.deepEqual(calls, ["tamSuggestions:latest"]);
+  const output = JSON.parse(toolResultText(tool, input, result));
+  assert.equal(output.found, false);
+  assert.equal(output.ok, undefined);
+});
+
+
+test("bulk actions fix the lifecycle operation and forward only the action args", async () => {
+  const tool = canonTools.find((t) => t.name === "canon_records")!;
+  for (const [action, op] of [["update", "update"], ["archive", "delete"], ["restore", "restore"]]) {
+    const f = fakeConvex();
+    await tool.run(f.client, { action, orgId: "ignored", args: { object: "lead", streamIds: ["s1"], op: "override" } });
+    assert.deepEqual(f.calls, [{ kind: "action", name: "objects:bulkScoped", args: { object: "lead", streamIds: ["s1"], op } }]);
+  }
 });

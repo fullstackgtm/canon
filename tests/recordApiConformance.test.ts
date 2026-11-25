@@ -567,3 +567,22 @@ test("the live document leaves out a field the caller's role cannot see", async 
     user = ADMIN;
   }
 });
+
+test("bulk ledger admission checks every row before changing any row and retains the server cap", async () => {
+  await withKit();
+  user = ADMIN;
+  const create = async (ownerId: string) => (await runner("action")("objects:writeScoped", { object: "custom_kit", values: { "custom.name": "Batch admission", ownerId } }) as { streamId: string }).streamId;
+  const own = await create(REP._id);
+  const hidden = await create(ADMIN._id);
+  user = REP;
+  try {
+    const input = { object: "custom_kit", op: "update", streamIds: [own, hidden], values: { "custom.name": "Changed" } };
+    const before = db.rows("ledgerEntries").length;
+    await assert.rejects(runner("action")("objects:bulkScoped", input));
+    assert.equal(db.rows("ledgerEntries").length, before);
+    await assert.rejects(runner("action")("objects:bulkScoped", { ...input, streamIds: Array(26).fill(own), cap: 1000 }));
+    assert.equal(db.rows("ledgerEntries").length, before);
+    const result = await runner("action")("objects:bulkScoped", { ...input, streamIds: [own] }) as { results: Array<{ result: { status: string } }> };
+    assert.equal(result.results[0]!.result.status, "applied");
+  } finally { user = ADMIN; }
+});
