@@ -21,6 +21,7 @@ import {
   type Access,
 } from "./access.ts";
 import { LIST_LIMIT_MAX, type ListRequest, type OwnerScope } from "./objects/listSpec.ts";
+import { accountCriterionFields, personCriterionFields } from "./icpCriteria.ts";
 import type { AccountsFilter } from "./recordContract.ts";
 import { atLeastVersion, type RecordClient } from "./recordClient.ts";
 
@@ -124,9 +125,13 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
   const sees = (object: "account" | "contact", row: { ownerId?: string } | null | undefined) =>
     Boolean(row) && accesses.every((a) => canSeeRecord(a, object, true, row!.ownerId ?? null));
   const narrows = accesses.some(narrowsReads);
-  const refuse = (object: string, fields: ReadonlyArray<string | undefined>) => { for (const a of accesses) refuseHiddenUse(a, object, fields); };
+  const refuse = (object: string, fields: ReadonlyArray<string | undefined>) => { for (const a of accesses) refuseHiddenUse(a, object, fields.flatMap((f) => object === "account" && f === "revenue" ? [f, "annualRevenue"] : [f])); };
   // Field permissions (CP14): a field any principal may not see leaves every row, and no filter, sort, group or measure may name it.
-  const hidden = (object: string) => new Set(accesses.flatMap((a) => hiddenFields(a, object)));
+  const hidden = (object: string) => {
+    const fields = new Set(accesses.flatMap((a) => hiddenFields(a, object)));
+    if (object === "account" && fields.has("annualRevenue")) fields.add("revenue");
+    return fields;
+  };
   const stripRow = <R extends { values: Record<string, unknown>; accountId?: string }>(object: string, row: R): R => {
     const h = hidden(object);
     if (!h.size) return row;
@@ -146,6 +151,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
   const stripHistory = <R extends { field: string }>(object: string, rows: R[]) => { const h = hidden(object); return rows.filter((r) => !h.has(r.field)); };
   /** The account fields a legacy filter or facet reads, as apiNames. */
   const legacyFields = (f: AccountsFilter | undefined, groupBy?: string) => [
+    ...(f?.criteria ?? []).flatMap(accountCriterionFields),
     ...(f?.industry?.length ? ["industry"] : []), ...(f?.country?.length || f?.region?.length ? ["country"] : []),
     ...(f?.employeeMin !== undefined || f?.employeeMax !== undefined || f?.sizeBand?.length ? ["employees"] : []),
     ...(f?.status ? ["status"] : []), ...(f?.ownerId ? ["ownerId"] : []), ...(f?.q ? ["name", "domain"] : []),
@@ -163,6 +169,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
     },
     async listContacts(ws, req) {
       if (req.filter?.q) refuse("contact", ["title", "email"]);
+      if ((req.filter?.accountId || req.filter?.accountIds?.length) && hidden("contact").has("accountId")) return { rows: [], nextCursor: null, total: 0 };
       const scope = await legacyScope(base, accesses, "contact");
       const page = await base.listContacts(ws, scope ? { ...req, filter: { ...req.filter, scope } } : req);
       return { ...page, rows: page.rows.map((r) => stripLegacy("contact", r)) };
@@ -173,7 +180,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
       return base.countSegment(ws, scope ? { ...filter, scope } : filter);
     },
     async facets(ws, req) {
-      refuse("account", legacyFields(req.filter, req.groupBy));
+      refuse("account", [...legacyFields(req.filter, req.groupBy), "employees", "revenue", "annualRevenue"]);
       const scope = await legacyScope(base, accesses, "account");
       return base.facets(ws, scope ? { ...req, filter: { ...req.filter, scope } } : req);
     },
@@ -182,7 +189,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
       if (!detail || !sees("account", detail.account)) return null;
       return {
         ...detail, account: stripLegacy("account", detail.account),
-        contacts: detail.contacts.filter((c) => sees("contact", c)).map((c) => stripLegacy("contact", c)),
+        contacts: detail.contacts.filter((c) => !hidden("contact").has("accountId") && sees("contact", c)).map((c) => stripLegacy("contact", c)),
         history: stripHistory("account", detail.history),
       };
     },
@@ -231,11 +238,8 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
     icpStats: async (ws) => (narrows ? { gates: [] } : base.icpStats(ws)),
     async icpTreeCounts(ws, req) {
       // Counts read companies' industry, country, size and AI answers, and people's titles: a role that hides one can't count by it.
-      refuse("account", req.nodes.flatMap(({ account: x }) => [
-        ...(x?.industries?.length || x?.excludeIndustries?.length ? ["industry"] : []), ...(x?.countries?.length || x?.excludeCountries?.length ? ["country"] : []),
-        ...(x?.employees?.length ? ["employees"] : []), ...(x?.custom ?? []).map((c) => c.key),
-      ]));
-      if (req.nodes.some((n) => n.person || n.has?.length)) refuse("contact", ["title"]);
+      refuse("account", req.nodes.flatMap((n) => accountCriterionFields(n.account)));
+      refuse("contact", req.nodes.flatMap((n) => [...(n.person || n.has?.length ? ["title"] : []), ...personCriterionFields(n.person), ...(n.has ?? []).flatMap((h) => personCriterionFields(h.person))]));
       const [accountScope, contactScope] = [await legacyScope(base, accesses, "account"), await legacyScope(base, accesses, "contact")];
       return base.icpTreeCounts(ws, { ...req, ...(accountScope ? { accountScope } : {}), ...(contactScope ? { contactScope } : {}) });
     },
@@ -243,7 +247,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
       // A territory counts the companies the caller sees, by fields their role shows: a hidden one can't carve, and owners
       // are named only to a role that sees the owner.
       refuse("account", [
-        ...req.nodes.flatMap(({ account: x }) => [...(x?.industries?.length || x?.excludeIndustries?.length ? ["industry"] : []), ...(x?.countries?.length || x?.excludeCountries?.length ? ["country"] : []), ...(x?.employees?.length ? ["employees"] : [])]),
+        ...req.nodes.flatMap((n) => accountCriterionFields(n.account)),
         ...(req.owners || req.cells || req.moves ? ["ownerId"] : []),
         ...(req.cells?.by ?? []).map((d) => (d === "sizeBand" ? "employees" : d === "region" ? "country" : d)),
       ]);

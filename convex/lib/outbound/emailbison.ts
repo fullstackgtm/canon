@@ -1,3 +1,4 @@
+import { missingPinnedFetch } from "../integrationUrl.ts";
 /**
  * EmailBison adapter: list campaigns and add leads to one, with the
  * workspace's own API token on its own EmailBison host (each customer has one).
@@ -40,7 +41,7 @@ export function leadOf(c: OutboundContact): EmailBisonLead {
 }
 
 export function createEmailBisonClient(opts: { apiKey: string; baseUrl: string; fetchImpl?: typeof fetch }): SequencerClient {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? missingPinnedFetch;
   const base = opts.baseUrl.replace(/\/$/, "");
   const call = <T>(method: "GET" | "POST", path: string, body?: unknown) =>
     requestJson<T>("EmailBison", fetchImpl, `${base}${path}`, {

@@ -10,6 +10,9 @@ import type { deliverPinnedWebhook as DeliverPinnedWebhook } from "../convex/mod
 import { parseModuleManifest } from "../modules/kernel/manifest.ts";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
 
+process.env.FSGTM_ENABLE_DEMO_DATA = "true";
+process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS = "true";
+
 const MANIFEST = readFileSync("tests/fixtures/modules/visit-log/module.json", "utf8");
 const ID = "@canon-fixtures/visit-log";
 const members = [
@@ -20,10 +23,10 @@ const members = [
 ];
 let testNow: number | undefined;
 const caller: { user: Record<string, unknown> | null } = { user: null };
-const loaded = loadConvex(["modules.ts", "outbound.ts", "outboundDispatch.ts", "moduleWebActions.ts"], {
+const loaded = loadConvex(["modules.ts", "outbound.ts", "outboundDispatch.ts", "moduleWebActions.ts", "integrationHttp.ts"], {
   "lib.ts": (r) => ({ ...r, getCurrentUser: async () => caller.user, requireUser: async () => caller.user, agentClientOf: async () => null }),
 }, { Date: class extends Date { static now() { return testNow ?? Date.now(); } }, fetch: (...a: Parameters<typeof fetch>) => globalThis.fetch(...a) });
-const fn = { ...loaded["modules.ts"], ...loaded["outbound.ts"], ...loaded["outboundDispatch.ts"], ...loaded["moduleWebActions.ts"] };
+const fn = { ...loaded["modules.ts"], ...loaded["outbound.ts"], ...loaded["outboundDispatch.ts"], ...loaded["moduleWebActions.ts"], ...loaded["integrationHttp.ts"] };
 const deliverPinnedWebhook = loaded["moduleWebActions.ts"].deliverPinnedWebhook as unknown as typeof DeliverPinnedWebhook;
 
 /** The fixture module with a Slack channel, workspace notices and a webhook declared, each turned on and mapped. */
@@ -146,7 +149,7 @@ test("a local stack never sends for real: Postmark's key changes nothing, and a 
   const calls: string[] = [];
   globalThis.fetch = (async (url: string | URL) => { calls.push(String(url)); return Response.json({ ErrorCode: 0, MessageID: "pm-1" }); }) as typeof fetch;
   Object.assign(process.env, { POSTMARK_SERVER_TOKEN: "server-token", POSTMARK_FROM_ADDRESS: "Canon <notices@canon.test>" });
-  t.after(() => { globalThis.fetch = real; delete process.env.POSTMARK_SERVER_TOKEN; delete process.env.POSTMARK_FROM_ADDRESS; delete process.env.CONVEX_SITE_URL; });
+  t.after(() => { globalThis.fetch = real; delete process.env.POSTMARK_SERVER_TOKEN; delete process.env.POSTMARK_FROM_ADDRESS; delete process.env.CONVEX_SITE_URL; process.env.FSGTM_ENABLE_DEMO_DATA = "true"; });
   const h = outboxOn("https://hooks.slack.com/services/T/B/x", (m) => {
     m.machines.visit.transitions.complete.effects.push({ notify: [{ role: ["manager"] }], message: "{$doc.title} is done", email: true });
   });
@@ -156,6 +159,7 @@ test("a local stack never sends for real: Postmark's key changes nothing, and a 
   assert.deepEqual(h.rows().map((r) => [r.channel, r.target, r.state, r.providerId]), [["slack", "slack:field-team", "sent", "local"], ["email", "member:boss", "sent", "local"]]);
   assert.deepEqual(calls, [], "nothing left the stack");
 
+  delete process.env.FSGTM_ENABLE_DEMO_DATA;
   process.env.CONVEX_SITE_URL = "https://canon-dev.convex.site";
   await h.done("Beta");
   await h.call("dispatch");
@@ -164,9 +168,12 @@ test("a local stack never sends for real: Postmark's key changes nothing, and a 
 });
 
 test("a webhook is signed over its timestamp and body, names its row, refuses loopback without explicit opt-in, and routes through DNS-pinned Node delivery", async (t) => {
+  const prevDemo = process.env.FSGTM_ENABLE_DEMO_DATA;
+  delete process.env.FSGTM_ENABLE_DEMO_DATA;
   const prevSite = process.env.CONVEX_SITE_URL;
   const prevAllow = process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS;
   t.after(() => {
+    if (prevDemo === undefined) delete process.env.FSGTM_ENABLE_DEMO_DATA; else process.env.FSGTM_ENABLE_DEMO_DATA = prevDemo;
     if (prevSite === undefined) delete process.env.CONVEX_SITE_URL; else process.env.CONVEX_SITE_URL = prevSite;
     if (prevAllow === undefined) delete process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS; else process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS = prevAllow;
   });
@@ -182,14 +189,15 @@ test("a webhook is signed over its timestamp and body, names its row, refuses lo
 
     // With explicit opt-in, loopback delivery succeeds over the pinned Node transport.
     process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS = "true";
-    assert.deepEqual(await sendWebhook({ url: sink.url, secret: "whsec_test", id: "row-1", body }, (req) => deliverPinnedWebhook(req)), { ok: true, providerId: "local" });
+    assert.deepEqual(await sendWebhook({ url: sink.url, secret: "whsec_test", id: "row-1", body }, (req) => deliverPinnedWebhook(req)), { ok: true, providerId: "http-200" });
     const [{ headers, body: got }] = sink.seen;
     const [, ms, sig] = String(headers["canon-signature"]).match(/^t=(\d+),v1=([0-9a-f]{64})$/)!;
     assert.equal(sig, createHmac("sha256", "whsec_test").update(`${ms}.${got}`).digest("hex"));
     assert.equal(headers["canon-event-id"], "row-1");
 
     // In live mode, a webhook dispatched through outboundDispatch uses the pinned Node action (never unpinned fetch).
-    process.env.CONVEX_SITE_URL = "https://canon-dev.convex.site";
+    delete process.env.FSGTM_ENABLE_DEMO_DATA;
+  process.env.CONVEX_SITE_URL = "https://canon-dev.convex.site";
     delete process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS;
     const h = outboxOn("https://hooks.slack.com/services/T/B/x");
     h.as("admin");
@@ -346,6 +354,9 @@ test("a persisted approval requirement survives claim and sends only after the o
 });
 
 test("Postmark ambiguous transport and body failures settle unknown without a retry", async (t) => {
+  const prevDemo = process.env.FSGTM_ENABLE_DEMO_DATA;
+  delete process.env.FSGTM_ENABLE_DEMO_DATA;
+  t.after(() => { if (prevDemo === undefined) delete process.env.FSGTM_ENABLE_DEMO_DATA; else process.env.FSGTM_ENABLE_DEMO_DATA = prevDemo; });
   const before = { ...process.env };
   const realFetch = globalThis.fetch;
   t.after(() => { globalThis.fetch = realFetch; for (const key of ["CONVEX_SITE_URL", "POSTMARK_SERVER_TOKEN", "POSTMARK_FROM_ADDRESS"]) { if (before[key] === undefined) delete process.env[key]; else process.env[key] = before[key]; } });

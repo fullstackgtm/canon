@@ -19,7 +19,7 @@ const TOKEN = `ZmFrZQ.${"a".repeat(64)}`;
 function fixture(local = false): P4MailboxDelivery {
   expire = false; timeouts.length = 0;
   const origin = local ? "http://127.0.0.1:3211" : "https://fixture.convex.site";
-  configuration.env = { CONVEX_SITE_URL: origin, UNIPILE_API_KEY: "fixture-key-private", UNIPILE_DSN: "api1.unipile.com:13111" };
+  configuration.env = { ...(local ? { CANONCRM_LOCAL_STACK: "true" } : {}), CONVEX_SITE_URL: origin, UNIPILE_API_KEY: "fixture-key-private", UNIPILE_DSN: "api1.unipile.com:13111" };
   const url = `${origin}/outbound/unsubscribe?token=${TOKEN}`, hash = "a".repeat(64);
   const orgId = "org" as Id<"organizations">, ownerId = "owner" as Id<"users">, senderId = "mail" as Id<"emailAccounts">;
   return {

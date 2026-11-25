@@ -29,6 +29,7 @@ import { accountCriteria } from "./lib/icpCriteria";
 import { isPaidEmailHit, isPaidPhoneHit, utcMonthWindow } from "./lib/usage";
 import {
   accountIdFor,
+  normalizeDomain,
   accountNamesFor,
   applyPatch,
   atLeastVersion,
@@ -528,7 +529,7 @@ export const upsert = action({
     // service keys it; a person is matched by the service in ways only it can answer, so such a role adds people one
     // by one from the People page instead.
     // A field the caller's role may not change is not supplied by them either (CP14).
-    for (const r of records) refuseLockedWrite(caller.access, args.object, Object.keys(r).filter((k) => k !== "accountDomain" && k !== "accountId"));
+    for (const r of records) refuseLockedWrite(caller.access, args.object, Object.keys(r).map((k) => k === "accountDomain" ? "accountId" : k));
     const p = permissionOf(caller.access, args.object);
     if (!p.edit || p.visibility !== "all") {
       if (args.object === "contact") throw new ConvexError("Your role adds people from the People page, not by import");
@@ -536,12 +537,25 @@ export const upsert = action({
       const taken = args.accounts!.filter((_, i) => existing[i] !== null).map((a) => a.domain);
       if (taken.length) throw new ConvexError(`Already in the workspace: ${taken.slice(0, 5).join(", ")}. Your role adds new companies only.`);
     }
+    const contacts = args.contacts?.map((contact) => ({ ...contact }));
+    if (args.object === "contact") {
+      const scoped = callerClient(ctx, caller);
+      for (const contact of contacts!) {
+        // Resolve domains through the same scoped register used to admit lookup writes.
+        const accountId = contact.accountId ?? (contact.accountDomain
+          ? (await scoped.listRegister(caller.orgId, "account", { filter: [{ field: "domain", op: "eq", value: normalizeDomain(contact.accountDomain) }], limit: 1 })).rows[0]?.id
+          : undefined);
+        const admitted = accountId ? await admitRegisterIds(scoped, caller.orgId, { accountId }) : [];
+        if (!accountId || !admitted.includes(accountId)) throw new ConvexError("Company must name a record you can see");
+        contact.accountId = accountId;
+      }
+    }
     // The record service replays the key; the claim refuses it sent again with other records.
     await ctx.runMutation(internal.apiIdempotency.claim, { key: args.idempotencyKey, request: { op: "records.upsert", object: args.object, records } });
     const body = { source: "api", idempotencyKey: `api:${caller.userId}:${args.idempotencyKey}`, fill: "missing" as const };
     return args.object === "account"
       ? client.upsertAccounts(caller.orgId, { ...body, records: args.accounts! })
-      : client.upsertContacts(caller.orgId, { ...body, records: args.contacts! });
+      : client.upsertContacts(caller.orgId, { ...body, records: contacts! });
   },
 });
 

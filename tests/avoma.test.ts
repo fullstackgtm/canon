@@ -44,3 +44,19 @@ test("Avoma meeting and transcription normalize with participants, metadata and 
     ["Riley", "rep", 0.5, 2], ["Sam", "customer", 3, 4.5],
   ]);
 });
+
+test("Avoma sync accepts a regional public API through injected HTTP and refuses stored private bases", async () => {
+  const { fetchAvomaCalls } = await import("../convex/lib/calls/avoma.ts");
+  const { nullProgressEmitter } = await import("../engine/src/progress.ts");
+  let reached = 0;
+  const fetchImpl = (async (url: URL, init: RequestInit) => {
+    reached++;
+    assert.equal(url.origin, "https://regional.example.com");
+    assert.equal(init.redirect, "error");
+    return Response.json({ results: [], next: null });
+  }) as typeof fetch;
+  const opts = { apiKey: "key", baseUrl: "https://regional.example.com/v1", callsPath: "/meetings/", progress: nullProgressEmitter(), fetchImpl };
+  assert.deepEqual(await fetchAvomaCalls(opts), []);
+  await assert.rejects(fetchAvomaCalls({ ...opts, baseUrl: "https://[::ffff:127.0.0.1]" }));
+  assert.equal(reached, 1);
+});

@@ -1,5 +1,7 @@
 "use node";
 
+import { pinnedIntegrationFetch } from "./integrationHttp";
+import { integrationJson, integrationUrl } from "./lib/integrationUrl";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
@@ -189,28 +191,28 @@ async function fetchProviderCalls(
     throw new ConvexError(`${providerLabel(provider)} base URL and calls path are required`);
   }
 
+  const requestUrl = integrationUrl(baseUrl, callsPath);
   const apiKey = await decryptFromStorage(integration.accessToken);
   const apiSecret = integration.refreshToken
     ? await decryptFromStorage(integration.refreshToken)
     : "";
   if (!apiKey) throw new ConvexError(`${providerLabel(provider)} API key is required`);
 
-  if (provider === "avoma") return fetchAvomaCalls({ apiKey, baseUrl, callsPath, progress });
+  if (provider === "avoma") return fetchAvomaCalls({ apiKey, baseUrl, callsPath, progress, fetchImpl: pinnedIntegrationFetch() });
 
-  const response = await fetch(`${baseUrl}${callsPath}`, {
+  const response = await pinnedIntegrationFetch()(requestUrl, {
     method: "GET",
     headers: authHeaders(provider, apiKey, apiSecret),
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new ConvexError(`${providerLabel(provider)} API error ${response.status}: ${body}`);
+    throw new ConvexError(`${providerLabel(provider)} API error ${response.status}`);
   }
 
-  const payload = await response.json();
+  const payload = await integrationJson(response);
   const rawCalls = Array.isArray(payload)
     ? payload
-    : payload.calls ?? payload.results ?? payload.data ?? [];
+    : isRecord(payload) ? payload.calls ?? payload.results ?? payload.data ?? [] : null;
   if (!Array.isArray(rawCalls)) {
     throw new ConvexError(`${providerLabel(provider)} response did not include a calls array`);
   }

@@ -217,6 +217,7 @@ test("capacity accepts only the real signed set and bound canonical request pair
 
 async function deliveryWorld() {
   const h = await world();
+  configuration.env.CANONCRM_LOCAL_STACK = "true";
   configuration.env.CONVEX_SITE_URL = "https://localhost";
   await h.db.patch("mail", { unipileAccountId: "local-mail" });
   await h.db.insert("outboundChannels", { orgId: "org", moduleId: MODULE, channel: "email", enabledBy: "admin", enabledAt: NOW });

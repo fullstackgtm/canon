@@ -73,16 +73,16 @@ export type LookupTargets = Record<string, string[]>;
 /** The activities a link finds, newest logged first per object, and the records each names in its lookups. */
 export async function linkedActivities(
   client: Pick<RecordClient, "listObjects">, ws: string, link: ActivityLink,
-): Promise<{ activities: LedgerActivity[]; projectedThrough: ProjectedThrough; lookups: LookupTargets }> {
+): Promise<{ activities: LedgerActivity[]; projectedThrough: ProjectedThrough; lookups: LookupTargets; truncated: boolean }> {
   const ids = typeof link.id === "string" ? [link.id] : link.id;
-  if (!ids.length) return { activities: [], projectedThrough: {}, lookups: {} };
+  if (!ids.length) return { activities: [], projectedThrough: {}, lookups: {}, truncated: false };
   const filter = typeof link.id === "string" ? { field: link.field, op: "eq" as const, value: link.id } : { field: link.field, op: "in" as const, value: [...ids] };
   const pages = await Promise.all(ACTIVITY_OBJECTS.map((object) => client.listObjects(ws, object, {
     filter: [filter], sort: { field: "createdAt", dir: "desc" }, limit: ACTIVITIES_PER_OBJECT,
   })));
   const rows = ACTIVITY_OBJECTS.flatMap((object, i) => pages[i]?.rows.map((row) => ({ object, row })) ?? []);
   const lookups = Object.fromEntries(rows.map(({ row }) => [row.id, (["accountId", "contactId", "dealId"] as const).flatMap((f) => text(row.values[f]) ?? [])]));
-  return { activities: rows.map(({ object, row }) => activityOf(object, row)), projectedThrough: lowestThrough(pages), lookups };
+  return { activities: rows.map(({ object, row }) => activityOf(object, row)), projectedThrough: lowestThrough(pages), lookups, truncated: pages.some((p) => p.rows.length >= ACTIVITIES_PER_OBJECT) };
 }
 
 /** Titles of records by id, from the register (companies, people), the deals list and the leads list. A deleted or unknown id is left out. */

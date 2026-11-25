@@ -1,3 +1,4 @@
+import { missingPinnedFetch } from "../integrationUrl.ts";
 /**
  * Smartlead adapter: list campaigns and add leads to one, with the workspace's
  * own API key. Smartlead takes the key as a query parameter, so a request URL
@@ -40,7 +41,7 @@ export function leadOf(c: OutboundContact): SmartleadLead {
 const emailOf = (x: unknown) => str(x) ?? str((x as { email?: unknown } | null)?.email);
 
 export function createSmartleadClient(opts: { apiKey: string; fetchImpl?: typeof fetch; baseUrl?: string }): SequencerClient {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? missingPinnedFetch;
   const base = (opts.baseUrl ?? SMARTLEAD_BASE_URL).replace(/\/$/, "");
   const call = <T>(method: "GET" | "POST", path: string, body?: unknown) =>
     requestJson<T>("Smartlead", fetchImpl, `${base}${path}${path.includes("?") ? "&" : "?"}api_key=${encodeURIComponent(opts.apiKey)}`, {

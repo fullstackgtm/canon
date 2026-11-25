@@ -19,7 +19,8 @@ import { resolveLlm } from "./lib/llmResolver";
 import { requireCaller } from "./records";
 import { may } from "./lib/access";
 import { decryptFromStorage } from "./lib/tokenHelpers";
-import { postToSlack } from "./lib/agents/slack";
+import { pinnedIntegrationFetch } from "./integrationHttp";
+import { sendSlack } from "./lib/outbound/adapters";
 import { appUrl } from "./lib/runtimeConfig";
 import { buildPlane, type ControlPlane, type PlaneCaller, type PlayStep } from "./dealPlays";
 import { HEALTH_LABEL, summaryOf } from "./lib/plays/model";
@@ -149,7 +150,7 @@ async function check(ctx: ActionCtx, caller: PlaneCaller, streamId: string, opts
       const name = origin ? `<${origin}/dashboard/records/deal/${streamId}|${plane.deal.name}>` : plane.deal.name;
       const text = [`*Keeper* · ${name} · ${HEALTH_LABEL[plane.keeper.health]}`, ...urgent.map((f) => `• ${f.text}`), drafted ? `${drafted} draft${drafted === 1 ? "" : "s"} ready to review.` : ""]
         .filter(Boolean).join("\n");
-      const sent = await postToSlack(await decryptFromStorage(cipher), text).catch(() => ({ ok: false }));
+      const sent = await sendSlack(await decryptFromStorage(cipher), text, pinnedIntegrationFetch({ timeoutMs: 8000 })).catch(() => ({ ok: false }));
       if (sent.ok) notifiedAt = Date.now();
     }
   }

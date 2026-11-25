@@ -277,11 +277,14 @@ export async function mergeAs(
   // The caller's client chose the rows; a stream starts from the whole row (lib/recordPromotion.ts).
   const parties = await Promise.all(rows.map((r) => partyOf(clientFor(ctx), caller.orgId, a.object, r)));
   // The people whose company nobody has worked yet: their register company becomes their first edge.
+  const people = a.object === "account"
+    ? await Promise.all(a.loserIds.map((id) => client.listContacts(caller.orgId, { filter: { accountId: id }, limit: PEOPLE_PER_COMPANY }))) : [];
+  if (people.some((page) => page.rows.length >= PEOPLE_PER_COMPANY)) throw new ConvexError("Too many people to merge safely; reduce the losing company's people first");
   const seeds = a.object === "account"
-    ? (await Promise.all(a.loserIds.map((id) => client.listContacts(caller.orgId, { filter: { accountId: id }, limit: PEOPLE_PER_COMPANY }))))
-      .flatMap((page) => page.rows.map((c) => ({ contactId: c.id, accountId: c.accountId })))
+    ? people.flatMap((page) => page.rows.map((c) => ({ contactId: c.id, accountId: c.accountId })))
     : rows.flatMap((r) => (r.accountId ? [{ contactId: r.id, accountId: r.accountId }] : []));
   const lookups = await linkedActivities(client, caller.orgId, { field: a.object === "account" ? "accountId" : "contactId", id: a.loserIds });
+  if (lookups.truncated) throw new ConvexError("Too many activities to merge safely; reduce the losing records’ activities first");
   const mergeId = crypto.randomUUID();
   await write({
     orgId: caller.orgId as Id<"organizations">, userId: caller.userId as Id<"users">, object: a.object, mergeId,

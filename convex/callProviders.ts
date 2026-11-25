@@ -1,3 +1,4 @@
+import { integrationUrl } from "./lib/integrationUrl";
 import { NO_CREDENTIAL } from "./lib/sealed";
 import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
@@ -94,6 +95,7 @@ export const connect = mutation({
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
     if (!args.apiKey.trim()) throw new ConvexError("API key is required");
 
+    integrationUrl(args.instanceUrl?.trim() || defaultBaseUrl(args.provider), args.callsPath?.trim() || defaultCallsPath(args.provider));
     const now = Date.now();
     const existing = await ctx.db
       .query("integrations")

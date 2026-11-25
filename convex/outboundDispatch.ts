@@ -1,3 +1,4 @@
+import { integrationFetch } from "./lib/integrationHttp";
 /**
  * The outbox's dispatcher (docs/modules.md, "Outbound"). A per-minute tick and a wake after each write that queues a
  * row run `dispatch`: it claims due rows in a mutation, which runs the send gate again on each, then sends each claimed
@@ -170,7 +171,7 @@ export const settleMailbox = internalMutation({
 async function deliver(ctx: ActionCtx, job: Job): Promise<Delivery> {
   try {
     if (job.channel === "mailbox") return await sendMailboxEmail(job.delivery);
-    if (job.channel === "slack") return await sendSlack(await decryptFromStorage(job.url), job.text);
+    if (job.channel === "slack") return await sendSlack(await decryptFromStorage(job.url), job.text, integrationFetch(ctx, 8000));
     if (job.channel === "webhook") {
       return await sendWebhook(
         { url: await decryptFromStorage(job.url), secret: await decryptFromStorage(job.secret), id: job.id, body: job.body },

@@ -1,3 +1,5 @@
+import { missingPinnedFetch } from "../integrationUrl.ts";
+import { allowLoopbackWebhooks } from "../recordWebhooks.ts";
 /**
  * Slack notifications for agent turns. An org connects one incoming-webhook
  * URL; an agent opts in and picks which turns are worth a message. Pure and
@@ -16,7 +18,7 @@ export type SlackDelivery = { ok: boolean; httpStatus?: number; error?: string }
 export function webhookUrlProblem(raw: string, allowLoopback: boolean): string | null {
   let url: URL;
   try { url = new URL(raw.trim()); } catch { return "That is not a URL."; }
-  if (allowLoopback && url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost")) return null;
+  if (allowLoopback && !url.username && !url.password && url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost")) return null;
   if (url.protocol !== "https:" || url.hostname !== "hooks.slack.com" || !url.pathname.startsWith("/services/") || url.username || url.password) {
     return "Use a Slack incoming webhook URL (https://hooks.slack.com/services/...).";
   }
@@ -81,15 +83,14 @@ export function slackMessage(t: SlackTurn): string {
  * Post text to the webhook. Never throws and never returns the URL or a
  * transport error's own message (which can contain it): failures are a status or a fixed word.
  */
-export async function postToSlack(url: string, text: string, fetchImpl: typeof fetch = fetch): Promise<SlackDelivery> {
+export async function postToSlack(url: string, text: string, fetchImpl: typeof fetch = missingPinnedFetch): Promise<SlackDelivery> {
   try {
+    if (webhookUrlProblem(url, allowLoopbackWebhooks())) return { ok: false, error: "invalid webhook URL" };
     const res = await fetchImpl(url, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
       redirect: "manual", signal: AbortSignal.timeout(8000),
     });
-    // Slack's refusals are short codes ("no_service", "invalid_token"); keep a few characters of it.
-    const detail = res.ok ? "" : (await res.text().catch(() => "")).trim().slice(0, 40).replace(/[^\w .-]/g, "");
-    return res.ok ? { ok: true, httpStatus: res.status } : { ok: false, httpStatus: res.status, ...(detail ? { error: detail } : {}) };
+    return res.ok ? { ok: true, httpStatus: res.status } : { ok: false, httpStatus: res.status };
   } catch (error) {
     return { ok: false, error: error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network error" };
   }
