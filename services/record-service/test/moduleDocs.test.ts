@@ -59,6 +59,11 @@ describe("module reports", () => {
     assert.equal((await report("visits", null)).rows, 1, "the sweep drops the rows a rebuild didn't rewrite");
   });
 
+  it("refuses company predicates instead of dropping them on module aggregates", async () => {
+    const r = await ctx.client.ws("mods").post(`modules/${MODULE}/aggregate`, { collection: "visits", fields, docScope: null, measures: [{ fn: "count" }], company: { fields: [] } });
+    assert.equal(r.status, 400);
+  });
+
   it("requires initialization of the complete dependency closure and fences the legacy transition", async () => {
     const request = (path: string, body: unknown) => ctx.client.ws("projection-init").post(`modules/${MODULE}/${path}`, body);
     const projection = { packageId: "package", epoch: 1, generation: 1, collections: ["parents", "visits"] };

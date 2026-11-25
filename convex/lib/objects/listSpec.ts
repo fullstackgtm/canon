@@ -36,7 +36,12 @@ export type ListSort = { field: string; dir: "asc" | "desc" };
 export type OwnerScope = { field: string; owners: readonly string[]; unowned: boolean };
 /** The most values a scope carries: owners, or record ids for an `id` scope. */
 export const SCOPE_IDS_MAX = 5000;
-export type ListRequest = { filter?: readonly ListFilter[]; sort?: ListSort; limit?: number; cursor?: string; deleted?: boolean; scope?: OwnerScope };
+/** Contact company access, supplied by the trusted caller adapter (contract 1.51.0).
+ * Missing fields are unreadable; filter narrows companies in addition to scope.
+ */
+export type CompanyPredicate = { scope?: OwnerScope; filter?: readonly ListFilter[]; fields: readonly ("fit" | "icpIds")[] };
+export type CompiledCompany = { scope: CompiledScope | null; filters: CompiledFilter[]; fields: readonly ("fit" | "icpIds")[]; required: boolean };
+export type ListRequest = { company?: CompanyPredicate; filter?: readonly ListFilter[]; sort?: ListSort; limit?: number; cursor?: string; deleted?: boolean; scope?: OwnerScope };
 
 /** One projected record as a list returns it. `values` is keyed by fieldId, like a Convex hot row. */
 export type ListRow = {
@@ -147,6 +152,7 @@ export type CompiledList = {
   object: string;
   filters: CompiledFilter[];
   scope: CompiledScope | null;
+  company: CompiledCompany | null;
   sort: { col: ListColumn; dir: "asc" | "desc" };
   limit: number;
   deleted: boolean;
@@ -282,7 +288,7 @@ export function ownerAdmitted(s: { owners: readonly string[]; unowned: boolean }
 export const matchesScope = (row: ListRow, s: CompiledScope | null): boolean => !s || ownerAdmitted(s, cellOf(row, s.col));
 
 /** Validate a list request against an object's definition. Throws ListRequestError on anything it cannot serve. */
-export function compileListRequest(def: ResolvedObjectDef, req: ListRequest): CompiledList {
+export function compileListRequest(def: ResolvedObjectDef, req: ListRequest, companyDef?: ResolvedObjectDef): CompiledList {
   const columns = listColumns(def);
   const limit = req.limit ?? LIST_LIMIT_DEFAULT;
   if (!Number.isInteger(limit) || limit < 1 || limit > LIST_LIMIT_MAX) throw new ListRequestError(`limit must be 1 to ${LIST_LIMIT_MAX}`);
@@ -295,12 +301,26 @@ export function compileListRequest(def: ResolvedObjectDef, req: ListRequest): Co
   if (!sortCol) throw new ListRequestError(`unknown sort field ${sortReq.field}`);
   if (sortCol.kind === "multi") throw new ListRequestError(`${sortReq.field} is a multi-select and cannot be sorted on`);
   if (sortReq.dir !== "asc" && sortReq.dir !== "desc") throw new ListRequestError("sort dir must be asc or desc");
+  let company: CompiledCompany | null = null;
+  if (req.company !== undefined) {
+    if (def.apiName !== "contact" || !companyDef) throw new ListRequestError("company predicate requires a contact register and account definition");
+    const p = req.company;
+    if (!Array.isArray(p.fields) || p.fields.some((f) => f !== "fit" && f !== "icpIds")) throw new ListRequestError("invalid company fields");
+    const fields = [...new Set(p.fields)].sort();
+    const accountQuery = compileListRequest(companyDef, { filter: p.filter, scope: p.scope });
+    const derived = [...filters.map((f) => f.col.field), sortCol.field].filter((f) => f === "accountFit" || f === "accountIcpIds");
+    for (const f of derived) {
+      if (!fields.includes(f === "accountFit" ? "fit" : "icpIds")) throw new ListRequestError("unreadable company field");
+    }
+    company = { scope: accountQuery.scope, filters: accountQuery.filters, fields, required: p.filter !== undefined || derived.length > 0 };
+  }
   const deleted = req.deleted === true;
   const key = hashKey(JSON.stringify([
     def.apiName, deleted, sortCol.field, sortReq.dir,
     filters.map((f) => [f.col.field, f.op, "value" in f ? f.value : "values" in f ? f.values : null]),
     // A cursor is bound to the scope it was read under, so it cannot page past what another caller may see.
     ...(scope ? [[scope.col.field, scope.owners, scope.unowned]] : []),
+    ...(company ? [["company", company.scope, company.filters, company.fields, company.required]] : []),
   ]));
   let cursor: ListCursor | null = null;
   if (req.cursor) {
@@ -308,7 +328,7 @@ export function compileListRequest(def: ResolvedObjectDef, req: ListRequest): Co
     if (cursor.key !== key) throw new ListRequestError("cursor belongs to a different query");
     if (cursor.value !== null) scalarFor(sortCol, cursor.value, "cursor", Infinity);
   }
-  return { object: def.apiName, filters, scope, sort: { col: sortCol, dir: sortReq.dir }, limit, deleted, cursor, key };
+  return { object: def.apiName, filters, scope, company, sort: { col: sortCol, dir: sortReq.dir }, limit, deleted, cursor, key };
 }
 
 /** A record's list row: the fold state projected with the object's definition. */

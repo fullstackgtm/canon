@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { compileAggregateRequest } from "../convex/lib/objects/reportSpec.ts";
 import { foldAll, type EntryBody, type LedgerEntry } from "../convex/lib/objects/fold.ts";
 import { compileListRequest, decodeCursor, ListRequestError, listRowOf, listRowsInMemory, searchRowsInMemory, type ListRequest, type ListRow } from "../convex/lib/objects/listSpec.ts";
 import { plainObjectDef, resolveObjectDef, STANDARD_OBJECTS, type FieldId, type OrgObjectExtension } from "../convex/lib/objects/registry.ts";
@@ -127,4 +128,15 @@ test("the HTTP client turns the service's 400 into the same ListRequestError", a
   });
   await assert.rejects(client.listObjects("org1", "lead", { filter: [{ field: "custom.nope", op: "eq", value: 1 }] }), (e: unknown) => e instanceof ListRequestError && e.message === "unknown field custom.nope");
   assert.deepEqual(calls, ["http://rs.test/v1/workspaces/org1/p/lead/list"]);
+});
+
+
+test("company predicates refuse in-memory reads until the fake has an account source", async () => {
+  const def = resolveObjectDef(STANDARD_OBJECTS.contact);
+  const company = { fields: [] };
+  assert.throws(() => listRowsInMemory(def, [], { company }, {}), ListRequestError);
+  assert.throws(() => compileAggregateRequest("contact", def, { company, measures: [{ fn: "count" }] }, () => undefined), ListRequestError);
+  const fake = createFakeRecordClient({ store: createMemoryRecordStore() });
+  await assert.rejects(() => fake.listRegister("ws", "contact", { company }), ListRequestError);
+  await assert.rejects(() => fake.aggregate("ws", "contact", { company, measures: [{ fn: "count" }] }), ListRequestError);
 });
