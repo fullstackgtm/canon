@@ -56,6 +56,7 @@ export function useSettingsSummaries(): Record<SettingsKey, SettingsSummary> {
   const failing = endpoints.filter((e) => e.enabled && e.lastDelivery?.status === "failed").length;
 
   return {
+    audit: { value: "Read history", facts: [] },
     workspace: org
       ? {
           value: `${fiscalYearLabel(org.fiscalYearStartMonth)} ${fiscalQuarterLabel(org.fiscalYearStartMonth)} · ${org.defaultCurrency}`,

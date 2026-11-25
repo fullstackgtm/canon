@@ -17,6 +17,7 @@ import type * as acquisitionCheckpoints from "../acquisitionCheckpoints.js";
 import type * as activity from "../activity.js";
 import type * as activityTargets from "../activityTargets.js";
 import type * as addRecords from "../addRecords.js";
+import type * as adminAudit from "../adminAudit.js";
 import type * as agentAuth from "../agentAuth.js";
 import type * as agentConnections from "../agentConnections.js";
 import type * as agentGrants from "../agentGrants.js";
@@ -666,6 +667,7 @@ declare const fullApi: ApiFromModules<{
   activity: typeof activity;
   activityTargets: typeof activityTargets;
   addRecords: typeof addRecords;
+  adminAudit: typeof adminAudit;
   agentAuth: typeof agentAuth;
   agentConnections: typeof agentConnections;
   agentGrants: typeof agentGrants;

@@ -3876,3 +3876,11 @@ export async function tamperDoc(ctx: MutationCtx, scope: ModuleScope, collection
     return row.version;
   });
 }
+
+/** Workspace administration reads event metadata across installed and removed modules, never their payloads. */
+export async function adminEventPage(ctx: QueryCtx, paginationOpts: { numItems: number; cursor: string | null }, start: number, end: number) {
+  const user = await getCurrentUser(ctx);
+  if (!user || !can(user, "permissions.manage")) throw new ConvexError("Admin access required");
+  const result = await ctx.db.query("moduleEvents").withIndex("by_orgId_and_at", q => q.eq("orgId", user.orgId).gte("at", start).lte("at", end)).order("desc").paginate(paginationOpts);
+  return { ...result, page: result.page.map(r => ({ _id: r._id, at: r.at, actor: r.actor.kind === "visitor" ? { kind: "visitor" as const } : r.actor, verb: r.verb, moduleId: r.moduleId, collection: r.collection, key: r.key, fields: r.fields, kind: r.kind, fromVersion: r.fromVersion, toVersion: r.toVersion })) };
+}
