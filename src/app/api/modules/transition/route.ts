@@ -1,11 +1,10 @@
+import { serverSession } from "../../../../lib/serverSession.ts";
 import { ConvexHttpClient } from "convex/browser";
 import { ConvexError } from "convex/values";
 import { api } from "../../../../../convex/_generated/api.js";
 import { evidenceSigner, requestIp, signEvidence } from "../../../../lib/moduleEvidence.ts";
 
 export const dynamic = "force-dynamic";
-
-const DEV_MODE = process.env.NODE_ENV !== "production" && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 /**
  * A module transition that records where the person ran it (docs/modules.md, "Evidence"). The page posts the
@@ -28,21 +27,10 @@ export async function POST(request: Request) {
   if (!signer) return Response.json({ error: "This server can't sign evidence: it has no service key." }, { status: 503 });
 
   const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-  let subject: string | null = null;
-  if (process.env.CANON_AUTH === "local") {
-    const { localSession, mintLocalToken } = await import("../../../../lib/localAuth.ts");
-    const session = await localSession();
-    if (!session) return Response.json({ error: "Sign in first." }, { status: 401 });
-    client.setAuth(mintLocalToken(session));
-    subject = session.user.clerkUserId;
-  } else if (!DEV_MODE) {
-    const { auth } = await import("@clerk/nextjs/server");
-    const session = await auth();
-    const token = await session.getToken({ template: "convex" });
-    if (!token || !session.userId) return Response.json({ error: "Sign in first." }, { status: 401 });
-    client.setAuth(token);
-    subject = session.userId;
-  }
+  const session = await serverSession();
+  if (!session) return Response.json({ error: "Sign in first." }, { status: 401 });
+  if (session.token) client.setAuth(session.token);
+  const subject = session.subject;
   const evidence = signEvidence(signer, { module, machine, name, key, expect }, { ip: requestIp(request.headers), userAgent: request.headers.get("user-agent") }, subject);
   try {
     const args = body?.args && typeof body.args === "object" ? (body.args as Record<string, unknown>) : undefined;

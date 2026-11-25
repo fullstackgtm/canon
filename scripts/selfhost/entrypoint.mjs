@@ -272,6 +272,18 @@ async function waitForRuntime(url) {
   throw new Error(`The recipe runtime did not answer at ${url}`);
 }
 
+/** Function secrets go through the admin API, separately from each process environment.
+ * @param {Set<string>} names
+ * @param {Record<string, string | undefined>} env
+ * @param {string} setupCode
+ */
+export function convexFunctionEnvChanges(names, env, setupCode) {
+  return [...new Set([...names, "CANON_SETUP_CODE"])].filter((name) => name !== "CONVEX_CLOUD_URL" && name !== "CONVEX_SITE_URL").map((name) => {
+    const value = name === "CANON_SETUP_CODE" ? (env.CANON_AUTH === "convex" ? setupCode : undefined) : env[name];
+    return { name, ...(value === undefined ? {} : { value }) };
+  });
+}
+
 async function convexEnvNames(dir) {
   const keys = new Set();
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -338,7 +350,7 @@ async function main() {
   env.CANON_SERVICE_JWT_KID = "canon-selfhost-1";
   const jwk = createPublicKey(env.CANON_SERVICE_JWT_PRIVATE_KEY).export({ format: "jwk" });
   env.CANON_SERVICE_JWKS = `data:application/json;base64,${Buffer.from(JSON.stringify({ keys: [{ ...jwk, kid: env.CANON_SERVICE_JWT_KID, alg: "RS256", use: "sig" }] })).toString("base64")}`;
-  // Only Next reads the setup code, so it is not in the env the backend and record service get.
+  // Keep the setup code separate; only Next and Convex Auth functions need it.
   const setupCode = process.env.CANON_SETUP_CODE?.trim() || await persisted(SETUP_CODE_FILE, newSetupCode);
   delete env.CANON_SETUP_CODE;
   env.CLERK_JWT_ISSUER_DOMAIN ||= "https://unconfigured.invalid";
@@ -367,17 +379,13 @@ async function main() {
   daemon("Convex", "/convex/run_backend.sh", [], backendEnv(env, { backend: BACKEND, backendSite: BACKEND_SITE }), "/convex");
   await waitFor(`${BACKEND}/version`);
   if (runtime.builtIn) await waitForRuntime(runtime.url);
-  const changes = [];
   const names = await convexEnvNames("/app/convex");
   for (const [feature, definition] of Object.entries(INTEGRATIONS_AVAILABLE)) {
     for (const key of definition.keys) names.add(key);
     if ("flag" in definition) names.add(definition.flag);
     console.log(`${definition.label}: ${integrationEnabled(feature, env) ? "on" : `off (${integrationNeeds(feature)})`}`);
   }
-  for (const name of names) {
-    if (name === "CONVEX_CLOUD_URL" || name === "CONVEX_SITE_URL") continue;
-    changes.push({ name, ...(env[name] === undefined ? {} : { value: env[name] }) });
-  }
+  const changes = convexFunctionEnvChanges(names, env, setupCode);
   const updated = await fetch(`${BACKEND}/api/update_environment_variables`, {
     method: "POST", headers: { Authorization: `Convex ${env.CONVEX_SELF_HOSTED_ADMIN_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ changes }),
   });
@@ -424,7 +432,7 @@ async function main() {
   console.log(`CanonCRM ready at ${site}. Recipe runtime: ${runtime.builtIn ? `built in, at ${runtime.url}` : "the one RECIPE_RUNTIME_URL names"}.`);
   const pending = await cli(["run", "localAuth:setupPending"], true)
     .then((out) => out.trim() === "true", () => false);
-  if (pending && env.CANON_AUTH === "local") {
+  if (pending && ["local", "convex"].includes(env.CANON_AUTH)) {
     const code = process.env.CANON_SETUP_CODE?.trim() ? "the CANON_SETUP_CODE value in this install's settings" : setupCode;
     console.log(`\nNo owner yet. Open ${site}/sign-in and enter setup code: ${code}\nThe first person to enter it owns this install. Back up after setup: see docs/updating.md.\n`);
   }

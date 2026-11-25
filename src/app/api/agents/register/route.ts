@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 export const POST = publicGtmApi(async (request) => {
   // Edge limiter (per instance, fast-fail); the durable per-day/per-contact
   // limits are enforced in Convex where they survive restarts and replicas.
-  if (!rateLimit(request, 10)) {
+  if (!rateLimit(request, "/api/agents/register", 10)) {
     return Response.json(
       {
         error: "rate_limited",

@@ -221,7 +221,7 @@ test("session edits survive findings, cached visitors do not inherit answers, an
   await fn.recordFeedback.handler(ctx, { token: "token", step: "offer", vote: "down" });
   await fn.recordFeedback.handler(ctx, { token: "token", step: "offer", vote: "up" });
   assert.deepEqual(Array.from((await fn.get.handler(ctx, { token: "token" })).feedback, (entry: { step: string; vote: string }) => [entry.step, entry.vote]), [["offer", "up"]]);
-  const cached = await fn.start.handler(ctx, { domain: "acme.example" });
+  const cached = await fn.start.handler(ctx, { ipHash: "starting-plan-network", domain: "acme.example" });
   const copy = await fn.get.handler(ctx, { token: cached.token });
   assert.deepEqual(JSON.parse(JSON.stringify(copy.onboardingAnswers)), {});
   assert.equal(copy.companySummaryEdit, null);
@@ -282,11 +282,11 @@ test("session edits survive findings, cached visitors do not inherit answers, an
   assert.equal((await fn.get.handler(ctx, { token: "expired" })).claimed, true);
   await db.patch("s", { claimedByOrgId: "other-org" });
   await assert.rejects(fn.recordFeedback.handler(ctx, { token: "token", step: "offer", vote: "down" }));
-  await assert.rejects(fn.start.handler(ctx, { domain: "linear.app", example: true }));
+  await assert.rejects(fn.start.handler(ctx, { ipHash: "starting-plan-network", domain: "linear.app", example: true }));
   const real = await db.get("s");
   await db.insert("researchSessions", { ...real, _id: "example", domain: "linear.app", token: "real-example", cachedFromToken: undefined });
   assert.deepEqual(Array.from(await fn.examples.handler(ctx, {}), (entry: { domain: string }) => entry.domain), ["linear.app"]);
-  const example = await fn.start.handler(ctx, { domain: "linear.app", example: true });
+  const example = await fn.start.handler(ctx, { ipHash: "starting-plan-network", domain: "linear.app", example: true });
   const replay = await fn.get.handler(ctx, { token: example.token });
   assert.equal(example.cached, true);
   assert.deepEqual(Array.from(replay.feedback), []);

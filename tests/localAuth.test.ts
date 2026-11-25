@@ -140,3 +140,15 @@ test("local auth origin check and Secure cookie flag honor SITE_URL, APP_URL, an
   assert.equal(localAuthCookieSecure(proxied("http://127.0.0.1:3000"), {}), false);
   assert.equal(localAuthCookieSecure(new Request("https://crm.example.com/api/local-auth"), {}), true);
 });
+
+test("setup banner pending check follows the active first-owner store", async () => {
+  for (const mode of ["local", "convex", "clerk"]) {
+    const handlers = loadConvex(["localAuth.ts"], {}, { process: { env: { CANON_AUTH: mode } } })["localAuth.ts"];
+    const db = memoryDb({});
+    assert.equal(await handlers.setupPending.handler({ db }, {}), mode !== "clerk");
+    await db.insert(mode === "convex" ? "organizations" : "users", mode === "convex" ? { clerkOrgId: "local" } : { email: "owner@example.test" });
+    assert.equal(await handlers.setupPending.handler({ db }, {}), mode !== "clerk");
+    await db.insert(mode === "convex" ? "users" : "organizations", mode === "convex" ? { email: "owner@example.test" } : { clerkOrgId: "local" });
+    assert.equal(await handlers.setupPending.handler({ db }, {}), false);
+  }
+});

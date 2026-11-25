@@ -9,7 +9,7 @@ import {
 } from "../../_lib";
 
 export const POST = publicGtmApi(async (request) => {
-  if (!rateLimit(request, 60)) return tooManyRequests();
+  if (!rateLimit(request, "/api/cli/auth/poll", 60)) return tooManyRequests();
 
   const body = await readJsonBody(request);
   const deviceCode = typeof body.deviceCode === "string" ? body.deviceCode : null;

@@ -30,6 +30,8 @@ export const connectFromCli = action({
     const tokenHash = createHash("sha256").update(args.cliToken).digest("hex");
     const cliToken = await ctx.runQuery(internal.cliAuth.getTokenByHash, { tokenHash });
     if (!cliToken) throw new ConvexError("Invalid or revoked CLI token");
+    await ctx.runQuery(internal.cliAuth.requireProviderPrincipal, { orgId: cliToken.orgId, userId: cliToken.userId });
+    await ctx.runQuery(internal.permissions.requireUnrestrictedPrincipal, { orgId: cliToken.orgId, userId: cliToken.userId, what: "provider credentials" });
     await touchCliToken(ctx, cliToken);
 
     const token = args.token.trim();

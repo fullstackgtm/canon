@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
  * an optional client_id is surfaced to the approver as the requester label.
  */
 export const POST = publicGtmApi(async (request) => {
-  if (!rateLimit(request, 10)) return tooManyRequests();
+  if (!rateLimit(request, "/api/oauth/device_authorization", 10)) return tooManyRequests();
 
   const body = await readOauthBody(request);
   const requesterLabel =

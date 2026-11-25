@@ -11,7 +11,7 @@ import {
 } from "../../_lib";
 
 export const POST = publicGtmApi(async (request) => {
-  if (!rateLimit(request, 10)) return tooManyRequests();
+  if (!rateLimit(request, "/api/cli/oauth/start", 10)) return tooManyRequests();
 
   const body = await readJsonBody(request);
   const provider =

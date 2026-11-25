@@ -1,8 +1,9 @@
+import { requireAuthBroker } from "./cliAuth";
 import { applyStartingPlan } from "./moduleDefaults";
 import { mayDecide, requireDecider } from "./recipes";
 import { rateLimitHit } from "./lib/rateLimit.ts";
 import { ConvexError, v } from "convex/values";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Icp } from "../engine/src/icp.ts";
@@ -46,23 +47,24 @@ async function consume(ctx: MutationCtx, key: string, rule: { limit: number; win
   return true;
 }
 
-/**
- * Start (or reuse) an anonymous research session for a domain.
- *
- * Abuse controls (no Turnstile by decision): a honeypot field that real
- * browsers leave empty, a per-ipHash limit, a per-domain limit and a global
- * limit on NEW pipeline runs, and a 7-day cache by normalized domain (a cache
- * hit copies the finished results into a fresh token and costs nothing).
- * `ipHash` is computed server-side by /api/lead-magnet/start; direct callers
- * can omit or spoof it, which is why the domain + global caps exist.
- */
-export const start = mutation({
-  args: {
-    domain: v.string(),
-    ipHash: v.optional(v.string()),
-    website: v.optional(v.string()), // honeypot
-    example: v.optional(v.boolean()),
+const startArgs = {
+  domain: v.string(),
+  ipHash: v.string(),
+  website: v.optional(v.string()),
+  example: v.optional(v.boolean()),
+};
+
+export const startFromServer = action({
+  args: startArgs,
+  returns: v.object({ token: v.string(), cached: v.boolean() }),
+  handler: async (ctx, args): Promise<{ token: string; cached: boolean }> => {
+    await requireAuthBroker(ctx);
+    return ctx.runMutation(internal.researchSessions.start, args);
   },
+});
+
+export const start = internalMutation({
+  args: startArgs,
   returns: v.object({ token: v.string(), cached: v.boolean() }),
   handler: async (ctx, args) => {
     if (args.website && args.website.trim()) throw new ConvexError("Request rejected.");
@@ -73,7 +75,7 @@ export const start = mutation({
       throw new ConvexError(error instanceof Error ? error.message : "Invalid domain.");
     }
     const now = Date.now();
-    if (args.ipHash && !(await consume(ctx, `ip:${args.ipHash.slice(0, 64)}`, RATE_LIMITS.ip, now))) {
+    if (!(await consume(ctx, `ip:${args.ipHash.slice(0, 64)}`, RATE_LIMITS.ip, now))) {
       throw new ConvexError("Too many research requests from your network. Try again in an hour.");
     }
     const token = newToken(crypto.getRandomValues(new Uint8Array(16)));
@@ -87,6 +89,12 @@ export const start = mutation({
     const reusable = recent.filter((s) => s.status === "ready" && s.icpSource !== "heuristic");
     const cached = reusable.find((s) => !s.cachedFromToken) ?? reusable[0];
     if (args.example && (!EXAMPLE_DOMAINS.includes(domain) || !cached)) throw new ConvexError("This example is no longer cached. Try your own website.");
+    if (!(await consume(ctx, `${cached ? "cached-domain" : "domain"}:${domain}`, cached ? RATE_LIMITS.cachedDomain : RATE_LIMITS.domain, now))) {
+      throw new ConvexError(`Research for ${domain} is already running. Try again shortly.`);
+    }
+    if (!(await consume(ctx, cached ? "cached-global" : "global", RATE_LIMITS.global, now))) {
+      throw new ConvexError("Research is at capacity right now. Try again later.");
+    }
     if (cached) {
       const sessionId = await ctx.db.insert("researchSessions", {
         token,
@@ -119,12 +127,6 @@ export const start = mutation({
       return { token, cached: true };
     }
 
-    if (!(await consume(ctx, `domain:${domain}`, RATE_LIMITS.domain, now))) {
-      throw new ConvexError(`Research for ${domain} is already running. Try again shortly.`);
-    }
-    if (!(await consume(ctx, "global", RATE_LIMITS.global, now))) {
-      throw new ConvexError("Research is at capacity right now. Try again later.");
-    }
     const sessionId = await ctx.db.insert("researchSessions", {
       token,
       domain,

@@ -31,7 +31,7 @@ export type CanonTool = {
   writes: boolean;
   /** Deletes or overwrites values (MCP's destructiveHint). */
   destructive?: boolean;
-  run: (convex: ConvexHttpClient, args: Record<string, unknown>) => Promise<unknown>;
+  run: (convex: ConvexHttpClient, args: Record<string, unknown>, request?: Request) => Promise<unknown>;
 };
 
 /** What an agent reads when a tool call fails. Grouped tools take { action, args }, so their argument errors name args.<field>. */

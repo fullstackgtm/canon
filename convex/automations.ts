@@ -1899,7 +1899,7 @@ export async function handleAutomationWebhook(
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const stored: { ruleId: Id<"automationRules">; secret: string } | null = await ctx.runQuery(internal.automations.webhookSecret, { ruleId });
   const verdict = stored ? await verifyWebhook({ secret: await decryptFromStorage(stored.secret), body, nowMs: now, ...headers }) : { ok: false as const, reason: "bad_signature" as const };
-  if (!stored || !verdict.ok) return { status: 401, body: { error: verdict.ok ? "bad_signature" : verdict.reason } };
+  if (!stored || !verdict.ok) return { status: 401, body: { error: "bad_signature" } };
   let payload: unknown;
   try {
     payload = JSON.parse(body);

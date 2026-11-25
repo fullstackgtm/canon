@@ -29,8 +29,10 @@ export const setupNeeded = query({
 /** Whether the first owner has yet to register. The container's entrypoint asks, to print the setup code only then. */
 export const setupPending = internalQuery({
   args: {},
-  handler: async (ctx) => process.env.CANON_AUTH === "local" &&
-    !(await ctx.db.query("organizations").withIndex("by_clerkOrgId", (q) => q.eq("clerkOrgId", "local")).unique()),
+  handler: async (ctx) => process.env.CANON_AUTH === "convex"
+    ? !(await ctx.db.query("users").first())
+    : process.env.CANON_AUTH === "local" &&
+      !(await ctx.db.query("organizations").withIndex("by_clerkOrgId", (q) => q.eq("clerkOrgId", "local")).unique()),
 });
 
 export const credential = query({

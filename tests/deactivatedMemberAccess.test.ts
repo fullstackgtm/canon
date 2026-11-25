@@ -205,3 +205,19 @@ test("self-hosted: turning a member off ends their sessions, and turning them ba
     if (prior.issuer === undefined) delete process.env.CANON_SERVICE_JWT_ISSUER;
   }
 });
+
+test("provider actions refuse tokens.manage alone while general CLI resolution still works", async () => {
+  const db = workspace();
+  await db.patch("m-bo", { role: "broker" });
+  await db.insert("orgRoles", { orgId: "acme", key: "broker", capabilities: ["tokens.manage"] });
+  assert.ok(await call(db, undefined, "cliAuth.getTokenByHash", { tokenHash: sha(T.boAcme) }));
+  for (const [ref, args] of CLI_PATHS.slice(0, 2)) {
+    assert.equal(await outcome(db, ref, args(T.boAcme)), "refused", ref);
+  }
+});
+
+test("provider actions refuse an integration manager with narrowed record visibility", async () => {
+  const db = workspace();
+  await db.insert("rolePermissions", { orgId: "acme", role: "manager", rules: [{ object: "account", visibility: "own", unowned: false }] });
+  for (const [ref, args] of CLI_PATHS.slice(0, 2)) assert.equal(await outcome(db, ref, args(T.boAcme)), "refused", ref);
+});

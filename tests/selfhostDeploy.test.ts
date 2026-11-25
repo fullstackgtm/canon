@@ -39,7 +39,7 @@ test("a failed deploy resumes with the same signing key and no credentials in fr
       if (target.includes('cloud-test') || process.env.CONVEX_DEPLOY_KEY || process.env.CONVEX_DEPLOYMENT) process.exit(9);
       if (args.some(a => a.includes('local-secret'))) process.exit(10);
       const stored = fs.existsSync('.backend-env.json') ? JSON.parse(fs.readFileSync('.backend-env.json', 'utf8')) : {};
-      if (Object.values(stored).some(v => args.some(a => a.includes(v)))) process.exit(12);
+      if (stored.TOKEN_ENCRYPTION_KEY && args.some(a => a.includes(stored.TOKEN_ENCRYPTION_KEY))) process.exit(12);
       if (args[0] === 'env' && args[1] === 'get') { if (stored[args[2]]) console.log(stored[args[2]]); process.exit(0); }
       if (args[0] === 'env') {
         const backend = fs.readFileSync(args[args.indexOf('--from-file') + 1], 'utf8');

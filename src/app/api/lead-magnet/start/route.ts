@@ -1,6 +1,6 @@
 import { ConvexError } from "convex/values";
-import { api } from "../../../../../convex/_generated/api";
-import { clientIp, plainConvexClient, rateLimit, sha256, tooManyRequests } from "../../cli/_lib.ts";
+import { api } from "../../../../../convex/_generated/api.js";
+import { clientIp, authBrokerClient, rateLimit, sha256, tooManyRequests } from "../../cli/_lib.ts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ const RESEARCH_COOKIE = "fsgtm_rs";
  * claimed after sign-up even if the redirect URL is lost.
  */
 export async function POST(request: Request) {
-  if (!rateLimit(request, 10, 60_000)) return tooManyRequests();
+  if (!rateLimit(request, "/api/lead-magnet/start", 10, 60_000)) return tooManyRequests();
   let body: Record<string, unknown>;
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const salt = process.env.RESEARCH_IP_SALT ?? process.env.CLERK_SECRET_KEY ?? "fsgtm-research";
   const ipHash = sha256(`${salt}:${clientIp(request)}`).slice(0, 32);
   try {
-    const { token, cached } = await plainConvexClient().mutation(api.researchSessions.start, { domain, ipHash, website, example: body.example === true });
+    const { token, cached } = await authBrokerClient().action(api.researchSessions.startFromServer, { domain, ipHash, website, example: body.example === true });
     const response = Response.json({ token, cached, url: `/start/${token}${body.example === true ? "?replay=1" : ""}` });
     response.headers.append(
       "Set-Cookie",

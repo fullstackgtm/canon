@@ -457,6 +457,7 @@ export async function runResearchPipeline(opts: {
 
 export const RATE_LIMITS = {
   ip: { limit: 5, windowMs: 60 * 60 * 1000 },
+  cachedDomain: { limit: 300, windowMs: 60 * 60 * 1000 },
   domain: { limit: 3, windowMs: 60 * 60 * 1000 },
   global: { limit: 300, windowMs: 60 * 60 * 1000 },
 } as const;

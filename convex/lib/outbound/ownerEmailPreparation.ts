@@ -102,7 +102,8 @@ async function live(ctx: QueryCtx, input: OwnerEmailInput, purpose: Purpose) {
   if ((await suppressionFor(ctx, input.orgId, { email: recipient.binding.address }, purpose)).email.blocked) return { state: "refused" as const, code: "outbound.owner_email.suppressed", text: "The canonical recipient is suppressed for this email's purpose." };
   const policy = purpose === "automated_outreach" ? policyForAutomatedEmail(await ctx.db.get(input.orgId)) : null;
   const origin = purpose === "automated_outreach" ? siteOrigin() : null;
-  if (policy?.state === "refused" || purpose === "automated_outreach" && !origin) return refuse("Automated exact emails need the current postal policy and trusted unsubscribe origin.");
+  if (policy?.state === "refused") return refuse("Automated exact emails need the current postal policy.");
+  if (purpose === "automated_outreach" && !origin) return refuse("Automated exact emails need a trusted unsubscribe origin. For self-hosted outbound email, set CONVEX_PUBLIC_SITE_URL to a dedicated HTTPS origin serving the Convex HTTP endpoints.");
   return { state: "live" as const, subject, body, origin, postalAddress: policy?.state === "allow" ? policy.policy.postalAddress : null,
     recipient: { contactId: recipient.binding.contactId, streamId: recipient.binding.streamId, address: recipient.binding.address },
     sender: { id: account._id, ownerId: account.userId, address, name: sender.name, mailboxLinkHash: link }, recipientMergeFields,

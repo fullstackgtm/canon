@@ -3,7 +3,7 @@ import { plainConvexClient, rateLimit, tooManyRequests } from "../../cli/_lib";
 
 export const runtime = "nodejs";
 export async function GET(request: Request) {
-  if (!rateLimit(request, 20, 60_000)) return tooManyRequests();
+  if (!rateLimit(request, "/api/lead-magnet/invite", 20, 60_000)) return tooManyRequests();
   const token = new URL(request.url).searchParams.get("token");
   if (!token || !/^[a-f0-9]{32}$/.test(token))
     return Response.json({ error: "Invalid invitation." }, { status: 400 });

@@ -27,7 +27,7 @@ const TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
  * authorization_pending / slow_down / expired_token / access_denied.
  */
 export const POST = publicGtmApi(async (request) => {
-  if (!rateLimit(request, 60)) return tooManyRequests();
+  if (!rateLimit(request, "/api/oauth/token", 60)) return tooManyRequests();
 
   const body = await readOauthBody(request);
   if (body.grant_type !== DEVICE_CODE_GRANT) {

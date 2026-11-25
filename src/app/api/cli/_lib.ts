@@ -58,8 +58,8 @@ export function clientIp(request: Request): string {
  */
 const ipHits = new Map<string, number[]>();
 
-export function rateLimit(request: Request, limit = 30, windowMs = 60_000): boolean {
-  const key = clientIp(request);
+export function rateLimit(request: Request, bucket: string, limit = 30, windowMs = 60_000, identity = clientIp(request)): boolean {
+  const key = `${bucket}:${identity}`;
   const now = Date.now();
   const hits = (ipHits.get(key) ?? []).filter((time) => time > now - windowMs);
   if (hits.length >= limit) {

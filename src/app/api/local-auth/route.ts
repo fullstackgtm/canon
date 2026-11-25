@@ -7,7 +7,7 @@ import { LOCAL_SESSION_COOKIE } from "@/lib/authMode";
 import { hashLocalSecret, hashPassword, localAuthBroker, localSession, mintLocalToken, newLocalSecret, SESSION_SECONDS, verifyPassword } from "@/lib/localAuth";
 import { isLocalAuthOriginAllowed, localAuthCookieSecure } from "@/lib/localAuthOrigin";
 import { setupCodeMatches } from "@/lib/setupCode";
-import { rateLimit } from "../cli/_lib";
+import { clientIp, rateLimit } from "../cli/_lib";
 
 export const dynamic = "force-dynamic";
 
@@ -29,10 +29,19 @@ export async function POST(request: Request) {
   if (process.env.CANON_AUTH !== "local") return new Response(null, { status: 404 });
   if (!isLocalAuthOriginAllowed(request) ||
       !request.headers.get("content-type")?.startsWith("application/json")) return new Response(null, { status: 403 });
-  if (!rateLimit(request, 15)) return Response.json({ error: "Too many attempts. Try again in a minute." }, { status: 429 });
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success && !rateLimit(request, "/api/local-auth/invalid", 15)) return Response.json({ error: "Too many attempts. Try again in a minute." }, { status: 429 });
   if (!parsed.success) return Response.json({ error: "Enter a valid email, name, and a password of at least 12 characters." }, { status: 400 });
   const body = parsed.data;
+  const account = body.kind === "sign-out" ? "sign-out" : hashLocalSecret(body.email);
+  // Without trusted ingress IPs, the normalized account isolates legitimate sign-ins from another account's flood.
+  const ip = clientIp(request);
+  if (!rateLimit(request, "/api/local-auth", 15, 60_000, ip === "unknown" ? `unknown:${account}` : ip)) {
+    return Response.json({ error: "Too many attempts. Try again in a minute." }, { status: 429 });
+  }
+  if (body.kind !== "sign-out" && !rateLimit(request, "/api/local-auth/account", 15, 60_000, account)) {
+    return Response.json({ error: "Too many attempts. Try again in a minute." }, { status: 429 });
+  }
   const broker = localAuthBroker();
   const secure = localAuthCookieSecure(request);
   try {
