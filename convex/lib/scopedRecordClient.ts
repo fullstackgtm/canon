@@ -172,6 +172,9 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
   const companyScope = accesses.map((a) => scopeFor(a, "account")).reduce(intersectScopes, null);
   const companyFields = (["fit", "icpIds"] as const).filter((f) => !hidden("account").has(f));
   const needsCompany = !!companyScope || companyFields.length !== 2;
+  const searchCompanyFields = hidden("account").has("name") || hidden("contact").has("accountId") ? [] : ["name" as const];
+  const needsSearchCompany = !!companyScope || searchCompanyFields.length === 0;
+  let searchCompanySupport: Promise<void> | undefined;
   let companySupport: Promise<void> | undefined;
   const companyRequest = async <T extends { company?: CompanyPredicate }>(object: string, req: T): Promise<T> => {
     if (object !== "contact") return req;
@@ -248,7 +251,15 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
         const scope = await scopeOf(object);
         if (scope) scopes[object] = scope;
       }
-      const found = await base.searchObjects(ws, Object.keys(scopes).length ? { ...req, scopes } : req);
+      let request = Object.keys(scopes).length ? { ...req, scopes } : req;
+      if (needsSearchCompany && (!req.objects?.length || req.objects.includes("contact"))) {
+        searchCompanySupport ??= (async () => {
+          if (base.mode === "http" && !atLeastVersion(await base.contractVersion(), "1.52.0")) throw new ConvexError("Contact search needs record service 1.52.0 or newer for your role. Ask an admin to update the record service.");
+        })();
+        await searchCompanySupport;
+        request = { ...request, company: { ...(companyScope ? { scope: companyScope } : {}), fields: searchCompanyFields } };
+      }
+      const found = await base.searchObjects(ws, request);
       // A hit's detail (a company's domain, a person's email, a deal's amount) leaves out hidden fields; a hidden title field hides the hit.
       const titleField: Record<string, string[]> = { account: ["name", "domain"], contact: ["fullName", "email"], deal: ["name"], lineItem: ["name"] };
       const hits = found.hits
