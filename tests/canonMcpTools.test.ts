@@ -100,6 +100,7 @@ test("every grouped action calls its Convex function as the kind it is registere
   for (const tool of canonTools) {
     const options = (tool.inputSchema.action as { options?: string[] } | undefined)?.options;
     for (const action of options ?? []) {
+      if (tool.name === "canon_research" && action === "start") continue; // Server route, covered by councilPublicBoundaries.
       const f = fakeConvex();
       await tool.run(f.client, { action, args: {} });
       for (const c of f.calls) kinds.set(c.name, c.kind);

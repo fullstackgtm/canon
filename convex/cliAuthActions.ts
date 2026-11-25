@@ -27,6 +27,8 @@ export const mintProviderToken = action({
     const token = await ctx.runQuery(internal.cliAuth.getTokenByHash, { tokenHash });
     if (!token) throw new ConvexError("Invalid or revoked CLI token");
 
+    await ctx.runQuery(internal.cliAuth.requireProviderPrincipal, { orgId: token.orgId, userId: token.userId });
+    await ctx.runQuery(internal.permissions.requireUnrestrictedPrincipal, { orgId: token.orgId, userId: token.userId, what: "provider credentials" });
     await touchCliToken(ctx, token);
 
     if (args.provider === "salesforce") {

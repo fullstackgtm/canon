@@ -116,7 +116,7 @@ async function buildHandler(): Promise<RouteHandler> {
             const convex = new ConvexHttpClient(convexUrl());
             convex.setAuth(jwt.signServiceJwt(config, { clerkUserId: who.clerkUserId, clerkOrgId: who.clerkOrgId, clientId: extra.authInfo?.clientId }));
             try {
-              const result = await tool.run(convex, args);
+              const result = await tool.run(convex, args, extra.authInfo?.extra?.researchRequest as Request | undefined);
               return { content: [{ type: "text" as const, text: toolResultText(tool, args, result) }] };
             } catch (error) {
               const message = toolErrorMessage(tool, args, error);
@@ -148,7 +148,7 @@ async function buildHandler(): Promise<RouteHandler> {
         const who = await new ConvexHttpClient(convexUrl()).action(api.agentIdentity.resolveCliToken, { cliToken: token });
         if (!who) return undefined;
         await recordConnection(who, "canon-cli-token");
-        return { token, clientId: "canon-cli-token", scopes: ["canon"], extra: { ...who } };
+        return { token, clientId: "canon-cli-token", scopes: ["canon"], extra: { ...who, researchRequest: _request } };
       }
       if (pairedTokensOnly()) return undefined;
       const [{ verifyClerkToken }, { auth }] = await Promise.all([import("@clerk/mcp-tools/next"), import("@clerk/nextjs/server")]);
@@ -157,7 +157,7 @@ async function buildHandler(): Promise<RouteHandler> {
       const userId = (info?.extra as { userId?: string } | undefined)?.userId;
       if (!info || !userId) return undefined;
       await recordConnection({ clerkUserId: userId, clerkOrgId: null }, info.clientId);
-      return { ...info, extra: { ...info.extra, clerkUserId: userId, clerkOrgId: null } };
+      return { ...info, extra: { ...info.extra, clerkUserId: userId, clerkOrgId: null, researchRequest: _request } };
     },
     {
       required: true,

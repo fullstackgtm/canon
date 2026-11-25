@@ -12,7 +12,7 @@ const input = z.object({
   website: z.string().max(200).optional(),
 });
 export async function POST(request: Request) {
-  if (!rateLimit(request, 5, 3600000)) return tooManyRequests();
+  if (!rateLimit(request, "/api/lead-magnet/waitlist", 5, 3600000)) return tooManyRequests();
   try {
     const parsed = input.safeParse(await request.json());
     if (!parsed.success)

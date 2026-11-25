@@ -293,6 +293,16 @@ export const getTokenByHash = internalQuery({
   },
 });
 
+/** Raw provider credentials bypass record and field visibility. */
+export const requireProviderPrincipal = internalQuery({
+  args: { orgId: v.id("organizations"), userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const member = await withRole(ctx, await credentialMember(ctx, await ctx.db.get(args.userId), args.orgId));
+    if (!member || !can(member, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
+    return null;
+  },
+});
+
 /**
  * How stale a credential's last-used time may get. It is shown in Settings and read by nothing else, so a minute is
  * precise enough, and a busy token writes once a minute instead of once a request: every request reads the token, and

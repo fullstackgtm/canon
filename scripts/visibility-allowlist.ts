@@ -47,7 +47,7 @@ export const ALLOWLIST: Record<string, string[]> = {
     "signals.checkNow", "signals.setEnabled", "staging.discard", "tamSuggestions.start",
   ],
   "A website's domain (the user's own company, a homepage visitor's), not a record in the register": [
-    "icpActions.deriveFromWebsite", "researchSessions.claim", "researchSessions.start",
+    "icpActions.deriveFromWebsite", "researchSessions.claim",
   ],
   "Anonymous waitlist opt-in: an opaque research-session token permits a rate-limited submission and returns only a saved flag, never workspace records": [
     "researchSessions.joinWaitlist",

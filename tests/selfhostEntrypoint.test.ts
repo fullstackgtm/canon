@@ -294,3 +294,16 @@ test("start-standalone exempts CANON_AUTH=convex and CANON_AUTH=local from requi
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("function env sends setup code only to Convex Auth and clears stale values in local mode", async () => {
+  const { convexFunctionEnvChanges } = await import("../scripts/selfhost/entrypoint.mjs");
+  for (const mode of ["local", "convex", "clerk"]) for (const code of [FULL_ENV.CANON_SETUP_CODE, "GENER-ATED2-CODE3"]) {
+    const env = { ...FULL_ENV, CANON_AUTH: mode };
+    const changes = convexFunctionEnvChanges(new Set(["CANON_AUTH", "CANON_SETUP_CODE"]), env, code);
+    assert.deepEqual(changes.find((c: { name: string }) => c.name === "CANON_SETUP_CODE"), mode === "convex" ? { name: "CANON_SETUP_CODE", value: code } : { name: "CANON_SETUP_CODE" });
+    assert.equal(recordServiceEnv(env).CANON_SETUP_CODE, undefined);
+    assert.equal(workerdEnv(env).CANON_SETUP_CODE, undefined);
+    assert.equal(convexCliEnv(env).CANON_SETUP_CODE, undefined);
+    assert.equal(nextEnv(env, { setupCode: code }).CANON_SETUP_CODE, code);
+  }
+});

@@ -85,7 +85,7 @@ async function liveManifest(ctx: QueryCtx, input: ManifestPreparationInput) {
   const policy = policyForAutomatedEmail(await ctx.db.get(orgId));
   if (policy.state === "refused") return refuse("policy_unavailable", policy.text);
   const origin = siteOrigin();
-  if (!origin) return refuse("site_unavailable", "This deployment needs a trusted unsubscribe origin.");
+  if (!origin) return refuse("site_unavailable", "This deployment needs a trusted unsubscribe origin. For self-hosted outbound email, set CONVEX_PUBLIC_SITE_URL to a dedicated HTTPS origin serving the Convex HTTP endpoints.");
   if ((await suppressionFor(ctx, orgId, { email: recipient.binding.address }, "automated_outreach")).email.blocked) {
     return refuse("suppressed", "The recipient is suppressed for automated outreach.");
   }

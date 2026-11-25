@@ -205,6 +205,7 @@ test("waitlist validates, rate limits, retains research privately, and only a ve
     const scheduledBefore: number = scheduled.length;
     const cached = await fn.start.handler(ctx, {
       domain: `${briefStatus}.example`,
+      ipHash: `network-${briefStatus}`,
     });
     let copy = await fn.get.handler(ctx, { token: cached.token });
     assert.equal(copy.briefStatus, briefStatus);

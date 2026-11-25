@@ -538,3 +538,26 @@ Reconnect your client, then paste this prompt into your agent:
 Client syntax follows the [Claude Code documentation](https://code.claude.com/docs/en/mcp),
 [Cursor documentation](https://cursor.com/docs/mcp) and
 [Codex documentation](https://developers.openai.com/codex/mcp).
+
+## Automated outbound email
+
+Automated email requires `CONVEX_PUBLIC_SITE_URL` set to a dedicated HTTPS origin
+(for example, `https://actions.example.com`), without a path, query or fragment.
+Map `https://actions.example.com/<path>` to the app port's
+`http://<host>:3000/convex-site/<path>`, preserving methods, bodies and query
+strings. Ports 3210 and 3211 stay private. The default
+`${SITE_URL}/convex-site` proxy supports other HTTP actions but is deliberately
+refused for automated email: unsubscribe links and RFC8058 headers require a
+trusted root origin. Both one-click POST and the GET confirmation form must reach
+`/outbound/unsubscribe` on that origin. Keep that endpoint publicly reachable.
+The self-host verification script reports this requirement; it does not test real
+email delivery or unsubscribe routing. A dedicated origin is required in addition
+to mailbox provider credentials and the workspace postal policy.
+
+This changes the public address of every Convex HTTP action, including the
+Convex Auth issuer, OAuth callbacks and webhook URLs. Update registered callback
+and webhook addresses when changing it. Existing sessions and outstanding sequence
+variable reviews may need to be renewed. Confirm that the backend can reach the
+new origin from inside the container. Configure it before the first sign-in when
+possible. The verifier prints an unconditional configuration note, not a diagnosis
+of the remote container's environment. Its sign-in smoke flow tests local auth.

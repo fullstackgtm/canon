@@ -12,6 +12,7 @@ export async function verifyDeployment(site, backend = `${site}/convex`, bootstr
   SELFHOST_SMOKE_PASSWORD: process.env.SELFHOST_SMOKE_PASSWORD,
   SELFHOST_SETUP_CODE: process.env.SELFHOST_SETUP_CODE,
 }, { restart, backupRestore, setupCode } = {}) {
+  console.log("Email configuration note: outbound email requires CONVEX_PUBLIC_SITE_URL on a dedicated HTTPS origin serving the Convex HTTP endpoints; the default /convex-site proxy cannot serve trusted unsubscribe links. This smoke check does not verify email delivery.");
   const start = performance.now();
   const check = async (name, run) => {
     const at = performance.now();

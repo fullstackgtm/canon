@@ -7,6 +7,7 @@
  * Convex function the dashboard calls, whose validator checks it, so a tool
  * stays a list of names rather than a copy of each schema.
  */
+import { POST as startResearch } from "../api/lead-magnet/start/route.ts";
 import type { ConvexHttpClient } from "convex/browser";
 import type { FunctionReference } from "convex/server";
 import { z } from "zod/v4";
@@ -14,13 +15,23 @@ import { api } from "../../../convex/_generated/api.js";
 import type { CanonTool } from "./_canonTools.ts";
 
 type Ref = FunctionReference<"query" | "mutation" | "action", "public">;
-type Step = { kind: "query" | "mutation" | "action"; ref: Ref; args: string; fixed?: Record<string, unknown> };
+type ConvexStep = { kind: "query" | "mutation" | "action"; ref: Ref; args: string; fixed?: Record<string, unknown> };
+type Step = { kind: "server"; args: string } | ConvexStep;
 
-export const q = (ref: Ref, args = "{}"): Step => ({ kind: "query", ref, args });
-export const m = (ref: Ref, args = "{}"): Step => ({ kind: "mutation", ref, args });
-export const a = (ref: Ref, args = "{}", fixed?: Record<string, unknown>): Step => ({ kind: "action", ref, args, fixed });
+export const q = (ref: Ref, args = "{}"): ConvexStep => ({ kind: "query", ref, args });
+export const m = (ref: Ref, args = "{}"): ConvexStep => ({ kind: "mutation", ref, args });
+export const a = (ref: Ref, args = "{}", fixed?: Record<string, unknown>): ConvexStep => ({ kind: "action", ref, args, fixed });
 
-function call(convex: ConvexHttpClient, step: Step, args: Record<string, unknown>) {
+async function call(convex: ConvexHttpClient, step: Step, args: Record<string, unknown>, request?: Request) {
+  if (step.kind === "server") {
+    if (!request) throw new Error("Research start requires an HTTP request");
+    const response = await startResearch(new Request(new URL("/api/lead-magnet/start", request.url), {
+      method: "POST", headers: request.headers, body: JSON.stringify(args),
+    }));
+    const out = await response.json();
+    if (!response.ok) throw new Error(out.error ?? "Research request refused");
+    return out;
+  }
   if (step.kind === "query") return convex.query(step.ref as never, args as never);
   if (step.kind === "mutation") return convex.mutation(step.ref as never, args as never);
   return convex.action(step.ref as never, args as never);
@@ -38,10 +49,10 @@ export function groupTool(name: string, summary: string, actions: Record<string,
     },
     writes: names.some((n) => actions[n].kind !== "query"),
     ...(opts.destructive ? { destructive: true } : {}),
-    run: async (convex, input) => {
+    run: async (convex, input, request) => {
       const step = actions[String(input.action)];
       if (!step) throw new Error(`Unknown action ${String(input.action)}`);
-      return call(convex, step, { ...(input.args ?? {}) as Record<string, unknown>, ...step.fixed });
+      return call(convex, step, { ...(input.args ?? {}) as Record<string, unknown>, ...(step.kind === "server" ? {} : step.fixed) }, request);
     },
   };
 }
@@ -77,7 +88,7 @@ export const canonJobTools: CanonTool[] = [
     "canon_research",
     "Research a company's website into an ICP and market, then claim it into this workspace: the claim imports the market's accounts and starts populating the CRM with buyers from free sources (hours; watch with status). Use once per workspace, with the workspace's own company domain.",
     {
-      start: m(api.researchSessions.start, "{ domain: string } -> { token }"),
+      start: { kind: "server", args: "{ domain: string } -> { token }" },
       session: q(api.researchSessions.get, "{ token: string } (the research's status, ICP and market)"),
       claim: m(api.researchSessions.claim, "{ token: string } (call once research is ready; applies the plan and starts import)"),
       status: q(api.researchSessions.forMyOrg, "{} (the claimed research's import and population progress)"),

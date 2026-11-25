@@ -46,7 +46,7 @@ export async function requireAgentScope(
   request: Request,
   scope: string,
 ): Promise<GateResult> {
-  if (!rateLimit(request, 60)) {
+  if (!rateLimit(request, new URL(request.url).pathname, 60)) {
     return {
       response: Response.json(
         { error: "rate_limited", message: "Too many requests; retry shortly." },

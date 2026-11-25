@@ -686,6 +686,9 @@ test("a webhook rule starts once per signed request on the record it names; unsi
     const signed = async (b: string, ts = now) => ({ timestamp: ts, signature: await signWebhook(secret, ts, b) });
     assert.equal((await hook(body, { timestamp: now, signature: "v1=00" })).status, 401);
     assert.equal((await hook(body, await signed(body, String(Number(now) - 3600)))).status, 401, "stale");
+    const unknown = plain(await handle(actionCtx(w), "unknown-rule", body, { timestamp: null, signature: null }));
+    assert.deepEqual(plain(await hook(body, { timestamp: null, signature: null })), unknown);
+    assert.deepEqual(plain(await hook(body, await signed(body, String(Number(now) - 3600)))), unknown);
     assert.equal((await hook(JSON.stringify({ id: "nothing" }), await signed(JSON.stringify({ id: "nothing" })))).status, 404);
     assert.equal((await hook(body, await signed(body))).status, 202);
     assert.deepEqual(plain(await hook(body, await signed(body))), { status: 200, body: { status: "duplicate" } });
