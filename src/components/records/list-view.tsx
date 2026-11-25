@@ -683,7 +683,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
             options={pipelines.map((p) => ({ value: p.id ?? "", label: p.name }))} />
         )}
         {!board && !calendar && <ColumnChooser columns={shownColumns} choices={columnChoices} onChange={(next) => edit({ columns: next })} />}
-        {object === "contact" && !bin && (context.kind === "core" || (!returnPresent && !contextWaiting)) && <ContactAudienceActions filter={listFilter} viewId={activeView?._id} audience={audience?.canEdit === false ? null : audience} onDoneEditing={() => setUrl({ audience: "", filter: "", returnTo: "" })} />}
+        {object === "contact" && !bin && (context.kind === "core" || (!returnPresent && !contextWaiting)) && <ContactAudienceActions filter={listFilter} viewId={activeView?._id} audience={audience} onDoneEditing={() => setUrl({ audience: "", filter: "", returnTo: "" })} />}
         {object === "contact" && !bin && !contextWaiting && !handoffProblem && listModules?.some((m) => m.listActions?.length) && (
           <details className="relative">
             <summary className={cn(btn, "cursor-pointer")}>Modules</summary>

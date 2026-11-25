@@ -899,6 +899,14 @@ const RENDERERS: { [C in ComponentName]: (n: Of<C>, ctx: Ctx) => ReactNode } = {
   thread: (n, ctx) => <Thread n={n} ctx={ctx} />,
   approvalChain: (n, ctx) => <ApprovalChain n={n} ctx={ctx} />,
   periodNav: (n, ctx) => <PeriodNav n={n} ctx={ctx} />,
+  formLink: (n, ctx) => {
+    const doc = ctx.view.data[n.from] as Doc | null;
+    const publisher = ctx.view.members.find(member => member.id === doc?.data.publishedBy);
+    if (doc?.data.status === "live" && (!publisher || publisher.role !== "admin")) return <p role="status">Form paused: its publisher is no longer an active administrator.</p>;
+    const id = doc?.data.publicId;
+    const path = typeof id === "string" && /^[a-zA-Z0-9_-]{22}$/.test(id) ? `/f/${id}` : null;
+    return path ? <div className="flex items-center gap-3"><code>{typeof window === "undefined" ? path : `${window.location.origin}${path}`}</code><button type="button" onClick={() => void navigator.clipboard.writeText(`${window.location.origin}${path}`)}>Copy</button><a href={path} target="_blank" rel="noreferrer">Open</a></div> : null;
+  },
   shareLinks: (n, ctx) => {
     const doc = ctx.view.data[n.from] as Doc | null;
     return doc ? <ShareLinks module={ctx.view.module.slug} share={n.share} recordKey={doc.key} disabled={!!ctx.view.preview} /> : null;

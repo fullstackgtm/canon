@@ -23,10 +23,13 @@ export function downloadCsv(filename: string, csv: string) {
   URL.revokeObjectURL(url);
 }
 
-type EditingAudience = { _id: Id<"audiences">; name: string };
+import type { RelatedCondition } from "../../../convex/lib/objects/validators";
+
+type EditingAudience = { canEdit?: boolean; related?: RelatedCondition[]; _id: Id<"audiences">; name: string };
 
 /** The contacts list's outbound buttons: export what the filters match, save it as an audience, or save it back to the audience being edited. */
 export function ContactAudienceActions({ filter, viewId, audience, onDoneEditing }: { filter: ViewFilter[]; viewId?: Id<"savedViews">; audience: EditingAudience | null; onDoneEditing: () => void }) {
+  const editing = audience?.canEdit === false ? null : audience;
   const exportCsv = useAction(api.audienceActions.exportViewCsv);
   const create = useMutation(api.audiences.create);
   const update = useMutation(api.audiences.update);
@@ -52,31 +55,32 @@ export function ContactAudienceActions({ filter, viewId, audience, onDoneEditing
         disabled={busy}
         className={btn}
         onClick={() => void run(async () => {
-          const { csv, count } = await exportCsv({ filter });
+          const { csv, count } = await exportCsv({ filter, ...(audience?.related ? { related: audience.related } : {}) });
           downloadCsv("contacts.csv", csv);
           void toast.success(`Exported ${count} contacts`);
         })}
       >
         <Download className="h-3 w-3" /> Export CSV
       </button>
-      {audience && (
+      {audience?.related?.map((c, i) => <span key={i} className="border border-border px-2 py-1 text-xs">{c.path === "company" ? "Company matches" : `Company deals: ${c.has}`} · {c.filter.length} filters</span>)}
+      {editing && (
         <>
           <button
             type="button"
             disabled={busy}
             className={cn(btn, "bg-primary text-primary-foreground hover:bg-primary/85")}
             onClick={() => void run(async () => {
-              await update({ audienceId: audience._id, filter });
-              void toast.success(`Updated ${audience.name}`);
-              router.push(`/dashboard/audiences?audience=${audience._id}`);
+              await update({ audienceId: editing._id, filter });
+              void toast.success(`Updated ${editing.name}`);
+              router.push(`/dashboard/audiences?audience=${editing._id}`);
             })}
           >
-            <Send className="h-3 w-3" /> Update {audience.name}
+            <Send className="h-3 w-3" /> Update {editing.name}
           </button>
           <button type="button" onClick={onDoneEditing} className="text-xs text-muted-foreground hover:text-foreground">Stop editing</button>
         </>
       )}
-      {audience ? null : name === null ? (
+      {editing ? null : name === null ? (
         <button type="button" className={btn} onClick={() => setName("")}><Send className="h-3 w-3" /> Save as audience</button>
       ) : (
         <form
@@ -84,7 +88,7 @@ export function ContactAudienceActions({ filter, viewId, audience, onDoneEditing
           onSubmit={(e) => {
             e.preventDefault();
             void run(async () => {
-              await create({ name, filter, ...(viewId ? { viewId } : {}) });
+              await create({ name, filter, ...(audience?.related ? { related: audience.related } : {}), ...(viewId ? { viewId } : {}) });
               setName(null);
               void toast.success("Audience saved. Export or push it from Audiences.");
             });

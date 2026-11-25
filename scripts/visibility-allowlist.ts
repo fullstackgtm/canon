@@ -7,6 +7,9 @@
  * of its answers names a record the caller's role could hide.
  */
 export const ALLOWLIST: Record<string, string[]> = {
+  "Broker-only anonymous form intake: system matching never returns a match result, record identity or eligibility; every match outcome and outage returns only the form-configured success message or redirect": [
+    "inboundForms.submit",
+  ],
   "Local auth broker only: requireBroker checks local mode, the service issuer and the dedicated broker subject; reads login credentials or registers a member, never returns CRM records": [
     "localAuth.credential", "localAuth.register",
   ],

@@ -28,6 +28,7 @@ function render(summary?: { total: number; withEmail: number; customVariables: s
     } },
     "../../../../convex/lib/outbound/sequencers": sequencers,
     "@/components/dashboard": { ViewFrame: ({ children }: { children?: ReactNode }) => children, EmptyState: empty, LoadingRows: () => createElement("div", null, "Loading rows") },
+    "@/components/records/audience-related": { AudienceRelated: empty },
     "@/components/records/audience-actions": { downloadCsv: empty },
     "@/lib/toast": { toast: { error: empty } },
     "@/lib/url-state": { useUrlState: () => [{ audience: "" }, empty] },

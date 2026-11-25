@@ -16,6 +16,7 @@ import { importWorkspace, planImport, type ImportTransport } from "../cli/worksp
 import { appendHistory, save } from "../convex/lib/objects/write.ts";
 import { applyEdgeCommand } from "../convex/lib/objects/associations.ts";
 import { arrive, CENSUS, INERT, QUIET, SWITCH_FIELDS } from "../convex/lib/workspaceArchive/actors.ts";
+import { encodeRow, emptyStats } from "../convex/lib/workspaceArchive/rows.ts";
 import { decodeRow, DEFERRED, dependenciesOf, foreignLabel, importOrder, IMPORT_TABLES, registerIdOf, shapeOf, type Shape } from "../convex/lib/workspaceArchive/importRows.ts";
 import { ARCHIVE_TABLES, entryOf, exported } from "../convex/lib/workspaceArchive/tables.ts";
 import { ingestObservations } from "../convex/lib/canon/ledger.ts";
@@ -1036,4 +1037,13 @@ test("a file reference is cleared and counted, a row that is only its file is le
   const known = mint();
   const text = decodeRow("t", { kind: "object", fields: { orgId: { kind: "id", tableName: "organizations" }, name: { kind: "string" } } }, { _id: mint(), name: `see /deals/${known}` }, { ...env, map: (id: string) => (id === known ? "new" : undefined) });
   assert.deepEqual(text.unmapped.map((u) => [u.field, u.value]), [["name", known]]);
+});
+
+test("intake source refs remap their publisher and preserve their form key", () => {
+  const publisher = mint();
+  const shape: Shape = { kind: "object", fields: { orgId: { kind: "id", tableName: "organizations" }, sourceRef: { kind: "string" } } };
+  const ref = `intake:@canon/inbound:contact:user:${publisher}`;
+  const row = JSON.parse(encodeRow({ kind: "object", fields: { sourceRef: { kind: "string" } } }, { sourceRef: ref }, (id) => id === publisher ? "users" : null, emptyStats()));
+  const decoded = decodeRow("t", shape, row, { orgId: "dest", map: (id: string) => id === publisher ? "new-publisher" : undefined, imported: () => true });
+  assert.equal(decoded.row?.sourceRef, "intake:@canon/inbound:contact:user:new-publisher");
 });

@@ -1,3 +1,5 @@
+import { relatedPorts } from "./lib/outbound/related";
+import { relatedCondition, type RelatedCondition } from "./lib/objects/validators";
 import { integrationFetch } from "./lib/integrationHttp";
 /**
  * Audience actions (GT6): preview, CSV export and the push to a sequencer
@@ -43,12 +45,13 @@ async function requireIntegrations(ctx: ActionCtx): Promise<Caller> {
 }
 
 /** The audience's people: as a person sees them when `who` is a person's (CP14), else (the system) the whole workspace. */
-async function contactsFor(ctx: ActionCtx, who: { orgId: Id<"organizations">; access?: Access }, filter: Parameters<typeof resolveContacts>[1], addedIds: string[] = []): Promise<Resolved> {
+async function contactsFor(ctx: ActionCtx, who: { orgId: Id<"organizations">; access?: Access }, filter: Parameters<typeof resolveContacts>[1], addedIds: string[] = [], related: RelatedCondition[] = []): Promise<Resolved> {
   const orgId = who.orgId;
   const client = who.access ? callerClient(ctx, { orgId: who.orgId as string, access: who.access }) : clientFor(ctx);
   const ws = orgId as string;
   return resolveContacts(
     {
+      related: relatedPorts(client, ws),
       listContacts: (req) => client.listRegister(ws, "contact", req),
       getContact: (id) => client.getContact(ws, id),
       accountNames: (ids) => accountNamesByList(client, ws, ids),
@@ -56,6 +59,7 @@ async function contactsFor(ctx: ActionCtx, who: { orgId: Id<"organizations">; ac
     },
     filter,
     addedIds,
+    related,
   );
 }
 
@@ -67,7 +71,7 @@ export async function audienceContacts(ctx: ActionCtx, caller: Caller | Pick<Cal
   const audience: Doc<"audiences"> | null = await ctx.runQuery(internal.audiences.get, { orgId: caller.orgId, audienceId, ...(viewer ? { viewer } : {}) });
   if (!audience) throw new ConvexError("Audience not found");
   const added: string[] = await ctx.runQuery(internal.audiences.addedContactIds, { audienceId: audience._id });
-  const resolved = await contactsFor(ctx, caller, audience.filter, added);
+  const resolved = await contactsFor(ctx, caller, audience.filter, added, audience.related);
   if (resolved.tooLarge) throw tooLarge(resolved);
   return { audience, contacts: resolved.contacts };
 }
@@ -151,7 +155,7 @@ export const refreshSummary = internalAction({
     const { audience, contacts } = await audienceContacts(ctx, { orgId: args.orgId }, args.audienceId);
     const base = summaryOf(planPush(contacts, new Set()));
     await ctx.runMutation(internal.audiences.storeSummary, {
-      ...args, filter: audience.filter,
+      ...args, filter: audience.filter, related: audience.related,
       summary: {
         total: base.total,
         withEmail: base.total - base.skippedNoEmail,
@@ -193,10 +197,10 @@ export const exportCsv = action({
 
 /** The contacts a list view's filter matches, as CSV. Nothing is recorded: an audience is what keeps a history. */
 export const exportViewCsv = action({
-  args: { filter: v.array(listFilter) },
+  args: { filter: v.array(listFilter), related: v.optional(v.array(relatedCondition)) },
   handler: async (ctx, args): Promise<{ csv: string; count: number }> => {
     const caller = await requireMember(ctx, { read: true });
-    const resolved = await contactsFor(ctx, caller, args.filter);
+    const resolved = await contactsFor(ctx, caller, args.filter, [], args.related);
     if (resolved.tooLarge) throw tooLarge(resolved);
     return { csv: csvOf(resolved.contacts), count: resolved.contacts.length };
   },

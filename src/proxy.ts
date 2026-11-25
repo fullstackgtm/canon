@@ -14,7 +14,7 @@ export async function proxy(request: NextRequest) {
       (path === "/convex" || path.startsWith("/convex/") || path === "/convex-site" || path.startsWith("/convex-site/"))) {
     return NextResponse.next();
   }
-  if (path === "/r" || path.startsWith("/r/") || path.startsWith("/api/visit/")) {
+  if (path.startsWith("/f/") || path === "/api/forms/submit" || path === "/r" || path.startsWith("/r/") || path.startsWith("/api/visit/")) {
     const nonce = btoa(crypto.randomUUID());
     const headers = path === "/api/visit/file" ? visitFileHeaders() : visitHeaders(nonce, process.env.NODE_ENV !== "production");
     const forwarded = new Headers(request.headers);

@@ -256,14 +256,14 @@ type Caller = Doc<"users">;
 
 /** `automation`: a rule saves as its creator (convex/automations.ts), under its own source record. */
 type SaveOpts = {
-  sourceKind?: "user" | (typeof AGENT_SOURCES)[number]; evidence?: string; confidence?: number; automation?: AutomationMark; moduleProposal?: { module: string; plan: Id<"patchPlans"> };
+  sourceKind?: "user" | (typeof AGENT_SOURCES)[number]; evidence?: string; confidence?: number; automation?: AutomationMark; intake?: { formKey: string }; moduleProposal?: { module: string; plan: Id<"patchPlans"> };
   /** The caller names the write's users and lookups (lib/recordReferences.ts): checked, with these companies and people an action admitted. */
   references?: ReadonlySet<string>;
 };
 
 async function userSaveContext(ctx: MutationCtx, user: Caller, object: string, opts: SaveOpts = {}): Promise<SaveContext> {
   const kind = opts.sourceKind ?? "user";
-  const prefix = opts.moduleProposal ? `module:${opts.moduleProposal.module}:plan:${opts.moduleProposal.plan}:` : opts.automation ? automationRefPrefix(opts.automation) : "";
+  const prefix = opts.intake ? `intake:@canon/inbound:${opts.intake.formKey}:` : opts.moduleProposal ? `module:${opts.moduleProposal.module}:plan:${opts.moduleProposal.plan}:` : opts.automation ? automationRefPrefix(opts.automation) : "";
   const def = await loadDef(ctx, user.orgId, object);
   if (def.archivedAt !== undefined) throw new ConvexError(`${def.pluralLabel} is archived; restore it in Customization, Data model to change its records`);
   return {

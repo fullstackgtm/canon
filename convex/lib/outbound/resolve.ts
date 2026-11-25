@@ -1,3 +1,5 @@
+import { applyRelated, type RelatedPorts } from "./related.ts";
+import type { RelatedCondition } from "../objects/validators.ts";
 /**
  * An audience's contacts: the register rows its filter matches plus the
  * contacts added to it one at a time (an event agent's route), each with the
@@ -14,6 +16,7 @@ import { AUDIENCE_MAX, variableName, type OutboundContact } from "./audience.ts"
 export type CustomValues = Record<string, string | number | boolean>;
 
 export type ResolvePorts = {
+  related?: RelatedPorts;
   listContacts(req: ListRequest): Promise<RegisterListResponse>;
   getContact(id: string): Promise<ContactRow | null>;
   accountNames(accountIds: string[]): Promise<Record<string, string>>;
@@ -48,7 +51,9 @@ function listsOf(r: RegisterListRow): { otherEmails?: string[]; otherPhones?: st
   return { ...(e.length ? { otherEmails: e } : {}), ...(p.length ? { otherPhones: p } : {}) };
 }
 
-export async function resolveContacts(ports: ResolvePorts, filter: ListRequest["filter"], addedIds: readonly string[] = []): Promise<Resolved> {
+export async function resolveContacts(ports: ResolvePorts, filter: ListRequest["filter"], addedIds: readonly string[] = [], related: readonly RelatedCondition[] = []): Promise<Resolved> {
+  if (related.length && !ports.related) throw new Error("Related audience reader missing");
+  ports.related?.check(related);
   const first = await ports.listContacts({ filter, limit: PAGE });
   // The filter alone already over the cap: nothing to fetch. Otherwise the cap is on distinct members, below.
   if (first.total > AUDIENCE_MAX) return { contacts: [], total: first.total, tooLarge: true };
@@ -68,7 +73,8 @@ export async function resolveContacts(ports: ResolvePorts, filter: ListRequest["
     const got = await Promise.all(missing.slice(i, i + FETCH_PARALLEL).map((id) => ports.getContact(id)));
     got.forEach((c, j) => byId.set(missing[i + j], c));
   }
-  const records = [...byId.values()].flatMap((c) => (c ? [c] : []));
+  const all = [...byId.values()].flatMap((c) => (c ? [c] : []));
+  const records = ports.related ? await applyRelated(all, related, ports.related) : all;
   const streams = records.flatMap((c) => (c.stream ? [c.stream] : []));
   const custom: Record<string, CustomValues> = {};
   for (let i = 0; i < streams.length; i += CUSTOM_CHUNK) Object.assign(custom, await ports.customValues(streams.slice(i, i + CUSTOM_CHUNK)));

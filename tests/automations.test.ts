@@ -755,3 +755,14 @@ test("bad automation references name their path and the member lookup instead of
     await assert.rejects(automations.propose.handler(w.ctx, doc), (error: Error) => error.message.includes(path));
   }
 });
+
+
+test("intake lead creation triggers its created assign-owner rule", async () => {
+  const w = workspace();
+  await rule(w, { name: "Inbound owner", object: "lead", trigger: { kind: "created" }, actions: [{ kind: "assign_owner", owner: { kind: "member", userId: AVERY } }] });
+  await as(w, RILEY);
+  const result = await (objects.saveAsCaller as unknown as (...args: any[]) => Promise<any>)(w.ctx, signedIn, "lead", { op: "create", values: { lastName: "Inbound", email: "inbound@example.test" } }, { intake: { formKey: "contact" } });
+  await fanout(w); await drain(w);
+  assert.equal(runs(w).length, 1);
+  assert.equal((await lead(w, result.streamId)).ownerId, AVERY);
+});

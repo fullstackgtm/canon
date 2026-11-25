@@ -4386,3 +4386,39 @@ Catalog availability does not change default seeding, installed modules, their r
 Legacy competitive generation now refuses without writing claims; use `@canon/win-loss` with verbatim evidence. Legacy forecasting calls also refuse; use `@canon/forecast` and workspace Targets. Existing API names remain as refusals for old HTTP, GTM, MCP and CLI clients.
 
 Legacy `/api/gtm/pipeline`, the `gtm pipeline` command and `gtm_pipeline` MCP tool are retired with their forecast dependency. They now return the same retirement error instead of a summary with a fabricated zero target. `deal.inspect` retains call insights and marks its forecast component as retired. Revenue and Health bookmarks fall back to the current Deals and Accounts pages, which work without installing optional modules.
+
+### Hosted forms
+
+The catalog module `@canon/inbound` provides Forms and Submissions. It is not
+installed by default. An administrator creates a draft with up to 25 fields,
+including one required email mapped to the lead's email. Fields may map once
+each to email, firstName, lastName, company, title and phone. Unmapped answers,
+UTM parameters and up to ten configured hidden parameters stay on the submission.
+
+Publishing is a human Canon operation, `forms.publish`, atomically bound to the
+form's publish transition. It validates the definition and issues a random
+128-bit public ID. The `formLink` page component displays the hosted URL with
+Copy and Open. Publishing authorizes lead creation as that administrator.
+Drafts may be edited; archive a live form to stop intake. Intake also stops if
+the publisher leaves, loses admin access or cannot create leads.
+
+The hosted page is `/f/<publicId>`. Its same-origin JSON submit route requires a
+signed render token aged 3 seconds to 24 hours, a bounded body and a honeypot.
+Only the server broker can call the Convex public entry points. Canon resolves
+the workspace from its own link row, checks the genuine `canon:inbound` package,
+and performs intake without running module code. Fixed rate buckets limit IP,
+form and workspace traffic; nonces prevent a replay from creating another lead.
+Public form links and counters are deployment-local and are not archived.
+After a workspace restore, create and publish a replacement form.
+
+Exact lead or person email matches link the submission without changing the
+record. Ambiguous matches need review. Other matches create a standard lead and
+retain company and account-owner suggestions on the submission. Matching outages
+still create leads and mark `matchUnavailable`. Invalid lead values retain a
+failed submission while the visitor sees the success message. An HTTPS redirect
+may replace that message; Canon never fetches the destination.
+
+All public entry points return the unknown-form 404 while `INBOUND_FORMS` is
+not `on`, except on the explicit local demo bypass. The switch remains off on
+dev pending independent boundary review. Embeds, cross-origin intake, custom
+field mapping, routing queues, SLA timers and booking are outside this slice.

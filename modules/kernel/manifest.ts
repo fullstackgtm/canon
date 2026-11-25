@@ -570,7 +570,7 @@ export type CallDecl = {
   canon?: { operation: CanonOperation; then?: {
     machine: string; transition: string; key: string; expect: string;
     input: Record<string, { field: string }>;
-    args: { jobId: { result: "jobId" } };
+    args: { jobId: { result: "jobId" } } | { publicId: { result: "publicId" } };
   } };
   label: string;
   /** What the caller supplies, checked as a collection's schema is. */
@@ -1064,7 +1064,7 @@ export type ColumnTone = { by: RowPath; cases: readonly ({ tone: ToneName } & ({
  * (`?line=` query lines, ";" between them, every one of which a company must pass; `?of=` names them), each opened as
  * Canon's own page.
  */
-export const CANON_PAGES = ["team", "deals", "deal", "company", "person", "settings", "targets", "workspace", "patchPlans", "companies", "people"] as const;
+export const CANON_PAGES = ["team", "deals", "deal", "company", "person", "lead", "settings", "targets", "workspace", "patchPlans", "companies", "people"] as const;
 /** The record pages a link names by a ref: each with the ref it takes. */
 const RECORD_PAGES: Partial<Record<(typeof CANON_PAGES)[number], RefTo>> = { deal: "deals", company: "companies", person: "people" };
 export type CanonLink = { canon: (typeof CANON_PAGES)[number]; ref?: string; query?: Record<string, Text> };
@@ -1130,6 +1130,7 @@ export type Node = Common & (
   | { c: "periodNav"; from: string; current: FormExpr; label: Text; link: string; sort?: RowPath }
   /** Whether a sealed doc still matches its seal: its collection's `integrity`, recomputed on the server. */
   | { c: "integrity"; from: string }
+  | { c: "formLink"; from: string }
   | { c: "shareLinks"; share: string; from: string }
   /**
    * A Canon call's transcript (`call`: its id, a page value or a bound doc's field), loaded by Canon as the caller, so no
@@ -1323,7 +1324,7 @@ export type KpiExtras = { tone?: { by: Text; cases: ColumnTone["cases"] }; trend
 export type KpiItem = { label: string } & KpiExtras & ({ value: Text } | { total: { from: string; sum: RowPath; format?: Format } } | { count: string });
 /** `attention`: a row that needs the person (a field holding one of `in`, or set): the queue's Needs attention filter. */
 export type QueueSource = { from: string; label: string; title: Text; subtitle?: Text; date?: RowPath; link?: string; actions?: readonly ActionRef[]; attention?: ActionWhen };
-export const COMPONENTS = ["header", "prose", "recordEditor", "setMap", "table", "form", "actions", "empty", "tabs", "banner", "statusSteps", "timeline", "queue", "jobStatus", "detail", "kpis", "thread", "approvalChain", "periodNav", "integrity", "callResult", "bulkStatus", "pacing", "dashboards", "report", "chart", "tree", "stepper", "dateRange", "wizard", "grid", "transcript", "phone", "shareLinks", "outbox", "flow"] as const;
+export const COMPONENTS = ["header", "prose", "recordEditor", "setMap", "table", "form", "actions", "empty", "tabs", "banner", "statusSteps", "timeline", "queue", "jobStatus", "detail", "kpis", "thread", "approvalChain", "periodNav", "integrity", "callResult", "bulkStatus", "pacing", "dashboards", "report", "chart", "tree", "stepper", "dateRange", "wizard", "grid", "transcript", "phone", "formLink", "shareLinks", "outbox", "flow"] as const;
 export type ComponentName = (typeof COMPONENTS)[number];
 
 export type PageDecl = {
@@ -1432,7 +1433,7 @@ export type ModuleManifest = {
    * Installed and on in every workspace, unless an admin turned it off or uninstalled it there (docs/modules.md,
    * "Default modules"). Only the modules Canon ships are seeded.
    */
-  default?: true;
+  default?: boolean;
   /** Canon-owned imports run once per workspace when this version first serves. */
   imports?: readonly string[];
   reports?: Record<string, { name: string; report: string; spec: ReportSpec }>;
@@ -2044,6 +2045,7 @@ const NODE: Record<ComponentName, Check> = {
     label: text(120), widget: oneOf(["number", "money", "percent"]), total: oneOf([true]), ...common,
     cells: obj({ from: str(1, 40), row: fieldName, column: fieldName, create: str(1, 60, DOTTED, "an op name"), fixed: dict(formExpr, 10, FIELD) }, ["create", "fixed"]),
   }, ["widget", "total", "cells", ...commonKeys]),
+  formLink: obj({ c: oneOf(["formLink"]), from: str(1, 40), ...common }, commonKeys),
   shareLinks: obj({ c: oneOf(["shareLinks"]), share: str(1, 40, NAME, "a share name"), from: str(1, 40), ...common }, commonKeys),
   tree: obj({
     c: oneOf(["tree"]), from: str(1, 40), rows: str(1, 40, FIELD, "a field of the value"), id: rowPath, parent: rowPath, title: text(300), subtitle: text(300), link: str(1, 200), canonLink: obj({ canon: oneOf(CANON_PAGES), query: canonQuery }, ["query"]), empty: text(300), ...common,
@@ -2096,7 +2098,7 @@ const MANIFEST = obj({
   engines: obj({ moduleApi: oneOf([MODULE_API]) }),
   nav: obj({ label: text(40), icon: oneOf(NAV_ICONS), section: oneOf(NAV_SECTIONS), landing: either(str(1, 200), obj({ default: str(1, 200), ...Object.fromEntries(ROLES.map((r) => [r, str(1, 200)])) }, ROLES)), slot: oneOf(Object.keys(NAV_SLOTS)) }, ["slot"]),
   links: list(oneOf(Object.keys(NAV_SLOTS)), Object.keys(NAV_SLOTS).length, 1),
-  default: oneOf([true]),
+  default: oneOf([true, false]),
   imports: list(str(3, 200, /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/, "a dotted import name like icps.legacy"), 10),
   reports: dict(obj({ name: text(80), report: str(1, 40, NAME), spec: (x, p, e) => { const problem = mismatch(reportSpec, x, p); if (problem) e.push(problem); } }), 50, /^[a-z0-9][a-z0-9_-]{0,62}$/),
   dashboards: dict(obj({ name: text(80), tiles: list(obj({ report: str(1, 63, /^[a-z0-9][a-z0-9_-]{0,62}$/), wide: oneOf([true, false]) }), 20) }), 20, /^[a-z0-9][a-z0-9_-]{0,62}$/),
@@ -2161,7 +2163,7 @@ const MANIFEST = obj({
     capability: oneOf(Object.keys(CAPABILITIES)), label: text(60), args: validator, roles: list(oneOf(ROLES), ROLES.length), agent: oneOf(["allowed", "propose", "human"]), reason: text(300), system: oneOf([true]),
     canon: obj({ operation: oneOf(CANON_OPERATIONS), then: obj({
       machine: str(1, 40, NAME), transition: str(1, 40, NAME), key: str(1, 40, FIELD), expect: str(1, 40, FIELD),
-      input: dict(obj({ field: str(1, 40, FIELD) }), 3, FIELD), args: obj({ jobId: obj({ result: oneOf(["jobId"]) }) }),
+      input: dict(obj({ field: str(1, 40, FIELD) }), 3, FIELD), args: either(obj({ jobId: obj({ result: oneOf(["jobId"]) }) }), obj({ publicId: obj({ result: oneOf(["publicId"]) }) })),
     }) }, ["then"]),
     proposal: obj({ summary: text(200) }),
     reads: dict(either(
@@ -4276,6 +4278,10 @@ function crossChecks(declared: ModuleManifest, e: string[]) {
           const waits = Object.values(m.machines ?? {}).some((mc) => mc.collection === c && Object.values(mc.transitions).some((t) => t.effects?.some((fx) => "bulk" in fx && fx.bulk)));
           if (c && !waits) e.push(`${nat}.from binds ${c}, which no transition moves in bulk`);
           if (n.link !== undefined && !namesPage(m.pages, n.link)) e.push(`${nat}.link names ${n.link}, which is not a page`);
+          break;
+        }
+        case "formLink": {
+          oneBind(n.from, `${nat}.from`);
           break;
         }
         case "shareLinks": {

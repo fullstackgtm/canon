@@ -524,6 +524,11 @@ export default defineSchema({
     state: v.union(v.literal("issued"), v.literal("used")),
   }).index("by_visitorId", ["visitorId"]).index("by_expiresAt", ["expiresAt"]),
 
+  moduleFormLinks: defineTable({
+    orgId: v.id("organizations"), moduleId: v.string(), formKey: v.string(), publicId: v.string(),
+    createdBy: v.id("users"), createdAt: v.number(),
+  }).index("by_publicId", ["publicId"]).index("by_orgId_moduleId_formKey", ["orgId", "moduleId", "formKey"]),
+
   moduleRateLimits: defineTable({
     key: v.string(), windowStart: v.number(), count: v.number(), expiresAt: v.number(),
     notice: v.optional(v.object({ cause: v.string(), ids: v.array(v.id("notifications")) })),
@@ -5115,6 +5120,7 @@ export default defineSchema({
   // It is its creator's until shared (docs/audiences-and-icps.md); absent `shared`
   // (audiences from before) reads as shared.
   audiences: defineTable({
+    related: v.optional(v.array(objectValidators.relatedCondition)),
     orgId: v.id("organizations"),
     name: v.string(),
     filter: v.array(listFilter),

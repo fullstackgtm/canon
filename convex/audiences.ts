@@ -19,6 +19,9 @@ import { internalMutation, internalQuery, mutation, query, type MutationCtx, typ
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { accessFor } from "./permissions";
+import { assertSupportedRelated, hasNegativeDealCondition } from "./lib/outbound/related";
+import { relatedCondition, type RelatedCondition } from "./lib/objects/validators";
+import { refuseHiddenUse } from "./lib/access";
 import { narrowsReads } from "./lib/access";
 import { listedDef } from "./savedViews";
 import { compileListRequest, ListRequestError } from "./lib/objects/listSpec";
@@ -85,7 +88,7 @@ export const list = query({
     for (const id of new Set(rows.map((a) => a.createdBy))) owners.set(id, (await ctx.db.get(id))?.name ?? "Former member");
     return rows
       .map((a) => ({
-        _id: a._id, name: a.name, filterCount: a.filter.length, createdAt: a.createdAt, lastSentAt: a.lastSentAt, summary: showSummary ? a.summary : undefined,
+        _id: a._id, name: a.name, filterCount: a.filter.length, related: a.related, createdAt: a.createdAt, lastSentAt: a.lastSentAt, summary: showSummary && !hasNegativeDealCondition(a.related) ? a.summary : undefined,
         shared: isShared(a), mine: a.createdBy === user._id, ownerName: owners.get(a.createdBy) ?? "Former member", canEdit: canChange(user, a),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -115,7 +118,7 @@ export const byId = query({
     const found = await visibleAudience(ctx, args.audienceId);
     if (!found) return null;
     const { user, audience } = found;
-    return { _id: audience._id, name: audience.name, filter: audience.filter, canEdit: canChange(user, audience) };
+    return { _id: audience._id, name: audience.name, filter: audience.filter, related: audience.related, canEdit: canChange(user, audience) };
   },
 });
 
@@ -125,27 +128,40 @@ function nameOrThrow(raw: string): string {
   return name;
 }
 
-async function checkFilter(ctx: QueryCtx, orgId: Id<"organizations">, filter: ViewFilter[]) {
+async function checkFilter(ctx: QueryCtx, orgId: Id<"organizations">, filter: ViewFilter[], object = "contact") {
   try {
-    compileListRequest(await listedDef(ctx, orgId, "contact"), { filter });
+    compileListRequest(await listedDef(ctx, orgId, object), { filter });
   } catch (cause) {
     if (cause instanceof ListRequestError) throw new ConvexError(cause.message);
     throw cause;
   }
 }
 
+async function checkDefinition(ctx: QueryCtx, user: Parameters<typeof accessFor>[1], filter: ViewFilter[], related: RelatedCondition[] = []) {
+  assertSupportedRelated(related);
+  const access = await accessFor(ctx, user);
+  refuseHiddenUse(access, "contact", filter.map((f) => f.field));
+  await checkFilter(ctx, user.orgId, filter);
+  if (related.length) refuseHiddenUse(access, "contact", ["accountId"]);
+  for (const condition of related) {
+    const object = condition.path === "company" ? "account" : "deal";
+    refuseHiddenUse(access, object, [...condition.filter.flatMap((f) => object === "account" && f.field === "revenue" ? [f.field, "annualRevenue"] : [f.field]), ...(object === "deal" ? ["companyId"] : [])]);
+    await checkFilter(ctx, user.orgId, [...condition.filter, { field: object === "deal" ? "companyId" : "id", op: "in", value: ["validation"] }], object);
+  }
+}
+
 export const create = mutation({
-  args: { name: v.string(), filter: v.array(listFilter), viewId: v.optional(v.id("savedViews")) },
+  args: { name: v.string(), filter: v.array(listFilter), related: v.optional(v.array(relatedCondition)), viewId: v.optional(v.id("savedViews")) },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     const name = nameOrThrow(args.name);
     if ((await ownAudiences(ctx, user).take(AUDIENCES_MAX)).length >= AUDIENCES_MAX) throw new ConvexError(`At most ${AUDIENCES_MAX} audiences each`);
-    await checkFilter(ctx, user.orgId, args.filter);
+    await checkDefinition(ctx, user, args.filter, args.related);
     if (args.viewId) {
       const view = await ctx.db.get(args.viewId);
       if (!view || view.orgId !== user.orgId || view.object !== "contact") throw new ConvexError("View not found");
     }
-    const audienceId = await ctx.db.insert("audiences", { orgId: user.orgId, name, filter: args.filter, viewId: args.viewId, createdBy: user._id, shared: false, createdAt: Date.now() });
+    const audienceId = await ctx.db.insert("audiences", { orgId: user.orgId, name, filter: args.filter, related: args.related, viewId: args.viewId, createdBy: user._id, shared: false, createdAt: Date.now() });
     await ctx.scheduler.runAfter(0, internal.audienceActions.refreshSummary, { orgId: user.orgId, audienceId });
     await checkIcpGaps(ctx, user.orgId, args.filter);
     return audienceId;
@@ -174,7 +190,7 @@ export const createFromIcp = mutation({
     if (!icp.active) throw new ConvexError(`Switch ${icp.name} on first: an ICP that is off has no accounts.`);
     if ((await ownAudiences(ctx, user).take(AUDIENCES_MAX)).length >= AUDIENCES_MAX) throw new ConvexError(`At most ${AUDIENCES_MAX} audiences each`);
     const filter: ViewFilter[] = [{ field: "accountIcpIds", op: "hasAny", value: [icp.key] }];
-    await checkFilter(ctx, user.orgId, filter);
+    await checkDefinition(ctx, user, filter);
     const audienceId = await ctx.db.insert("audiences", {
       orgId: user.orgId, name: nameOrThrow(`${icp.name.slice(0, NAME_MAX - 9)}: people`), filter, createdBy: user._id, shared: false, createdAt: Date.now(),
     });
@@ -190,13 +206,13 @@ export const createFromIcp = mutation({
  * next export or push reads the new members.
  */
 export const update = mutation({
-  args: { audienceId: v.id("audiences"), name: v.optional(v.string()), filter: v.optional(v.array(listFilter)), shared: v.optional(v.boolean()) },
+  args: { audienceId: v.id("audiences"), name: v.optional(v.string()), filter: v.optional(v.array(listFilter)), related: v.optional(v.array(relatedCondition)), shared: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     const audience = await ctx.db.get(args.audienceId);
     if (!audience || !canSee(user, audience)) throw new ConvexError("Audience not found");
     if (!canChange(user, audience)) throw new ConvexError("Only the audience's creator, an admin or a manager can change it");
-    const patch: { name?: string; filter?: ViewFilter[]; summary?: undefined; shared?: boolean } = {};
+    const patch: { name?: string; filter?: ViewFilter[]; related?: RelatedCondition[]; summary?: undefined; shared?: boolean } = {};
     if (args.name !== undefined) patch.name = nameOrThrow(args.name);
     if (args.shared !== undefined && args.shared !== isShared(audience)) {
       if (args.shared && (await sharedAudiences(ctx, user.orgId, AUDIENCES_MAX)).length >= AUDIENCES_MAX) {
@@ -204,15 +220,16 @@ export const update = mutation({
       }
       patch.shared = args.shared;
     }
+    if (args.filter !== undefined || args.related !== undefined) await checkDefinition(ctx, user, args.filter ?? audience.filter, args.related ?? audience.related);
+    if (args.related !== undefined) { patch.related = args.related; patch.summary = undefined; }
     if (args.filter !== undefined) {
-      await checkFilter(ctx, user.orgId, args.filter);
       patch.filter = args.filter;
       patch.summary = undefined;
     }
     await ctx.db.patch(audience._id, patch);
-    if (args.filter !== undefined) {
+    if (args.filter !== undefined || args.related !== undefined) {
       await ctx.scheduler.runAfter(0, internal.audienceActions.refreshSummary, { orgId: user.orgId, audienceId: audience._id });
-      await checkIcpGaps(ctx, user.orgId, args.filter);
+      await checkIcpGaps(ctx, user.orgId, args.filter ?? audience.filter);
     }
   },
 });
@@ -232,12 +249,12 @@ export const refreshSummaries = internalMutation({
 
 export const storeSummary = internalMutation({
   args: {
-    audienceId: v.id("audiences"), orgId: v.id("organizations"), filter: v.array(listFilter),
+    audienceId: v.id("audiences"), orgId: v.id("organizations"), filter: v.array(listFilter), related: v.optional(v.array(relatedCondition)),
     summary: v.object({ total: v.number(), withEmail: v.number(), customVariables: v.array(v.string()), computedAt: v.number() }),
   },
   handler: async (ctx, args) => {
     const audience = await ctx.db.get(args.audienceId);
-    if (!audience || audience.orgId !== args.orgId || JSON.stringify(audience.filter) !== JSON.stringify(args.filter)) return;
+    if (!audience || audience.orgId !== args.orgId || JSON.stringify(audience.filter) !== JSON.stringify(args.filter) || JSON.stringify(audience.related ?? []) !== JSON.stringify(args.related ?? [])) return;
     if (audience.summary && audience.summary.computedAt > args.summary.computedAt) return;
     await ctx.db.patch(audience._id, { summary: args.summary });
   },

@@ -1,0 +1,11 @@
+import { handleFormSubmit } from '../../../../lib/formHttp';
+import { visitHeaders } from '../../../../lib/visitHeaders';
+export const POST = (request: Request) => handleFormSubmit(request);
+const unavailable = () => Response.json({ error: 'Form not found' }, { status: 404, headers: visitHeaders() });
+export const GET = unavailable;
+export const HEAD = unavailable;
+export const OPTIONS = unavailable;
+export const PUT = unavailable;
+export const PATCH = unavailable;
+export const DELETE = unavailable;
+export const runtime = 'nodejs';

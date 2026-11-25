@@ -246,3 +246,17 @@ test("best-fit accounts are a caller-scoped register read with hidden fields rem
   const found = await readRecord(client, "org1", ports, { read: "companies.bestFit", ids: [], fields: ["name", "industry"], limit: 15, since: null });
   assert.deepEqual(found.map((r) => [r.id, r.name, r.industry]), [["own", "Visible", null]]);
 });
+
+test("audience snapshots apply company conditions to matched and manually added people", async () => {
+  const { client, ports } = await fixture();
+  let frozen: string[] = [];
+  ports.snapshot = async (_module, _source, ids) => { frozen = ids; return { snapshot: "snap", createdAt: 1 }; };
+  const baseSpec: RecordReadSpec = { read: "audiences.snapshot", ids: ["aud"], since: null, limit: 1000, fields: [], audience: { moduleId: "m", filter: [], related: [{ path: "company", filter: [{ field: "industry", op: "eq", value: "Other" }] }] } };
+  await readRecord(client, "org1", ports, baseSpec);
+  assert.deepEqual(frozen, []);
+  ports.addedTo = async () => ["con_1"];
+  baseSpec.audience!.filter = [{ field: "title", op: "eq", value: "No matching title" }];
+  baseSpec.audience!.related = [{ path: "company", filter: [{ field: "industry", op: "eq", value: "Cloud" }] }];
+  await readRecord(client, "org1", ports, baseSpec);
+  assert.deepEqual(frozen, ["con_1"]);
+});

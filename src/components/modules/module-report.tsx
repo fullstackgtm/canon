@@ -1025,7 +1025,7 @@ export function canonHref(page: (typeof CANON_PAGES)[number], recordId?: unknown
   if (page === "people") return "/dashboard/records/contact";
   if (page === "companies") return "/dashboard/accounts";
   if (typeof recordId !== "string" || !recordId) return null;
-  return recordHref(page === "company" ? "account" : page === "person" ? "contact" : "deal", recordId);
+  return recordHref(page === "company" ? "account" : page === "person" ? "contact" : page === "lead" ? "lead" : "deal", recordId);
 }
 /**
  * The record a deal, company or person link of `doc` opens: a joined deal's ledger stream (`<ref>.recordId`), or the

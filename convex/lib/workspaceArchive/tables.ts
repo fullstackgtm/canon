@@ -75,6 +75,7 @@ export const ARCHIVE_TABLES = {
   moduleShareGrants: secret("share links are verified against token hashes the visitor's link carries"),
   moduleVisitors: secret("visitor sessions are hashed bearer sessions"),
   moduleVisitCodes: secret("one-time visit codes are hashed bearer codes"),
+  moduleFormLinks: local("public form links are deployment-local and must be republished after restore"),
   moduleRateLimits: local(),
   // Files people put in module docs, with their bytes (cli/workspaceArchive.ts). An upload ticket's secret and a
   // visitor's upload session (a share grant's, which never moves) stay behind.

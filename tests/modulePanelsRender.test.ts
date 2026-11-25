@@ -182,3 +182,24 @@ test("money charts format full and compact amounts in the workspace currency", (
   assert.equal(shaped.format(0, 120000), new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(1200));
   assert.equal(shaped.formatCompact(0, 120000), new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR", notation: "compact", maximumFractionDigits: 1 }).format(1200));
 });
+
+test("inbound submission answers render as inert dashboard text", () => {
+  const { detail } = load<{ detail: (node: unknown, ctx: unknown) => ReactNode }>("../src/components/modules/module-page.tsx", {
+    "../../../modules/kernel/text": text,
+    "@/lib/utils": { cn: (...values: string[]) => values.join(" ") },
+  }, "\nexports.detail = RENDERERS.detail;");
+  const manifest = JSON.parse(readFileSync("modules/examples/inbound/module.json", "utf8"));
+  const node = manifest.pages.find((p: { path: string }) => p.path === "submissions/:key").body.find((n: { c: string }) => n.c === "detail");
+  const html = renderToStaticMarkup(detail(node, { view: { data: {}, collections: {}, formats: {}, files: {}, fields: {} }, text: { binds: { submission: { key: "submission", version: 1, data: { answers: '<img src=x onerror="alert(1)">' } } }, members: new Map(), currency: "USD" } }));
+  assert.ok(html.includes("&lt;img"));
+  assert.doesNotMatch(html, /<img|<script/);
+});
+
+
+test("a hosted form cannot put answers into a native GET before hydration", () => {
+  const { HostedForm } = load<typeof import("../src/app/f/[publicId]/public-form")>("../src/app/f/[publicId]/public-form.tsx", {});
+  const html = renderToStaticMarkup(createElement(HostedForm, { fields: [{ key: "email", label: "Email", kind: "email", required: true }], publicId: "abcdefghijklmnopqrstuv", token: "signed", params: {} }));
+  assert.match(html, /method="post"/);
+  assert.match(html, /action="\/api\/forms\/submit"/);
+  assert.match(html, /<button[^>]*disabled=""/);
+});
