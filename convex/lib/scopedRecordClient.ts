@@ -161,6 +161,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
   const listFields = (req: ListRequest) => [...(req.filter ?? []).map((f) => f.field), req.sort?.field];
   return {
     ...base,
+    checkReadFields: refuse,
     async list(ws, req) {
       refuse("account", [...legacyFields(req.filter), req.sort?.field === "employees" ? "employees" : req.sort?.field === "name" ? "name" : undefined]);
       const scope = await legacyScope(base, accesses, "account");

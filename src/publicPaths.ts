@@ -12,6 +12,8 @@ export function isPublicPath(pathname: string) {
     // to /sign-in.
     pathname.startsWith("/.well-known/") ||
     isVisitPublicPath(pathname) ||
+    /^\/f\/[A-Za-z0-9_-]{22}$/.test(pathname) ||
+    pathname === "/api/forms/submit" ||
     pathname === "/auth.md" ||
     pathname === "/llms.txt" ||
     pathname === "/terms" ||

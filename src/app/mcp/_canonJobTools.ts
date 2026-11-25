@@ -173,15 +173,15 @@ export const canonJobTools: CanonTool[] = [
     "Audiences: saved contact lists (filters as in canon_list_records) to export or push to a sequencer campaign: provider \"instantly\" (the default), \"emailbison\" or \"smartlead\", each connected in Integrations. Each is private to its creator until shared; create_from_icp starts one from a saved ICP (filter accountIcpIds).",
     {
       list: q(api.audiences.list),
-      create: m(api.audiences.create, "{ name, filter: [{ field, op, value? }], viewId? }"),
+      create: m(api.audiences.create, "{ name, filter: [{ field, op, value? }], viewId?, related?: [{ path: \"company\", filter } | { path: \"company.deals\", has: \"some\", filter }] }: deal conditions cover explicit company links only; none is unavailable until scoped CRM-link resolution"),
       create_from_icp: m(api.audiences.createFromIcp, "{ icpId }: a private audience of the people at the ICP's accounts"),
-      update: m(api.audiences.update, "{ audienceId, name?, filter?: [{ field, op, value? }], shared? }"),
+      update: m(api.audiences.update, "{ audienceId, name?, filter?: [{ field, op, value? }], shared?, related?: [{ path: \"company\", filter } | { path: \"company.deals\", has: \"some\", filter }] }: deal conditions cover explicit company links only; none is unavailable until scoped CRM-link resolution"),
       history: q(api.audiences.history, "{ audienceId }"),
       campaigns: a(api.audienceActions.campaigns, "{ provider? }"),
       preview: a(api.audienceActions.preview, "{ audienceId, campaignId?, provider? }"),
       push: a(api.audienceActions.push, "{ audienceId, campaignId, expectToSend: number (the preview's count), provider? }"),
       export_csv: a(api.audienceActions.exportCsv, "{ audienceId }"),
-      export_view_csv: a(api.audienceActions.exportViewCsv, "{ filter: [{ field, op, value? }] } -> { csv, count }: visible contacts matching a list filter; saves nothing"),
+      export_view_csv: a(api.audienceActions.exportViewCsv, "{ filter: [{ field, op, value? }], related? } -> { csv, count }: visible contacts matching the filter and related conditions; saves nothing"),
     },
   ),
   groupTool(

@@ -82,7 +82,7 @@ export const audiencesImport: ModuleImport = {
     if (state.phase === "PARENTS") {
       const page = await ctx.db.query("audiences").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).paginate({ numItems: PAGE, cursor: state.cursor });
       const members = new Set((await workspaceMembers(ctx, orgId)).map((m) => m.id as string));
-      const docs = page.page.filter((a) => members.has(a.createdBy)).map((a) => { const data = audienceDoc(a); return { collection: "audiences", key: a._id as string, data: { ...data, imported: fingerprints(data) } }; });
+      const docs = page.page.filter((a) => !a.related?.length && members.has(a.createdBy)).map((a) => { const data = audienceDoc(a); return { collection: "audiences", key: a._id as string, data: { ...data, imported: fingerprints(data) } }; });
       return { docs, cursor: page.isDone ? nextPhase(state.phase) : JSON.stringify({ ...state, cursor: page.continueCursor }) };
     }
     if (!state.audience) {
@@ -92,7 +92,7 @@ export const audiencesImport: ModuleImport = {
       return { docs: [], cursor: JSON.stringify(state) };
     }
     const audienceId = state.audience as Id<"audiences">;
-    if (!await parentCopied(scope, audienceId)) return { docs: [], cursor: advance(state) };
+    if ((await ctx.db.get(audienceId))?.related?.length || !await parentCopied(scope, audienceId)) return { docs: [], cursor: advance(state) };
     if (state.phase === "ADDITIONS") {
       const page = await ctx.db.query("audienceAdditions").withIndex("by_audienceId_and_contactId", (q) => q.eq("audienceId", audienceId)).paginate({ numItems: PAGE, cursor: state.child ?? null });
       return { docs: page.page.filter((r) => r.orgId === orgId).map((r) => ({ collection: "additions", key: importSetKey(audienceId, r.contactId), parentKey: audienceId, data: { person: r.contactId } })), cursor: page.isDone ? advance(state) : JSON.stringify({ ...state, child: page.continueCursor }) };

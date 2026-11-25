@@ -1,3 +1,5 @@
+import { applyRelated, relatedPorts } from "../outbound/related.ts";
+import type { RelatedCondition } from "../objects/validators.ts";
 /**
  * The Canon reads a read plan names that the record service serves (docs/modules.md, "Server code"): companies,
  * people and activities. The plan's one query can't reach the service, so it plans each one (`planRecordRead`: the
@@ -38,7 +40,7 @@ export type RecordReadSpec = {
    * audiences.snapshot (`ids` is the audience) and people.snapshot (`ids` is the interface doc's key): the module taking
    * it, the filter, and for an interface doc the set holding the people added to it one at a time.
    */
-  audience?: { moduleId: string; filter: ListFilter[]; source?: string; added?: AddedSource };
+  audience?: { moduleId: string; filter: ListFilter[]; related?: RelatedCondition[]; source?: string; added?: AddedSource };
   /** Activities: the ledger's shard heads when the plan ran. The read sees every activity logged before it, or refuses. */
   through?: Record<string, number>;
   /** companies.updatedSince and people.updatedSince: where the page starts (a `next` a page gave) and the owner it keeps. */
@@ -106,15 +108,16 @@ const text = (v: unknown) => (typeof v === "string" && v !== "" ? v : null);
 const num = (v: unknown) => (typeof v === "number" ? v : null);
 const pick = (all: Record<string, unknown>, fields: readonly string[]) => Object.fromEntries(fields.map((f) => [f, all[f] ?? null]));
 
-export async function resolvePeopleRows(client: RecordClient, ws: string, addedTo: RecordReadPorts["addedTo"], query: { filter: ListFilter[]; added?: AddedSource }, legacyAudience?: string): Promise<ListRow[]> {
+export async function resolvePeopleRows(client: RecordClient, ws: string, addedTo: RecordReadPorts["addedTo"], query: { filter: ListFilter[]; related?: RelatedCondition[]; added?: AddedSource }, legacyAudience?: string): Promise<ListRow[]> {
   const over = () => refuse(`This audience has more than ${AUDIENCE_MAX.toLocaleString("en-US")} people. Narrow its filter.`);
+  relatedPorts(client, ws).check(query.related ?? []);
   const rows = await listAll((req) => client.listRegister(ws, "contact", req), query.filter, AUDIENCE_MAX, over);
   const matched = new Set(rows.map((r) => r.id));
   const additions = query.added ? await addedTo(query.added) : legacyAudience ? await addedTo(legacyAudience) : [];
   const added = [...new Set(additions)].filter((id) => !matched.has(id));
   const seen = added.length ? await registerByIds(client, ws, "contact", added, AUDIENCE_MAX, over) : [];
   if (rows.length + seen.length > AUDIENCE_MAX) over();
-  return [...new Map([...rows, ...seen].map((row) => [row.id, row])).values()];
+  return applyRelated([...new Map([...rows, ...seen].map((row) => [row.id, row])).values()], query.related ?? [], relatedPorts(client, ws));
 }
 
 /**

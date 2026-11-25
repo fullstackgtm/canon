@@ -25,6 +25,7 @@ const CHECKED = [
 
 /** Calls that are not a caller naming values, and why. */
 const NOT_A_CALLER: Record<string, string> = {
+  "convex/lib/modules/intake.ts#commit": "Canon intake accepts only fixed standard lead text targets and status/source; no owner or lookup input can reach saveAsCaller (inboundForms.ts normalizer)",
   "convex/objects.ts#saveAsCaller": "the writer itself",
   "convex/objects.ts#saveDealLinesAsCaller": "line items: their deal and product are checked by saveDealLinesAsCaller",
   "convex/objects.ts#lifecycle": "an archive or restore names no values",

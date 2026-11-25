@@ -41,7 +41,7 @@ export const copyOrg = internalMutation({
     if (!scope) return { created: 0, updated: 0, skipped: 0 };
     const page = await ctx.db.query("audiences").withIndex("by_orgId", (q) => q.eq("orgId", a.orgId)).paginate({ numItems: AUDIENCES_PAGE, cursor: a.cursor ?? null });
     const counts = await copyAll(scope, page.page);
-    if (scope.manifest.imports?.includes(AUDIENCES_IMPORT)) for (const audience of page.page) await ctx.scheduler.runAfter(0, internal.audienceImport.syncLegacyChildren, { orgId: a.orgId, audienceId: audience._id });
+    if (scope.manifest.imports?.includes(AUDIENCES_IMPORT)) for (const audience of page.page.filter((a) => !a.related?.length)) await ctx.scheduler.runAfter(0, internal.audienceImport.syncLegacyChildren, { orgId: a.orgId, audienceId: audience._id });
     if (!page.isDone) await ctx.scheduler.runAfter(0, internal.audienceImport.copyOrg, { orgId: a.orgId, cursor: page.continueCursor });
     return counts;
   },
@@ -50,6 +50,7 @@ export const copyOrg = internalMutation({
 async function copyAll(scope: ModuleScope, rows: Doc<"audiences">[]) {
   let created = 0, updated = 0, skipped = 0;
   for (const a of rows) {
+    if (a.related?.length) { skipped++; continue; }
     const key = a._id as string;
     const data = audienceDoc(a);
     const doc = (await scope.view("audiences.one", { key })) as ModuleDoc | null;
@@ -78,7 +79,7 @@ export const syncLegacyChildren = internalMutation({
   handler: async (ctx, a): Promise<void> => {
     const scope = await systemScope(ctx, a.orgId, MODULE);
     const audience = await ctx.db.get(a.audienceId);
-    if (!scope?.manifest.imports?.includes(AUDIENCES_IMPORT) || !audience || audience.orgId !== a.orgId || !await parentCopied(scope, a.audienceId)) return;
+    if (!scope?.manifest.imports?.includes(AUDIENCES_IMPORT) || !audience || audience.related?.length || audience.orgId !== a.orgId || !await parentCopied(scope, a.audienceId)) return;
     const page = await ctx.db.query("audienceAdditions").withIndex("by_audienceId_and_contactId", (q) => q.eq("audienceId", a.audienceId)).paginate({ numItems: 100, cursor: a.cursor ?? null });
     await scope.importDocs(AUDIENCES_IMPORT, page.page.filter((r) => r.orgId === a.orgId).map((r) => ({ collection: "additions", key: importSetKey(a.audienceId, r.contactId), parentKey: a.audienceId, data: { person: r.contactId } })));
     if (!page.isDone) {

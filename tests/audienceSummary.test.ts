@@ -15,7 +15,9 @@ const stubs: Record<string, unknown> = {
   "./_generated/server": { query: register, mutation: register, internalQuery: register, internalMutation: register },
   "./_generated/api": { internal },
   "./lib/capabilities": capabilities,
-  "./lib/access": { narrowsReads: () => false },
+  "./lib/outbound/related": loadConvex(["lib/outbound/related.ts"])["lib/outbound/related.ts"],
+  "./lib/objects/validators": { relatedCondition: require("convex/values").v.any() },
+  "./lib/access": { narrowsReads: () => false, refuseHiddenUse: () => {} },
   "./lib": { getCurrentUser: async () => user, requireUser: async () => user },
   "./permissions": { accessFor: async () => ({ userId: "user", role: "admin", teamOwners: ["user"], rules: {} }) },
   "./savedViews": { listedDef: async () => ({}) },
@@ -42,6 +44,7 @@ test("summary publication rejects another tenant, changed filters, and older cal
   const args = { audienceId: "audience", orgId: "org", filter: [], summary: { ...summary, computedAt: 11 } };
   await exports.storeSummary.handler(ctx, { ...args, orgId: "other" });
   await exports.storeSummary.handler(ctx, { ...args, filter: [{ field: "title", op: "eq", value: "CEO" }] });
+  await exports.storeSummary.handler(ctx, { ...args, related: [{ path: "company", filter: [] }] });
   await exports.storeSummary.handler(ctx, { ...args, summary: { ...summary, computedAt: 9 } });
   assert.equal(writes.length, 0);
   await exports.storeSummary.handler(ctx, args);

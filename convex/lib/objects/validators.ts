@@ -220,3 +220,9 @@ export const dataModelChangeKind = v.union(...([
   "object_created", "object_edited", "object_archived", "object_restored", "object_relabeled",
   "field_created", "field_updated", "field_archived", "field_restored", "pipeline_saved",
 ] as const).map((k) => v.literal(k)));
+
+export const relatedCondition = v.union(
+  v.object({ path: v.literal("company"), filter: v.array(listFilter) }),
+  v.object({ path: v.literal("company.deals"), has: v.union(v.literal("some"), v.literal("none")), filter: v.array(listFilter) }),
+);
+export type RelatedCondition = Infer<typeof relatedCondition>;

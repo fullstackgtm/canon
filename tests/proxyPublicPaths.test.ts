@@ -105,3 +105,9 @@ test("HubSpot compatibility authenticates its subtree at the route", () => {
   assert.equal(isPublicPath("/hubspot/crm/v3/objects/contacts"), true);
   for (const path of ["/hubspot", "/hubspotx/crm", "/hubspots/"]) assert.equal(isPublicPath(path), false);
 });
+
+test("hosted form public paths are bounded and do not expose sibling APIs", () => {
+  assert.equal(isPublicPath("/f/abcdefghijklmnopqrstuv"), true);
+  assert.equal(isPublicPath("/api/forms/submit"), true);
+  for (const path of ["/f/", "/forms", "/f/abcdefghijklmnopqrstuv/edit", "/api/forms/submissions", "/api/forms/submit/other"]) assert.equal(isPublicPath(path), false);
+});

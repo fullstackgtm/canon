@@ -89,8 +89,8 @@ export function crmRecordOfRef(provider: CrmProvider, ref: string, object: strin
   return crmId ? { provider, crmId } : null;
 }
 
-/** Whether a fact is a person's: a member's edit, an API or CLI edit with their token, a merge pick. An automation rule writes as `user` from its own source record and is not one. */
-export const isPersonFact = (f: { sourceKind: string; sourceRef: string }) => f.sourceKind === "user" && !f.sourceRef.startsWith("automation:");
+/** Whether a fact is a person's: a member's edit, an API or CLI edit with their token, a merge pick. Automation and intake write as `user` from their own source records and are not person edits. */
+export const isPersonFact = (f: { sourceKind: string; sourceRef: string }) => f.sourceKind === "user" && !f.sourceRef.startsWith("automation:") && !f.sourceRef.startsWith("intake:");
 
 /** Whether the rule covers `field` (an id; `def` names it when it may be a custom field's). */
 export function heldField(object: string, field: string, def?: Names): boolean {

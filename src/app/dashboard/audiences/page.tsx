@@ -11,6 +11,7 @@ import { downloadCsv } from "@/components/records/audience-actions";
 import { toast } from "@/lib/toast";
 import { useUrlState } from "@/lib/url-state";
 import { cn, getErrorMessage } from "@/lib/utils";
+import { AudienceRelated } from "@/components/records/audience-related";
 import { SelectField } from "@/components/ui/select";
 
 const btn = "inline-flex items-center gap-1 border border-border px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50";
@@ -209,6 +210,8 @@ function AudienceDetail({ audience }: { audience: Listed }) {
           <span className="block text-xs text-muted-foreground">Updated {new Date(summary.computedAt).toLocaleString()}. Refreshed every 15 minutes. Exports and pushes use current contacts.</span>
         </p>
       )}
+
+      <AudienceRelated id={id} related={audience.related ?? []} canEdit={canEdit} />
 
       <h3 className="mt-6 text-xs font-medium text-muted-foreground">Push to a campaign</h3>
       {sequencers === undefined ? null : !provider ? (

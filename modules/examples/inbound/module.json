@@ -1,0 +1,217 @@
+{
+  "kind": "module",
+  "visibility": "open",
+  "id": "@canon/inbound",
+  "version": "0.1.0",
+  "title": "Inbound",
+  "description": "Hosted forms that create leads.",
+  "author": {"org": "canon"},
+  "engines": {"moduleApi": "1"},
+  "default": false,
+  "nav": {"label": "Inbound", "icon": "inbox", "section": "Work", "landing": "forms"},
+  "collections": {
+    "forms": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "name": {"fieldType": {"type": "string"}, "optional": false},
+          "fields": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "key": {"fieldType": {"type": "string"}, "optional": false},
+                  "label": {"fieldType": {"type": "string"}, "optional": false},
+                  "kind": {"fieldType": {"type": "string"}, "optional": false},
+                  "required": {"fieldType": {"type": "boolean"}, "optional": true},
+                  "mapsTo": {"fieldType": {"type": "string"}, "optional": true},
+                  "options": {"fieldType": {"type": "array", "value": {"type": "string"}}, "optional": true}
+                }
+              }
+            },
+            "optional": false
+          },
+          "hiddenParams": {"fieldType": {"type": "array", "value": {"type": "string"}}, "optional": true},
+          "leadSource": {"fieldType": {"type": "string"}, "optional": true},
+          "dailyCap": {"fieldType": {"type": "number"}, "optional": true},
+          "message": {"fieldType": {"type": "string"}, "optional": true},
+          "redirect": {"fieldType": {"type": "string"}, "optional": true},
+          "status": {"fieldType": {"type": "string"}, "optional": false},
+          "publicId": {"fieldType": {"type": "string"}, "optional": true},
+          "publishedBy": {"fieldType": {"type": "ref", "to": "users"}, "optional": true},
+          "publishedAt": {"fieldType": {"type": "number"}, "optional": true}
+        }
+      },
+      "key": "auto",
+      "indexes": {},
+      "access": {"manager": "all", "rep": "none", "other": "none"}
+    },
+    "submissions": {
+      "schema": {
+        "type": "object",
+        "value": {
+          "formKey": {"fieldType": {"type": "string"}, "optional": false},
+          "answers": {"fieldType": {"type": "string"}, "optional": false},
+          "utm": {"fieldType": {"type": "string"}, "optional": false},
+          "hidden": {"fieldType": {"type": "string"}, "optional": false},
+          "outcome": {"fieldType": {"type": "string"}, "optional": false},
+          "receivedAt": {"fieldType": {"type": "number"}, "optional": false},
+          "ipHash": {"fieldType": {"type": "string"}, "optional": false},
+          "userAgent": {"fieldType": {"type": "string"}, "optional": false},
+          "leadId": {"fieldType": {"type": "string"}, "optional": true},
+          "personId": {"fieldType": {"type": "string"}, "optional": true},
+          "companyId": {"fieldType": {"type": "string"}, "optional": true},
+          "accountOwner": {"fieldType": {"type": "string"}, "optional": true},
+          "matchUnavailable": {"fieldType": {"type": "boolean"}, "optional": true}
+        }
+      },
+      "key": "auto",
+      "indexes": {},
+      "access": {"manager": "all", "rep": "none", "other": "none"}
+    }
+  },
+  "views": {
+    "forms.all": {"kind": "list", "collection": "forms", "limit": 100, "order": "desc"},
+    "forms.one": {"kind": "one", "collection": "forms", "args": {"key": "string"}, "key": {"arg": "key"}},
+    "submissions.all": {"kind": "list", "collection": "submissions", "limit": 100, "order": "desc"},
+    "submissions.one": {"kind": "one", "collection": "submissions", "args": {"key": "string"}, "key": {"arg": "key"}}
+  },
+  "ops": {
+    "forms.create": {"label": "New form", "kind": "create", "collection": "forms", "fields": ["name", "fields", "hiddenParams", "leadSource", "dailyCap", "message", "redirect"], "roles": ["admin"], "agent": "propose"},
+    "forms.update": {
+      "label": "Save form",
+      "kind": "update",
+      "collection": "forms",
+      "fields": ["name", "fields", "hiddenParams", "leadSource", "dailyCap", "message", "redirect"],
+      "roles": ["admin"],
+      "agent": "propose",
+      "guards": [{"when": {"field": "status", "in": ["draft"]}, "message": "Only draft forms can be edited."}]
+    },
+    "submissions.receive": {
+      "label": "Receive submission",
+      "kind": "create",
+      "collection": "submissions",
+      "fields": ["formKey", "answers", "utm", "hidden", "outcome", "receivedAt", "ipHash", "userAgent", "leadId", "personId", "companyId", "accountOwner", "matchUnavailable"],
+      "roles": [],
+      "system": true,
+      "agent": "allowed"
+    },
+    "submissions.delete": {"label": "Delete submission", "kind": "delete", "collection": "submissions", "roles": ["admin"], "agent": "human", "reason": "Delete the retained answers"}
+  },
+  "calls": {
+    "publish": {
+      "label": "Publish form",
+      "roles": ["admin", "manager", "rep", "other"],
+      "agent": "human",
+      "capability": "dataModel.edit",
+      "args": {"type": "object", "value": {"key": {"fieldType": {"type": "string"}, "optional": false}, "expect": {"fieldType": {"type": "number"}, "optional": false}}},
+      "reads": {},
+      "writes": ["forms"],
+      "returns": "value",
+      "canon": {"operation": "forms.publish", "then": {"machine": "form", "transition": "publish", "key": "key", "expect": "expect", "input": {}, "args": {"publicId": {"result": "publicId"}}}},
+      "reason": "Publishing authorizes anonymous lead creation"
+    }
+  },
+  "machines": {
+    "form": {
+      "collection": "forms",
+      "field": "status",
+      "states": ["draft", "live", "archived"],
+      "initial": "draft",
+      "transitions": {
+        "publish": {
+          "label": "Publish",
+          "to": "live",
+          "roles": ["admin", "manager", "rep", "other"],
+          "agent": "human",
+          "capability": "dataModel.edit",
+          "args": {"type": "object", "value": {"publicId": {"fieldType": {"type": "string"}, "optional": false}}},
+          "set": {"publicId": {"arg": "publicId"}, "publishedBy": {"caller": "userId"}, "publishedAt": {"now": "ms"}},
+          "from": ["draft"],
+          "reason": "A person decides public intake availability"
+        },
+        "archive": {"label": "Archive", "to": "archived", "roles": ["admin"], "agent": "human", "from": ["live", "draft"], "reason": "A person decides public intake availability"}
+      }
+    }
+  },
+  "pages": [
+    {
+      "path": "forms",
+      "title": "Forms",
+      "tab": {"label": "Forms", "order": 0},
+      "roles": ["admin"],
+      "bind": {"forms": {"view": "forms.all"}},
+      "body": [
+        {"c": "header", "title": "Forms", "actions": [{"op": "forms.create", "then": "forms/:key"}]},
+        {"c": "table", "columns": [{"label": "Name", "value": "{$row.name}"}, {"label": "Status", "value": "{$row.status}"}], "rowLink": "forms/:key", "empty": "No forms yet.", "from": "forms"}
+      ]
+    },
+    {
+      "path": "forms/:key",
+      "title": "Form",
+      "roles": ["admin"],
+      "bind": {"form": {"view": "forms.one", "args": {"key": {"route": "key"}}}},
+      "body": [
+        {"c": "header", "title": "{$form.name}"},
+        {
+          "c": "form",
+          "op": "forms.update",
+          "fields": [
+            {"field": "name", "label": "Name"},
+            {"field": "fields", "label": "Fields", "widget": "list"},
+            {"field": "hiddenParams", "label": "Hiddenparams", "widget": "list"},
+            {"field": "leadSource", "label": "Leadsource"},
+            {"field": "dailyCap", "label": "Dailycap"},
+            {"field": "message", "label": "Message"},
+            {"field": "redirect", "label": "Redirect"}
+          ],
+          "from": "form"
+        },
+        {"c": "actions", "items": [{"call": "publish", "args": {"key": {"bind": "form", "field": "key"}, "expect": {"bind": "form", "field": "version"}}}]},
+        {"c": "actions", "machine": "form", "target": "form"},
+        {"c": "formLink", "from": "form"},
+        {"c": "prose", "text": "Intake pauses if the publisher leaves, loses admin access or cannot create leads."}
+      ]
+    },
+    {
+      "path": "submissions",
+      "title": "Submissions",
+      "tab": {"label": "Submissions", "order": 1},
+      "roles": ["admin", "manager"],
+      "bind": {"submissions": {"view": "submissions.all"}},
+      "body": [
+        {"c": "header", "title": "Submissions"},
+        {"c": "table", "columns": [{"label": "Outcome", "value": "{$row.outcome}"}, {"label": "Receivedat", "value": "{$row.receivedAt}"}], "rowLink": "submissions/:key", "empty": "No submissions yet.", "from": "submissions"}
+      ]
+    },
+    {
+      "path": "submissions/:key",
+      "title": "Submission",
+      "roles": ["admin", "manager"],
+      "bind": {"submission": {"view": "submissions.one", "args": {"key": {"route": "key"}}}},
+      "body": [
+        {"c": "header", "title": "Submission"},
+        {
+          "c": "detail",
+          "items": [
+            {"label": "formKey", "value": "{$submission.formKey}"},
+            {"label": "answers", "value": "{$submission.answers}"},
+            {"label": "utm", "value": "{$submission.utm}"},
+            {"label": "hidden", "value": "{$submission.hidden}"},
+            {"label": "outcome", "value": "{$submission.outcome}"},
+            {"label": "receivedAt", "value": "{$submission.receivedAt}"},
+            {"label": "ipHash", "value": "{$submission.ipHash}"},
+            {"label": "userAgent", "value": "{$submission.userAgent}"},
+            {"label": "leadId", "value": "{$submission.leadId}"},
+            {"label": "personId", "value": "{$submission.personId}"},
+            {"label": "companyId", "value": "{$submission.companyId}"},
+            {"label": "accountOwner", "value": "{$submission.accountOwner}"},
+            {"label": "matchUnavailable", "value": "{$submission.matchUnavailable}"}
+          ]
+        },
+        {"c": "actions", "items": [{"op": "submissions.delete", "target": "submission"}]}
+      ]
+    }
+  ]
+}

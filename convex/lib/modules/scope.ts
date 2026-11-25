@@ -2166,13 +2166,20 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
     const authorization = await authorizeCanonCall(name, args);
     const target = await canonTarget(name, args);
     canonBindings.set(name, canonicalJson({ authorization, revision, row: target.row, input: target.input }));
-    return target.input;
+    return callOf(name, true).canon?.operation === "forms.publish" ? { formKey: target.key } : target.input;
   }
   async function finishCanonCall(name: string, args: Record<string, unknown>, result: unknown): Promise<TransitionResult | null> {
     if (!callOf(name, true).canon?.then) return null;
     const authorization = await authorizeCanonCall(name, args);
     const target = await canonTarget(name, args);
     if (!canonBindings.has(name) || canonBindings.get(name) !== canonicalJson({ authorization, revision, row: target.row, input: target.input })) return refuse("The atomic Canon document binding changed.");
+    if (callOf(name, true).canon?.operation === "forms.publish") {
+      if (!isMutation(ctx) || !result || typeof result !== "object" || Object.keys(result).join() !== "publicId" || !("publicId" in result) || typeof result.publicId !== "string") return refuse("Invalid published form result.");
+      canonBindings.delete(name);
+      canonMove = { machine: target.then.machine, name: target.then.transition, key: target.key, expect: target.expect };
+      try { return await transition(target.then.machine, target.then.transition, { key: target.key, expect: target.expect, args: { publicId: result.publicId } }); }
+      finally { canonMove = null; }
+    }
     if (!isMutation(ctx) || !result || typeof result !== "object" || Object.keys(result).join() !== "jobId" || !Object.hasOwn(result, "jobId")) return refuse("Population did not return its direct jobId result.");
     const raw = (result as { jobId: unknown }).jobId;
     const jobId = typeof raw === "string" ? ctx.db.normalizeId("backgroundJobs", raw) : null;
@@ -2232,6 +2239,11 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
     const collection = manifest.views[decl.view].collection;
     const row = await getRow(collection, key);
     if (!row || !(await readable(row))) return refuse(`${manifest.title} has no ${key} you can see.`);
+    if (manifest.id === "@canon/audiences" && typeof row.data.imported === "string") {
+      const legacyId = ctx.db.normalizeId("audiences", key);
+      const legacy = legacyId ? await ctx.db.get(legacyId) : null;
+      if (legacy?.orgId === orgId && legacy.related?.length) return refuse("This audience has related conditions. Use it from Audiences instead of its legacy module copy.");
+    }
     const filter = row.data[decl.people.filter] ?? [];
     if (!Array.isArray(filter)) return refuse(`${key} in ${manifest.title} holds no filter.`);
     const added = decl.people.added && { module: moduleId, set: decl.people.added.set, parentKey: key, field: decl.people.added.field };

@@ -1,3 +1,4 @@
+import { hasNegativeDealCondition } from "../outbound/related.ts";
 import { orgRecipe, termsFor } from "../recipes";
 import { sourceStatus } from "../../moduleMe";
 import { accountIdFor } from "../recordClient";
@@ -251,7 +252,7 @@ export async function canonRead(ctx: QueryCtx, orgId: Id<"organizations">, acces
     const sees = await audienceViewer(ctx, orgId, access);
     const list = (await ctx.db.query("audiences").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(AUDIENCES_SCANNED_MAX)).filter(sees);
     if (list.length > limit) over("audiences you can see");
-    return list.map((a) => ({ id: a._id as string, createdAt: a.createdAt, ...Object.fromEntries(fields.map((f) => [f, f === "size" && access && access.userId !== "system" && narrowsReads(access) ? null : AUDIENCE_FIELDS[f](a)])) }));
+    return list.map((a) => ({ id: a._id as string, createdAt: a.createdAt, ...Object.fromEntries(fields.map((f) => [f, f === "size" && (hasNegativeDealCondition(a.related) || (access && access.userId !== "system" && narrowsReads(access))) ? null : AUDIENCE_FIELDS[f](a)])) }));
   }
 
   if (!permissionOf(access, "deal").read) return [];
@@ -459,7 +460,7 @@ export async function planRecordRead(ctx: QueryCtx, orgId: Id<"organizations">, 
     if (!audience || !(await audienceViewer(ctx, orgId, access))(audience)) return refuse("audiences.snapshot names an audience you can't see.");
     if (!moduleId) return refuse("audiences.snapshot is read by a module.");
     // The people added one at a time are read in the action, a page at a time (an array crosses here only up to 8,192).
-    return { read, ids: [audience._id], since: null, limit, fields: [], audience: { moduleId, filter: audience.filter } };
+    return { read, ids: [audience._id], since: null, limit, fields: [], audience: { moduleId, filter: audience.filter, related: audience.related } };
   }
   if (read === "audiences.members" || read === "people.snapshotPage") {
     const page = typeof args.page === "number" ? args.page : typeof args.page === "string" && /^\d+$/.test(args.page) ? Number(args.page) : null;
