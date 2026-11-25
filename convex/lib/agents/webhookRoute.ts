@@ -28,7 +28,7 @@ export function registerAgentWebhookRoutes(http: HttpRouter) {
             timestamp: request.headers.get(TIMESTAMP_HEADER), signature: request.headers.get(SIGNATURE_HEADER),
           })
         : { ok: false as const, reason: "bad_signature" as const };
-      if (!verdict.ok) return Response.json({ error: verdict.reason }, { status: 401 });
+      if (!verdict.ok) return Response.json({ error: "bad_signature" }, { status: 401 });
       let payload: unknown;
       try { payload = JSON.parse(body); } catch { return Response.json({ error: "body is not JSON" }, { status: 400 }); }
       const turn = await ctx.runMutation(internal.agentTurns.receive, {

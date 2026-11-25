@@ -334,6 +334,10 @@ export const invite = action({
   args: { userId: v.id("users") },
   handler: async (ctx, args): Promise<void> => {
     const target = await ctx.runQuery(internal.users.inviteTarget, args);
+    if (process.env.CANON_AUTH === "convex") {
+      await ctx.runMutation(internal.users.recordInvite, args);
+      return;
+    }
     const key = process.env.CLERK_SECRET_KEY;
     if (!key) throw new ConvexError("Invites aren't set up on this deployment (CLERK_SECRET_KEY)");
     const res = await fetch(`https://api.clerk.com/v1/organizations/${target.clerkOrgId}/invitations`, {

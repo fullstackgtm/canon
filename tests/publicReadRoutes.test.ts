@@ -4,6 +4,8 @@ import { test } from "node:test";
 import { GET as getLeaderboard } from "../src/app/api/public/leaderboard/route.ts";
 import { startConvexStub, type ConvexCall } from "./fixtures/convexStub.ts";
 
+process.env.CANON_CLIENT_IP_HEADER = "x-forwarded-for";
+
 delete process.env.NEXT_PUBLIC_SITE_URL;
 
 const AGENT_TOKEN = `fsgtm_agent_${"cd".repeat(32)}`;

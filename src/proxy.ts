@@ -1,20 +1,12 @@
+import { smokeBypassAllowed } from "./lib/smokeBypass.ts";
 import { CONVEX_AUTH } from "./lib/authMode";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { visitHeaders, visitFileHeaders } from "./lib/visitHeaders.ts";
 import { isClerkContextOnlyPath, isPublicPath } from "./publicPaths.ts";
 
-const DEV_MODE =
-  (process.env.NODE_ENV !== "production" &&
-    !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) ||
-  process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true";
-
-function smokeBypassToken() {
-  return (
-    process.env.FSGTM_SMOKE_BYPASS_TOKEN ??
-    process.env.FSGTM_UI_SMOKE_BYPASS_TOKEN
-  );
-}
+const DEV_MODE = process.env.NODE_ENV !== "production" &&
+  (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true");
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
@@ -35,11 +27,7 @@ export async function proxy(request: NextRequest) {
     }
     return new NextResponse(null, { status: 404, headers });
   }
-  const bypassToken = smokeBypassToken();
-  const isSmokeBypass =
-    Boolean(bypassToken) &&
-    (request.headers.get("x-fsgtm-smoke-bypass") === bypassToken ||
-      request.headers.get("x-fsgtm-ui-smoke") === bypassToken);
+  const isSmokeBypass = smokeBypassAllowed(request.headers);
 
   if (CONVEX_AUTH) {
     const { convexAuthNextjsMiddleware, nextjsMiddlewareRedirect } = await import("@convex-dev/auth/nextjs/server");

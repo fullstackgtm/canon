@@ -1,3 +1,4 @@
+import { constantTimeEqual } from "./lib/encryption.ts";
 import { auth } from "./auth";
 import { httpRouter } from "convex/server";
 import { httpAction, type ActionCtx } from "./_generated/server";
@@ -305,7 +306,7 @@ http.route({
     const expected = process.env.RECORD_SERVICE_TOKEN;
     if (!expected) return new Response("Record service webhook not configured", { status: 503 });
     const auth = request.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${expected}`) return new Response("Unauthorized", { status: 401 });
+    if (!constantTimeEqual(auth, `Bearer ${expected}`)) return new Response("Unauthorized", { status: 401 });
     let body: { lastSeq?: unknown; changes?: unknown };
     try {
       body = await request.json();

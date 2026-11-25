@@ -21,7 +21,7 @@ const primary = cn(btn, "border-primary bg-primary text-primary-foreground hover
 const input = "h-8 w-full border border-input bg-background px-2 text-sm outline-none focus:border-primary";
 
 /** Clerk runs sign-in and invites; a local stack bypasses it (convex-provider.tsx). */
-export const CLERK_ON = !LOCAL_AUTH && !CONVEX_AUTH && !((process.env.NODE_ENV !== "production" && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) || process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true");
+export const CLERK_ON = !LOCAL_AUTH && !CONVEX_AUTH && !((process.env.NODE_ENV !== "production" && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) || (process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true"));
 
 type Invite = (member: { _id: Id<"users">; email: string; role: string }) => Promise<void>;
 
@@ -44,7 +44,11 @@ function useLocalInvite(): Invite {
     window.dispatchEvent(new CustomEvent("canon-local-invite", { detail: `${window.location.origin}/sign-up?invite=${token}` }));
   };
 }
-export const useInvite: () => Invite | null = LOCAL_AUTH ? useLocalInvite : CLERK_ON ? useClerkInvite : () => null;
+function useConvexInvite(): Invite {
+  const invite = useAction(api.users.invite);
+  return async (member) => { await invite({ userId: member._id }); };
+}
+export const useInvite: () => Invite | null = LOCAL_AUTH ? useLocalInvite : CONVEX_AUTH ? useConvexInvite : CLERK_ON ? useClerkInvite : () => null;
 
 /** Settings > Team, Invite on a row with no login: the same invite Add member sends. */
 export function InviteRowButton({ member }: { member: { _id: Id<"users">; email: string; role: string; invitedAt?: number } }) {
@@ -55,7 +59,7 @@ export function InviteRowButton({ member }: { member: { _id: Id<"users">; email:
     <button type="button" className="text-xs text-primary hover:underline disabled:opacity-50" disabled={busy}
       onClick={async () => {
         setBusy(true);
-        try { await invite(member); void toast.success(LOCAL_AUTH ? "Invitation link ready" : `Invite sent to ${member.email}`); }
+        try { await invite(member); void toast.success(CONVEX_AUTH ? `Invitation enabled for ${member.email}. Ask them to sign in here with Google or an emailed code.` : LOCAL_AUTH ? "Invitation link ready" : `Invite sent to ${member.email}`); }
         catch (cause) { void toast.error(getErrorMessage(cause)); }
         finally { setBusy(false); }
       }}>
@@ -130,7 +134,7 @@ export function NewMemberDialog({ roles, managers, onClose }: {
       <DialogContent className="rounded-none sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add team member</DialogTitle>
-          <DialogDescription>{CONVEX_AUTH ? "They can own deals and sit on teams. Invites are not available in this sign-in mode yet. They sign in as this member with Google or an emailed code, using this same email address. If this install offers password sign-in only, they cannot sign in yet." : LOCAL_AUTH ? "They can own deals and sit on teams. Create an invitation link so they can choose a password and sign in." : "They can own deals and sit on teams. With an invite, they get an email and sign in as this member; without one, they have no login until you invite them from their row."}</DialogDescription>
+          <DialogDescription>{CONVEX_AUTH ? "Enable their invitation, then share this site’s sign-in address with them. They must verify this same email address with Google or an emailed code. Password-only installs cannot admit invited members yet." : LOCAL_AUTH ? "They can own deals and sit on teams. Create an invitation link so they can choose a password and sign in." : "They can own deals and sit on teams. With an invite, they get an email and sign in as this member; without one, they have no login until you invite them from their row."}</DialogDescription>
         </DialogHeader>
         <form className="grid gap-3 text-sm" onSubmit={(e) => { e.preventDefault(); if (!ready) return; if (form.role === "admin") setAskingAdmin(true); else void save(); }}>
           <label className="grid gap-1 font-medium">Name<input className={input} value={form.name} onChange={(e) => set("name")(e.target.value)} autoFocus /></label>
@@ -146,10 +150,10 @@ export function NewMemberDialog({ roles, managers, onClose }: {
             </label>
             <div className="grid gap-1 font-medium">Start date<DateInput value={form.startDate} onChange={set("startDate")} /></div>
           </div>
-          {!CONVEX_AUTH && <label className="flex items-center gap-2" title={invite ? undefined : "Invites go through Clerk, which a local stack bypasses"}>
+          <label className="flex items-center gap-2" title={invite ? undefined : "Invites go through Clerk, which a local stack bypasses"}>
             <input type="checkbox" checked={!!invite && sendInvite} disabled={!invite} onChange={(e) => setSendInvite(e.target.checked)} />
-            {LOCAL_AUTH ? "Create an invitation link so they can sign in" : "Send an invite email so they can sign in"}
-          </label>}
+            {CONVEX_AUTH ? "Enable invitation; share this site’s sign-in address with them" : LOCAL_AUTH ? "Create an invitation link so they can sign in" : "Send an invite email so they can sign in"}
+          </label>
           <DialogFooter>
             <button type="button" className={btn} onClick={onClose} disabled={busy}>Cancel</button>
             <button type="submit" className={primary} disabled={busy || !ready}>{busy ? "Adding…" : invite && sendInvite ? "Add and invite" : "Add member"}</button>

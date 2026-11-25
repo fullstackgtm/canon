@@ -60,6 +60,7 @@ const CREDENTIAL_TABLES: Record<string, string> = {
 
 /** Lookups that are not a credential reaching a member: Clerk's sync, the demo sign-in, outside visitors, operators. */
 const NOT_A_CREDENTIAL: Record<string, string> = {
+  "convex/cliAuth.ts#requireAuthBroker": "server broker identity, not a member",
   "convex/lib.ts#devBypassUser": "the local stack's demo sign-in (FSGTM_ENABLE_DEMO_DATA), off on every deployment",
   "convex/lib.ts#agentClientOf": "names the agent client of a call already signed in",
   "convex/localAuth.ts#requireBroker": "the self-hosted sign-in server itself, not a member",

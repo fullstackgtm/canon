@@ -6,6 +6,8 @@ import { POST as cliToken } from "../src/app/api/cli/token/route.ts";
 import { POST as cliRun } from "../src/app/api/cli/run/route.ts";
 import { startConvexStub } from "./fixtures/convexStub.ts";
 
+process.env.CANON_CLIENT_IP_HEADER = "x-forwarded-for";
+
 /**
  * The tenant-isolation proof: a self-registered agent token must be rejected
  * by every org-scoped surface (/api/gtm/*, /api/cli/*), with a teaching error

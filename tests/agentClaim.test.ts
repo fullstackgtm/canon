@@ -5,6 +5,8 @@ import { POST as claimAgent } from "../src/app/api/agents/claim/route.ts";
 import { GET as gtmSummary } from "../src/app/api/gtm/summary/route.ts";
 import { startConvexStub, type ConvexCall } from "./fixtures/convexStub.ts";
 
+process.env.CANON_CLIENT_IP_HEADER = "x-forwarded-for";
+
 /**
  * The auth.md claim ceremony: a signed-in user binds an anonymous agent
  * registration to their account with the claim_token from registration.

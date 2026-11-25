@@ -26,7 +26,7 @@ export function registerConnectorWebhookRoutes(http: HttpRouter) {
             timestamp: request.headers.get(TIMESTAMP_HEADER), signature: request.headers.get(SIGNATURE_HEADER),
           })
         : { ok: false as const, reason: "bad_signature" as const };
-      if (!verdict.ok) return Response.json({ error: verdict.reason }, { status: 401 });
+      if (!verdict.ok) return Response.json({ error: "bad_signature" }, { status: 401 });
       let payload: unknown;
       let parsed: Awaited<ReturnType<typeof webhookItem>>;
       try { payload = JSON.parse(body); parsed = await webhookItem(payload, body); } catch { parsed = { ok: false, error: "The body is not JSON." }; }

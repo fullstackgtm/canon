@@ -1,3 +1,6 @@
+import { trustedClientIp } from "../../../lib/clientIp.ts";
+import { signServiceJwt } from "../../../lib/canonServiceJwt.ts";
+import { evidenceSigner } from "../../../lib/moduleEvidence.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { ConvexHttpClient } from "convex/browser";
 import { ConvexError } from "convex/values";
@@ -43,9 +46,7 @@ export function bearerToken(request: Request) {
 }
 
 export function clientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "unknown";
+  return trustedClientIp(request.headers) ?? "unknown";
 }
 
 /**
@@ -95,4 +96,12 @@ export function invalidCliTokenResponse(error: unknown): Response | null {
   return data === INVALID_CLI_TOKEN
     ? Response.json({ error: INVALID_CLI_TOKEN }, { status: 401 })
     : null;
+}
+
+export function authBrokerClient() {
+  const config = evidenceSigner();
+  if (!config) throw new Error("Service JWT signing is not configured");
+  const client = plainConvexClient();
+  client.setAuth(signServiceJwt(config, { clerkUserId: "auth_broker_server" }));
+  return client;
 }

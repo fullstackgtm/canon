@@ -14,11 +14,11 @@ import { api } from "../../../convex/_generated/api.js";
 import type { CanonTool } from "./_canonTools.ts";
 
 type Ref = FunctionReference<"query" | "mutation" | "action", "public">;
-type Step = { kind: "query" | "mutation" | "action"; ref: Ref; args: string };
+type Step = { kind: "query" | "mutation" | "action"; ref: Ref; args: string; fixed?: Record<string, unknown> };
 
 export const q = (ref: Ref, args = "{}"): Step => ({ kind: "query", ref, args });
 export const m = (ref: Ref, args = "{}"): Step => ({ kind: "mutation", ref, args });
-export const a = (ref: Ref, args = "{}"): Step => ({ kind: "action", ref, args });
+export const a = (ref: Ref, args = "{}", fixed?: Record<string, unknown>): Step => ({ kind: "action", ref, args, fixed });
 
 function call(convex: ConvexHttpClient, step: Step, args: Record<string, unknown>) {
   if (step.kind === "query") return convex.query(step.ref as never, args as never);
@@ -41,7 +41,7 @@ export function groupTool(name: string, summary: string, actions: Record<string,
     run: async (convex, input) => {
       const step = actions[String(input.action)];
       if (!step) throw new Error(`Unknown action ${String(input.action)}`);
-      return call(convex, step, (input.args ?? {}) as Record<string, unknown>);
+      return call(convex, step, { ...(input.args ?? {}) as Record<string, unknown>, ...step.fixed });
     },
   };
 }
@@ -52,6 +52,25 @@ const VIEW_SPEC = "{ filter: [{ field, op, value? }] (canon_list_records' gramma
 const TAM_FILTER = "filter?: { segmentId?, status?, ownerId?, minFit?, q?, icpId?, industry?: string[], country?: string[], employeeMin?, employeeMax?, sizeBand?: string[], region?: string[], traits?: { <segmentKey>: string[] } }";
 
 export const canonJobTools: CanonTool[] = [
+  groupTool(
+    "canon_records",
+    "Change up to 25 ledger records per call. Each record must be visible and writable by your role. Archive is soft delete; restore returns archived records. Unprocessed ids can be retried. Companies and people use canon_update_record and canon_delete_record instead.",
+    {
+      update: a(api.objects.bulkScoped, "{ object, streamIds: string[], values: { <field apiName>: value } }", { op: "update" }),
+      archive: a(api.objects.bulkScoped, "{ object, streamIds: string[] }", { op: "delete" }),
+      restore: a(api.objects.bulkScoped, "{ object, streamIds: string[] }", { op: "restore" }),
+    },
+    { destructive: true },
+  ),
+  groupTool(
+    "canon_integrations",
+    "Inspect provider sync runs and stop local in-flight work. Stopping sends nothing to the provider and requires integrations.manage. Read runs first, then name every in-progress run id you expect to stop for that provider.",
+    {
+      list_runs: q(api.integrations.listSyncRuns, '{ provider?: "salesforce" | "hubspot", limit?: number (max 50) }'),
+      stop_sync: m(api.integrations.stopSync, '{ provider: "salesforce" | "hubspot", expectedRunIds: string[] } -> { stopped }: refuses if the in-flight run set changed'),
+    },
+    { destructive: true },
+  ),
   groupTool(
     "canon_research",
     "Research a company's website into an ICP and market, then claim it into this workspace: the claim imports the market's accounts and starts populating the CRM with buyers from free sources (hours; watch with status). Use once per workspace, with the workspace's own company domain.",
@@ -101,7 +120,7 @@ export const canonJobTools: CanonTool[] = [
       ensure_jtbd: m(api.tam.ensureJtbd),
       start_job: m(api.tam.startJob, `{ kind: "segment" | "revenue", segmentKey? (for segment), ${TAM_FILTER.replace("filter?", "filter")} }`),
       cancel_job: m(api.tam.cancelJob, "{ jobId }"),
-      suggestions: q(api.tamSuggestions.latest, "{} -> the latest recommendation run and its indexed suggestions"),
+      list_suggestions: q(api.tamSuggestions.latest, "{} -> the latest recommendation run and its indexed suggestions"),
       accept_suggestion: m(api.tamSuggestions.add, "{ runId, index }: once the run is done, saves one existing recommendation as a segment; starts no research"),
     },
   ),

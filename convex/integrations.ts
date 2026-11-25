@@ -3,7 +3,7 @@ import { can, refusal } from "./lib/capabilities";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { getCurrentUser, requireUser } from "./lib";
+import { agentClientOf, getCurrentUser, requireUser } from "./lib";
 import { normalizeFieldMappings } from "./lib/crmMappings";
 import { salesforceCanRefresh } from "./lib/salesforceClientCredentials";
 
@@ -433,12 +433,19 @@ export const endStaleSyncs = internalMutation({
 
 /** Stop the org's running HubSpot or Salesforce sync. A live one stops at its next stage. */
 export const stopSync = mutation({
-  args: { provider: v.union(v.literal("salesforce"), v.literal("hubspot")) },
+  args: { provider: v.union(v.literal("salesforce"), v.literal("hubspot")), expectedRunIds: v.optional(v.array(v.id("integrationSyncRuns"))) },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
     const error = `Sync stopped by ${user.name || user.email}.`;
     const runs = await inFlightRuns(ctx, user.orgId, args.provider);
+    if (await agentClientOf(ctx) && args.expectedRunIds === undefined) throw new ConvexError("An agent must name the sync run ids it expects to stop");
+    if (args.expectedRunIds !== undefined) {
+      const expected = new Set(args.expectedRunIds);
+      if (args.expectedRunIds.length > 20 || expected.size !== runs.length || runs.some((run) => !expected.has(run._id))) {
+        throw new ConvexError("Sync runs changed; read the provider's runs again before stopping");
+      }
+    }
     for (const run of runs) await endSyncRun(ctx, run, error);
     // A connection marked in progress with no run behind it is stuck the same way.
     const integration = await ctx.db

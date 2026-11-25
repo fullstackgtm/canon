@@ -44,6 +44,7 @@ export function ConvexSignIn({ google, emailEnabled }: { google: boolean; emailE
           {["signIn", "signUp", "reset-verification"].includes(flow) && <label className="block text-sm">{flow === "reset-verification" ? "New password" : "Password"}<input className="mt-1 w-full rounded border bg-background p-2" type="password" name={flow === "reset-verification" ? "newPassword" : "password"} autoComplete={flow === "signIn" ? "current-password" : "new-password"} minLength={8} required /></label>}
           {(flow === "email-code" || flow === "reset-verification") && <label className="block text-sm">Code from your email<input className="mt-1 w-full rounded border bg-background p-2" name="code" autoComplete="one-time-code" required /></label>}
           {flow === "email-code" && <p className="text-sm">Check your email for a sign-in link or enter the code.</p>}
+          {flow === "signUp" && <label className="block text-sm">Setup code (first owner only)<input className="mt-1 w-full rounded border bg-background p-2" name="setupCode" autoComplete="one-time-code" maxLength={64} /></label>}
           <Button type="submit" className="w-full" disabled={busy}>{busy ? "Please wait…" : flow === "email" || flow === "reset" ? "Send email" : flow === "signUp" ? "Create account" : "Continue"}</Button>
         </form>
         <div className="flex flex-wrap gap-3 text-sm">

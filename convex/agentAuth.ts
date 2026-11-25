@@ -1,6 +1,8 @@
+import { internal } from "./_generated/api";
+import { requireAuthBroker } from "./cliAuth";
 import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
-import { mutation, query } from "./_generated/server";
+import { action, internalMutation, mutation, query } from "./_generated/server";
 import { getCurrentUser, requireUser } from "./lib";
 import { lastUsedIsStale } from "./cliAuth";
 
@@ -33,18 +35,28 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 // rejecting valid addresses. The contact is an accountability handle.
 const CONTACT_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export const register = mutation({
-  args: {
-    name: v.string(),
-    operatorContact: v.string(),
-    platform: v.optional(v.string()),
-    tokenHash: v.string(),
-    registrationIpHash: v.string(),
-    // Hash of the one-time claim_token (auth.md claim ceremony). Optional so
-    // a Convex deploy ahead of the Next deploy can't break registration; the
-    // current route always sends it.
-    claimTokenHash: v.optional(v.string()),
+const registerArgs = {
+  name: v.string(),
+  operatorContact: v.string(),
+  platform: v.optional(v.string()),
+  tokenHash: v.string(),
+  registrationIpHash: v.string(),
+  // Hash of the one-time claim_token (auth.md claim ceremony). Optional so
+  // a Convex deploy ahead of the Next deploy can't break registration; the
+  // current route always sends it.
+  claimTokenHash: v.optional(v.string()),
+};
+
+export const registerFromServer = action({
+  args: registerArgs,
+  handler: async (ctx, args): Promise<{ expiresAt: number; scopes: string[] }> => {
+    await requireAuthBroker(ctx);
+    return ctx.runMutation(internal.agentAuth.register, args);
   },
+});
+
+export const register = internalMutation({
+  args: registerArgs,
   handler: async (ctx, args) => {
     const name = args.name.trim();
     const operatorContact = args.operatorContact.trim().toLowerCase();

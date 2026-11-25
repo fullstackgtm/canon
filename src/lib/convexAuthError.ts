@@ -1,5 +1,6 @@
 export function convexAuthError(error: unknown, flow: string, google: boolean, emailEnabled: boolean): string {
   const generic = "Sign-in failed. Check your details and try again.";
+  if (error && typeof error === "object" && "data" in error && typeof error.data === "string" && error.data.includes("CANON_SETUP_CODE")) return "First owner: use password sign-up with the CANON_SETUP_CODE configured on this install.";
   if (flow !== "signUp" || !error || typeof error !== "object" || !("data" in error)) return generic;
   const reason = error.data;
   if (reason === "Verify this email before linking an existing member. Use email sign-in or Google.") {

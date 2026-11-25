@@ -32,7 +32,7 @@ function useLocalAuth() {
 const DEV_MODE =
   (process.env.NODE_ENV !== "production" &&
     !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) ||
-  process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true";
+  (process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_FSGTM_UI_SMOKE_BYPASS === "true");
 
 const convex = new ConvexReactClient(
   process.env.NEXT_PUBLIC_CANON_SELFHOST === "true" && typeof window !== "undefined"

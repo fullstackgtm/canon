@@ -2,7 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import { isBuiltInRole } from "./lib/roles";
 import { can, refusal } from "./lib/capabilities";
-import { credentialMember } from "./lib/membership";
+import { activeRoleIn, credentialMember } from "./lib/membership";
 import type { Capability } from "../modules/kernel/capabilities.ts";
 import { ActionCtx, QueryCtx, MutationCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
@@ -218,12 +218,14 @@ export async function userBelongsToOrg(
   user: Doc<"users">,
   orgId: Id<"organizations">,
 ): Promise<boolean> {
+  return (await activeRoleIn(ctx, user, orgId)) !== null;
+}
+
+/** Membership of a stored reference, including a departed home-workspace member. Never grants access. */
+export async function userRowBelongsToOrg(ctx: Pick<QueryCtx, "db">, user: Doc<"users">, orgId: Id<"organizations">): Promise<boolean> {
   if (user.orgId === orgId) return true;
-  const membership = await ctx.db
-    .query("orgMemberships")
-    .withIndex("by_userId_orgId", (q) => q.eq("userId", user._id).eq("orgId", orgId))
-    .first();
-  return Boolean(membership && membership.isActive);
+  const membership = await ctx.db.query("orgMemberships").withIndex("by_userId_orgId", (q) => q.eq("userId", user._id).eq("orgId", orgId)).first();
+  return Boolean(membership?.isActive);
 }
 
 /** Schema edits record their caller in the same transaction as the definition. */

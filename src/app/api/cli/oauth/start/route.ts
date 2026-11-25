@@ -1,9 +1,10 @@
 import { api } from "../../../../../../convex/_generated/api";
 import { publicGtmApi, readJsonBody } from "../../../gtm/_lib";
 import {
+  clientIp,
   newDeviceCode,
   newUserCode,
-  plainConvexClient,
+  authBrokerClient,
   rateLimit,
   sha256,
   tooManyRequests,
@@ -23,8 +24,9 @@ export const POST = publicGtmApi(async (request) => {
 
   const deviceCode = newDeviceCode();
   const userCode = newUserCode();
-  const client = plainConvexClient();
-  const { expiresInSeconds } = await client.mutation(api.cliAuth.start, {
+  const client = authBrokerClient();
+  const { expiresInSeconds } = await client.action(api.cliAuth.startFromServer, {
+    registrationIpHash: sha256(clientIp(request)),
     deviceCodeHash: sha256(deviceCode),
     userCode,
     requesterLabel,

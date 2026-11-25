@@ -55,7 +55,7 @@ export async function credentialMember(ctx: Db, user: Doc<"users"> | null, orgId
   if (!user || awaitsLogin(user.clerkUserId)) return null;
   const role = await activeRoleIn(ctx, user, orgId);
   if (role === null) return null;
-  return user.orgId === orgId ? user : { ...user, orgId, role };
+  return { ...user, orgId, role };
 }
 
 /**

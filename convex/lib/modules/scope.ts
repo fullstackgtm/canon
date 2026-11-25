@@ -38,7 +38,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { internal } from "../../_generated/api";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
-import { agentClientOf, getCurrentUser, userBelongsToOrg, withRole } from "../../lib";
+import { agentClientOf, getCurrentUser, userRowBelongsToOrg, withRole } from "../../lib";
 import { accessFor, dealVisible, principalAccess, roleBasesOf, roleIn, workspaceMembers } from "../../permissions";
 import { accessOf, fieldLevel, isRestricted, narrowsReads, ownerScope, permissionOf, type Access, type Role } from "../access";
 import { CANON_READS, isRecordServiceRead, pageReadable, clockValue, isClock, MAX_INDEX_FIELDS, MIN_AGGREGATE_OWNERS, MAX_IN_VALUES, MAX_VIEW_LIMIT, isListArg, isUnset, machineFields, moduleSlug, readScope, rowWhereHolds, unwrapDate, upgradeKey, type ArgType, type CallDecl, type CallExpr, type CanonRead, type CollectionDecl, type DirtyDecl, type EffectDecl, type SendEffect, type MachineExpr, type NotifyEffect, type Expr, type Guard, type ModuleManifest, type ObjectValidator, type OpDecl, type Predicate, type RowWhere, type ShareDecl, type SetExpr, type ViewDecl } from "../../../modules/kernel/manifest.ts";
@@ -518,7 +518,7 @@ function refResolver(db: Db, orgId: Id<"organizations">, doc: (collection: strin
     if (ref.to === "users") {
       const u = db.normalizeId("users", id);
       const row = u ? await db.get(u) : null;
-      return !!row && (await userBelongsToOrg({ db } as QueryCtx, row, orgId));
+      return !!row && (await userRowBelongsToOrg({ db } as QueryCtx, row, orgId));
     }
     if (ref.to === "deals") {
       const d = db.normalizeId("deals", id);
@@ -3183,7 +3183,7 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
         } else if (ref.to === "users") {
           const uid = ctx.db.normalizeId("users", id);
           const u = uid ? await ctx.db.get(uid) : null;
-          if (u && (await userBelongsToOrg({ db: ctx.db } as QueryCtx, u, orgId))) got = { id: u._id as string, ...memberFieldsOf(u, ["name", ...(manifest.reads?.users ?? [])]) };
+          if (u && (await userRowBelongsToOrg({ db: ctx.db } as QueryCtx, u, orgId))) got = { id: u._id as string, ...memberFieldsOf(u, ["name", ...(manifest.reads?.users ?? [])]) };
         } else if (ref.to === "senders") {
           const sender = manifest.reads?.senders ? await senders.byId(id) : null;
           if (sender) got = { id: sender.id, createdAt: sender.createdAt, ...senderFields(sender, manifest.reads?.senders ?? []) };
@@ -3242,7 +3242,7 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
       } else if (ref.to === "users") {
         const uid = ctx.db.normalizeId("users", id);
         const u = uid ? await ctx.db.get(uid) : null;
-        if (u && (await userBelongsToOrg({ db: ctx.db } as QueryCtx, u, orgId))) {
+        if (u && (await userRowBelongsToOrg({ db: ctx.db } as QueryCtx, u, orgId))) {
           if (field === "team") {
             teams ??= (await ctx.db.query("teamGroups").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(PICK_SCAN)).sort((a, b) => a.name.localeCompare(b.name));
             v = teams.find((t) => t.managerId === u._id || t.memberIds.includes(u._id))?.name ?? null;

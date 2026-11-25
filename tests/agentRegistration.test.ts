@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { test } from "node:test";
 import { POST as registerAgent } from "../src/app/api/agents/register/route.ts";
 import { startConvexStub, type ConvexCall } from "./fixtures/convexStub.ts";
 
 delete process.env.NEXT_PUBLIC_SITE_URL;
+process.env.CANON_CLIENT_IP_HEADER = "x-forwarded-for";
+process.env.CANON_SERVICE_JWT_PRIVATE_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+process.env.CANON_SERVICE_JWT_ISSUER = "https://test.example/service";
 
 const sha256 = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -53,7 +56,7 @@ test("POST /api/agents/register mints a scoped fsgtm_agent_ token", async () => 
 
     // Convex saw a hash of the token — never the token — and a salted hash
     // of the IP — never the IP. Same idiom for the claim token.
-    const call = stub.calls.find((c: ConvexCall) => c.path === "agentAuth:register");
+    const call = stub.calls.find((c: ConvexCall) => c.path === "agentAuth:registerFromServer");
     assert.ok(call, "register mutation was called");
     assert.equal(call.args.tokenHash, sha256(body.token));
     assert.equal(call.args.claimTokenHash, sha256(body.claim_token));
