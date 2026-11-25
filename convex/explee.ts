@@ -5,6 +5,8 @@
  * readable only by the actions. The poll's cursor and the latest imports live in
  * that row's `syncConfig`.
  */
+import { accessFor } from "./permissions";
+import { narrowsReads } from "./lib/access";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query, type QueryCtx } from "./_generated/server";
@@ -35,7 +37,7 @@ export const status = query({
       lastSyncStatus: row?.lastSyncStatus ?? null,
       lastSyncError: row?.lastSyncError ?? null,
       imported: config.imported ?? 0,
-      recent: row?.isActive ? (config.recent ?? []) : [],
+      recent: row?.isActive && user && !narrowsReads(await accessFor(ctx, user)) ? (config.recent ?? []) : [],
     };
   },
 });

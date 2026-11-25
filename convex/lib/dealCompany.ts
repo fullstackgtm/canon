@@ -8,6 +8,9 @@
  * Pure: no database access.
  */
 
+import { scopeFor, withoutHidden, type Access } from "./access.ts";
+import { ownerAdmitted } from "./objects/listSpec.ts";
+
 export type CompanyLink =
   | { kind: "stored"; companyId: string }
   | { kind: "crm"; crmAccountId: string }
@@ -42,4 +45,13 @@ export function companyDeals<D extends LinkedDeal & { _id: string; closeDate: st
     out.push({ ...deal, link });
   }
   return out.sort((a, b) => a.closeDate.localeCompare(b.closeDate));
+}
+
+/** Queries admit legacy labels by the mirror's Canon owner. Unsupported scope fields stay withheld;
+ * the mirror's owner can lag the register after a reassignment in Canon. */
+export function readableCrmAccount<T extends Record<string, unknown>>(access: Access | null, account: T | null | undefined): T | null {
+  if (!account) return null;
+  const scope = access ? scopeFor(access, "account") : null;
+  if (scope && (scope.field !== "ownerId" || !ownerAdmitted(scope, account.ownerId))) return null;
+  return access ? withoutHidden(access, "account", account) : account;
 }

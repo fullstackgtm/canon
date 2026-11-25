@@ -25,7 +25,7 @@ import { currentPeriod } from "./targets";
 import { planDealCreate, withStageOutcome } from "./lib/pipelines";
 import type { DealValues } from "./lib/canon/dealLedger";
 import type { FactValue } from "./lib/canon/policy";
-import { companyDeals, companyLinkOf } from "./lib/dealCompany";
+import { companyDeals, companyLinkOf, readableCrmAccount } from "./lib/dealCompany";
 import { ID, normalizeDomain } from "./lib/canon/identity";
 import { createOnce } from "./lib/idempotency";
 
@@ -219,7 +219,7 @@ export const context = query({
       quarter: await currentPeriod(ctx, user.orgId, "quarter"),
       deals: deals.map((deal) => {
         const rep = deal.primaryRepId ? usersById.get(deal.primaryRepId) : null;
-        const account = deal.accountId ? accountsById.get(deal.accountId) : null;
+        const account = readableCrmAccount(access, deal.accountId ? accountsById.get(deal.accountId) : null);
         const commission = commissionByDeal.get(deal._id);
         return dealForCaller(access, {
           ...deal,
@@ -274,7 +274,7 @@ export const list = query({
       ctx.db.query("canonEntities").withIndex("by_orgId_projectionId", (q) => q.eq("orgId", user.orgId).eq("projectionId", deal._id)).first()));
     return deals.map((deal, i) => {
       const rep = deal.primaryRepId ? usersById.get(deal.primaryRepId) : null;
-      const account = deal.accountId ? accountsById.get(deal.accountId) : null;
+      const account = readableCrmAccount(access, deal.accountId ? accountsById.get(deal.accountId) : null);
       const commission = commissionByDeal.get(deal._id);
       return dealForCaller(access, {
         ...deal,
