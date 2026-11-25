@@ -30,7 +30,7 @@ export function AudienceRelated({ id, related, canEdit }: { id: Id<"audiences">;
   const [busy, setBusy] = useState(false);
   return <div className="mt-5 border-t border-border pt-4">
     <h3 className="text-xs font-medium text-muted-foreground">Related records</h3>
-    <p className="mt-1 text-xs text-muted-foreground">People must match every condition. Deal conditions currently match explicit company links only; CRM-only links are not included. No matching deal is unavailable until CRM links can be checked with your access.</p>
+    <p className="mt-1 text-xs text-muted-foreground">People must match every condition. Deal conditions count only deals explicitly linked through their Company field. Deals linked only through a synced CRM account are excluded. No matching deal remains unavailable because those CRM links cannot yet be checked with your access.</p>
     {draft === null ? <>
       {related.length ? <ul className="my-2 flex flex-wrap gap-2">{related.map((c, i) => <li key={i} className="border border-border px-2 py-1 text-xs">{c.path === "company" ? "Company matches" : c.has === "some" ? "Company has a matching deal" : "No matching deal (unavailable)"}{c.filter.map((f) => ` · ${f.field} ${f.op} ${f.value === undefined ? "" : String(f.value)}`).join("")}</li>)}</ul> : <p className="my-2 text-sm text-muted-foreground">No related conditions.</p>}
       {canEdit && <button className={btn} onClick={() => setDraft(related)}>Edit related records</button>}

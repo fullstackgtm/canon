@@ -411,8 +411,23 @@ function compareForSort(sort: CompiledList["sort"], a: { cell: FieldValue; id: s
 /** Whether a row's `status` belongs in the list: active rows, or deleted ones for the recycle bin. */
 export const statusListed = (status: ListRow["status"], deleted: boolean) => status === (deleted ? "deleted" : "active");
 
-export function listRowsInMemory(def: ResolvedObjectDef, rows: readonly ListRow[], req: ListRequest, projectedThrough: ProjectedThrough): ListResponse {
-  const q = compileListRequest(def, req);
+export type CompanyRows = { def: ResolvedObjectDef; rows: readonly ListRow[] };
+
+/** Mask or require the joined company before any contact predicate, count or page. */
+export function companyRowsInMemory<R extends ListRow & { accountId?: string }>(rows: readonly R[], predicate: CompiledCompany | null, companies?: CompanyRows): R[] {
+  if (!predicate) return [...rows];
+  if (!companies) throw new ListRequestError("company predicate requires an account source");
+  const visible = new Map(companies.rows.filter((r) => r.status === "active" && matchesScope(r, predicate.scope) && predicate.filters.every((f) => matchesFilter(r, f))).map((r) => [r.id, r]));
+  return rows.flatMap((r) => {
+    const account = visible.get(r.accountId ?? "");
+    if (!account && predicate.required) return [];
+    return [{ ...r, values: { ...r.values, accountFit: account && predicate.fields.includes("fit") ? account.values.fit ?? null : null, accountIcpIds: account && predicate.fields.includes("icpIds") ? account.values.icpIds ?? null : null } }];
+  });
+}
+
+export function listRowsInMemory(def: ResolvedObjectDef, rows: readonly ListRow[], req: ListRequest, projectedThrough: ProjectedThrough, companies?: CompanyRows): ListResponse {
+  const q = compileListRequest(def, req, companies?.def);
+  rows = companyRowsInMemory(rows, q.company, companies);
   const matched = rows.filter((r) => r.object === def.apiName && statusListed(r.status, q.deleted) && matchesScope(r, q.scope) && q.filters.every((f) => matchesFilter(r, f)));
   const keyed = matched.map((row) => ({ row, cell: cellOf(row, q.sort.col), id: row.id }));
   keyed.sort((a, b) => compareForSort(q.sort, a, b));

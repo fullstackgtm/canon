@@ -20,7 +20,7 @@ import {
   canSeeRecord, hasOwnerField, hiddenFields, intersectScopes, isRestricted, narrowsReads, ownerScope, refuseHiddenUse, scopeFor,
   type Access,
 } from "./access.ts";
-import { LIST_LIMIT_MAX, type ListRequest, type OwnerScope } from "./objects/listSpec.ts";
+import { LIST_LIMIT_MAX, type CompanyPredicate, type ListRequest, type OwnerScope } from "./objects/listSpec.ts";
 import { accountCriterionFields, personCriterionFields } from "./icpCriteria.ts";
 import type { AccountsFilter } from "./recordContract.ts";
 import { atLeastVersion, type RecordClient } from "./recordClient.ts";
@@ -125,7 +125,13 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
   const sees = (object: "account" | "contact", row: { ownerId?: string } | null | undefined) =>
     Boolean(row) && accesses.every((a) => canSeeRecord(a, object, true, row!.ownerId ?? null));
   const narrows = accesses.some(narrowsReads);
-  const refuse = (object: string, fields: ReadonlyArray<string | undefined>) => { for (const a of accesses) refuseHiddenUse(a, object, fields.flatMap((f) => object === "account" && f === "revenue" ? [f, "annualRevenue"] : [f])); };
+  const derivedField = (field: string | undefined) => field === "accountFit" ? "fit" : field === "accountIcpIds" ? "icpIds" : undefined;
+  const refuse = (object: string, fields: ReadonlyArray<string | undefined>) => {
+    for (const a of accesses) {
+      refuseHiddenUse(a, object, fields.flatMap((f) => object === "account" && f === "revenue" ? [f, "annualRevenue"] : [f]));
+      if (object === "contact") refuseHiddenUse(a, "account", fields.map(derivedField));
+    }
+  };
   // Field permissions (CP14): a field any principal may not see leaves every row, and no filter, sort, group or measure may name it.
   const hidden = (object: string) => {
     const fields = new Set(accesses.flatMap((a) => hiddenFields(a, object)));
@@ -134,6 +140,10 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
   };
   const stripRow = <R extends { values: Record<string, unknown>; accountId?: string }>(object: string, row: R): R => {
     const h = hidden(object);
+    if (object === "contact" && needsCompany) {
+      if (!companyFields.includes("fit") || row.values.accountFit === null) h.add("accountFit");
+      if (!companyFields.includes("icpIds") || row.values.accountIcpIds === null) h.add("accountIcpIds");
+    }
     if (!h.size) return row;
     const out = { ...row, ...(object === "lineItem" && h.has("name") ? { title: "" } : {}), values: Object.fromEntries(Object.entries(row.values).filter(([k]) => !h.has(k))) };
     if (object === "contact" && h.has("accountId")) delete out.accountId;
@@ -159,6 +169,23 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
     ...(groupBy === "industry" ? ["industry"] : groupBy === "country" || groupBy === "region" ? ["country"] : groupBy === "sizeBand" ? ["employees"] : groupBy?.startsWith("field:") ? [`custom.${groupBy.slice(6)}`] : []),
   ];
   const listFields = (req: ListRequest) => [...(req.filter ?? []).map((f) => f.field), req.sort?.field];
+  const companyScope = accesses.map((a) => scopeFor(a, "account")).reduce(intersectScopes, null);
+  const companyFields = (["fit", "icpIds"] as const).filter((f) => !hidden("account").has(f));
+  const needsCompany = !!companyScope || companyFields.length !== 2;
+  let companySupport: Promise<void> | undefined;
+  const companyRequest = async <T extends { company?: CompanyPredicate }>(object: string, req: T): Promise<T> => {
+    if (object !== "contact") return req;
+    if (req.company?.filter) refuse("account", req.company.filter.map((f) => f.field));
+    if (!needsCompany) return req;
+    companySupport ??= (async () => {
+      if (base.mode === "http" && !atLeastVersion(await base.contractVersion(), "1.51.0")) throw new ConvexError("Company visibility needs record service 1.51.0 or newer. Ask an admin to update the record service.");
+    })();
+    await companySupport;
+    // Only the caller adapter supplies access. Intersecting a caller-supplied predicate must never widen it.
+    const requested = req.company;
+    return { ...req, company: { ...requested, ...(companyScope ? { scope: requested?.scope ? intersectScopes(companyScope, requested.scope)! : companyScope } : {}), fields: companyFields.filter((f) => !requested || requested.fields.includes(f)) } };
+  };
+
   return {
     ...base,
     checkReadFields: refuse,
@@ -200,7 +227,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
     },
     async listRegister(ws, object, req) {
       refuse(object, listFields(req));
-      const page = await base.listRegister(ws, object, await scoped(object, req));
+      const page = await base.listRegister(ws, object, await scoped(object, await companyRequest(object, req)));
       return { ...page, rows: page.rows.map((r) => stripRow(object, r)) };
     },
     async listObjects(ws, object, req) {
@@ -212,7 +239,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
       // A key on a related record reads that record's fields, which this scope does not cover: not for a role with narrowed reads.
       if (narrows && req.groupBy?.some((g) => g.via !== undefined)) throw new ConvexError("Grouping by a related record's field isn't available for your role yet");
       refuse(object, [...(req.filter ?? []).map((f) => f.field), ...(req.groupBy ?? []).map((g) => g.field), ...req.measures.flatMap((m) => [m.field, m.weight])]);
-      return base.aggregate(ws, object, await scoped(object, req));
+      return base.aggregate(ws, object, await scoped(object, await companyRequest(object, req)));
     },
     async searchObjects(ws, req) {
       // Every object a rule narrows, by its scope; objects with no rule are seen whole.

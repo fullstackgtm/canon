@@ -131,12 +131,12 @@ test("the HTTP client turns the service's 400 into the same ListRequestError", a
 });
 
 
-test("company predicates refuse in-memory reads until the fake has an account source", async () => {
+test("company predicates require an account source and the fake supplies it", async () => {
   const def = resolveObjectDef(STANDARD_OBJECTS.contact);
   const company = { fields: [] };
   assert.throws(() => listRowsInMemory(def, [], { company }, {}), ListRequestError);
   assert.throws(() => compileAggregateRequest("contact", def, { company, measures: [{ fn: "count" }] }, () => undefined), ListRequestError);
   const fake = createFakeRecordClient({ store: createMemoryRecordStore() });
-  await assert.rejects(() => fake.listRegister("ws", "contact", { company }), ListRequestError);
-  await assert.rejects(() => fake.aggregate("ws", "contact", { company, measures: [{ fn: "count" }] }), ListRequestError);
+  assert.equal((await fake.listRegister("ws", "contact", { company })).total, 0);
+  assert.equal((await fake.aggregate("ws", "contact", { company, measures: [{ fn: "count" }] })).rows, 0);
 });

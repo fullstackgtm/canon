@@ -50,7 +50,7 @@ import { NONE, regionOf, sizeBandOf } from "../../modules/kernel/dimensions.ts";
 import { industryFilterKeys, industryKey, industryWeight } from "../../modules/kernel/industries.ts";
 import { indexObjectDef, resolveObjectDef, STANDARD_OBJECTS, type ObjectDef } from "./objects/registry.ts";
 import {
-  compileSearch, IN_VALUES_MAX, isRegisterObject, LIST_LIMIT_MAX, listRowsInMemory, ListRequestError, ownerAdmitted, rankSearchHits, registerListDef, searchAdmits, registerListRow, searchRowsInMemory,
+  compileListRequest, companyRowsInMemory, compileSearch, IN_VALUES_MAX, isRegisterObject, LIST_LIMIT_MAX, listRowsInMemory, ListRequestError, ownerAdmitted, rankSearchHits, registerListDef, searchAdmits, registerListRow, searchRowsInMemory,
   type ListRequest, type ListResponse, type ListRow, type ProjectedThrough, type RegisterListResponse, type RegisterObject, type SearchRequest, type SearchResponse,
 } from "./objects/listSpec.ts";
 import { SHARDS } from "./objects/write.ts";
@@ -667,15 +667,19 @@ export function createFakeRecordClient(opts: {
     async listRegister(ws, object, req) {
       const def = registerListDef(object, resolveObjectDef(STANDARD_OBJECTS[object]));
       const rows = await registerRows(ws, object, def);
+      const companyDefs = req.company && objects ? await objects.rows(ws, ["account"]) : undefined;
+      const storedAccountDef = companyDefs?.defs.find((d) => d.apiName === "account");
+      const accountDef = req.company ? registerListDef("account", storedAccountDef ? indexObjectDef(storedAccountDef) : resolveObjectDef(STANDARD_OBJECTS.account)) : undefined;
+      const companies = accountDef ? { def: accountDef, rows: await registerRows(ws, "account", accountDef) } : undefined;
       const email = object === "contact" ? def.fields.find((f) => f.apiName === "email")?.fieldId : undefined;
-      if (!email) return listRowsInMemory(def, rows, req, throughAll({})) as RegisterListResponse;
+      if (!email) return listRowsInMemory(def, rows, req, throughAll({}), companies) as RegisterListResponse;
       // An email matches whatever its case, as in the service (1.13.0).
       const lower = <T,>(v: T) => (typeof v === "string" ? v.toLowerCase() : v);
       const filter = req.filter?.map((f) => (f.field === "email" && ["eq", "neq", "in"].includes(f.op) ? { ...f, value: Array.isArray(f.value) ? f.value.map(lower) : lower(f.value) } : f));
       const lowered = rows.map((r) => ({ ...r, values: { ...r.values, [email]: lower(r.values[email]) } }));
       const byId = new Map(rows.map((r) => [r.id, r]));
-      const page = listRowsInMemory(def, lowered, { ...req, ...(filter ? { filter } : {}) }, throughAll({})) as RegisterListResponse;
-      return { ...page, rows: page.rows.map((r) => byId.get(r.id) ?? r) };
+      const page = listRowsInMemory(def, lowered, { ...req, ...(filter ? { filter } : {}) }, throughAll({}), companies) as RegisterListResponse;
+      return { ...page, rows: page.rows.map((r) => ({ ...r, values: { ...r.values, [email]: byId.get(r.id)?.values[email] ?? r.values[email] } })) };
     },
     async moduleSync(_ws, body) {
       if (body.projection) throw new Error("The fake record client does not implement projection receipts.");
@@ -686,17 +690,27 @@ export function createFakeRecordClient(opts: {
       if (req.moduleActivities?.length) throw new Error("The fake record client cannot report projected module activities.");
       const source = objects ? await objects.rows(ws, null) : { rows: [], defs: [], heads: {} };
       const defs = new Map(source.defs.map((d) => [d.apiName, indexObjectDef(d)]));
-      const defOf = (o: string) => (o === ACTIVITY_OBJECT ? activityReportDef() : isRegisterObject(o) ? registerListDef(o, resolveObjectDef(STANDARD_OBJECTS[o])) : defs.get(o));
+      const defOf = (o: string) => (o === ACTIVITY_OBJECT ? activityReportDef() : isRegisterObject(o) ? registerListDef(o, (req.company ? defs.get(o) : undefined) ?? resolveObjectDef(STANDARD_OBJECTS[o])) : defs.get(o));
       // Activities are every note, task, call and meeting, typed by which it is, as the service's union reads them.
       const activities = () => source.rows.filter((r) => (ACTIVITY_TYPES as readonly string[]).includes(r.object))
         .map((r) => ({ ...r, object: ACTIVITY_OBJECT, values: { type: r.object, ownerId: r.values.ownerId ?? null } }));
       const rowsOf = async (o: string) => (o === ACTIVITY_OBJECT ? activities() : isRegisterObject(o) ? registerRows(ws, o, defOf(o)!) : source.rows.filter((r) => r.object === o));
       const def = defOf(object);
       if (!def) return { groups: [], subtotals: [], total: req.measures.map((m) => (m.fn === "count" ? 0 : null)), rows: 0, truncated: false, projectedThrough: throughAll(source.heads) };
-      const q = compileAggregateRequest(object, def, req, defOf);
+      let rows = await rowsOf(object);
+      if (req.company) {
+        if (object !== "contact" || req.groupBy?.some((g) => g.via)) throw new ListRequestError("company predicates require contact register aggregates without related keys");
+        const accountDef = defOf("account")!;
+        const companies = { def: accountDef, rows: await rowsOf("account") };
+        const q = compileListRequest(def, { company: req.company, filter: req.filter }, accountDef);
+        const uses = [...(req.groupBy ?? []).map((g) => g.field), ...req.measures.flatMap((m) => [m.field, m.weight])].filter((f) => f === "accountFit" || f === "accountIcpIds");
+        const used = compileListRequest(def, { company: { ...req.company, filter: undefined }, filter: uses.map((field) => ({ field: field!, op: "notEmpty" })) }, accountDef);
+        rows = companyRowsInMemory(rows, { ...q.company!, required: q.company!.required || used.company!.required }, companies);
+      }
+      const q = compileAggregateRequest(object, def, { ...req, company: undefined }, defOf);
       const related = new Map<string, Map<string, ListRow>>();
       for (const g of q.groups) if (g.via && !related.has(g.object)) related.set(g.object, new Map((await rowsOf(g.object)).map((r) => [r.id, r])));
-      return aggregateRowsInMemory(q, await rowsOf(object), (o) => related.get(o) ?? new Map(), throughAll(source.heads));
+      return aggregateRowsInMemory(q, rows, (o) => related.get(o) ?? new Map(), throughAll(source.heads));
     },
     async matchInbound(ws, input) {
       const source = objects ? await objects.rows(ws, ["lead"]) : { rows: [] };
