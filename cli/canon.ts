@@ -387,6 +387,9 @@ const USAGE = `canon ${VERSION} — Canon from the command line (talks to <url>/
   canon plans [<planId>] [--status <s>]
   canon automations <list|get|check|propose|proposals|runs|dry_run|matches_now> [--args <json>]
                                        automation rules; propose waits for an admin to approve it
+  canon tam <action> [--args <json>]   TAM segments, jobs and recommendation acceptance
+  canon audiences <action> [--args <json>]   audiences and filtered contact CSV exports
+  canon csv-upload <generate_url|claim> [--args <json>]   upload preparation; imports no records
   canon workspace export [--out <path>]   export the whole workspace to an archive (an admin's export key)
   canon workspace verify <archive>     check an archive; with CANON_EXPORT_KEY, against live counts too
   canon workspace import [--dry-run] <archive>   import an archive into a new, empty workspace (an admin's import key)
@@ -485,6 +488,13 @@ export async function main(argv = process.argv.slice(2)) {
     case "automations":
       if (!rest[0]) throw new Error("Usage: canon automations <list|get|check|propose|proposals|runs|dry_run|matches_now> [--args <json>]");
       return callTool(base, "canon_automations", { action: rest[0], args: flags.has("--args") ? parseArgs(readArgs(flags.get("--args")!)) : {} });
+    case "tam":
+    case "audiences":
+    case "csv-upload": {
+      if (!rest[0]) throw new Error(`Usage: canon ${command} <action> [--args <json>]`);
+      const tool = { tam: "canon_tam", audiences: "canon_audiences", "csv-upload": "canon_csv_upload" }[command];
+      return callTool(base, tool, { action: rest[0], args: flags.has("--args") ? parseArgs(readArgs(flags.get("--args")!)) : {} });
+    }
     case "workspace":
       return workspaceCommand(base, rest[0], rest.slice(1), flags);
     case "tools": {

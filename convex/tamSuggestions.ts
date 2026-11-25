@@ -78,6 +78,7 @@ export const add = mutation({
     const user = await requireUser(ctx);
     const run = await ctx.db.get(args.runId);
     if (!run || run.orgId !== user.orgId) throw new ConvexError("Unknown recommendation");
+    if (run.status !== "done") throw new ConvexError("Wait for segment recommendations to finish before adding one.");
     const s = run.suggestions[args.index];
     if (!s) throw new ConvexError("Unknown recommendation");
     if (s.added) throw new ConvexError("Already added.");
