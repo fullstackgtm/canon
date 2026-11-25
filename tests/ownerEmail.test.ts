@@ -22,7 +22,7 @@ const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 const orgId = "org" as Id<"organizations">, senderId = "mail" as Id<"emailAccounts">, preparedBy = "manager" as Id<"users">;
 function world() {
   now = NOW;
-  configuration.env = { CONVEX_SITE_URL: "https://localhost", TOKEN_ENCRYPTION_KEY: "owner-exact-fixture-only", CANON_SERVICE_JWT_ISSUER: "https://service.test" };
+  configuration.env = { CANONCRM_LOCAL_STACK: "true", CONVEX_SITE_URL: "https://localhost", TOKEN_ENCRYPTION_KEY: "owner-exact-fixture-only", CANON_SERVICE_JWT_ISSUER: "https://service.test" };
   let actor = "owner", agent = false;
   const manifest = JSON.parse(readFileSync("tests/fixtures/modules/visit-log/module.json", "utf8"));
   manifest.outbound = { email: { from: ["member_mailbox"], kinds: ["personal", "automated"] } };
@@ -261,6 +261,7 @@ test("expired exact preparation and unsupported template bindings refuse without
 
 test("personal exact transport uses frozen HTML and attempt identity without custom compliance headers", async () => {
   const h = world(), row = enqueued(await h.enqueue()); await h.approve(row.id); const [job] = await h.claim();
+  delete configuration.env.CANONCRM_LOCAL_STACK;
   configuration.env.CONVEX_SITE_URL = "https://fixture.convex.site";
   configuration.env.UNIPILE_API_KEY = "fixture-private"; configuration.env.UNIPILE_DSN = "api1.unipile.com:13111";
   job.delivery.account.unipileAccountId = "provider-account";

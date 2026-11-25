@@ -1,3 +1,4 @@
+import { integrationFetch } from "./lib/integrationHttp";
 /**
  * Granola poll (every 15 minutes from crons.ts, on "Sync calls", and from the
  * scheduled-sync sweep): read the notes changed since the last poll, oldest
@@ -113,7 +114,7 @@ async function syncGranola(ctx: ActionCtx, orgId: Id<"organizations">, trigger: 
   try {
     const state: SyncState | null = await ctx.runQuery(internal.granola.syncState, { orgId });
     if (!state) throw new Error("Granola is not connected. Add your API key in Integrations.");
-    const granola = createGranolaClient({ apiKey: await decryptFromStorage(state.apiKey), ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}) });
+    const granola = createGranolaClient({ fetchImpl: integrationFetch(ctx), apiKey: await decryptFromStorage(state.apiKey), ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}) });
     const accesses = new Map<Id<"users">, Access | null>();
     const accessOf = async (userId: Id<"users">) => {
       if (!accesses.has(userId)) accesses.set(userId, await ctx.runQuery(internal.granola.writerAccess, { orgId, userId }));
@@ -210,7 +211,7 @@ export const connect = action({
     const apiKey = args.apiKey.trim();
     if (!apiKey) throw new ConvexError("Paste your Granola API key.");
     try {
-      await createGranolaClient({ apiKey }).changedNotes(new Date().toISOString(), 1);
+      await createGranolaClient({ fetchImpl: integrationFetch(ctx), apiKey }).changedNotes(new Date().toISOString(), 1);
     } catch (cause) {
       if (cause instanceof GranolaError) throw new ConvexError(cause.message);
       throw cause;
@@ -303,7 +304,7 @@ export const folders = action({
     const state: SyncState | null = await ctx.runQuery(internal.granola.syncState, { orgId: caller.orgId as Id<"organizations"> });
     if (!state) throw new ConvexError("Connect Granola first");
     try {
-      return await createGranolaClient({ apiKey: await decryptFromStorage(state.apiKey), ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}) }).folders();
+      return await createGranolaClient({ fetchImpl: integrationFetch(ctx), apiKey: await decryptFromStorage(state.apiKey), ...(state.baseUrl ? { baseUrl: state.baseUrl } : {}) }).folders();
     } catch (cause) {
       if (cause instanceof GranolaError) throw new ConvexError(cause.message);
       throw cause;

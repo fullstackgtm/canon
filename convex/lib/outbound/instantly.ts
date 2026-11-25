@@ -1,3 +1,4 @@
+import { missingPinnedFetch } from "../integrationUrl.ts";
 /**
  * Instantly (API v2) adapter: list campaigns and add leads to one, with the
  * workspace's own API key. The key goes only in the Authorization header.
@@ -38,7 +39,7 @@ export function leadOf(c: OutboundContact): InstantlyLead {
 }
 
 export function createInstantlyClient(opts: { apiKey: string; fetchImpl?: typeof fetch; baseUrl?: string }): SequencerClient {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? missingPinnedFetch;
   const base = (opts.baseUrl ?? INSTANTLY_BASE_URL).replace(/\/$/, "");
   const call = <T>(method: "GET" | "POST", path: string, body?: unknown) =>
     requestJson<T>("Instantly", fetchImpl, `${base}${path}`, {

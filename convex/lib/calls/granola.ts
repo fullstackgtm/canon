@@ -1,3 +1,4 @@
+import { integrationJson, integrationUrl, missingPinnedFetch } from "../integrationUrl.ts";
 /**
  * Granola (public API, https://docs.granola.ai) adapter: list the notes changed
  * since the last poll and read each one with its attendees, AI summary and
@@ -169,16 +170,16 @@ export const GRANOLA_FOLDERS_MAX = 20;
 export type GranolaClient = ReturnType<typeof createGranolaClient>;
 
 export function createGranolaClient(opts: { apiKey: string; fetchImpl?: typeof fetch; baseUrl?: string }) {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const fetchImpl = opts.fetchImpl ?? missingPinnedFetch;
   const base = (opts.baseUrl ?? GRANOLA_BASE_URL).replace(/\/$/, "");
   const headers = { Authorization: `Bearer ${opts.apiKey}`, Accept: "application/json" };
   async function get(path: string): Promise<{ status: number; body: unknown }> {
-    const response = await fetchImpl(`${base}${path}`, { method: "GET", headers });
+    const response = await fetchImpl(integrationUrl(base, path), { method: "GET", headers, redirect: "manual" });
     if (!response.ok) {
       await response.text().catch(() => undefined);
       return { status: response.status, body: null };
     }
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: await integrationJson(response) };
   }
   return {
     /**

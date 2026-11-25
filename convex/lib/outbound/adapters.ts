@@ -1,10 +1,5 @@
-/**
- * How an outbox row leaves Canon, one adapter per channel (docs/modules.md, "Outbound"). A local stack or CI never
- * sends for real: `deliveryMode()` is "live" only on a deployment whose Convex site is a public https address (the
- * test `emailActions.sendToContact` and agentSlack apply), and every adapter reads it itself, so no caller can ask a
- * sink to send. In the sink, Slack and webhook posts reach loopback receivers only, email goes nowhere, and every row
- * lands `sent` with providerId "local". Free of database and Node-only imports.
- */
+import { missingPinnedFetch } from "../integrationUrl.ts";
+/** Outbox channel adapters. Local-stack markers sink real recipients; loopback requires explicit opt-in. */
 import { integrationEnabled } from "../integrationsAvailable.ts";
 
 import { postToSlack, webhookUrlProblem } from "../agents/slack.ts";
@@ -21,15 +16,10 @@ const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const hostOf = (url: string) => { try { return new URL(url).hostname.toLowerCase().replace(/\.$/, ""); } catch { return ""; } };
 const loopback = (url: string) => LOOPBACK.has(hostOf(url));
 
-/** "live" only on a deployment: its Convex site is an https address that isn't loopback. Everything else is a sink. */
+/** Existing local-stack markers keep both demo and authenticated stacks from sending real messages. */
 export function deliveryMode(): "live" | "sink" {
-  const site = process.env.CONVEX_SITE_URL ?? "";
-  try {
-    const url = new URL(site);
-    return url.protocol === "https:" && !LOOPBACK.has(url.hostname) ? "live" : "sink";
-  } catch {
-    return "sink";
-  }
+  if (process.env.CANONCRM_LOCAL_STACK === "true" || process.env.FSGTM_ENABLE_DEMO_DATA === "true") return "sink";
+  return process.env.CONVEX_SITE_URL ? "live" : "sink";
 }
 
 /** Canon's transactional sender (Postmark): its server token and From address, both needed to send. */
@@ -45,10 +35,10 @@ export function providerReady(channel: "email" | "slack" | "webhook"): boolean {
 }
 
 /** A Slack post. Slack takes no idempotency key, so a timeout may have posted: it lands unknown and is never retried. */
-export async function sendSlack(url: string, text: string, fetchImpl: typeof fetch = fetch): Promise<Delivery> {
+export async function sendSlack(url: string, text: string, fetchImpl: typeof fetch = missingPinnedFetch): Promise<Delivery> {
   const mode = deliveryMode();
   if (mode === "sink" && !loopback(url)) return { ok: true, providerId: "local" };
-  if (mode === "live" && webhookUrlProblem(url, false)) return { ok: false, error: "The mapped URL isn't a Slack incoming webhook.", retry: false };
+  if (mode === "live" && webhookUrlProblem(url, allowLoopbackWebhooks())) return { ok: false, error: "The mapped URL isn't a Slack incoming webhook.", retry: false };
   const r = await postToSlack(url, text, fetchImpl);
   if (r.ok) return { ok: true, providerId: mode === "sink" ? "local" : "slack" };
   if (r.error === "timeout") return { ok: false, error: "Slack didn't answer in time, so it may have posted.", retry: false, unknown: true };

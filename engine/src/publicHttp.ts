@@ -191,7 +191,7 @@ export async function publicHttpGet(rawUrl: string, options: {
     const addresses = (url as URL & { __publicAddresses: PublicAddress[] }).__publicAddresses;
     const result = await (options.requestHop ?? requestHop)(url, addresses, headers, options.timeoutMs ?? 15_000, options.maxBytes ?? DEFAULT_PUBLIC_HTTP_MAX_BYTES, { method: "GET" });
     const location = result.headers.get("location");
-    if (result.status >= 300 && result.status < 400 && location) {
+    if (maxRedirects > 0 && result.status >= 300 && result.status < 400 && location) {
       const next = new URL(location, url);
       if (next.origin !== url.origin) {
         headers = Object.fromEntries(Object.entries(headers).filter(([key]) => !SENSITIVE_HEADERS.has(key.toLowerCase())));

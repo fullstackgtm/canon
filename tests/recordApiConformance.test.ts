@@ -626,3 +626,48 @@ test("conversion refuses a caller-supplied domain matching a hidden company befo
     await db.patch("rolePermissions:rep", { rules });
   }
 });
+
+test("contact imports admit company references and respect the accountId field rule", async () => {
+  const run = runner("action");
+  await run("records:upsert", { object: "account", accounts: [{ domain: "admit.example", name: "Admit" }], idempotencyKey: "admit-company" });
+  const page = await run("records:list", { filter: { q: "admit.example" } }) as { rows: Array<{ id: string }> };
+  const accountId = page.rows[0]!.id;
+  const original = (await db.get("rolePermissions:rep"))!.rules;
+  try {
+    user = REP;
+    for (const link of [{ accountId }, { accountDomain: "admit.example" }]) {
+      await db.patch("rolePermissions:rep", { rules: [{ object: "contact", fields: [{ apiName: "accountId", level: "readOnly" }] }] });
+      await assert.rejects(() => run("records:upsert", { object: "contact", contacts: [{ fullName: "Locked", ...link }], idempotencyKey: `locked-${JSON.stringify(link)}` }));
+    }
+    await db.patch("rolePermissions:rep", { rules: [{ object: "account", visibility: "own", unowned: false }] });
+    const errors: string[] = [];
+    for (const accountDomain of ["admit.example", "missing-admit.example"]) {
+      await assert.rejects(() => run("records:upsert", { object: "contact", contacts: [{ fullName: "Hidden", accountDomain }], idempotencyKey: accountDomain }), (e: Error) => { errors.push(e.message); return true; });
+    }
+    assert.equal(errors[0], errors[1]);
+    user = ADMIN;
+    for (const [i, link] of [{ accountId }, { accountDomain: "admit.example" }].entries()) {
+      const args = { object: "contact", contacts: [{ fullName: `Admitted ${i}`, email: `admitted${i}@admit.example`, ...link }], idempotencyKey: `admitted-${i}` };
+      const first = await run("records:upsert", args);
+      assert.deepEqual(await run("records:upsert", args), first);
+      await run("records:upsert", { ...args, contacts: [{ ...args.contacts[0], fullName: "Replacement", title: "Filled" }], idempotencyKey: `fill-${i}` });
+      const people = await run("records:listContacts", { accountId }) as { rows: Array<{ email: string; fullName: string; title: string }> };
+      assert.equal(people.rows.find((p) => p.email === args.contacts[0].email)?.fullName, `Admitted ${i}`);
+      assert.equal(people.rows.find((p) => p.email === args.contacts[0].email)?.title, "Filled");
+    }
+    await assert.rejects(() => run("records:upsert", { object: "contact", contacts: [{ fullName: "No company" }], idempotencyKey: "no-company" }));
+  } finally { user = ADMIN; await db.patch("rolePermissions:rep", { rules: original }); }
+});
+
+test("records.list query lines cannot probe fields hidden by the caller's role", async () => {
+  const original = (await db.get("rolePermissions:rep"))!.rules;
+  user = REP;
+  try {
+    for (const [field, line] of [["annualRevenue", "revenue:50m+"], ["industry", "industry:Software"], ["country", "country:US"], ["employees", "size:1-10"], ["city", "city:Boston"], ["ownerId", "owner:none"]]) {
+      await db.patch("rolePermissions:rep", { rules: [{ object: "account", fields: [{ apiName: field, level: "hidden" }] }] });
+      await assert.rejects(() => runner("action")("records:list", { lines: [line] }));
+      await db.patch("rolePermissions:rep", { rules: [] });
+      await runner("action")("records:list", { lines: [line] });
+    }
+  } finally { user = ADMIN; await db.patch("rolePermissions:rep", { rules: original }); }
+});

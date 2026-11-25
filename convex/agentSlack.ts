@@ -1,3 +1,6 @@
+import { integrationFetch } from "./lib/integrationHttp";
+import { allowLoopbackWebhooks } from "./lib/recordWebhooks";
+import { sendSlack } from "./lib/outbound/adapters";
 /**
  * Slack for agent turns. The org's incoming-webhook URL is stored like
  * Instantly's key: encrypted on its `integrations` row, read only by the
@@ -13,13 +16,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
 import { appUrl } from "./lib/runtimeConfig";
-import { escapeSlack, postToSlack, shouldNotify, slackMessage, webhookUrlProblem, type SlackDelivery } from "./lib/agents/slack";
+import { escapeSlack, shouldNotify, slackMessage, webhookUrlProblem, type SlackDelivery } from "./lib/agents/slack";
 import { withEventDefinition } from "./lib/agents/definitions";
 import { standing } from "./agents";
 import { PAUSE_REASONS, isOwnerCaused } from "./lib/agents/standing";
 
-/** A local stack (its own site URL is loopback) may point the webhook at a local receiver; a deployment may not. */
-const allowLoopback = () => /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(process.env.CONVEX_SITE_URL ?? "");
+async function deliverSlack(ctx: ActionCtx, url: string, text: string): Promise<SlackDelivery> {
+  const result = await sendSlack(url, text, integrationFetch(ctx, 8000));
+  return result.ok ? { ok: true } : { ok: false, error: result.error };
+}
 
 const slackRow = (ctx: QueryCtx, orgId: Id<"organizations">) =>
   ctx.db.query("integrations").withIndex("by_orgId_provider", (q) => q.eq("orgId", orgId).eq("provider", "slack")).first();
@@ -83,7 +88,7 @@ export const connect = action({
   handler: async (ctx, args): Promise<{ ok: true }> => {
     const caller = await manager(ctx);
     const url = args.url.trim();
-    const problem = webhookUrlProblem(url, allowLoopback());
+    const problem = webhookUrlProblem(url, allowLoopbackWebhooks());
     if (problem) throw new ConvexError(problem);
     await ctx.runMutation(internal.agentSlack.storeUrl, { orgId: caller.orgId, userId: caller.userId, url });
     return { ok: true };
@@ -97,7 +102,7 @@ export const sendTest = action({
     const caller = await manager(ctx);
     const cipher: string | null = await ctx.runQuery(internal.agentSlack.urlCipher, { orgId: caller.orgId });
     if (!cipher) throw new ConvexError("Slack is not connected. Add a webhook URL first.");
-    return postToSlack(await decryptFromStorage(cipher), "Canon test message: this channel will get agent turn notifications.");
+    return deliverSlack(ctx, await decryptFromStorage(cipher), "Canon test message: this channel will get agent turn notifications.");
   },
 });
 
@@ -183,7 +188,7 @@ export const send = internalAction({
     if (!job) return null;
     let result: SlackDelivery;
     try {
-      result = await postToSlack(await decryptFromStorage(job.cipher), job.text);
+      result = await deliverSlack(ctx, await decryptFromStorage(job.cipher), job.text);
     } catch {
       result = { ok: false, error: "could not read the stored URL" };
     }
@@ -217,7 +222,7 @@ export const sendPause = internalAction({
     const job: { cipher: string; text: string } | null = await ctx.runMutation(internal.agentSlack.preparePause, args);
     if (!job) return null;
     try {
-      await postToSlack(await decryptFromStorage(job.cipher), job.text);
+      await deliverSlack(ctx, await decryptFromStorage(job.cipher), job.text);
     } catch {
       return null;
     }

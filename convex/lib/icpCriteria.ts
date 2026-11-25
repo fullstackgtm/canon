@@ -3,7 +3,7 @@
  * count or list a tree node's companies and people.
  */
 import { listOf, REVENUE, type Clause } from "../../modules/kernel/icpQuery.ts";
-import type { IcpTreeAccount, IcpTreePerson } from "./recordContract.ts";
+import type { AccountsFilter, IcpTreeAccount, IcpTreePerson } from "./recordContract.ts";
 import { icpGeosToCountries } from "../../modules/kernel/icpGeography.ts";
 import { NONE, REGION_OF_COUNTRY } from "../../modules/kernel/dimensions.ts";
 
@@ -55,4 +55,23 @@ export function personCriteria(clauses: readonly Clause[]): IcpTreePerson {
     titles: lower(listOf(clauses, "title")),
     exclude: lower(listOf(clauses, "title", true)),
   };
+}
+
+/** Every criterion's record fields; adding a contract key requires an admission mapping. */
+const ACCOUNT_CRITERION_FIELDS = {
+  industries: "industry", excludeIndustries: "industry", countries: "country", excludeCountries: "country",
+  employees: "employees", cities: "city", owners: "ownerId", excludeOwners: "ownerId", revenue: "annualRevenue", custom: null,
+} satisfies Record<keyof IcpTreeAccount | keyof NonNullable<AccountsFilter["criteria"]>[number], string | null>;
+const PERSON_CRITERION_FIELDS = {
+  levels: "title", departments: "title", topics: "title", titles: "title", exclude: "title",
+} satisfies Record<keyof IcpTreePerson, string>;
+
+export function accountCriterionFields(criteria: IcpTreeAccount | undefined): string[] {
+  return (Object.keys(ACCOUNT_CRITERION_FIELDS) as Array<keyof IcpTreeAccount>).flatMap((key) => {
+    if (key === "custom") return (criteria?.custom ?? []).map((c) => c.key);
+    return criteria?.[key]?.length ? [ACCOUNT_CRITERION_FIELDS[key]!] : [];
+  });
+}
+export function personCriterionFields(criteria: IcpTreePerson | undefined): string[] {
+  return (Object.keys(PERSON_CRITERION_FIELDS) as Array<keyof IcpTreePerson>).flatMap((key) => criteria?.[key]?.length ? [PERSON_CRITERION_FIELDS[key]] : []);
 }

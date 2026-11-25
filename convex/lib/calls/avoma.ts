@@ -1,3 +1,4 @@
+import { integrationJson, integrationUrl, missingPinnedFetch } from "../integrationUrl.ts";
 import { z } from "zod";
 import { CALL_SYNC_STAGES, type ProgressEmitter } from "../../../engine/src/progress.ts";
 
@@ -76,13 +77,14 @@ export function normalizeAvomaCall(rawMeeting: unknown, rawTranscription: unknow
 }
 
 export async function fetchAvomaCalls(options: {
+  fetchImpl?: typeof fetch;
   apiKey: string;
   baseUrl: string;
   callsPath: string;
   progress: ProgressEmitter;
 }) {
   const base = options.baseUrl.replace(/\/$/, "");
-  const firstPage = new URL(`${base}${options.callsPath}`);
+  const firstPage = new URL(integrationUrl(base, options.callsPath));
   const to = new Date();
   // Re-read this window so a meeting that was still processing on the last sync can be imported later.
   firstPage.searchParams.set("from_date", new Date(to.getTime() - 30 * 86_400_000).toISOString());
@@ -99,13 +101,13 @@ export async function fetchAvomaCalls(options: {
     const delay = Math.max(0, 1_100 - (Date.now() - lastRequestAt));
     if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
     lastRequestAt = Date.now();
-    const response = await fetch(url, {
+    const response = await (options.fetchImpl ?? missingPinnedFetch)(url, {
       headers: { Authorization: `Bearer ${options.apiKey}`, Accept: "application/json" },
       redirect: "error",
       signal: AbortSignal.timeout(60_000),
     });
     if (!response.ok) throw new Error(`Avoma API error ${response.status}`);
-    return response.json() as Promise<unknown>;
+    return integrationJson(response);
   };
   while (next) {
     if (visited.has(next.href) || next.pathname !== firstPage.pathname) throw new Error("Avoma API returned an invalid next page");

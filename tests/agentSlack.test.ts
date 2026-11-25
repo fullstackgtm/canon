@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
+import { loadConvex } from "./convexHandlers.ts";
+import type { pinnedIntegrationFetch as Pinned } from "../convex/integrationHttp.ts";
+const pinned = (loadConvex(["integrationHttp.ts"])["integrationHttp.ts"].pinnedIntegrationFetch as unknown as typeof Pinned)();
 import { postToSlack, shouldNotify, slackMessage, webhookUrlProblem } from "../convex/lib/agents/slack.ts";
 
 test("which turns notify, and what the message says and leaves out", () => {
@@ -30,7 +33,10 @@ test("which turns notify, and what the message says and leaves out", () => {
   assert.match(text, /<https:\/\/app\.example\/dashboard\/agents#turn-abc\|Open the turn in Canon>/);
 });
 
-test("delivery: only Slack webhooks, no redirects, and a failure records the status but never the URL", async () => {
+test("delivery: only Slack webhooks, no redirects, and a failure records the status but never the URL", async (t) => {
+  const prev = process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS;
+  process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS = "true";
+  t.after(() => { if (prev === undefined) delete process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS; else process.env.CANON_ALLOW_LOOPBACK_WEBHOOKS = prev; });
   assert.equal(webhookUrlProblem("https://hooks.slack.com/services/T1/B2/xyz", false), null);
   assert.ok(webhookUrlProblem("https://evil.example/services/T1/B2/xyz", false));
   assert.ok(webhookUrlProblem("http://127.0.0.1:9/hook", false));
@@ -49,10 +55,10 @@ test("delivery: only Slack webhooks, no redirects, and a failure records the sta
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
-    assert.deepEqual(await postToSlack(`${base}/ok`, "hi"), { ok: true, httpStatus: 200 });
+    assert.deepEqual(await postToSlack(`${base}/ok`, "hi", pinned), { ok: true, httpStatus: 200 });
     assert.deepEqual(JSON.parse(seen[0]), { text: "hi" });
-    assert.deepEqual(await postToSlack(`${base}/gone`, "hi"), { ok: false, httpStatus: 404, error: "no_service" });
-    assert.equal((await postToSlack(`${base}/redirect`, "hi")).httpStatus, 302);
+    assert.deepEqual(await postToSlack(`${base}/gone`, "hi", pinned), { ok: false, httpStatus: 404 });
+    assert.equal((await postToSlack(`${base}/redirect`, "hi", pinned)).httpStatus, 302);
   } finally {
     server.close();
   }

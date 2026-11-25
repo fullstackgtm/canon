@@ -1,3 +1,4 @@
+import { integrationFetch } from "./lib/integrationHttp";
 /**
  * Audience actions (GT6): preview, CSV export and the push to a sequencer
  * campaign (Instantly, EmailBison or Smartlead: lib/outbound/sequencers.ts).
@@ -75,7 +76,7 @@ async function sequencerFor(ctx: ActionCtx, orgId: Id<"organizations">, provider
   const def = SEQUENCERS[provider];
   const stored: { accessToken: string; instanceUrl: string | null } | null = await ctx.runQuery(internal.audiences.sequencerKey, { orgId, provider });
   if (!stored) throw new ConvexError(`${def.label} is not connected. Add your ${def.keyLabel} in Integrations.`);
-  return def.create({ apiKey: await decryptFromStorage(stored.accessToken), ...(stored.instanceUrl ? { instanceUrl: stored.instanceUrl } : {}) });
+  return def.create({ fetchImpl: integrationFetch(ctx), apiKey: await decryptFromStorage(stored.accessToken), ...(stored.instanceUrl ? { instanceUrl: stored.instanceUrl } : {}) });
 }
 
 const campaignOrThrow = (provider: SequencerId, id: string) => {
@@ -128,7 +129,7 @@ export const connectSequencer = action({
       instanceUrl = normalizeInstanceUrl(args.instanceUrl ?? "") ?? undefined;
       if (!instanceUrl) throw new ConvexError(`Enter your ${def.instanceUrl.label} as an https address, like ${def.instanceUrl.placeholder}.`);
     }
-    await viaSequencer(() => def.create({ apiKey, instanceUrl }).validate());
+    await viaSequencer(() => def.create({ fetchImpl: integrationFetch(ctx), apiKey, instanceUrl }).validate());
     await ctx.runMutation(internal.audiences.storeSequencerKey, { orgId: caller.orgId, userId: caller.userId, provider: args.provider, apiKey, ...(instanceUrl ? { instanceUrl } : {}) });
     return { ok: true };
   },

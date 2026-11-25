@@ -182,7 +182,7 @@ export const mapSlack = mutation({
     const user = await requireManager(ctx);
     const name = args.name.trim().replace(/^#/, "").toLowerCase();
     if (!/^[a-z0-9][a-z0-9._-]{0,59}$/.test(name)) throw new ConvexError("Name it as the module does: lower-case letters, digits, . _ and -.");
-    const problem = webhookUrlProblem(args.url, deliveryMode() === "sink");
+    const problem = webhookUrlProblem(args.url, allowLoopbackWebhooks());
     if (problem) throw new ConvexError(problem);
     const existing = await ctx.db.query("outboundTargets").withIndex("by_orgId_and_channel_and_name", (q) => q.eq("orgId", user.orgId).eq("channel", "slack").eq("name", name)).first();
     const fields = { url: await encryptForStorage(args.url.trim()), hint: hintOf(args.url.trim()) };

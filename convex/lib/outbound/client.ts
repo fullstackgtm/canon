@@ -1,3 +1,4 @@
+import { integrationUrl } from "../integrationUrl.ts";
 /**
  * What every sequencer adapter (Instantly, EmailBison, Smartlead) exposes, and
  * the one HTTP helper they share. The fetch is injected, so tests run each
@@ -54,7 +55,7 @@ export class SequencerError extends Error {
 export async function requestJson<T>(label: string, fetchImpl: typeof fetch, url: string, init: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetchImpl(url, init);
+    response = await fetchImpl(integrationUrl(url), { ...init, redirect: "manual" });
   } catch {
     // The runtime's own message can quote the URL, and Smartlead's carries the key.
     throw new SequencerError(label, 0);
