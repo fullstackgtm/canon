@@ -378,7 +378,7 @@ export const setSuggestMembersOnly = mutation({
 
 /**
  * Extra emails or domains that count as this workspace's side of a meeting, beside its members and their
- * companies: a Granola account on another address (ryan@oldcompany.com), or a team not yet invited.
+ * companies: a Granola account on another address (teammate@example.org), or a team not yet invited.
  * Imported meetings are checked again for suggestions with the new list.
  */
 export const setOurTeam = mutation({

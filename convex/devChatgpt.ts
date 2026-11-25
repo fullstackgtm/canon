@@ -14,7 +14,7 @@ import { decryptFromStorage, encryptForStorage } from "./lib/tokenHelpers";
  * CHATGPT_DEV_SESSION env var (never argv), which it removes right after.
  *
  * Refuses to run unless this is a loopback deployment with the demo-user
- * bypass on, so it is inert on dev.canoncrm.com and prod.
+ * bypass on, so it is inert on the hosted development site and prod.
  */
 function requireLocalStack() {
   const url = process.env.CONVEX_CLOUD_URL ?? "";

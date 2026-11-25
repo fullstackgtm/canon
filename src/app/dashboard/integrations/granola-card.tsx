@@ -138,7 +138,7 @@ export function GranolaControls() {
                   <div className="flex flex-wrap gap-2">
                     <input
                       aria-label="Also count as our team"
-                      placeholder="fullstackgtm.com, ryan@oldcompany.com"
+                      placeholder="example.com, teammate@example.org"
                       value={team ?? status.ourTeam.join(", ")}
                       onChange={(e) => setTeam(e.target.value)}
                       disabled={busy}

@@ -1253,7 +1253,7 @@ A proposal's budget is 150,000 estimated tokens and 300 seconds (`turnMeter`, as
 
 **Ask Canon in the editor** (E4b). The recipe editor has an Ask Canon box under the outline, for an admin or manager, with example requests before the first. A request in words goes to `proposeEdit` with the draft as it is in the editor, unsaved edits included. The pane shows the proposal's summary, the model, any problems by line, the evals (or why they didn't run) and, folded, the diff. **Apply to draft** makes the proposal the draft, and **Discard** drops it. Neither saves: the draft is saved, or not, with the editor's Save. A follow-up request is asked about the draft as it is then, so a run of requests builds on each accepted one, and the pane lists the session's last few requests with what became of each. The pane says whose plan pays: the person's own ChatGPT plan, named by its email, or, with none connected, that it needs one, with Connect ChatGPT in place (the same as Integrations → ChatGPT). The draft's transitions are one reducer, `draftReducer` in `src/app/dashboard/customization/editor-draft.ts`.
 
-**A local stack never spends a plan.** On a loopback deployment with the demo-user bypass, `proposeEdit` asks a stand-in instead of a model (`convex/lib/recipeAgentStandIn.ts`), even when the dev user has a ChatGPT session: "move A above B" moves a section, and anything else folds the first open one. Canon's checks, retries and evals still run for real, and the pane says a stand-in answered. `RECIPE_AGENT_REAL_MODEL=true` in the local Doppler config turns the real model back on. dev.canoncrm.com and production have no bypass, so the stand-in never runs there. `devSeed:customizeLocal` customizes a recipe from a recipe.md served on 127.0.0.1, which is how a local stack copies a package `installLocalPackage` stored: that package has no GitHub commit for Customize to fetch again.
+**A local stack never spends a plan.** On a loopback deployment with the demo-user bypass, `proposeEdit` asks a stand-in instead of a model (`convex/lib/recipeAgentStandIn.ts`), even when the dev user has a ChatGPT session: "move A above B" moves a section, and anything else folds the first open one. Canon's checks, retries and evals still run for real, and the pane says a stand-in answered. `RECIPE_AGENT_REAL_MODEL=true` in the local backend environment turns the real model back on. Hosted development and production have no bypass, so the stand-in never runs there. `devSeed:customizeLocal` customizes a recipe from a recipe.md served on 127.0.0.1, which is how a local stack copies a package `installLocalPackage` stored: that package has no GitHub commit for Customize to fetch again.
 
 **Over /mcp**, `canon_customization propose_edit` returns the same proposal on the caller's own plan, so Claude or Codex can show a person the checked change. It saves nothing either.
 
@@ -1401,7 +1401,7 @@ Each phase puts a change in front of a user.
     sends the person back to Settings to connect again.
   - *Tokens* (`convex/lib/githubApp.ts`). The App JWT is RS256, signed with
     WebCrypto in the default Convex runtime. GitHub's PKCS#1 key is wrapped as
-    PKCS#8 in code, so the key goes into Doppler exactly as GitHub issues it.
+    PKCS#8 in code, so the key goes into the backend environment exactly as GitHub issues it.
     `iat` is backdated 60 s and the JWT lives 10 minutes. Each operation (a
     preview, an install, an update check, an upgrade) mints one installation
     token scoped to the one repo, with Contents and Metadata read-only. It
@@ -1519,10 +1519,10 @@ Each phase puts a change in front of a user.
 
 ### Setting up the GitHub App (human steps)
 
-1. Create a GitHub App under the fullstackgtm organization (Settings →
+1. Create a GitHub App under your organization (Settings →
    Developer settings → GitHub Apps → New GitHub App).
-   - Homepage URL: `https://canoncrm.com`.
-   - Callback URL: `https://dev.canoncrm.com/api/recipes/github/setup`. Add
+   - Homepage URL: `https://crm.example.com`.
+   - Callback URL: `https://crm.example.com/api/recipes/github/setup`. Add
      the production site's `/api/recipes/github/setup` as a second callback
      URL when production gets it.
    - Check **Request user authorization (OAuth) during installation**. GitHub
@@ -1534,8 +1534,7 @@ Each phase puts a change in front of a user.
      No organization or account permissions.
    - Where can this App be installed: **Any account**.
 2. Generate a private key, and a client secret under "Client secrets".
-3. Add five keys in Doppler, project `canoncrm`, configs `dev` and `local`
-   (and `prd` when production gets this). The first three read repos; the
+3. Set five backend environment variables on each deployment. The first three read repos; the
    last two prove who connected, and connecting refuses without them:
    - `GITHUB_RECIPES_APP_ID`: the App ID (a number).
    - `GITHUB_RECIPES_APP_SLUG`: the slug from the App's public URL,
@@ -1545,8 +1544,7 @@ Each phase puts a change in front of a user.
    - `GITHUB_RECIPES_APP_CLIENT_ID`: the Client ID (`Iv1.…` or `Iv23…`),
      which isn't the App ID.
    - `GITHUB_RECIPES_APP_CLIENT_SECRET`: the client secret.
-4. Merge to `main`. The dev deploy copies the keys to Convex dev before it
-   deploys. On a local stack, `npm run secrets:sync` loads them. Then on the Customization page, Connect GitHub on a test
+4. On the Customization page, Connect GitHub on a test
    organization with one private repo holding a package.
 
 ## Open questions

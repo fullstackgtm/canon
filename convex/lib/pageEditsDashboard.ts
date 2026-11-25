@@ -1,7 +1,7 @@
 /**
  * The "edits" operator dashboard (docs/operator-tools.md): how customize-mode instructions on the deal page land,
  * across every workspace, from pageEditAttempts. Unlike the deploys dashboard, Convex computes it itself (a cron in
- * operatorDashboards.refreshEdits), so it shows the deployment it runs on: dev.canoncrm.com and local stacks.
+ * operatorDashboards.refreshEdits), so it shows the deployment it runs on: the hosted development site and local stacks.
  * Pure, so the figures are tested without a database (tests/pageEditsDashboard.test.ts).
  */
 

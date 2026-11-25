@@ -3,7 +3,7 @@
  * user may carry a real ChatGPT session, and a local check must never spend it, so on a loopback deployment with the
  * demo-user bypass on, `proposeEdit` asks this instead of a model unless RECIPE_AGENT_REAL_MODEL=true. It answers the
  * way a model would, with a whole recipe.md and a summary, and Canon's parser, retries and evals then run for real.
- * It is inert on dev.canoncrm.com and production, which have no bypass.
+ * It is inert on the hosted development site and production, which have no bypass.
  */
 import { isDevAuthBypassEnabled } from "../lib";
 

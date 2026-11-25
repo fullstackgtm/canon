@@ -28,8 +28,8 @@ import { activeClerkOrgIdFromIdentity } from "./lib";
 
 const HS_AUTH_URL = "https://app.hubspot.com/oauth/authorize";
 const HS_TOKEN_URL = "https://api.hubapi.com/oauth/v1/token";
-// Must match the "FullStackGTM CLI" public app's requiredScopes exactly
-// (portal 244977247, project fullstackgtm-oauth). NOTE: no tasks/engagements
+// Must match the configured HubSpot public app's requiredScopes exactly.
+// No tasks/engagements
 // scope — neither legacy `contacts` nor granular tasks/engagements scope
 // names are authorizable for new-platform public apps, so hosted-connected
 // HubSpot cannot create_task (BYO private-app token covers that).

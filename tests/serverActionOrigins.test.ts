@@ -19,7 +19,7 @@ const { getPathMatch } = require("next/dist/shared/lib/router/utils/path-match.j
 test("server action allowedOrigins derives only from configured site URLs with no hardcoded dev origins", () => {
   const unset = serverActionAllowedOrigins({});
   assert.deepEqual(unset, []);
-  for (const origin of ["dev.canoncrm.com", "dev.fullstackgtm.com", "attacker.example", ""]) {
+  for (const origin of ["dev.crm.example", "dev.example.com", "attacker.example", ""]) {
     assert.equal(isCsrfOriginAllowed(origin, unset), false, origin);
   }
 
@@ -31,8 +31,8 @@ test("server action allowedOrigins derives only from configured site URLs with n
     assert.equal(isCsrfOriginAllowed(origin, configured), true, origin);
   }
   for (const origin of [
-    "dev.canoncrm.com",
-    "dev.fullstackgtm.com",
+    "dev.crm.example",
+    "dev.example.com",
     "attacker.example",
     "crm.example.com.attacker.example",
     "attacker.crm.example.com",

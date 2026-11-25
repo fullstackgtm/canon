@@ -1,5 +1,5 @@
 /**
- * Sample data for a shared test workspace: an admin on dev.canoncrm.com (or a local stack) picks sets (SAMPLE_SETS)
+ * Sample data for a shared test workspace: an admin on the hosted development site (or a local stack) picks sets (SAMPLE_SETS)
  * and loads them into their own workspace, so everyone in it sees the same records:
  *
  *   - Forecast's "Northwind" (docs/module-plans/forecast.md §12): a sales team, Q4 2026 targets and eight deals whose
@@ -50,7 +50,7 @@ export const status = query({
 
 /** The caller's workspace, once they are an admin on a deployment that allows sample data. */
 async function callerOrg(ctx: MutationCtx): Promise<{ orgId: Id<"organizations">; userId: Id<"users"> }> {
-  if (!enabled()) throw new ConvexError("Sample data is only available on dev.canoncrm.com and local stacks");
+  if (!enabled()) throw new ConvexError("Sample data is only available on development deployments and local stacks");
   const user = await requireUser(ctx);
   if (!can(user, "members.manage")) throw new ConvexError("Only a workspace admin can load sample data");
   return { orgId: user.orgId, userId: user._id };

@@ -19,7 +19,8 @@ const LIMIT = Number(arg("limit", "0"));
 const VIA = arg("via", "local");
 if (VIA !== "local" && VIA !== "worker") throw new Error("--via must be local or worker");
 const CONC = Number(arg("concurrency", VIA === "worker" ? "300" : "400"));
-const WORKER_URL = process.env.DNS_CHECK_URL ?? "https://fsgtm-dns-check.ryan-ad7.workers.dev";
+const WORKER_URL = process.env.DNS_CHECK_URL ?? "";
+if (VIA === "worker" && !WORKER_URL) throw new Error("Set DNS_CHECK_URL to your worker URL");
 const WORKER_BATCH = 300;
 // Statuses to re-check regardless of age (e.g. results caused by resolver throttling).
 const RECHECK = arg("recheck", "").split(",").filter(Boolean);

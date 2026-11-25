@@ -24,7 +24,7 @@ export type ConnectorDecl = {
   /** `member`: one link per member (their recorder, their LinkedIn); `workspace`: links an admin adds. */
   scope: "member" | "workspace";
   auth: "signedWebhook" | "oauth" | "apiKey" | "canon";
-  /** Canon env vars the connector needs (Doppler); the Feeds page says which are missing, never their values. */
+  /** Canon env vars the connector needs; the Feeds page says which are missing, never their values. */
   env: readonly string[];
   /** Feed names start with the connector's id: `webhook.events`. */
   feeds: Record<string, FeedDecl>;

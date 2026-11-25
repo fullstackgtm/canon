@@ -13,7 +13,9 @@ import { DuckDBInstance } from "@duckdb/node-api";
 
 const INDEX = process.argv[2] ?? `${process.env.HOME}/.fullstackgtm/data/pdl_companies.duckdb`;
 const YEAR = 2024;
-const UA = "CanonCRM research ryan@fullstackgtm.com"; // SEC asks for a contact in the User-Agent
+const contact = process.env.SEC_CONTACT_EMAIL?.trim();
+if (!contact) throw new Error("Set SEC_CONTACT_EMAIL to the operator contact required by SEC EDGAR");
+const UA = `CanonCRM research ${contact}`;
 const TAGS = ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax"];
 const MIN_INDUSTRY_ROWS = 8;
 const repo = new URL("../../..", import.meta.url).pathname;
