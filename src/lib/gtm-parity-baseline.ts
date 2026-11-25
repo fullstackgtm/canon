@@ -58,9 +58,6 @@ export const gtmParityBaseline: Readonly<Record<string, GtmParityReason>> = {
   "api.addRecords.startAccounts": "todo",
   "api.objects.createMany": "todo",
   "api.addRecords.startMarket": "todo",
-  "api.audienceActions.exportViewCsv": "todo",
-  "api.csvImports.claimUpload": "todo",
-  "api.csvImports.generateUploadUrl": "todo",
   "api.csvImports.start": "todo",
   "api.leadConversion.convert": "todo",
   "api.emailActions.draftToContact": "todo",
@@ -75,6 +72,5 @@ export const gtmParityBaseline: Readonly<Record<string, GtmParityReason>> = {
   "api.paidRuns.start": "todo",
   "api.providerTests.run": "todo",
   "api.salesforceActions.syncAll": "todo",
-  "api.tamSuggestions.add": "todo",
   "api.tamSuggestions.start": "todo",
 };

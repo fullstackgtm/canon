@@ -101,6 +101,8 @@ export const canonJobTools: CanonTool[] = [
       ensure_jtbd: m(api.tam.ensureJtbd),
       start_job: m(api.tam.startJob, `{ kind: "segment" | "revenue", segmentKey? (for segment), ${TAM_FILTER.replace("filter?", "filter")} }`),
       cancel_job: m(api.tam.cancelJob, "{ jobId }"),
+      suggestions: q(api.tamSuggestions.latest, "{} -> the latest recommendation run and its indexed suggestions"),
+      accept_suggestion: m(api.tamSuggestions.add, "{ runId, index }: once the run is done, saves one existing recommendation as a segment; starts no research"),
     },
   ),
   groupTool(
@@ -146,6 +148,15 @@ export const canonJobTools: CanonTool[] = [
       preview: a(api.audienceActions.preview, "{ audienceId, campaignId?, provider? }"),
       push: a(api.audienceActions.push, "{ audienceId, campaignId, expectToSend: number (the preview's count), provider? }"),
       export_csv: a(api.audienceActions.exportCsv, "{ audienceId }"),
+      export_view_csv: a(api.audienceActions.exportViewCsv, "{ filter: [{ field, op, value? }] } -> { csv, count }: visible contacts matching a list filter; saves nothing"),
+    },
+  ),
+  groupTool(
+    "canon_csv_upload",
+    "Prepare a CSV upload as a member with imports.run. Generate a URL, POST the file bytes to it, then claim the returned storageId with the file's base64 SHA-256. These actions import no records.",
+    {
+      generate_url: m(api.csvImports.generateUploadUrl, "{} -> upload URL"),
+      claim: m(api.csvImports.claimUpload, "{ storageId, sha256 }: associates an uploaded file with this workspace after verifying its hash"),
     },
   ),
   groupTool(

@@ -94,6 +94,7 @@ test("canon login against a self-hosted Canon pairs through its device flow and 
 test("CLI discovery and MCP requests use the internal address while configuration and credential lookup use the public address", async () => {
   const home = mkdtempSync(join(tmpdir(), "canon-cli-routing-"));
   const requests: string[] = [];
+  const toolCalls: unknown[] = [];
   const server = createServer(async (req, res) => {
     requests.push(req.url!);
     if (req.url === "/.well-known/oauth-protected-resource/mcp") { res.writeHead(200).end("{}"); return; }
@@ -103,6 +104,7 @@ test("CLI discovery and MCP requests use the internal address while configuratio
     let body = "";
     for await (const chunk of req) body += chunk;
     const message = JSON.parse(body);
+    if (message.method === "tools/call") toolCalls.push(message.params);
     if (message.id === undefined) { res.writeHead(202).end(); return; }
     const result = message.method === "initialize"
       ? { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "routing-test", version: "1" } }
@@ -125,6 +127,16 @@ test("CLI discovery and MCP requests use the internal address while configuratio
     writeFileSync(join(home, "credentials.json"), JSON.stringify({ "https://public.example": { cliToken: "routing-test-token" } }));
     await main(["login"]);
     await main(["whoami"]);
+    const cases = [
+      ["tam", "accept_suggestion", "canon_tam", { runId: "run", index: 0 }],
+      ["audiences", "export_view_csv", "canon_audiences", { filter: [] }],
+      ["csv-upload", "generate_url", "canon_csv_upload", {}],
+      ["csv-upload", "claim", "canon_csv_upload", { storageId: "file", sha256: "hash" }],
+    ] as const;
+    for (const [command, action, name, args] of cases) {
+      await main([command, action, "--args", JSON.stringify(args)]);
+      assert.deepEqual(toolCalls.at(-1), { name, arguments: { action, args } });
+    }
     await main(["mcp-config", "--show-token"]);
     assert.ok(requests.includes("/.well-known/oauth-protected-resource/mcp"));
     assert.ok(requests.filter((path) => path === "/mcp").length >= 4);

@@ -46,6 +46,7 @@ export function loadConvex(files: readonly string[], overrides: Record<string, (
       if (id === "@auth/core/providers/resend") return { default: Resend };
       if (!id.startsWith(".")) return nodeRequire(id);
       const base = resolve(dirname(path), id);
+      if (id.endsWith(".json")) return { default: nodeRequire(base) };
       const target = [base, `${base}.ts`, `${base}/index.ts`].find((p) => p.endsWith(".ts") && existsSync(p));
       return target ? load(target) : nodeRequire(base);
     };

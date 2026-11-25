@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { loadConvex, memoryDb } from "./convexHandlers.ts";
 import {
   bucketCounts,
   contextText,
@@ -103,4 +104,29 @@ test("bucketCounts uses Jev's thresholds; splitScore rewards decisive, two-sided
   assert.equal(splitScore({ yes: 5, no: 5, unsure: 30 }).verdict, "mostly-unsure");
   assert.equal(splitScore({}).verdict, "not-measured");
   assert.equal(splitScore({ "field-sales": 20, "self-serve": 15, none: 5 }).verdict, "splits");
+});
+
+
+test("recommendations can only be accepted after their indexes are final, once and in their workspace", async () => {
+  const user = { _id: "member", orgId: "workspace", role: "rep" };
+  const handlers = loadConvex(["tamSuggestions.ts"], {
+    "lib.ts": (real) => ({ ...real, requireUser: async () => user }),
+  });
+  for (const status of ["proposing", "measuring", "failed", "done"]) {
+    const db = memoryDb({ tamSuggestionRuns: [{ _id: "run", orgId: "workspace", status, suggestions: [{ label: "Field sales", criterion: "Has field sales reps", kind: "noul" }] }] });
+    const ctx = { db };
+    const accept = () => handlers["tamSuggestions.ts"].add.handler(ctx, { runId: "run", index: 0 });
+    if (status !== "done") {
+      await assert.rejects(accept);
+      assert.equal(db.rows("tamSegments").length, 0);
+      assert.equal(((await db.get("run"))!.suggestions as Array<{ added?: boolean }>)[0].added, undefined);
+    } else {
+      await accept();
+      assert.equal(db.rows("tamSegments").length, 1);
+      await assert.rejects(accept);
+      assert.equal(db.rows("tamSegments").length, 1);
+    }
+  }
+  const foreign = memoryDb({ tamSuggestionRuns: [{ _id: "foreign", orgId: "other", status: "done", suggestions: [] }] });
+  await assert.rejects(() => handlers["tamSuggestions.ts"].add.handler({ db: foreign }, { runId: "foreign", index: 0 }));
 });
