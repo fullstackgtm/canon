@@ -19,6 +19,7 @@ import { internalMutation, internalQuery, mutation, query, type MutationCtx, typ
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { accessFor } from "./permissions";
+import { narrowsReads } from "./lib/access";
 import { listedDef } from "./savedViews";
 import { compileListRequest, ListRequestError } from "./lib/objects/listSpec";
 import { listFilter, type ViewFilter } from "../modules/kernel/reportValidators";
@@ -79,11 +80,12 @@ export const list = query({
     const rows = isManager(user)
       ? await ctx.db.query("audiences").withIndex("by_orgId", (q) => q.eq("orgId", user.orgId)).take(ORG_READ)
       : [...new Map([...(await ownAudiences(ctx, user).take(AUDIENCES_MAX)), ...(await sharedAudiences(ctx, user.orgId, AUDIENCES_MAX))].map((a) => [a._id, a])).values()];
+    const showSummary = !narrowsReads(await accessFor(ctx, user));
     const owners = new Map<Id<"users">, string>();
     for (const id of new Set(rows.map((a) => a.createdBy))) owners.set(id, (await ctx.db.get(id))?.name ?? "Former member");
     return rows
       .map((a) => ({
-        _id: a._id, name: a.name, filterCount: a.filter.length, createdAt: a.createdAt, lastSentAt: a.lastSentAt, summary: a.summary,
+        _id: a._id, name: a.name, filterCount: a.filter.length, createdAt: a.createdAt, lastSentAt: a.lastSentAt, summary: showSummary ? a.summary : undefined,
         shared: isShared(a), mine: a.createdBy === user._id, ownerName: owners.get(a.createdBy) ?? "Former member", canEdit: canChange(user, a),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));

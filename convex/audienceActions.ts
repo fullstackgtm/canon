@@ -52,7 +52,7 @@ async function contactsFor(ctx: ActionCtx, who: { orgId: Id<"organizations">; ac
       listContacts: (req) => client.listRegister(ws, "contact", req),
       getContact: (id) => client.getContact(ws, id),
       accountNames: (ids) => accountNamesByList(client, ws, ids),
-      customValues: (streamIds): Promise<Record<string, Record<string, string | number | boolean>>> => ctx.runQuery(internal.objects.customFieldValues, { orgId, streamIds }),
+      customValues: (streamIds): Promise<Record<string, Record<string, string | number | boolean>>> => ctx.runQuery(internal.objects.customFieldValues, { orgId, streamIds, accesses: who.access ? [who.access] : [] }),
     },
     filter,
     addedIds,

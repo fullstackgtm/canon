@@ -262,7 +262,7 @@ export const enrollContext = internalQuery({
     if (!user) return null;
     const { cadence, account } = await editableCadence(ctx, user, args.cadenceId);
     if (cadence.status === "archived") throw new ConvexError("This cadence is archived");
-    return { caller: { orgId: user.orgId, userId: user._id, role: user.role } as Caller, steps: cadence.steps as Step[], tier: account.tier };
+    return { caller: { orgId: user.orgId, userId: user._id, role: user.role, access: await accessFor(ctx, user) } as Caller, steps: cadence.steps as Step[], tier: account.tier };
   },
 });
 
@@ -418,7 +418,7 @@ export const segments = action({
     if (by === "seniority" || by === "tenure") {
       const streams = [...contacts.values()].flatMap((c) => (c.stream ? [c.stream] : []));
       for (let i = 0; i < streams.length; i += SEGMENT_CUSTOM_CHUNK) {
-        Object.assign(custom, await ctx.runQuery(internal.objects.customFieldValues, { orgId: context.orgId, streamIds: streams.slice(i, i + SEGMENT_CUSTOM_CHUNK) }));
+        Object.assign(custom, await ctx.runQuery(internal.objects.customFieldValues, { orgId: context.orgId, streamIds: streams.slice(i, i + SEGMENT_CUSTOM_CHUNK), accesses: [context.access] }));
       }
     }
     const text = (x: unknown) => (typeof x === "string" && x.trim() ? x.trim() : null);
