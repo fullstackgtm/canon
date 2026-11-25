@@ -95,6 +95,8 @@ function pathCtx(db: ReturnType<typeof memoryDb>, extra: Record<string, (args: a
   const answers: Record<string, (args: any) => unknown> = {
     "internal.records.callerContext": () => ({ orgId: "org", userId: "u1", name: "Ada", role: "admin", access: { userId: "u1", role: "admin", teamOwners: ["u1"], rules: {} } }),
     "internal.records.phoneLookupUsage": (a) => R.phoneLookupUsage.handler({ db }, a),
+    "internal.records.reservePhoneLookup": (a) => R.reservePhoneLookup.handler({ db }, a),
+    "internal.records.settlePaidLookup": (a) => R.settlePaidLookup.handler({ db }, a),
     "internal.records.recordProviderCall": (a) => R.recordProviderCall.handler({ db }, a),
     "internal.providers.workspaceKeys": () => [],
     "internal.canon.recordHasStream": () => true,
@@ -159,5 +161,26 @@ test("Research enrichment files one research_enrich receipt a profile and charge
     treg.seen.length = 0;
     assert.deepEqual(plain(await E.enrichPeople(pathCtx(memoryDb({})), caller, [person])), { enriched: 0, note: null });
     assert.deepEqual(treg.seen, []);
+  });
+});
+
+
+test("parallel phone lookups reserve before the provider and return limit_reached at the cap", async () => {
+  await withEnv({ TREG_TOKEN: "t", TREG_PAID_CALLS: "on" }, async () => {
+    const db = memoryDb({ providerCalls: [] });
+    const ctx = pathCtx(db);
+    let transaction = Promise.resolve<unknown>(null);
+    const runMutation = ctx.runMutation;
+    ctx.runMutation = (ref, args) => {
+      const result = transaction.then(() => runMutation(ref, args));
+      transaction = result.catch(() => null);
+      return result;
+    };
+    treg.seen.length = 0;
+    const results = await Promise.all(Array.from({ length: 55 }, () => Paths["records.ts"].findPhone.handler(ctx, { accountId: "a1", contactId: "c1" })));
+    assert.equal(results.filter((r) => r.status === "found").length, 50);
+    assert.equal(results.filter((r) => r.status === "limit_reached").length, 5);
+    assert.equal(treg.seen.length, 50);
+    assert.equal((await Paths["records.ts"].findPhone.handler(ctx, { accountId: "a1", contactId: "c1" })).status, "limit_reached");
   });
 });

@@ -1,3 +1,5 @@
+import { may } from "./lib/access";
+import { reserveDaily, DIALER_SESSIONS_PER_USER_DAY, DIALER_SESSIONS_PER_WORKSPACE_DAY, DIALER_CALLS_PER_USER_DAY, DIALER_CALLS_PER_WORKSPACE_DAY } from "./lib/spendLimits";
 /**
  * The dialer (docs/dialer.md): a rep starts a session, Telnyx rings the rep's
  * own phone, and each contact the rep dials is bridged onto that call. The
@@ -11,7 +13,7 @@ import { readPolicy, writePolicy } from "./lib/recordingPolicy";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v, type Infer } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { accessFor, sightJudge } from "./permissions";
+import { accessFor, requireWriteAccess, sightJudge } from "./permissions";
 import { callerClient, requireCaller } from "./records";
 import { admitThenRead } from "./lib/scopedRecordClient";
 import { internal } from "./_generated/api";
@@ -249,6 +251,7 @@ export const startSession = mutation({
   args: { agentPhone: v.optional(v.string()), numberId: v.optional(v.id("dialerNumbers")), audio: v.optional(v.union(v.literal("phone"), v.literal("browser"))) },
   handler: async (ctx, args): Promise<Id<"dialerSessions">> => {
     const user = await requireUser(ctx);
+    await requireDialerWrite(ctx, user);
     if (!telnyxConfigured()) throw new ConvexError("Calling isn't set up on this deployment yet (TELNYX_API_KEY and TELNYX_CONNECTION_ID).");
     const audio = args.audio ?? "phone";
     let agentPhone: string | null;
@@ -275,6 +278,7 @@ export const startSession = mutation({
       throw new ConvexError(args.numberId ? "That number is in another rep's session. Pick another." : "Every dialer number is in use. Try again when a session ends, or add a number.");
     }
 
+    await reserveDialer(ctx, user, "sessions");
     const sessionId = await ctx.db.insert("dialerSessions", {
       orgId: user.orgId, userId: user._id, numberId: picked._id, from: picked.number, agentPhone,
       status: "calling_agent", startedAt: now, expiresAt: now + SESSION_TTL_MS, ...(audio === "browser" ? { audio } : {}),
@@ -366,6 +370,7 @@ export const claimCall = internalMutation({
   handler: async (ctx, args): Promise<{ callId: Id<"dialerCalls">; from: string; agentLegId: string; sessionId: Id<"dialerSessions">; detectMachine: boolean }> => {
     const user = await ctx.db.get(args.userId);
     if (!user || user.orgId !== args.orgId) throw new ConvexError("Not authenticated");
+    await requireDialerWrite(ctx, user);
     const now = Date.now();
     const session = await liveSession(ctx, user, now);
     if (!session) throw new ConvexError("Start a dialing session first.");
@@ -381,6 +386,7 @@ export const claimCall = internalMutation({
     const detectMachine = profile?.detectVoicemail === true;
     const voicemail = detectMachine ? profile?.voicemailMessage : undefined;
     const record = await recordsCalls(ctx, args.orgId);
+    await reserveDialer(ctx, user, "calls");
     const callId = await ctx.db.insert("dialerCalls", {
       orgId: args.orgId, userId: args.userId, sessionId: session._id, contactId: args.contactId,
       ...(args.accountId ? { accountId: args.accountId } : {}), contactName: args.contactName, to: args.to, from: session.from,
@@ -645,6 +651,7 @@ export const claimRace = internalMutation({
   handler: async (ctx, args): Promise<{ sessionId: Id<"dialerSessions">; from: string; detectMachine: boolean; calls: { callId: Id<"dialerCalls">; to: string }[] }> => {
     const user = await ctx.db.get(args.userId);
     if (!user || user.orgId !== args.orgId) throw new ConvexError("Not authenticated");
+    await requireDialerWrite(ctx, user);
     const now = Date.now();
     const session = await liveSession(ctx, user, now);
     if (!session) throw new ConvexError("Start a dialing session first.");
@@ -664,6 +671,7 @@ export const claimRace = internalMutation({
     for (const entry of args.entries) {
       if (calledIn.has(entry.contactId)) continue;
       if (await complianceProblem(ctx, args.orgId, entry.to, now)) continue;
+      await reserveDialer(ctx, user, "calls");
       const callId = await ctx.db.insert("dialerCalls", {
         orgId: args.orgId, userId: args.userId, sessionId: session._id, contactId: entry.contactId,
         ...(entry.accountId ? { accountId: entry.accountId } : {}), contactName: entry.contactName, to: entry.to, from: session.from,
@@ -953,3 +961,15 @@ export const saveSettings = mutation({
     await writePolicy(ctx, user, { callRecording: args.record });
   },
 });
+
+async function requireDialerWrite(ctx: MutationCtx, user: Doc<"users">) {
+  const access = await requireWriteAccess(ctx, user);
+  if (!may(access, "contact", "edit")) throw new ConvexError("Your role cannot place calls.");
+}
+
+async function reserveDialer(ctx: MutationCtx, user: Doc<"users">, kind: "sessions" | "calls") {
+  const perUser = kind === "sessions" ? DIALER_SESSIONS_PER_USER_DAY : DIALER_CALLS_PER_USER_DAY;
+  const perWorkspace = kind === "sessions" ? DIALER_SESSIONS_PER_WORKSPACE_DAY : DIALER_CALLS_PER_WORKSPACE_DAY;
+  if (!await reserveDaily(ctx, `dialer:${kind}:user:${user.orgId}:${user._id}`, perUser) ||
+      !await reserveDaily(ctx, `dialer:${kind}:org:${user.orgId}`, perWorkspace)) throw new ConvexError("Daily calling limit reached. Try again tomorrow.");
+}

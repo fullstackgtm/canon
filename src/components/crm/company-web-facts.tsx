@@ -35,9 +35,11 @@ export function CompanyWebFacts({ accountId, onPeopleAdded }: { accountId: strin
       <h2 className="mb-2 text-sm font-medium">From their website</h2>
       <CompanyPeople accountId={accountId} websiteReading={state === undefined || Boolean(state?.reading)} onAdded={onPeopleAdded} />
       {state?.discoverySources?.length ? <div className="mb-4 text-sm"><h3 className="font-medium">Where we found this company</h3>{state.discoverySources.map((source, i) => <blockquote key={i} className="mt-2 border-l-2 border-border pl-3 text-muted-foreground"><Source url={source.url}>Source page</Source><p className="mt-1">{source.quote}</p></blockquote>)}</div> : null}
+      {state?.limitReached && <p role="status" className="mb-2 text-sm text-muted-foreground">Daily website read limit reached. Try again tomorrow.</p>}
       {failed ? <p className="text-sm text-muted-foreground">We couldn&apos;t load the website facts. Reopen this company to try again.</p>
         : state === undefined || state?.reading ? <p role="status" className="text-sm text-muted-foreground">Reading their public website…</p>
         : !state ? <p className="text-sm text-muted-foreground">No public website is available for this company.</p>
+        : !facts && state.limitReached ? null
         : !facts ? <p className="text-sm text-muted-foreground">Website facts haven&apos;t been read yet.</p>
         : facts.status === "unreadable" ? <p className="text-sm text-muted-foreground">We couldn&apos;t read this website with a free direct request.</p>
         : facts.status === "error" ? <p className="text-sm text-muted-foreground">The website read failed. We&apos;ll try again when this read expires.</p>

@@ -10,7 +10,8 @@ import type { Id } from "../../_generated/dataModel";
 import { createDeeplineClient, DeeplineError, DEEPLINE_EMAIL_ENDPOINT } from "../deepline";
 import { findVerifiedWorkEmail, type EmailResult, type VerifiedEmail } from "../emailFinder";
 import { decryptFromStorage } from "../tokenHelpers";
-import { PAID_EMAIL_HITS_PER_MONTH, runChain, type KeySource } from "./registry";
+import type { PaidLookupReservationId } from "../spendLimits";
+import { runChain, type KeySource } from "./registry";
 import { meter, resolveFor } from "./meter";
 
 /** getleadsio lookups per UTC day across all workspaces. Free to us, but each hit spends one of treg's own getleadsio credits. */
@@ -55,15 +56,23 @@ async function hostedLookup(ctx: ActionCtx, a: { orgId: string; fullName: string
   if (!token) throw new ConvexError("Email lookup is not configured on this deployment.");
   if (!await ctx.runMutation(internal.records.reserveEmailLookup, { orgId: a.orgId })) throw new EmailLookupLimit("daily");
   const knownPattern = await ctx.runQuery(internal.emailPatterns.read, { domain: a.domain });
-  return findVerifiedWorkEmail({ ...a, token, meta: { customer: a.orgId, feature: "find_email" }, baseUrl: process.env.TREG_BASE_URL, knownPattern: knownPattern ?? undefined,
-    learn: async (pattern) => { await ctx.runMutation(internal.emailPatterns.learn, { domain: a.domain, pattern }); },
-    allowFreeFinder: () => ctx.runMutation(internal.populateActions.takeDaily, { provider: "getleadsio", cap: GETLEADS_LOOKUPS_PER_DAY }),
-    allowPaidFinder: async () => {
-      if ((await ctx.runQuery(internal.records.paidEmailHitsThisMonth, { orgId: a.orgId })) >= PAID_EMAIL_HITS_PER_MONTH) throw new EmailLookupLimit("monthly");
-      return true;
-    },
-    receipt: async (endpoint, r, hit = r.status === 200) => {
-      await meter(ctx, { orgId: a.orgId, provider: "treg", capability: "email.find", endpoint, callId: r.callId, costMicro: r.costMicro ?? 0, outcome: hit ? "hit" : "miss" });
-    },
-  });
+  let paidReservation: PaidLookupReservationId | null = null;
+  let paidHit = false;
+  try {
+    return await findVerifiedWorkEmail({ ...a, token, meta: { customer: a.orgId, feature: "find_email" }, baseUrl: process.env.TREG_BASE_URL, knownPattern: knownPattern ?? undefined,
+      learn: async (pattern) => { await ctx.runMutation(internal.emailPatterns.learn, { domain: a.domain, pattern }); },
+      allowFreeFinder: () => ctx.runMutation(internal.populateActions.takeDaily, { provider: "getleadsio", cap: GETLEADS_LOOKUPS_PER_DAY }),
+      allowPaidFinder: async () => {
+        paidReservation = await ctx.runMutation(internal.records.reservePaidEmailLookup, { orgId: a.orgId });
+        if (!paidReservation) throw new EmailLookupLimit("monthly");
+        return true;
+      },
+      receipt: async (endpoint, r, hit = r.status === 200) => {
+        if (endpoint === "hunter.people.email.find") paidHit = hit;
+        await meter(ctx, { orgId: a.orgId, provider: "treg", capability: "email.find", endpoint, callId: r.callId, costMicro: r.costMicro ?? 0, outcome: hit ? "hit" : "miss" });
+      },
+    });
+  } finally {
+    if (paidReservation) await ctx.runMutation(internal.records.settlePaidLookup, { reservationId: paidReservation, hit: paidHit });
+  }
 }

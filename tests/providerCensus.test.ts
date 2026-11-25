@@ -67,6 +67,8 @@ const CENSUS: Record<string, Partial<Record<Entry, readonly Use[]>>> = {
   "convex/expleeActions.ts": { explee: ["connect", "people.search"] },
   "convex/moduleSocialActions.ts": { receipt: ["receipt"] },
   "convex/researchSessionActions.ts": { receipt: ["receipt"] },
+  "convex/icpActions.ts": { receipt: ["receipt"] },
+  "convex/companyWebFactsFetch.ts": { receipt: ["receipt"] },
   "convex/marketSources.ts": { receipt: ["receipt"] },
   "convex/tamInvestigations.ts": { receipt: ["receipt"] },
 };

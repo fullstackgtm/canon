@@ -265,7 +265,7 @@ export const resolved = internalMutation({
       await chargeHeldCredits(ctx, { holdRef: run.reservation!.ref, ref: `tam:${candidate._id}`, amountMicro: CREDIT_RATES.tamCompany * MICRO, note: `Map my market kept ${candidate.name}` });
       await addStagedBatch(ctx, { jobId: run.jobId, source: `tam_investigation:${run._id}`, accounts: [{ name: candidate.name, domain: a.domain!, ...(candidate.linkedinUrl ? { linkedinUrl: candidate.linkedinUrl } : {}), discoverySources: candidate.sources, existing: false }], contacts: [] });
       await ctx.db.patch(run._id, { spentCredits: run.spentCredits + CREDIT_RATES.tamCompany, reservation: { ref: run.reservation!.ref, remaining: run.reservation!.remaining - CREDIT_RATES.tamCompany } });
-      await ctx.runMutation(internal.companyWebFacts.readAndEnsure, { domain: a.domain!, refresh: true });
+      await ctx.runMutation(internal.companyWebFacts.readAndEnsure, { domain: a.domain!, orgId: run.orgId, refresh: true });
     }
     await ctx.db.patch(candidate._id, { state, ...(a.domain ? { domain: a.domain, keys: candidateKeys({ ...candidate, domain: a.domain }) } : {}), ...(state === "kept" ? {} : { reason: duplicate ? "Already found in this run or workspace" : a.reason ?? "No confirmed website" }) });
     const counts = { ...run.counts, [state === "duplicate" ? "duplicates" : state]: run.counts[state === "duplicate" ? "duplicates" : state] + 1 };

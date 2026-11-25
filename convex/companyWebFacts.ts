@@ -1,3 +1,4 @@
+import { reserveDaily, WEBSITE_EXTRACTIONS_PER_DAY } from "./lib/spendLimits";
 import { v } from "convex/values";
 import { action, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -9,7 +10,7 @@ import { webPersonNameKey } from "./lib/tam/webPeople";
 import type { CandidateSource } from "./lib/tam/dedupe";
 
 const MAX_AGE = 90 * 24 * 60 * 60 * 1000;
-export type WebsiteFactsRead = { domain: string; reading: boolean; facts: CompanyWebFacts | null; discoverySources?: CandidateSource[]; recordSize?: { employees?: number; url: string } };
+export type WebsiteFactsRead = { domain: string; reading: boolean; limitReached?: boolean; facts: CompanyWebFacts | null; discoverySources?: CandidateSource[]; recordSize?: { employees?: number; url: string } };
 
 /** Account access is checked on every read, including each poll while extraction runs. */
 export const forAccount = action({
@@ -20,22 +21,23 @@ export const forAccount = action({
     if (!detail) return null;
     const domain = companyRootDomain(detail.account.domain);
     if (!domain) return null;
-    const result = await ctx.runMutation(internal.companyWebFacts.readAndEnsure, { domain, refresh: !caller.access.preview });
+    const result = await ctx.runMutation(internal.companyWebFacts.readAndEnsure, { domain, orgId: caller.orgId, refresh: !caller.access.preview });
     const discoverySources = await ctx.runQuery(internal.tamInvestigations.sourcesForDomain, { orgId: caller.orgId as Id<"organizations">, domain });
     return { ...result, discoverySources, recordSize: { ...(detail.account.employees !== undefined ? { employees: detail.account.employees } : {}), url: `/dashboard/accounts/${encodeURIComponent(accountId)}` } };
   },
 });
 
 export const readAndEnsure = internalMutation({
-  args: { domain: v.string(), refresh: v.boolean() },
-  handler: async (ctx, { domain, refresh }): Promise<WebsiteFactsRead> => {
+  args: { domain: v.string(), orgId: v.string(), refresh: v.boolean() },
+  handler: async (ctx, { domain, orgId, refresh }): Promise<WebsiteFactsRead> => {
     const facts = await ctx.db.query("companyWebFacts").withIndex("by_domain", (q) => q.eq("domain", domain)).unique();
     let marker = await ctx.db.query("companyWebFactReads").withIndex("by_domain", (q) => q.eq("domain", domain)).unique();
     if (refresh && !marker && (!facts || facts.staff === undefined || (facts.status === "ok" && facts.sizeCluesVersion !== 1) || Date.now() - facts.fetchedAt > MAX_AGE)) {
+      if (!await reserveDaily(ctx, `website:extract:${orgId}`, WEBSITE_EXTRACTIONS_PER_DAY)) return { domain, reading: false, limitReached: true, facts };
       const startedAt = Date.now();
       const id = await ctx.db.insert("companyWebFactReads", { domain, startedAt });
       marker = await ctx.db.get(id);
-      await ctx.scheduler.runAfter(0, internal.companyWebFactsFetch.extract, { domain, startedAt });
+      await ctx.scheduler.runAfter(0, internal.companyWebFactsFetch.extract, { domain, startedAt, orgId });
       // A killed action cannot leave every later viewer stuck on "Reading".
       await ctx.scheduler.runAfter(5 * 60_000, internal.companyWebFacts.expire, { domain, startedAt });
     }
