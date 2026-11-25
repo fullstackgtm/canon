@@ -1,3 +1,4 @@
+import { reserveDaily, ICP_DERIVATIONS_PER_DAY } from "./lib/spendLimits";
 /**
  * Saved ICPs (lib/icps.ts): a workspace keeps several. Anyone in the workspace
  * reads them; admins and managers edit them. Each active ICP is a gate: an
@@ -396,5 +397,14 @@ export const gatesLackBuyer = internalQuery({
   handler: async (ctx, args) => {
     const latest = await ctx.db.query("icpVersions").withIndex("by_orgId_and_version", (q) => q.eq("orgId", args.orgId)).order("desc").first();
     return Boolean(latest?.gates?.some((g) => !g.buyer));
+  },
+});
+
+export const reserveDerivation = internalMutation({
+  args: { orgId: v.id("organizations") },
+  handler: async (ctx, { orgId }) => {
+    await assertLegacyIcpsWritable(ctx, orgId);
+    if ((await forOrg(ctx, orgId)).length >= MAX_ICPS) throw new ConvexError("Delete an ICP before deriving another.");
+    if (!await reserveDaily(ctx, `icp:derive:${orgId}`, ICP_DERIVATIONS_PER_DAY)) throw new ConvexError("Daily ICP derivation limit reached. Try again tomorrow.");
   },
 });

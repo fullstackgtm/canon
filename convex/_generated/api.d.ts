@@ -504,6 +504,7 @@ import type * as lib_signals_website from "../lib/signals/website.js";
 import type * as lib_siteUrl from "../lib/siteUrl.js";
 import type * as lib_social_fixtures from "../lib/social/fixtures.js";
 import type * as lib_social_search from "../lib/social/search.js";
+import type * as lib_spendLimits from "../lib/spendLimits.js";
 import type * as lib_staging from "../lib/staging.js";
 import type * as lib_startingPlan from "../lib/startingPlan.js";
 import type * as lib_stripeBilling from "../lib/stripeBilling.js";
@@ -1152,6 +1153,7 @@ declare const fullApi: ApiFromModules<{
   "lib/siteUrl": typeof lib_siteUrl;
   "lib/social/fixtures": typeof lib_social_fixtures;
   "lib/social/search": typeof lib_social_search;
+  "lib/spendLimits": typeof lib_spendLimits;
   "lib/staging": typeof lib_staging;
   "lib/startingPlan": typeof lib_startingPlan;
   "lib/stripeBilling": typeof lib_stripeBilling;

@@ -16,16 +16,25 @@ const STAFF_SCHEMA = {
 };
 
 export const extract = internalAction({
-  args: { domain: v.string(), startedAt: v.number() },
-  handler: async (ctx, { domain, startedAt }) => {
+  args: { domain: v.string(), startedAt: v.number(), orgId: v.string() },
+  handler: async (ctx, { domain, startedAt, orgId }) => {
     const apiKey = process.env.OPENROUTER_API_KEY;
     let facts: CompanyWebFacts;
     try {
       facts = await extractCompanyWebsite(domain, {
         now: Date.now(),
-        staffModel: apiKey ? (prompt) => forcedToolCall(prompt, "website_staff", STAFF_SCHEMA, DEFAULT_ICP_DERIVATION_MODEL, {
-          provider: "openai", apiKey, openaiBaseUrl: OPENROUTER_API_BASE,
-        }) : undefined,
+        staffModel: apiKey ? async (prompt) => {
+          let hit = false;
+          try {
+            const result = await forcedToolCall(prompt, "website_staff", STAFF_SCHEMA, DEFAULT_ICP_DERIVATION_MODEL, {
+              provider: "openai", apiKey, openaiBaseUrl: OPENROUTER_API_BASE,
+            });
+            hit = true;
+            return result;
+          } finally {
+            await ctx.runMutation(internal.records.recordProviderCall, { orgId, provider: "openrouter", endpoint: "website_staff", feature: "website_facts", costMicro: 0, outcome: hit ? "hit" : "miss" });
+          }
+        } : undefined,
         fetchPage: async (url) => {
           if (Date.now() - startedAt > 120_000) return null;
           const r = await publicHttpGet(url, {

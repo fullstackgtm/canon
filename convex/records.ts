@@ -18,11 +18,12 @@ import { scopedRecordClient } from "./lib/scopedRecordClient";
 import { editPartyRecord, foundEmailEdit, isLedgerEditField, writeFoundEmail, type RecordAccountSnapshot, type RecordContactSnapshot, type RecordEditPorts, type RecordPatch } from "./lib/canon/partyLedger";
 import { partyFieldValue as fieldValue } from "./lib/objects/validators";
 import { TREG_PHONE_ENDPOINT } from "./lib/phoneFinder";
+import { paidLookupReservationId, reservePhoneLookupSpend, reservePaidEmailLookupSpend, settlePaidLookupSpend, type PhoneLookupReservation } from "./lib/spendLimits";
 import { TregRefusal } from "./lib/treg";
 import { EmailLookupLimit, findWorkEmail, type FoundEmail } from "./lib/providers/emailFind";
 import { findPhone as findPhoneOn } from "./lib/providers/phoneFind";
 import { meter, resolveFor } from "./lib/providers/meter";
-import { EMAIL_LOOKUPS_PER_DAY, PAID_PHONE_HITS_PER_MONTH, PHONE_LOOKUPS_PER_DAY, ProviderUnavailable } from "./lib/providers/registry";
+import { EMAIL_LOOKUPS_PER_DAY, ProviderUnavailable } from "./lib/providers/registry";
 import { filterValidator } from "./lib/scopeValidators";
 import { parseQuery } from "../modules/kernel/icpQuery";
 import { accountCriteria } from "./lib/icpCriteria";
@@ -850,6 +851,21 @@ export const phoneLookupUsage = internalQuery({
   },
 });
 
+export const reservePhoneLookup = internalMutation({
+  args: { orgId: v.string() },
+  handler: async (ctx, { orgId }): Promise<PhoneLookupReservation> => reservePhoneLookupSpend(ctx, orgId),
+});
+
+export const reservePaidEmailLookup = internalMutation({
+  args: { orgId: v.string() },
+  handler: async (ctx, { orgId }) => reservePaidEmailLookupSpend(ctx, orgId),
+});
+
+export const settlePaidLookup = internalMutation({
+  args: { reservationId: paidLookupReservationId, hit: v.boolean() },
+  handler: async (ctx, { reservationId, hit }) => settlePaidLookupSpend(ctx, reservationId, hit),
+});
+
 export type FindPhoneOutcome =
   | { status: "found" | "not_found" | "already_has_phone"; phone: string | null }
   | { status: "limit_reached"; phone: null; limit: "daily" | "monthly"; message: string };
@@ -875,13 +891,8 @@ export const findPhone = action({
     if (contact.phone) return { status: "already_has_phone", phone: contact.phone };
     const resolution = await resolveFor(ctx, caller.orgId, "phone.find");
     if (!resolution.chain.length) throw new ConvexError("Phone lookup is not configured on this deployment.");
-    const usage = await ctx.runQuery(internal.records.phoneLookupUsage, { orgId: caller.orgId });
-    if (usage.today >= PHONE_LOOKUPS_PER_DAY) {
-      return { status: "limit_reached", phone: null, limit: "daily", message: `Daily phone lookup limit (${PHONE_LOOKUPS_PER_DAY}) reached. Try again tomorrow.` };
-    }
-    if (usage.hitsThisMonth >= PAID_PHONE_HITS_PER_MONTH) {
-      return { status: "limit_reached", phone: null, limit: "monthly", message: `Monthly phone lookup allowance (${PAID_PHONE_HITS_PER_MONTH}) used up. It resets on the 1st (UTC).` };
-    }
+    const reservation = await ctx.runMutation(internal.records.reservePhoneLookup, { orgId: caller.orgId });
+    if ("limit" in reservation) return { status: "limit_reached", phone: null, limit: reservation.limit, message: `${reservation.limit === "daily" ? "Daily" : "Monthly"} phone lookup limit reached.` };
     const day = new Date().toISOString().slice(0, 10);
     let result;
     try {
@@ -894,8 +905,10 @@ export const findPhone = action({
         idempotencyKey: `find-phone:${caller.orgId}:${contact.id}:${day}`,
       });
     } catch (err) {
+      await ctx.runMutation(internal.records.settlePaidLookup, { reservationId: reservation.reservationId, hit: false });
       throw err instanceof TregRefusal ? new ConvexError(`Phone lookup unavailable: ${err.message}`) : err;
     }
+    await ctx.runMutation(internal.records.settlePaidLookup, { reservationId: reservation.reservationId, hit: Boolean(result.phone) });
     const call = result.call;
     if (result.phone) {
       // Enrichment the rep accepted: it fills the empty phone and loses to a CRM's.
