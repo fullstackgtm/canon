@@ -100,8 +100,8 @@ export const gtmOperatingModel = {
   repoBoundary: {
     slackIntake:
       "Repository boundary guidance: this operating-model registry belongs to the CanonCRM app repo; marketing-site copy, domains, and static website assets belong to the website repo.",
-    appRepo: "https://github.com/fullstackgtm/fullstackgtm",
-    websiteRepo: "https://github.com/ryanfsgtm/fullstackgtm-website",
+    appRepo: "https://github.com/fullstackgtm/canon",
+    websiteRepo: "https://github.com/example/website",
     appRepoOwns: [
       "GTM operating-model registry",
       "CRM-native source-of-record and sync guidance",

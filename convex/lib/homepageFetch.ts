@@ -47,9 +47,9 @@ export async function fetchHomepage(
   const direct = await deps.direct(url).catch(() => null);
   if (direct && readable(direct.text)) return { ...direct, via: "direct" };
 
-  if (deps.workerToken) {
+  if (deps.workerToken && deps.workerUrl) {
     try {
-      const r = await f(deps.workerUrl ?? "https://fsgtm-homepage-fetch.ryan-ad7.workers.dev", {
+      const r = await f(deps.workerUrl, {
         method: "POST",
         headers: { authorization: `Bearer ${deps.workerToken}`, "content-type": "application/json" },
         body: JSON.stringify({ domains: [domain] }),

@@ -24,7 +24,8 @@ const PAGE = 60_000;
 const DATA = `${process.env.HOME}/.fullstackgtm/data`;
 const INDEX = process.env.PDL_INDEX ?? `${DATA}/pdl_companies.duckdb`;
 const OUT = SAMPLE ? `${DATA}/homepages/sample` : `${DATA}/homepages`;
-const URL_ = process.env.FETCH_URL ?? "https://fsgtm-homepage-fetch.ryan-ad7.workers.dev";
+const URL_ = process.env.FETCH_URL ?? "";
+if (!URL_) throw new Error("Set FETCH_URL to your worker URL");
 const TOKEN = process.env.FETCH_TOKEN ?? readFileSync(`${process.env.HOME}/.fullstackgtm/fetch.key`, "utf8").trim();
 
 type Fetched = {

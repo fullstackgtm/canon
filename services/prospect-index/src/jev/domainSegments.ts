@@ -16,7 +16,7 @@ function textOf(html: string) {
 /** Homepage text, plus a pricing/product page when one is linked, capped for Jev. */
 export async function fetchSiteText(domain: string): Promise<string> {
   const get = async (url: string) => {
-    const r = await fetch(url, { headers: { "user-agent": "fullstackgtm-icp/1 (+https://fullstackgtm.com)" }, redirect: "follow", signal: AbortSignal.timeout(12_000) });
+    const r = await fetch(url, { headers: { "user-agent": "CanonCRM research/1 (+https://canoncrm.com)" }, redirect: "follow", signal: AbortSignal.timeout(12_000) });
     return r.ok ? await r.text() : "";
   };
   const home = await get(`https://${domain}/`);

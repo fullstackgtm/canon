@@ -18,7 +18,7 @@ import { NOTIFY_PATH, STATE_TTL_MS, WEBHOOK_PATH_PREFIX, signState, verifyState,
 import { UnipileError } from "./lib/linkedin/unipile";
 import { linkedinClient, linkedinClientOrThrow, unipileEnv } from "./lib/providers/linkedin";
 
-// The web app's origin: APP_URL, NEXT_PUBLIC_SITE_URL, or the known app for this deployment (dev.canoncrm.com).
+// The web app's origin: APP_URL, NEXT_PUBLIC_SITE_URL, or the known app for this deployment (the hosted development site).
 export const siteUrl = () => appUrl() ?? "http://localhost:3000";
 export const convexSiteUrl = () => (process.env.CONVEX_SITE_URL ?? "").replace(/\/$/, "");
 

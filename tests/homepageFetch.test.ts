@@ -10,7 +10,7 @@ test("a readable direct fetch never touches the fallbacks", async () => {
   const p = await fetchHomepage("acme.com", {
     direct: async (url) => ({ text: html(100), finalUrl: url }),
     fetch: (async () => { calls++; return ok("{}"); }) as unknown as typeof fetch,
-    workerToken: "t", scrapingBeeKey: "k",
+    workerUrl: "https://worker.example.com", workerToken: "t", scrapingBeeKey: "k",
   });
   assert.equal(p?.via, "direct");
   assert.equal(calls, 0);
@@ -24,7 +24,7 @@ test("an unreadable page falls back to the Worker, then ScrapingBee", async () =
     if (u.includes("scrapingbee")) return ok(html(100), { "spb-resolved-url": "https://acme.com/home" });
     return ok(JSON.stringify({ results: [{ title: "Acme", description: "", text: "short", finalUrl: null, blocked: false }] }));
   }) as unknown as typeof fetch;
-  const p = await fetchHomepage("acme.com", { direct: async () => ({ text: "<div id=root></div>", finalUrl: "https://acme.com/" }), fetch: fakeFetch, workerToken: "t", scrapingBeeKey: "k" });
+  const p = await fetchHomepage("acme.com", { direct: async () => ({ text: "<div id=root></div>", finalUrl: "https://acme.com/" }), fetch: fakeFetch, workerUrl: "https://worker.example.com", workerToken: "t", scrapingBeeKey: "k" });
   assert.deepEqual(seen, ["worker", "bee"]);
   assert.equal(p?.via, "scrapingbee");
   assert.equal(p?.finalUrl, "https://acme.com/home");
@@ -32,7 +32,7 @@ test("an unreadable page falls back to the Worker, then ScrapingBee", async () =
 
 test("the Worker result is used when readable, and missing credentials skip steps", async () => {
   const worker = (async () => ok(JSON.stringify({ results: [{ title: "Acme dental software", description: "For dental practices", text: "word ".repeat(80), finalUrl: "https://acme.com/", blocked: false }] }))) as unknown as typeof fetch;
-  const viaWorker = await fetchHomepage("acme.com", { direct: async () => null, fetch: worker, workerToken: "t" });
+  const viaWorker = await fetchHomepage("acme.com", { direct: async () => null, fetch: worker, workerUrl: "https://worker.example.com", workerToken: "t" });
   assert.equal(viaWorker?.via, "worker");
   assert.match(viaWorker?.text ?? "", /dental practices/);
   const none = await fetchHomepage("acme.com", { direct: async () => ({ text: "tiny", finalUrl: "https://acme.com/" }) });

@@ -48,7 +48,7 @@ test("submit is unpaired without a broker credential", () => withHome(async () =
 }));
 
 test("submit and status call the hosted gate with the paired token", () => withHome(async () => {
-  storeCredential("broker", { kind: "broker", baseUrl: "https://dev.canoncrm.com", accessToken: "fsgtm_test" } as never);
+  storeCredential("broker", { kind: "broker", baseUrl: "https://crm.example.com", accessToken: "fsgtm_test" } as never);
   const calls: Array<{ url: string; init: RequestInit }> = [];
   const fetchImpl = (async (url: string, init: RequestInit) => {
     calls.push({ url, init });
@@ -57,12 +57,12 @@ test("submit and status call the hosted gate with the paired token", () => withH
   }) as typeof fetch;
   const out = await submitFactBatch(batch, { fetchImpl });
   assert.equal(out.status, "ok");
-  assert.equal(calls[0].url, "https://dev.canoncrm.com/api/cli/canon/proposals");
+  assert.equal(calls[0].url, "https://crm.example.com/api/cli/canon/proposals");
   assert.equal((calls[0].init.headers as Record<string, string>).Authorization, "Bearer fsgtm_test");
   assert.deepEqual(JSON.parse(String(calls[0].init.body)), batch);
   const status = await readFactBatch("p1", { fetchImpl });
   assert.equal(status.status, "ok");
-  assert.equal(calls[1].url, "https://dev.canoncrm.com/api/cli/canon/proposals?patchPlanId=p1");
+  assert.equal(calls[1].url, "https://crm.example.com/api/cli/canon/proposals?patchPlanId=p1");
   const denied = await submitFactBatch(batch, { fetchImpl: (async () => new Response("{}", { status: 401 })) as typeof fetch });
   assert.deepEqual(denied, { status: "error", reason: "hosted authentication was rejected; pair the CLI again" });
 }));

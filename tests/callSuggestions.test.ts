@@ -78,9 +78,9 @@ test("adding a suggestion holds its fields to the role's field rules: a read-onl
 });
 
 test("our team: members, their company domains and listed entries count as our side; each meeting says why it suggested nothing", () => {
-  assert.deepEqual(["Fullstackgtm.com", "@acme.io", "ryan@old.example", "not a domain", "x@"].map(teamEntry), ["fullstackgtm.com", "acme.io", "ryan@old.example", null, null]);
-  const team = teamOf(["ryan@seller.example.org", "pat@gmail.com"], ["fullstackgtm.com"]);
-  assert.deepEqual(["ryan@fullstackgtm.com", "sam@seller.example.org", "pat@gmail.com", "kim@gmail.com", "casey@northwind.example"].map((e) => isOurSide(team, e)), [true, true, true, false, false]);
+  assert.deepEqual(["Example.com", "@acme.io", "teammate@old.example", "not a domain", "x@"].map(teamEntry), ["example.com", "acme.io", "teammate@old.example", null, null]);
+  const team = teamOf(["teammate@seller.example.org", "pat@gmail.com"], ["example.com"]);
+  assert.deepEqual(["teammate@example.com", "sam@seller.example.org", "pat@gmail.com", "kim@gmail.com", "casey@northwind.example"].map((e) => isOurSide(team, e)), [true, true, true, false, false]);
   assert.deepEqual([
     suggestionReason({ ourMeeting: false, others: 2, planned: 0 }),
     suggestionReason({ ourMeeting: true, others: 0, planned: 0 }),
