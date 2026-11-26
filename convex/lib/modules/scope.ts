@@ -3891,9 +3891,10 @@ export async function tamperDoc(ctx: MutationCtx, scope: ModuleScope, collection
 }
 
 /** Workspace administration reads event metadata across installed and removed modules, never their payloads. */
-export async function adminEventPage(ctx: QueryCtx, paginationOpts: { numItems: number; cursor: string | null }, start: number, end: number) {
+export async function adminEvents(ctx: QueryCtx, start: number, end: number, take: number) {
   const user = await getCurrentUser(ctx);
   if (!user || !can(user, "permissions.manage")) throw new ConvexError("Admin access required");
-  const result = await ctx.db.query("moduleEvents").withIndex("by_orgId_and_at", q => q.eq("orgId", user.orgId).gte("at", start).lte("at", end)).order("desc").paginate(paginationOpts);
-  return { ...result, page: result.page.map(r => ({ _id: r._id, at: r.at, actor: r.actor.kind === "visitor" ? { kind: "visitor" as const } : r.actor, verb: r.verb, moduleId: r.moduleId, collection: r.collection, key: r.key, fields: r.fields, kind: r.kind, fromVersion: r.fromVersion, toVersion: r.toVersion })) };
+  // A bounded take, not paginate: the audit list reads three tables in one query (convex/adminAudit.ts).
+  const rows = await ctx.db.query("moduleEvents").withIndex("by_orgId_and_at", q => q.eq("orgId", user.orgId).gte("at", start).lte("at", end)).order("desc").take(take);
+  return rows.map(r => ({ _id: r._id, at: r.at, actor: r.actor.kind === "visitor" ? { kind: "visitor" as const } : r.actor, verb: r.verb, moduleId: r.moduleId, collection: r.collection, key: r.key, fields: r.fields, kind: r.kind, fromVersion: r.fromVersion, toVersion: r.toVersion }));
 }
