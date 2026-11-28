@@ -81,8 +81,10 @@ export class BulkQuerySliceExpired extends Error {}
 export async function waitBulkQueryJob(c: SfConn, jobId: string, opts: { pollMs?: number; timeoutMs?: number; deadlineAt?: number; now?: () => number; heartbeat?: () => Promise<void> } = {}): Promise<number> {
   const now = opts.now ?? Date.now;
   const deadline = now() + (opts.timeoutMs ?? 10 * 60_000);
+  const timeout = () => new Error(`Bulk query job ${jobId} timed out`);
   let delay = opts.pollMs ?? 500;
   for (;;) {
+    if (now() >= deadline) throw timeout();
     if (opts.deadlineAt !== undefined && now() >= opts.deadlineAt) throw new BulkQuerySliceExpired();
     await opts.heartbeat?.();
     const sliceEndsFirst = opts.deadlineAt !== undefined && opts.deadlineAt <= deadline;
@@ -93,14 +95,17 @@ export async function waitBulkQueryJob(c: SfConn, jobId: string, opts: { pollMs?
       const res = await sfFetch(c, `${base(c)}/jobs/query/${jobId}`, { signal });
       job = await res.json() as typeof job;
     } catch (error) {
-      if (signal?.aborted && sliceEndsFirst) throw new BulkQuerySliceExpired();
+      if (signal?.aborted) {
+        if (sliceEndsFirst) throw new BulkQuerySliceExpired();
+        throw timeout();
+      }
       throw error;
     }
+    if (now() >= deadline) throw timeout();
     if (job.state === "JobComplete") return job.numberRecordsProcessed ?? 0;
     if (job.state === "Failed" || job.state === "Aborted") throw new Error(`Bulk query job ${jobId} ${job.state}: ${job.errorMessage ?? ""}`);
     if (opts.deadlineAt !== undefined && now() >= opts.deadlineAt) throw new BulkQuerySliceExpired();
-    if (now() > deadline) throw new Error(`Bulk query job ${jobId} timed out`);
-    await new Promise((r) => setTimeout(r, Math.min(delay, Math.max(0, (opts.deadlineAt ?? Infinity) - now()))));
+    await new Promise((r) => setTimeout(r, Math.min(delay, Math.max(0, Math.min(deadline, opts.deadlineAt ?? Infinity) - now()))));
     delay = Math.min(delay * 2, 5000);
   }
 }

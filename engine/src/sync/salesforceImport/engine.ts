@@ -153,6 +153,7 @@ export async function runImport(opts: RunOptions): Promise<{ done: boolean }> {
       if (!obj.bulkJobId) {
         const fields = await fieldsFor(opts, obj.apiName, caches);
         obj.bulkJobId = await createBulkQueryJob(opts.conn, `SELECT ${fields.join(", ")} FROM ${obj.apiName}`);
+        obj.bulkWaitStartedAt = now();
         obj.state = "running";
         obj.chunksDone = 0;
         obj.seen = 0;
@@ -162,15 +163,23 @@ export async function runImport(opts: RunOptions): Promise<{ done: boolean }> {
       } else if (!isStandard(obj.apiName) && !caches.defs.has(obj.apiName)) {
         await fieldsFor(opts, obj.apiName, caches);
       }
-      let lastHeartbeat = now();
-      await waitBulkQueryJob(opts.conn, obj.bulkJobId, {
-        deadlineAt: opts.deadlineAt, now,
-        heartbeat: async () => {
-          if (now() - lastHeartbeat < 30_000) return;
+      if ((obj.chunksDone ?? 0) === 0) {
+        if (obj.bulkWaitStartedAt === undefined) {
+          obj.bulkWaitStartedAt = now();
           await checkpoint(opts.objects, []);
-          lastHeartbeat = now();
-        },
-      });
+        }
+        const remaining = 60 * 60_000 - (now() - obj.bulkWaitStartedAt);
+        if (remaining <= 0) throw new Error(`Bulk query job ${obj.bulkJobId} timed out after 60 minutes`);
+        let lastHeartbeat = now();
+        await waitBulkQueryJob(opts.conn, obj.bulkJobId, {
+          deadlineAt: opts.deadlineAt, now, timeoutMs: remaining,
+          heartbeat: async () => {
+            if (now() - lastHeartbeat < 30_000) return;
+            await checkpoint(opts.objects, []);
+            lastHeartbeat = now();
+          },
+        });
+      }
       for (;;) {
         if (opts.deadlineAt !== undefined && now() >= opts.deadlineAt) return { done: false };
         const page = await bulkQueryPage(opts.conn, obj.bulkJobId, obj.locator, chunkSize);

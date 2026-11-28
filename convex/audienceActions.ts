@@ -51,7 +51,7 @@ async function contactsFor(ctx: ActionCtx, who: { orgId: Id<"organizations">; ac
   const ws = orgId as string;
   return resolveContacts(
     {
-      related: relatedPorts(client, ws, (companies) => ctx.runQuery(internal.deals.crmDealIdsOfCompanies, { orgId, access: who.access ?? null, companies })),
+      related: relatedPorts(client, ws, (companies, continuation) => ctx.runQuery(internal.deals.crmDealIdsOfCompanies, { orgId, access: who.access ?? null, companies, ...(continuation ? { continuation } : {}) })),
       listContacts: (req) => client.listRegister(ws, "contact", req),
       getContact: (id) => client.getContact(ws, id),
       accountNames: (ids) => accountNamesByList(client, ws, ids),

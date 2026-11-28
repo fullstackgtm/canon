@@ -571,3 +571,22 @@ test("scheduled Salesforce updates preserve imported currency, initialize new de
   await fresh.crm.salesforceSync(null);
   assert.equal((await fresh.deal()).currency, "USD");
 });
+
+test("scheduled Salesforce currency reaches new and existing deals while a person's hold wins", async () => {
+  for (const prepared of [false, true]) {
+    const w = world();
+    if (prepared) await files["salesforce.ts"].prepareDeals.handler(w.ctx(), {
+      orgId: "org", instanceUrl: "https://sf.test", deals: [{ crmId: "D1", name: "Deal", closeDate: "2026-12-01", dealType: "new_business", revenueType: "one_time", currency: "EUR" }],
+    });
+    await w.crm.salesforceSync(null, { currency: "EUR" });
+    assert.equal((await w.deal()).currency, "EUR");
+    await w.crm.salesforceSync(null, { currency: "GBP" });
+    assert.equal((await w.deal()).currency, "GBP");
+    const entries = w.db.rows("ledgerEntries").length;
+    await w.crm.salesforceSync(null, { currency: "GBP" });
+    assert.equal(w.db.rows("ledgerEntries").length, entries);
+    await w.write({ currency: "CAD" });
+    await w.crm.salesforceSync(null, { currency: "EUR" });
+    assert.equal((await w.deal()).currency, "CAD");
+  }
+});

@@ -2,8 +2,9 @@
  * A recipe's `recipe.md` read into the data Canon stores and runs (docs/recipes.md, "Writing a recipe"): the
  * frontmatter, the `## Settings` table, the page's sections, its actions, its prompts, which logic runs each play
  * (a Canon built-in or a name the recipe's TypeScript registers), the plays data and the evals. Every problem comes
- * with its line. Pure and dependency-free, so it runs in a Convex action at install time, in the browser and in Node.
+ * with its line. Pure, so it runs in a Convex action at install time, in the browser and in Node.
  */
+import { BLOCKS, SECTION_ATTRIBUTES, whenOf } from "../blocks.ts";
 import { themeDeclProblems, type ThemeDecl } from "../theme.ts";
 import { DEAL_ROLES } from "../../convex/lib/objects/registry.ts";
 import { DEAL_STAGES, PLAY_CHANNELS, type DealStage } from "../../convex/lib/plays/model.ts";
@@ -337,7 +338,7 @@ const FENCE = /^(`{3,})\s*([\w-]*)\s*(.*)$/;
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/;
 const HEADING_ATTRS: Record<string, readonly string[]> = {
   page: ["page"],
-  section: ["section", "when", "collapsed", "show"],
+  section: SECTION_ATTRIBUTES,
   panel: ["panel"],
   prompt: ["prompt", "args", "kind", "min_confidence", "tool"],
   partial: ["partial"],
@@ -356,14 +357,6 @@ function attrsOf(text: string): { attrs: Record<string, string>; error?: string 
     return "";
   });
   return rest.trim() ? { attrs, error: `can't read "${rest.trim()}": attributes are key=value or key="two words"` } : { attrs };
-}
-
-/** `stage = in`, `stage != in`, `stage in [in, case]` or `stage not in [...]`. */
-function whenOf(text: string): PageSection["when"] | null {
-  const m = /^stage\s*(=|!=|in|not in)\s*(\[[\w,\s]*\]|\w+)$/.exec(text.trim());
-  const stages = m?.[2].replace(/[[\]]/g, "").split(",").map((s) => s.trim()).filter(Boolean) ?? [];
-  if (!m || !stages.length || !stages.every((s) => (DEAL_STAGES as readonly string[]).includes(s))) return null;
-  return m[1] === "=" || m[1] === "in" ? { stage: stages as DealStage[] } : { notStage: stages as DealStage[] };
 }
 
 /** A table row's cells, `\|` read as a pipe inside a cell. */
@@ -586,20 +579,16 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
     else if (h.attrs.when !== undefined) {
       const when = whenOf(h.attrs.when);
       if (when) section.when = when;
-      else at(h.line, `when="${h.attrs.when}" must be stage = <${DEAL_STAGES.join("|")}>, stage != …, or stage in [ … ]`);
     }
-    if (h.attrs.collapsed !== undefined) {
-      if (h.attrs.collapsed === "true") section.collapsed = true;
-      else if (h.attrs.collapsed !== "false") at(h.line, "collapsed= is true or false");
+    const checked = BLOCKS[component].props.safeParse({ ...h.attrs, title: h.title });
+    if (!checked.success) for (const key of ["when", "collapsed", "show", "title"]) for (const issue of checked.error.issues.filter((i) => i.path[0] === key)) {
+      if (key !== "when" || object === "deal") at(h.line, issue.message);
     }
-    if (h.attrs.show !== undefined) {
-      const parts = PARTS[component as PageComponent];
+    if (h.attrs.collapsed === "true") section.collapsed = true;
+    if (h.attrs.show !== undefined && BLOCKS[component].props.shape.show.safeParse(h.attrs.show).success) {
       const named = h.attrs.show.split(",").map((x) => x.trim()).filter(Boolean);
-      if (!parts) at(h.line, `show= picks a component's parts, and ${component} has none to pick`);
-      else if (named.some((x) => !parts.includes(x))) at(h.line, `show= names ${component}'s parts: ${parts.join(", ")}`);
-      else section.show = parts.filter((x) => named.includes(x));
+      section.show = BLOCKS[component].parts!.filter((x) => named.includes(x));
     }
-    if (!h.title) at(h.line, "a section needs a title");
     sections.push({ section, object, line: h.line, fieldsLine: null, heading: h });
   }
   for (const f of fences.filter((x) => x.lang === "fields")) {

@@ -6066,6 +6066,7 @@ export default defineSchema({
         merged: v.number(),
         rejected: v.number(),
         bulkJobId: v.optional(v.string()),
+        bulkWaitStartedAt: v.optional(v.number()),
         state: v.union(v.literal("pending"), v.literal("running"), v.literal("done"), v.literal("failed")),
         locator: v.optional(v.string()),
         chunksDone: v.optional(v.number()),

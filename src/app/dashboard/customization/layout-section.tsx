@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, EyeOff, GripVertical, Pencil, Plus, SlidersH
 import { DEAL_STAGES, type DealStage } from "../../../../convex/lib/plays/model";
 import { KERNEL_ACTIONS, scopeOf, type ActionId, type Panel } from "../../../../recipes/actions";
 import type { Layout, LayoutOp, LayoutSection } from "../../../../recipes/md/edit";
+import { BLOCKS } from "../../../../recipes/blocks";
 import type { PageComponent } from "../../../../recipes/kernel";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -55,6 +56,7 @@ const startDrag = (e: DragEvent<HTMLElement>, card: HTMLElement | null, text: st
 export function SectionCard({ ctx, index, over, setOver, autoRename }: { ctx: Ctx; index: number; over: Slot | null; setOver: (s: Slot | null) => void; autoRename: boolean }) {
   const { layout, edit, notice, drag, setDrag, readOnly } = ctx;
   const s = layout.sections[index];
+  const props = BLOCKS[s.component].props.shape;
   const key = `section:${index}`;
   const card = useRef<HTMLLIElement>(null);
   const [open, setOpen] = useState(false);
@@ -117,8 +119,8 @@ export function SectionCard({ ctx, index, over, setOver, autoRename }: { ctx: Ct
       )}
       {open && (
         <div className="space-y-3 px-3 pb-3 pl-8">
-          {layout.object === "deal" && <Prop label="Shows in"><StageChips ctx={ctx} s={s} index={index} /></Prop>}
-          <Prop label="Starts">
+          {layout.object === "deal" && props.when && <Prop label="Shows in"><StageChips ctx={ctx} s={s} index={index} /></Prop>}
+          {props.collapsed && <Prop label="Starts">
             <div role="radiogroup" aria-label={`${s.title} starts`} className="flex">
               {([false, true] as const).map((c) => (
                 <button key={String(c)} type="button" role="radio" aria-checked={Boolean(s.collapsed) === c} disabled={readOnly} onClick={() => fold(c)}
@@ -127,7 +129,7 @@ export function SectionCard({ ctx, index, over, setOver, autoRename }: { ctx: Ct
                 </button>
               ))}
             </div>
-          </Prop>
+          </Prop>}
           {editable && <div><p className="mb-1 text-xs font-medium text-muted-foreground">{s.fields ? "Fields" : "Buttons"}</p>{s.fields ? <FieldsEditor ctx={ctx} index={index} /> : <ButtonsEditor ctx={ctx} index={index} />}</div>}
           {!readOnly && (
             <div className="flex gap-3 pt-1 text-xs">
@@ -432,11 +434,11 @@ export function AddSection({ ctx, onAdded }: { ctx: Ctx; onAdded: (index: number
             if (!c) return;
             e.preventDefault();
             if (c === "fields") setFields("");
-            else add({ op: "addSection", object: layout.object, component: c, title: words(c), before: null });
+            else add({ op: "addSection", object: layout.object, component: c, title: BLOCKS[c].title, before: null });
           }}>
           {layout.addable.map((c) => (
             <DropdownMenuItem key={c} className="rounded-none text-xs" onSelect={() => { pending.current = c; }}>
-              {c === "fields" ? "Fields…" : words(c)}<span className="ml-auto pl-4 font-mono text-[11px] text-muted-foreground">{c}</span>
+              {c === "fields" ? "Fields…" : BLOCKS[c].title}<span className="ml-auto pl-4 font-mono text-[11px] text-muted-foreground">{c}</span>
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

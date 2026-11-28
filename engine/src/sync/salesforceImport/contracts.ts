@@ -115,6 +115,7 @@ export type ObjectImportState = {
   merged: number;
   rejected: number;
   bulkJobId?: string;
+  bulkWaitStartedAt?: number;
   state: "pending" | "running" | "done" | "failed";
   /** B extension: resume point inside the bulk job. */
   locator?: string;
