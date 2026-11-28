@@ -90,6 +90,9 @@ export function appContentSecurityPolicy(env: Env = process.env): string {
     isDev ? "'unsafe-eval'" : null,
     ...clerkOrigins,
     clerkEnabled ? "https://challenges.cloudflare.com" : null,
+    // The operator BugDrop widget loads from `${site}/bugdrop/widget.js`
+    // (src/components/bugdrop-tray.tsx), which redirects to the pinned asset.
+    convexSiteUrl?.origin,
   ]);
 
   const connectSrc = unique([

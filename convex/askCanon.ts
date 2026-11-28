@@ -17,6 +17,7 @@ import type { Id } from "./_generated/dataModel";
 import { DEFAULT_MODELS, forcedToolCall } from "../engine/src/llm.ts";
 import { resolveLlm } from "./lib/llmResolver";
 import { callerClient, requireCaller } from "./records";
+import { admitThenRead } from "./lib/scopedRecordClient";
 import { hiddenFields, type Access } from "./lib/access";
 import { ask, MAX_QUESTION_CHARS, type AskMessage, type Source } from "./lib/ask/askLoop";
 import { buildPlane } from "./dealPlays";
@@ -25,7 +26,7 @@ import { dealChatContext } from "./lib/ask/dealContext";
 /** How this workspace names the objects it renamed, for the model to answer in its words. */
 const glossaryOf = (renamed: readonly { object: string; label: string; pluralLabel: string }[]) =>
   renamed.length ? `This workspace names some objects its own way; use its names in answers: ${renamed.map((r) => `${r.object} records are "${r.pluralLabel}" (one is a "${r.label}")`).join("; ")}.` : "";
-import { askTools, recordAskData, type AskData, type FactInfo, type ObjectInfo } from "./lib/ask/tools";
+import { askTools, recordAskData, type AskData, type ConversationInfo, type ConversationMessage, type FactInfo, type ObjectInfo } from "./lib/ask/tools";
 
 /** One turn at most: a stuck model call stops here and the turn reports it. */
 const TURN_MS = 120_000;
@@ -49,9 +50,28 @@ async function entityOf(ctx: ActionCtx, orgId: string, access: Access, object: s
   return { entityId: found.entityId, fields: found.fields.map((f) => ({ attribute: f.attribute, value: f.value, state: f.state, sourceKind: f.sourceKind ?? null, updatedAt: f.updatedAt })) };
 }
 
+type Summary = { conversationId: string; channel: string; mine: boolean; lastMessageAt: number; contactIds: string[]; counterpart: ConversationInfo["counterpart"] & Record<string, unknown>; lastMessage: ConversationMessage | null };
+const conversationInfo = (c: Summary & { subject?: string }): ConversationInfo => ({
+  conversationId: c.conversationId, channel: c.channel, mine: c.mine, lastMessageAt: c.lastMessageAt, contactIds: c.contactIds,
+  counterpart: { ...(c.counterpart.name ? { name: c.counterpart.name } : {}), ...(c.counterpart.email ? { email: c.counterpart.email } : {}), ...(c.counterpart.domain ? { domain: c.counterpart.domain } : {}), ...(c.counterpart.profileUrl ? { profileUrl: c.counterpart.profileUrl } : {}) },
+  ...(c.subject ? { subject: c.subject } : {}), lastMessage: c.lastMessage,
+});
+
 /** Ask Canon reads only what the caller sees (CP14): every record it looks up goes through the caller's client, and a field hidden from them leaves its facts and receipts too. */
 function dataFor(ctx: ActionCtx, orgId: string, access: Access): AskData {
-  return recordAskData(callerClient(ctx, { orgId, access }), orgId, {
+  const client = callerClient(ctx, { orgId, access });
+  // Conversations read as /mcp's canon_conversations does (convex/conversationsApi.ts): the caller's own, and others'
+  // only through a contact their role sees, each message's text only where lib/conversations/store.ts allows.
+  const conversations: AskData["conversations"] = async (contactIds, limit) => {
+    const listed = await admitThenRead(client, orgId, (admitted) => ctx.runQuery(internal.conversationsApi.listFor, { ...(contactIds ? { contactIds } : {}), limit, admitted }));
+    return listed.conversations.map((c) => conversationInfo(c as unknown as Summary));
+  };
+  const thread: AskData["thread"] = async (conversationId, limit) => {
+    const read = await admitThenRead(client, orgId, (admitted) => ctx.runQuery(internal.conversationsApi.threadFor, { conversationId, limit, admitted }));
+    if (!read) return null;
+    return { conversation: conversationInfo(read as unknown as Summary), messages: read.messages as ConversationMessage[], more: read.more };
+  };
+  const data = recordAskData(client, orgId, {
     async describe(object): Promise<ObjectInfo | null> {
       const d = await ctx.runQuery(api.objects.describe, { object });
       if (!d) return null;
@@ -67,6 +87,7 @@ function dataFor(ctx: ActionCtx, orgId: string, access: Access): AskData {
         : null;
     },
   }, (object) => new Set(hiddenFields(access, object)));
+  return { ...data, conversations, thread };
 }
 
 export const send = action({

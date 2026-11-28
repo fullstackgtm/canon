@@ -55,6 +55,8 @@ test("next.config.ts security headers enforce app-wide CSP, preserve visitor CSP
   });
   assert.match(hostedCsp, /default-src 'self'/);
   assert.match(hostedCsp, /script-src [^;]*'self'[^;]*'unsafe-inline'[^;]*https:\/\/clerk\.canoncrm\.com/);
+  assert.match(hostedCsp, /script-src [^;]*https:\/\/happy-otter-123\.convex\.site/);
+  assert.doesNotMatch(hostedCsp, /script-src [^;]*\*\.convex\.site/);
   assert.doesNotMatch(hostedCsp, /'unsafe-eval'/);
   assert.match(hostedCsp, /connect-src [^;]*wss:\/\/happy-otter-123\.convex\.cloud/);
   assert.match(hostedCsp, /connect-src [^;]*wss:\/\/rtc\.telnyx\.com/);

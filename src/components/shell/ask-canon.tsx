@@ -174,7 +174,7 @@ function AskCanonEnabled() {
             <MessageSquare className="size-4" /> Ask Canon
           </SheetTitle>
           <SheetDescription id="ask-canon-desc" className="text-xs">
-            Read-only questions about your accounts, contacts and deals. It never changes a record.
+            Read-only questions about your accounts, people, deals, meetings and conversations. It never changes a record.
           </SheetDescription>
         </SheetHeader>
 
