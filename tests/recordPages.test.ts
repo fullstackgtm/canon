@@ -1,4 +1,4 @@
-import { tabs } from "./helpers/layout-tabs.ts";
+import { recordSummary, tabs } from "./helpers/layout-tabs.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -24,6 +24,7 @@ const sections: { PageSections?: ComponentType<Record<string, unknown>> } = {};
 runInNewContext(ts.transpileModule(readFileSync(new URL("../src/components/records/page-sections.tsx", import.meta.url), "utf8"), {
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
 }).outputText, { exports: sections, require: (id: string) => (id === "@/components/ui/tabs" ? tabs :
+  id === "./record-summary" ? recordSummary :
   id === "@/components/shell/nav" ? nav :
   id === "../../../recipes/theme" ? theme :
   id === "../../../recipes" ? recipes :
@@ -84,7 +85,7 @@ test("explicit layout draws responsive columns, UI SDK tabs, cards and trailing 
   assert.match(html, /role="tabpanel"/);
   assert.match(html, /People/);
   assert.match(html, />Context<\/h2>/);
-  assert.match(html, /rounded-xl border py-6 shadow-sm/);
+  assert.match(html, /data-layout="card" class="record-panel"/);
   assert.match(html, /fitBar/);
   assert.ok(html.indexOf("header") < html.indexOf("timeline"));
 });
@@ -99,6 +100,43 @@ test("page tokens reach the section scope and a styled card renders as a disclos
   const html = renderToStaticMarkup(createElement(NO_SHAPE.LayoutTreeContext.Provider, { value: tree }, createElement(sections.PageSections!, { object: "account", page, stage: null, renderers })));
   assert.match(html, /data-density="compact" data-surface="flat" data-header-band="brand" style="--primary:#0176d3/);
   assert.match(html, /<details open="" data-layout="card" data-tone="accent"/);
-  assert.match(html, /<summary[^>]*><svg[^>]*aria-hidden="true"[^>]*>.*<\/svg>Context<\/summary>/);
+  assert.match(html, /<summary class="record-summary record-section-title record-card-title"><svg[^>]*class="[^"]*record-chevron[^"]*"[^>]*>/);
+  assert.match(html, /Context<\/span><\/summary><div data-record-card-body="single"/);
+  assert.doesNotMatch(html, /autofocus/i);
   assert.match(html, /<p>Account<\/p>/);
+});
+
+test("record block classes use the shared typography roles", () => {
+  for (const file of ["record-blocks.tsx", "record-page.tsx", "page-sections.tsx", "data-section.tsx", "deal-products.tsx"]) {
+    const source = readFileSync(new URL(`../src/components/records/${file}`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /(?:^|["'\s])(?:font-[\w-]+|text-(?:\[\d[^\]]*\]|xs|sm|base|lg|xl|\d+xl))(?=["'\s])/, file);
+  }
+});
+
+test("a record field section uses the shared frame, disclosure, label and value roles", () => {
+  const blocks: { RecordBlocks?: ComponentType<Record<string, unknown>> } = {};
+  const empty = () => null;
+  const stubs: Record<string, unknown> = {
+    "./record-summary": recordSummary,
+    "./record-relation-query": { useReadableRecordObjects: empty },
+    "./money": { useWorkspaceMoney: () => ({ currency: "USD" }) },
+    "./fields": { isEditable: () => true, InlineField: ({ value }: { value: string }) => value },
+    "../../../recipes/recordFields": { visibleRecordFields: (fields: unknown) => fields, canEditRecordField: () => false },
+    "@/lib/utils": { cn: (...classes: unknown[]) => classes.filter(Boolean).join(" ") },
+  };
+  runInNewContext(ts.transpileModule(readFileSync(new URL("../src/components/records/record-blocks.tsx", import.meta.url), "utf8"), {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports: blocks, require: (id: string) => stubs[id] ?? (["react", "react/jsx-runtime"].includes(id) ? require(id) : {}) });
+
+  const section = { component: "fieldSection", props: { title: "Opportunity Information", fields: ["name"], collapsible: true } };
+  const props = {
+    page: [section],
+    context: {},
+    data: { object: "deal", desc: { fields: [{ fieldId: "name", label: "Opportunity name", type: "text" }] }, values: { name: "Northstar" } },
+    children: (renderers: { fieldSection: (section: unknown) => ReactNode }) => renderers.fieldSection(section),
+  };
+  const html = renderToStaticMarkup(createElement(blocks.RecordBlocks!, props));
+  assert.match(html, /<details class="record-panel" open="">/);
+  assert.match(html, /<summary class="record-summary record-section-title [^"]+">.*Opportunity Information<\/span><\/summary>/);
+  assert.match(html, /<dt class="[^"]*record-label">Opportunity name<\/dt><dd class="record-value">Northstar<\/dd>/);
 });

@@ -411,12 +411,13 @@ export const save = action({
   },
   handler: async (ctx, args): Promise<{ recipeId: string; revision: number; copied: boolean; blocked: boolean; failing: string[]; evalsNotRun: string | null }> => {
     const object = args.object ?? "deal";
-    const note = args.note ?? `Customized on the ${object} page`;
     if (args.scope !== "workspace") {
       const out = await ctx.runMutation(api.workspaceRecipes.savePersonal, { object, recipeId: args.recipeId, markdown: args.markdown,
         layerRevision: args.layerRevision ?? 0, baseMarkdown: args.baseMarkdown ?? (await ctx.runQuery(api.workspaceRecipes.markdown, { recipeId: args.recipeId }))!.markdown });
       return { recipeId: args.recipeId, revision: out.revision, copied: false, blocked: false, failing: [], evalsNotRun: null };
     }
+    const summary = args.note?.trim();
+    const note = summary?.startsWith("Promoted from ") ? summary : `Pencil: ${summary || `Customized on the ${object} page`}`;
     if (isWorkspaceId(args.recipeId)) {
       if (args.baseRevision === undefined) throw new ConvexError("Saving a workspace customization needs the revision the draft was made from.");
       const out = await ctx.runAction(api.workspaceRecipes.save, { recipeId: args.recipeId, markdown: args.markdown, baseRevision: args.baseRevision, note, acceptFailingEvals: args.acceptFailingEvals });

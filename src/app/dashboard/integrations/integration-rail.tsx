@@ -12,6 +12,7 @@ import { integrationDef, type IntegrationKey } from "./catalog";
 import { IntegrationMark, StatusDot, statusTextClass, type IntegrationStatus } from "./integration-ui";
 import { useCrm } from "./crm-panels";
 import { DeeplineControls } from "./deepline-card";
+import { StripeControls } from "./stripe-card";
 import { SequencerControls } from "./sequencer-card";
 import { SlackControls } from "./slack-card";
 
@@ -219,6 +220,8 @@ function Detail({ integration }: { integration: IntegrationKey }) {
       return <RailSection title="Settings"><SequencerControls key={integration} provider={integration} /></RailSection>;
     case "deepline":
       return <RailSection title="Settings"><DeeplineControls /></RailSection>;
+    case "stripe":
+      return <RailSection title="Contracts"><StripeControls /></RailSection>;
     case "chatgpt":
       return <ChatgptDetail />;
     case "slack":

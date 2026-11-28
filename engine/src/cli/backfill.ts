@@ -1,12 +1,14 @@
-// `backfill stripe` — paid Stripe invoices → closed-won deal proposals through
-// the governed plan/apply flow. This command NEVER writes to a CRM: it reads
-// paid invoices (Stripe, read-only), reads a CRM snapshot, and builds a
-// dry-run create_record plan. --save persists the plan for the normal
+// `backfill stripe` — Stripe subscriptions → one closed-won booking each
+// (start date, monthly amount, open ended until canceled), with their
+// invoices attached rather than booked as separate deals. This command NEVER
+// writes to a CRM: it reads Stripe (read-only), reads a CRM snapshot, and
+// builds a dry-run create_record plan. --save persists the plan for the normal
 // plans approve → apply spine, where the HubSpot connector re-resolves each
-// invoice id (resolve-first) and creates only on a confirmed miss.
+// subscription id (resolve-first) and creates only on a confirmed miss.
 
 import { buildStripeBackfillPlan, DEFAULT_BACKFILL_MATCH_PROPERTY } from "../backfill.ts";
-import { fetchStripePaidInvoices } from "../connectors/stripe.ts";
+import { fetchStripeRevenue } from "../connectors/stripe.ts";
+import { bookableContracts, buildRevenueContracts } from "../revenueContracts.ts";
 import { getCredential } from "../credentials.ts";
 import { patchPlanToMarkdown } from "../format.ts";
 import { createFilePlanStore } from "../planStore.ts";
@@ -23,7 +25,7 @@ function resolveStripeKey(): string {
   if (!key) {
     throw new Error(
       "No Stripe credentials. Run `echo \"$STRIPE_KEY\" | fullstackgtm login stripe` or set STRIPE_SECRET_KEY. " +
-        "A restricted key with read access to Invoices and Customers is enough. (`fullstackgtm doctor` shows credential status.)",
+        "A restricted key with read access to Customers, Subscriptions, Invoices and Products is enough. (`fullstackgtm doctor` shows credential status.)",
     );
   }
   return key;
@@ -56,12 +58,17 @@ export async function backfillCommand(args: string[]) {
     progress.stage(name, BACKFILL_STRIPE_STAGES.indexOf(name), BACKFILL_STRIPE_STAGES.length);
   let result: ReturnType<typeof buildStripeBackfillPlan>;
   try {
-    // 1. Revenue truth: paid invoices from Stripe (read-only).
+    // 1. Revenue truth: subscriptions and invoices from Stripe (read-only),
+    //    grouped into one contract per subscription.
     stage("invoices");
     const stripeKey = resolveStripeKey();
-    const invoices = await fetchStripePaidInvoices(
+    const revenue = await fetchStripeRevenue(
       { getApiKey: () => stripeKey },
-      { ...(since ? { sinceIso: since } : {}), onPage: (fetched) => progress.items(fetched) },
+      { onPage: (fetched) => progress.items(fetched) },
+    );
+    const imported = buildRevenueContracts(revenue.subscriptions, revenue.invoices);
+    const contracts = bookableContracts(imported.contracts).filter(
+      (contract) => !since || (contract.startDate ?? "") >= since.slice(0, 10),
     );
 
     // 2. The CRM as it stands (same source options as audit: --provider <crm>,
@@ -74,10 +81,11 @@ export async function backfillCommand(args: string[]) {
     //    deal yet; unmatched customers also get a proposed account (unless
     //    --skip-unmatched restores report-only behavior).
     stage("matching");
-    result = buildStripeBackfillPlan(invoices, snapshot, {
+    result = buildStripeBackfillPlan(contracts, snapshot, {
+      unattachedInvoices: imported.unattached,
       pipeline,
       matchProperty,
-      source: "stripe:invoices",
+      source: "stripe:subscriptions",
       createMissingAccounts: !skipUnmatched,
     });
     stage("plan");
@@ -89,7 +97,13 @@ export async function backfillCommand(args: string[]) {
   if (rest.includes("--json")) {
     console.log(
       JSON.stringify(
-        { plan: result.plan, counts: result.counts, unmatched: result.unmatched, proposedAccounts: result.proposedAccounts },
+        {
+          plan: result.plan,
+          counts: result.counts,
+          unmatched: result.unmatched,
+          proposedAccounts: result.proposedAccounts,
+          unattachedInvoices: result.unattachedInvoices,
+        },
         null,
         2,
       ),
@@ -107,31 +121,46 @@ export async function backfillCommand(args: string[]) {
           "created only if this plan is approved and applied:",
       );
       const accountRows = [
-        ["account", "domain", "invoices"],
+        ["account", "domain", "contracts"],
         ...result.proposedAccounts.map((entry) => [
           entry.name,
           entry.domain ?? "—",
-          String(entry.invoiceCount),
+          String(entry.contractCount),
         ]),
       ];
       for (const line of table(accountRows)) console.log(`  ${line}`);
     }
     if (result.unmatched.length > 0) {
       console.log(
-        `\nUnmatched invoices (${result.unmatched.length}) — ${
+        `\nUnmatched subscriptions (${result.unmatched.length}) — ${
           skipUnmatched
             ? "customer matched no CRM account by domain or name; reported only (--skip-unmatched)"
             : "customer has no usable name or company domain; reported only"
         }:`,
       );
       const rows = [
-        ["invoice", "customer", "domain", "amount", "paid"],
+        ["subscription", "customer", "domain", "monthly", "start"],
         ...result.unmatched.map((entry) => [
-          entry.invoiceNumber ?? entry.invoiceId,
+          entry.subscriptionId,
           entry.customerName ?? "—",
           entry.customerDomain ?? "—",
-          `${entry.amountPaid}${entry.currency ? ` ${entry.currency}` : ""}`,
-          entry.paidAt ?? "—",
+          entry.mrr === undefined ? "metered" : `${entry.mrr}${entry.currency ? ` ${entry.currency}` : ""}`,
+          entry.startDate ?? "—",
+        ]),
+      ];
+      for (const line of table(rows)) console.log(`  ${line}`);
+    }
+    if (result.unattachedInvoices.length > 0) {
+      console.log(
+        `\nInvoices with no subscription (${result.unattachedInvoices.length}) — listed for review, not booked as deals:`,
+      );
+      const rows = [
+        ["invoice", "customer", "amount", "status"],
+        ...result.unattachedInvoices.map((entry) => [
+          entry.number ?? entry.id,
+          entry.customerName ?? "—",
+          `${entry.amountDue}${entry.currency ? ` ${entry.currency}` : ""}`,
+          entry.status ?? "—",
         ]),
       ];
       for (const line of table(rows)) console.log(`  ${line}`);
@@ -145,13 +174,13 @@ export async function backfillCommand(args: string[]) {
     return;
   }
   if (result.plan.operations.length === 0) {
-    console.error("No deals to backfill (every paid invoice already matched a deal or its customer was unmatched); nothing saved.");
+    console.error("No bookings to backfill (every subscription already matched a deal or its customer was unmatched); nothing saved.");
     return;
   }
   await createFilePlanStore().save(result.plan);
   console.error(
     `Saved plan ${result.plan.id} — ${result.counts.planned} closed-won deal(s)` +
-      `${result.counts.accountsProposed > 0 ? ` + ${result.counts.accountsProposed} new account(s)` : ""} from ${result.counts.invoices} paid invoice(s). ` +
+      `${result.counts.accountsProposed > 0 ? ` + ${result.counts.accountsProposed} new account(s)` : ""} from ${result.counts.contracts} subscription(s), covering ${result.counts.invoicesCovered} invoice(s). ` +
       `Review \`fullstackgtm plans show ${result.plan.id}\`, approve \`fullstackgtm plans approve ${result.plan.id} --operations all\`, ` +
       `then \`fullstackgtm apply --plan-id ${result.plan.id} --provider hubspot\`. ` +
       `Apply re-checks ${result.plan.operations.length ? `the ${matchProperty ?? DEFAULT_BACKFILL_MATCH_PROPERTY} dedupe key` : "resolve-first"} before creating.`,

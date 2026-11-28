@@ -5,6 +5,7 @@ import type { IntegrationFeature } from "../../../../convex/lib/integrationsAvai
 export type IntegrationKey =
   | "hubspot"
   | "salesforce"
+  | "stripe"
   | "gmail"
   | "explee"
   | "deepline"
@@ -56,6 +57,20 @@ export const INTEGRATION_GROUPS: { title: string; items: IntegrationDef[] }[] = 
         description:
           "Import Salesforce and keep CanonCRM in sync with it. The sync never writes to Salesforce; Canon fields manage what is written back.",
         href: "/dashboard/integrations/salesforce",
+      },
+    ],
+  },
+  {
+    title: "Billing",
+    items: [
+      {
+        key: "stripe",
+        name: "Stripe",
+        logo: "/integrations/stripe.svg",
+        mark: "ST",
+        summary: "Contracts, invoices and payments, read-only",
+        description:
+          "Import your Stripe subscriptions as contracts: one per subscription, with its start date, monthly amount and every invoice attached. Canon only reads from Stripe. Booking them as closed-won deals is a separate plan you approve, one deal per subscription, never one per invoice.",
       },
     ],
   },

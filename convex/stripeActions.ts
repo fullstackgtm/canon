@@ -8,9 +8,15 @@ import { decryptFromStorage } from "./lib/tokenHelpers";
 import { connectorForOrg } from "./hubspotActions";
 import { snapshotFromPages } from "./hygiene";
 import {
-  fetchStripePaidInvoices,
+  fetchStripeRevenue,
   type StripeConnectorOptions,
 } from "../engine/src/connectors/stripe.ts";
+import {
+  bookableContracts,
+  buildRevenueContracts,
+  type RevenueImport,
+  type StripeRevenueInvoice,
+} from "../engine/src/revenueContracts.ts";
 import {
   buildStripeBackfillPlan,
   type StripeBackfillProposedAccount,
@@ -23,18 +29,37 @@ import type { PersistedDoOperation } from "./gtm";
 import type { Id } from "./_generated/dataModel";
 
 /**
- * Stripe → closed-won backfill, app-side. Stripe is the revenue source of
- * truth; these actions read PAID invoices and drive the governed backfill:
+ * Stripe → revenue contracts and closed-won backfill, app-side
+ * (docs/revenue-contracts.md). Stripe is the revenue source of truth; these
+ * actions read subscriptions and invoices, mirror them as contracts (one per
+ * subscription, invoices attached), and drive the governed backfill, which
+ * books ONE closed-won deal per subscription, never one per invoice:
  *
  *   preview (read-only, no writes anywhere)
  *     → approval in the normal patch-plan flow
- *       → apply (resolve-first deal creates in the CRM, deduped by invoice id)
+ *       → apply (resolve-first deal creates in the CRM, deduped by subscription id)
  *
  * The plan builder and connectors are the open-source package's — the app
  * only supplies credentials and the approval surface.
  */
 
 const STRIPE_VALIDATE_PATH = "/v1/customers?limit=1";
+const UPSERT_BATCH = 100;
+
+/** Stripe subscriptions + invoices grouped into contracts (read-only). */
+async function readRevenue(options: StripeConnectorOptions): Promise<RevenueImport> {
+  const { subscriptions, invoices } = await fetchStripeRevenue(options);
+  return buildRevenueContracts(subscriptions, invoices);
+}
+
+/** The contracts a backfill books: real commitments, optionally started on/after `sinceIso`. */
+function backfillInputs(revenue: RevenueImport, sinceIso?: string) {
+  const since = sinceIso?.slice(0, 10);
+  return {
+    contracts: bookableContracts(revenue.contracts).filter((c) => !since || (c.startDate ?? "") >= since),
+    unattachedInvoices: revenue.unattached,
+  };
+}
 
 async function requireManagerUser(ctx: any) {
   const user = await ctx.runQuery(internal.users.currentUser, {});
@@ -92,7 +117,7 @@ export const connect = action({
 });
 
 /**
- * Dry-run: paid invoices vs the synced CRM. Returns the would-be plan summary
+ * Dry-run: Stripe contracts vs the synced CRM. Returns the would-be plan summary
  * plus unmatched customers. Writes nothing.
  */
 export const backfillPreview = action({
@@ -104,8 +129,9 @@ export const backfillPreview = action({
     ctx,
     args,
   ): Promise<{
-    invoiceCount: number;
+    contractCount: number;
     operationCount: number;
+    unattachedInvoices: StripeRevenueInvoice[];
     summary: string;
     unmatched: StripeBackfillUnmatched[];
     proposedAccounts: StripeBackfillProposedAccount[];
@@ -115,18 +141,17 @@ export const backfillPreview = action({
     await ctx.runQuery(internal.permissions.requireUnrestrictedPrincipal, { orgId: user.orgId, userId: user._id, what: "the Stripe backfill over the CRM" });
     const options = await stripeOptionsForOrg(ctx, user.orgId);
 
-    const invoices = await fetchStripePaidInvoices(options, {
-      sinceIso: args.sinceIso,
-    });
+    const { contracts, unattachedInvoices } = backfillInputs(await readRevenue(options), args.sinceIso);
     const snapshot = await snapshotFromPages(ctx, user.orgId);
     const { plan, unmatched, proposedAccounts } = buildStripeBackfillPlan(
-      invoices,
+      contracts,
       snapshot,
-      { pipeline: args.pipeline },
+      { pipeline: args.pipeline, unattachedInvoices },
     );
 
     return {
-      invoiceCount: invoices.length,
+      contractCount: contracts.length,
+      unattachedInvoices,
       operationCount: plan.operations.length,
       summary: plan.summary,
       unmatched,
@@ -166,18 +191,16 @@ export const proposeBackfillPlan = action({
     await ctx.runQuery(internal.permissions.requireUnrestrictedPrincipal, { orgId: user.orgId, userId: user._id, what: "the Stripe backfill over the CRM" });
     const options = await stripeOptionsForOrg(ctx, user.orgId);
 
-    const invoices = await fetchStripePaidInvoices(options, {
-      sinceIso: args.sinceIso,
-    });
+    const { contracts, unattachedInvoices } = backfillInputs(await readRevenue(options), args.sinceIso);
     const snapshot = await snapshotFromPages(ctx, user.orgId);
     const { plan, unmatched, proposedAccounts } = buildStripeBackfillPlan(
-      invoices,
+      contracts,
       snapshot,
-      { pipeline: args.pipeline },
+      { pipeline: args.pipeline, unattachedInvoices },
     );
     if (plan.operations.length === 0) {
       throw new ConvexError(
-        "Nothing to backfill: every paid invoice already has a matching deal (or its customer has no usable identity).",
+        "Nothing to backfill: every Stripe subscription already has a matching deal (or its customer has no usable identity).",
       );
     }
     // Write-cap protection: each operation is a patchOperations row, and a
@@ -228,7 +251,7 @@ export const proposeBackfillPlan = action({
  * Apply EXACTLY the persisted, approved operations of a backfill plan.
  * INTERNAL-ONLY: reached solely through patchPlanActions.apply →
  * gtm.applyDoInternal after the approval decision. Resolve-first on every
- * create (invoice-id property for deals, domain-then-name for accounts), so
+ * create (subscription-id property for deals, domain-then-name for accounts), so
  * re-running never double-creates.
  */
 export const backfillApplyOpsInternal = internalAction({
@@ -271,7 +294,7 @@ export const backfillApplyOpsInternal = internalAction({
  * Execute the backfill against the CRM by recomputing from Stripe + the CRM
  * snapshot. INTERNAL-ONLY fallback for legacy arg-only plans; new plans carry
  * persisted operations and go through backfillApplyOpsInternal instead.
- * Resolve-first per invoice id — the connector re-checks the dedupe key at
+ * Resolve-first per subscription id — the connector re-checks the dedupe key at
  * apply time, so re-running never double-creates.
  */
 export const backfillApplyInternal = internalAction({
@@ -291,12 +314,11 @@ export const backfillApplyInternal = internalAction({
   }> => {
     const options = await stripeOptionsForOrg(ctx, args.orgId);
 
-    const invoices = await fetchStripePaidInvoices(options, {
-      sinceIso: args.sinceIso,
-    });
+    const { contracts, unattachedInvoices } = backfillInputs(await readRevenue(options), args.sinceIso);
     const snapshot = await snapshotFromPages(ctx, args.orgId);
-    const { plan, unmatched } = buildStripeBackfillPlan(invoices, snapshot, {
+    const { plan, unmatched } = buildStripeBackfillPlan(contracts, snapshot, {
       pipeline: args.pipeline,
+      unattachedInvoices,
     });
 
     const connector = await connectorForOrg(ctx, args.orgId);
@@ -318,5 +340,84 @@ export const backfillApplyInternal = internalAction({
     });
 
     return { applied, skipped, failed, unmatched };
+  },
+});
+
+/**
+ * Mirror Stripe into Canon's revenue tables: one contract per subscription,
+ * every invoice attached to its contract. Read-only on Stripe; idempotent
+ * (upserts keyed by Stripe ids). Creates no deals: bookings go through the
+ * governed backfill plan above.
+ */
+export const importRevenue = action({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ contracts: number; invoices: number; attached: number; unattached: number }> => {
+    const user = await requireManagerUser(ctx);
+    await ctx.runQuery(internal.permissions.requireUnrestrictedPrincipal, { orgId: user.orgId, userId: user._id, what: "the Stripe revenue import" });
+    const options = await stripeOptionsForOrg(ctx, user.orgId);
+    const revenue = await readRevenue(options);
+    const importedAt = Date.now();
+
+    for (let i = 0; i < revenue.contracts.length; i += UPSERT_BATCH) {
+      await ctx.runMutation(internal.revenueContracts.upsertContractsInternal, {
+        orgId: user.orgId,
+        importedAt,
+        contracts: revenue.contracts.slice(i, i + UPSERT_BATCH).map((c) => ({
+          stripeSubscriptionId: c.stripeSubscriptionId,
+          stripeCustomerId: c.customerId,
+          customerName: c.customerName,
+          customerEmail: c.customerEmail,
+          customerDomain: c.customerDomain,
+          status: c.status,
+          stripeStatus: c.stripeStatus,
+          startDate: c.startDate,
+          endDate: c.endDate,
+          currency: c.currency,
+          mrr: c.mrr,
+          arr: c.arr,
+          billingInterval: c.billingInterval,
+          lines: c.lines,
+          billed: c.billed,
+          collected: c.collected,
+          outstanding: c.outstanding,
+          invoiceCount: c.invoiceIds.length,
+          firstInvoiceAt: c.firstInvoiceAt,
+          lastInvoiceAt: c.lastInvoiceAt,
+        })),
+      });
+    }
+    for (let i = 0; i < revenue.invoices.length; i += UPSERT_BATCH) {
+      await ctx.runMutation(internal.revenueContracts.upsertInvoicesInternal, {
+        orgId: user.orgId,
+        importedAt,
+        invoices: revenue.invoices.slice(i, i + UPSERT_BATCH).map((invoice) => ({
+          stripeInvoiceId: invoice.id,
+          stripeSubscriptionId: invoice.contractSubscriptionId,
+          stripeCustomerId: invoice.customerId,
+          customerName: invoice.customerName,
+          customerDomain: invoice.customerDomain,
+          number: invoice.number,
+          status: invoice.status,
+          amountDue: invoice.amountDue,
+          amountPaid: invoice.amountPaid,
+          amountRemaining: invoice.amountRemaining,
+          currency: invoice.currency,
+          periodStart: invoice.periodStart,
+          periodEnd: invoice.periodEnd,
+          dueDate: invoice.dueDate,
+          paidAt: invoice.paidAt,
+          createdDate: invoice.createdAt,
+          hostedInvoiceUrl: invoice.hostedInvoiceUrl,
+        })),
+      });
+    }
+    return {
+      contracts: revenue.contracts.length,
+      invoices: revenue.invoices.length,
+      attached: revenue.invoices.length - revenue.unattached.length,
+      unattached: revenue.unattached.length,
+    };
   },
 });

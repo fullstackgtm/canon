@@ -1,6 +1,7 @@
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { stageOf, stageOutcome } from "../../../convex/lib/pipelines";
+import { RecordSummary } from "./record-summary";
 import { cn } from "@/lib/utils";
 
 export function DealPipelineRail({ stage, title, collapsed }: { stage: string; title: string; collapsed?: boolean }) {
@@ -17,23 +18,23 @@ export function DealPipelineRail({ stage, title, collapsed }: { stage: string; t
         const selected = index === at;
         const passed = index < at && !lost && !stageOutcome(step).isClosed;
         return (
-          <li key={step.value} aria-current={selected ? "step" : undefined} className={cn("min-w-0 text-xs [overflow-wrap:anywhere]", selected ? "font-semibold" : "text-muted-foreground")}>
-            <span aria-hidden className={cn("mb-1.5 block h-1 rounded-full", selected ? lost ? "bg-destructive" : "bg-primary" : passed ? "bg-primary/50" : "bg-muted")} />
+          <li key={step.value} aria-current={selected ? "step" : undefined} className="min-w-0 record-step [overflow-wrap:anywhere]">
+            <span aria-hidden className={cn("mb-1.5 block h-1 rounded-full", selected ? "bg-primary" : passed ? "bg-primary/50" : "bg-muted")} />
             {step.label}
           </li>
         );
       })}
     </ol>
   );
-  const card = "min-w-0 border border-border bg-card p-4";
+  const card = "record-panel record-panel-pad";
   return collapsed ? (
     <details className={card}>
-      <summary className="cursor-pointer text-sm font-medium">{title}</summary>
+      <RecordSummary>{title}</RecordSummary>
       {rail}
     </details>
   ) : (
     <section aria-label={title} className={card}>
-      <h2 className="text-sm font-medium">{title}</h2>
+      <h2 className="record-block-heading record-section-title">{title}</h2>
       {rail}
     </section>
   );

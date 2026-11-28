@@ -119,6 +119,20 @@ const objectOf = (h: Head): string => {
   return page ?? "deal";
 };
 
+/** The page's own markdown, including implicit deal sections in older recipes. */
+export function pageMarkdown(markdown: string, object: string): string {
+  const doc = read(markdown);
+  const heading = doc.heads.find((h) => h.attrs.page === object);
+  if (heading) return doc.lines.slice(heading.at, heading.end).join("\n").trimEnd();
+  if (object !== "deal") return "";
+  const spans = doc.heads.filter((h) => h.attrs.section !== undefined && objectOf(h) === object)
+    .map((h) => ({ at: h.at, end: h.end }));
+  for (const f of doc.fences) {
+    if (f.lang === "layout" && !enclosing(f.head, "page")) spans.push({ at: f.at, end: f.close + 1 });
+  }
+  return spans.sort((a, b) => a.at - b.at).map(({ at, end }) => doc.lines.slice(at, end).join("\n").trimEnd()).join("\n");
+}
+
 /** A placed action's block in the text: the fence, its id, and the panel heading it sits under. */
 type Placed = { fence: Fence; id: string; panel: Head | null };
 type Located = { head: Head; actions: Placed[]; fields: Fence | null };

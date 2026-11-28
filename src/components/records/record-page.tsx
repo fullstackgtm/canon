@@ -28,6 +28,7 @@ import { DealRelations } from "./related-lists";
 import { DealGaps } from "@/components/crm/deal-gaps";
 import { FieldGroups, Frame, History, SOURCE_LABEL, btn, type InDialog } from "./record-parts";
 import { RunRule } from "./run-rule";
+import { RecordSummary } from "./record-summary";
 import { RecordBoundary } from "./record-boundary";
 import { CRM_NAME, CrmFieldNote } from "./crm-note";
 import { groupOf } from "../../../convex/lib/canon/personHold";
@@ -139,8 +140,8 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   if (desc === null || record === null || record.object !== object) {
     return (
       <div className="p-4 sm:p-8">
-        <p className="text-sm text-muted-foreground">This record doesn&apos;t exist in this workspace.</p>
-        <Link href={recordListOf(object, "").href} className="mt-4 inline-block text-sm underline">Back to the list</Link>
+        <p className="record-value text-muted-foreground">This record doesn&apos;t exist in this workspace.</p>
+        <Link href={recordListOf(object, "").href} className="mt-4 inline-block record-value underline">Back to the list</Link>
       </div>
     );
   }
@@ -196,22 +197,22 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const renderField = (f: FieldDescription) => {
     const meta = record.meta[f.fieldId];
     return (
-      <div key={f.fieldId} className="grid grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)] items-center gap-3 border-b border-border py-1.5 last:border-b-0 [&>*]:min-w-0 [&>*]:break-words">
-        <dt className="text-xs font-medium text-muted-foreground">
+      <div key={f.fieldId} className="grid grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)] items-center gap-3 record-field-row border-b border-border last:border-b-0 [&>*]:min-w-0 [&>*]:break-words">
+        <dt className="record-label">
           {f.label}
           {meta?.state === "contested" && <span className="ml-1 text-amber-600" title="Sources disagree on this value">· contested</span>}
           {(() => {
             const crms = follows?.filter((x) => x.object === "deal" && x.field === groupOf("deal", f.apiName)).map((x) => CRM_NAME[x.provider]) ?? [];
-            return crms.length > 0 && <span className="mt-0.5 block normal-case tracking-normal text-[10px]" title="An admin set this field to always follow the CRM">Follows {crms.join(" and ")}: an edit here lasts until its next sync</span>;
+            return crms.length > 0 && <span className="mt-0.5 block normal-case tracking-normal record-meta" title="An admin set this field to always follow the CRM">Follows {crms.join(" and ")}: an edit here lasts until its next sync</span>;
           })()}
           {meta?.sourceKind && meta.sourceKind !== "user" && (
             // The value shown is another source's: a person's edit wins only while it is the newest fact.
-            <span className="mt-0.5 block normal-case tracking-normal text-[10px]" title="The value shown comes from this source">from {SOURCE_LABEL[meta.sourceKind] ?? meta.sourceKind}</span>
+            <span className="mt-0.5 block normal-case tracking-normal record-meta" title="The value shown comes from this source">from {SOURCE_LABEL[meta.sourceKind] ?? meta.sourceKind}</span>
           )}
         </dt>
-        <dd>
+        <dd className="record-value">
           {f.apiName === "createdAt" || f.apiName === "updatedAt" ? (
-            <span className="block px-2 py-1 text-sm">{new Date(f.apiName === "createdAt" ? record.createdAt : record.updatedAt).toLocaleString()}</span>
+            <span className="block px-2 py-1 record-value">{new Date(f.apiName === "createdAt" ? record.createdAt : record.updatedAt).toLocaleString()}</span>
           ) : f.type === "lookup" ? (
             <LookupField field={f} value={record.values[f.fieldId] as CellValue | undefined} version={record.version} readOnly={!writable || desc.readOnlyFields.includes(f.apiName)} onSave={(next, expected) => saveField(f, next, expected)} />
           ) : (
@@ -222,7 +223,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
       </div>
     );
   };
-  const version = <p className="text-xs text-muted-foreground">Version {record.version}</p>;
+  const version = <p className="record-meta">Version {record.version}</p>;
   const timeline = object === "deal" ? <DealTimeline dealId={id} companyId={typeof record.values.companyId === "string" ? record.values.companyId : null} userName={(user) => team?.find((u) => u._id === user)?.name ?? "A teammate"} />
     : object === "lead" ? <LeadTimeline leadId={id} userName={(user) => team?.find((u) => u._id === user)?.name ?? "A teammate"} /> : null;
   const history = <History streamId={streamId} fields={fields} team={[...(team ?? []), ...(splitTeam ?? [])]} />;
@@ -235,13 +236,13 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
     return (
       <div className="record-header">
         <div>
-          <div className="text-xs font-medium text-muted-foreground">{desc!.label}</div>
-          <h1 className="font-display text-3xl font-semibold">{record!.title || "Untitled"}</h1>
-          {deleted && <p className="mt-1 text-sm text-destructive">Archived. Restore it to edit.</p>}
+          <div className="record-label">{desc!.label}</div>
+          <h1 className="record-title">{record!.title || "Untitled"}</h1>
+          {deleted && <p className="mt-1 record-value text-destructive">Archived. Restore it to edit.</p>}
           {!record!.complete && (
-            <p className="mt-1 text-sm text-amber-600">This record&apos;s history is too long to read here, so it shows version {record!.version}, which may not be current. It can&apos;t be edited on this page.</p>
+            <p className="mt-1 record-value text-amber-600">This record&apos;s history is too long to read here, so it shows version {record!.version}, which may not be current. It can&apos;t be edited on this page.</p>
           )}
-          {record!.lifecycle.status === "merged" && <p className="mt-1 text-sm text-muted-foreground">Merged into another record.</p>}
+          {record!.lifecycle.status === "merged" && <p className="mt-1 record-value text-muted-foreground">Merged into another record.</p>}
         </div>
         <div className="record-header-actions">{actions}{!deleted && <RunRule object={object} id={streamId} />}</div>
       </div>
@@ -249,9 +250,9 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   }
   // A section the recipe folds opens on its title.
   const folded = (section: PageSection, fallback: string, body: ReactNode) => section.collapsed && body ? (
-    <details className="border border-border bg-card p-4">
-      <summary className="cursor-pointer text-sm font-medium">{section.title ?? fallback}</summary>
-      <div className="mt-3">{body}</div>
+    <details className="record-panel">
+      <RecordSummary className="record-panel-pad">{section.title ?? fallback}</RecordSummary>
+      <div data-record-fold-body>{body}</div>
     </details>
   ) : body;
   const context = { canEdit: writable, canDelete: canArchive, deleted };
@@ -267,8 +268,8 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
     stageRail: (section) => typeof record.values.stage === "string" ? <DealPipelineRail stage={record.values.stage} title={section.title ?? "Stage rail"} collapsed={section.collapsed} /> : null,
     products: (section) => folded(section, "Products", <DealProducts deal={streamId} version={record.version} amount={typeof record.values.amount === "number" ? record.values.amount : null} currency={String(record.values.currency ?? "USD")} active={active && record.complete} canEditAmount={writable && !desc.readOnlyFields.includes("amount")} title={section.title ?? "Products"} />),
     splits: (section) => folded(section, "Credit splits", splitField ? (
-      <section aria-label={section.title ?? "Credit splits"} className="border border-border bg-card p-4">
-        <h2 className="mb-2 text-sm font-medium">{section.title ?? "Credit splits"}</h2>
+      <section aria-label={section.title ?? "Credit splits"} className="record-panel record-panel-pad">
+        <h2 className="record-block-heading record-section-title mb-2">{section.title ?? "Credit splits"}</h2>
         <InlineField field={splitField} value={record.values[splitField.fieldId] as CellValue | undefined} version={record.version} team={splitTeam} readOnly={!writable || desc.readOnlyFields.includes(splitField.apiName)} onSave={(next, expected) => saveField(splitField, next, expected)} />
       </section>
     ) : null),
@@ -292,7 +293,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
       );
       return section.collapsed && !inDialog && active ? (
         <details>
-          <summary className="mb-4 cursor-pointer rounded-lg border border-border bg-card p-4 text-xs font-medium text-muted-foreground">{section.title ?? "Record details & history"}</summary>
+          <RecordSummary className="mb-4 record-panel record-panel-pad">{section.title ?? "Record details & history"}</RecordSummary>
           {body}
         </details>
       ) : body;
@@ -310,7 +311,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
         </>,
       )}
       {converted && (
-        <p className="mb-4 border border-border bg-muted/40 px-3 py-2 text-sm">
+        <p className="mb-4 border border-border bg-muted/40 px-3 py-2 record-value">
           Converted {new Date(converted).toLocaleDateString()}
           {[["account", record.values.convertedAccountId, "company"], ["contact", record.values.convertedContactId, "person"], ["deal", record.values.convertedDealId, "deal"]].flatMap(([o, id, noun]) =>
             typeof id === "string" && id ? [<span key={o as string}> · <RecordLink object={o as string} id={id} className="underline">View {noun as string}</RecordLink></span>] : [])}

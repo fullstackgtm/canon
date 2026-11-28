@@ -7,6 +7,12 @@ import type {
   PatchOperation,
   PatchOperationResult,
 } from "../types.ts";
+import type {
+  StripeRevenueCustomer,
+  StripeRevenueInvoice,
+  StripeRevenueLine,
+  StripeRevenueSubscription,
+} from "../revenueContracts.ts";
 import { STRIPE_SNAPSHOT_STAGES, type ProgressEmitter } from "../progress.ts";
 
 const DEFAULT_API_BASE_URL = "https://api.stripe.com";
@@ -26,7 +32,7 @@ export type StripeConnectorOptions = {
 };
 
 // Module-scope request/list (parameterized by options) so the connector
-// factory and fetchStripePaidInvoices share one implementation.
+// factory and fetchStripeRevenue share one implementation.
 async function stripeRequest(options: StripeConnectorOptions, path: string): Promise<any> {
   const baseUrl = (options.apiBaseUrl ?? DEFAULT_API_BASE_URL).replace(/\/$/, "");
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -240,89 +246,96 @@ export function createStripeConnector(options: StripeConnectorOptions): GtmConne
   };
 }
 
-/**
- * One PAID Stripe invoice, normalized for the backfill plan builder
- * (`backfill stripe`). Amounts are major units (Stripe returns cents);
- * `paidAt` is the payment date (YYYY-MM-DD) from status_transitions.paid_at.
- */
-export type StripePaidInvoice = {
-  id: string;
-  number?: string;
-  customerId?: string;
-  customerName?: string;
-  customerEmail?: string;
-  /** Lowercased domain of the customer's billing email — the CRM match key. */
-  customerDomain?: string;
-  /** Major currency units (amount_paid / 100). */
-  amountPaid: number;
-  currency?: string;
-  /** YYYY-MM-DD from status_transitions.paid_at (unix seconds). */
-  paidAt?: string;
-  description?: string;
-};
+function isoDay(seconds: unknown): string | undefined {
+  const value = numberOrUndefined(seconds);
+  return value === undefined ? undefined : new Date(value * 1000).toISOString().split("T")[0];
+}
+
+function customerFields(customerField: unknown, flat: { name?: unknown; email?: unknown }): StripeRevenueCustomer {
+  const customer = customerField as any;
+  const isObject = typeof customer === "object" && customer !== null;
+  const customerId = typeof customer === "string" ? customer : stringOrUndefined(customer?.id);
+  const customerName = (isObject ? stringOrUndefined(customer.name) : undefined) ?? stringOrUndefined(flat.name);
+  const customerEmail = (isObject ? stringOrUndefined(customer.email) : undefined) ?? stringOrUndefined(flat.email);
+  const customerDomain = customerEmail?.includes("@") ? customerEmail.split("@").at(-1)!.toLowerCase() : undefined;
+  return { customerId, customerName, customerEmail, customerDomain };
+}
 
 /**
- * Read-only pull of PAID invoices (GET /v1/invoices?status=paid with the
- * customer expanded), the revenue source of truth the backfill plan builder
- * turns into closed-won deal proposals. Invoices with a zero amount_paid or
- * no id are skipped — a $0 invoice is not a won deal.
+ * Read-only pull of every subscription and invoice (all statuses, customer
+ * expanded) for the revenue contract import (src/revenueContracts.ts).
+ * Amounts are converted from minor to major units here.
  */
-export async function fetchStripePaidInvoices(
+export async function fetchStripeRevenue(
   options: StripeConnectorOptions,
-  opts: { sinceIso?: string; onPage?: (fetched: number) => void } = {},
-): Promise<StripePaidInvoice[]> {
-  let createdFilter = "";
-  if (opts.sinceIso !== undefined) {
-    const sinceMs = Date.parse(opts.sinceIso);
-    if (!Number.isFinite(sinceMs)) throw new Error(`Invalid since timestamp: ${opts.sinceIso}`);
-    createdFilter = `&created[gte]=${Math.floor(sinceMs / 1000)}`;
-  }
-  const invoices = await stripeList(
+  opts: { onPage?: (fetched: number) => void } = {},
+): Promise<{ subscriptions: StripeRevenueSubscription[]; invoices: StripeRevenueInvoice[] }> {
+  const rawSubscriptions = await stripeList(
     options,
-    `/v1/invoices?status=paid&limit=100&expand[]=data.customer${createdFilter}`,
+    "/v1/subscriptions?status=all&limit=100&expand[]=data.customer",
     opts.onPage,
   );
-  const paid: StripePaidInvoice[] = [];
-  for (const invoice of invoices) {
-    if (!invoice?.id) continue;
-    const amountPaidCents = numberOrUndefined(invoice.amount_paid);
-    if (amountPaidCents === undefined || amountPaidCents <= 0) continue;
-    // customer is the expanded object when expand[]=data.customer was honored,
-    // else the plain id string — handle both.
-    const customer = invoice.customer;
-    const customerId =
-      typeof customer === "string" ? customer : stringOrUndefined(customer?.id);
-    // Invoices also carry flat customer_name/customer_email copies — use them
-    // when the customer object wasn't expanded (or lacks the field).
-    const customerName =
-      (typeof customer === "object" && customer !== null
-        ? stringOrUndefined(customer.name)
-        : undefined) ?? stringOrUndefined(invoice.customer_name);
-    const customerEmail =
-      typeof customer === "object" && customer !== null
-        ? stringOrUndefined(customer.email) ?? stringOrUndefined(invoice.customer_email)
-        : stringOrUndefined(invoice.customer_email);
-    const customerDomain = customerEmail?.includes("@")
-      ? customerEmail.split("@").at(-1)!.toLowerCase()
-      : undefined;
-    const paidAtSeconds = numberOrUndefined(invoice.status_transitions?.paid_at);
-    paid.push({
-      id: String(invoice.id),
-      number: stringOrUndefined(invoice.number),
-      customerId,
-      customerName,
-      customerEmail,
-      customerDomain,
-      amountPaid: amountPaidCents / 100,
-      currency: stringOrUndefined(invoice.currency)?.toUpperCase(),
-      paidAt:
-        paidAtSeconds !== undefined
-          ? new Date(paidAtSeconds * 1000).toISOString().split("T")[0]
-          : undefined,
-      description: stringOrUndefined(invoice.description),
+  const subscriptions: StripeRevenueSubscription[] = rawSubscriptions
+    .filter((subscription) => subscription?.id)
+    .map((subscription) => {
+      const items: any[] = subscription.items?.data ?? [];
+      const lines: StripeRevenueLine[] = items.map((item) => {
+        const price = item.price ?? {};
+        // A metered price's unit_amount is a usage rate, not a fixed
+        // commitment: its monthly amount is unknown, never the rate.
+        const metered = price.recurring?.usage_type === "metered";
+        const unitCents = metered ? undefined : numberOrUndefined(price.unit_amount);
+        const product = price.product;
+        return {
+          priceId: stringOrUndefined(price.id),
+          product:
+            (typeof product === "object" && product !== null ? stringOrUndefined(product.name) : undefined) ??
+            stringOrUndefined(price.nickname) ??
+            (typeof product === "string" ? product : undefined),
+          quantity: numberOrUndefined(item.quantity) ?? 1,
+          unitAmount: unitCents === undefined ? undefined : unitCents / 100,
+          interval: stringOrUndefined(price.recurring?.interval),
+          intervalCount: numberOrUndefined(price.recurring?.interval_count),
+        };
+      });
+      return {
+        ...customerFields(subscription.customer, {}),
+        id: String(subscription.id),
+        status: stringOrUndefined(subscription.status) ?? "unknown",
+        startDate: isoDay(subscription.start_date),
+        endDate: isoDay(subscription.ended_at) ?? isoDay(subscription.cancel_at),
+        currency: stringOrUndefined(subscription.currency ?? items[0]?.price?.currency)?.toUpperCase(),
+        lines,
+      };
     });
-  }
-  return paid;
+
+  const rawInvoices = await stripeList(options, "/v1/invoices?limit=100&expand[]=data.customer", opts.onPage);
+  const invoices: StripeRevenueInvoice[] = rawInvoices
+    .filter((invoice) => invoice?.id)
+    .map((invoice) => {
+      const subscription = invoice.subscription ?? invoice.parent?.subscription_details?.subscription;
+      const cents = (value: unknown) => (numberOrUndefined(value) ?? 0) / 100;
+      return {
+        ...customerFields(invoice.customer, { name: invoice.customer_name, email: invoice.customer_email }),
+        id: String(invoice.id),
+        number: stringOrUndefined(invoice.number),
+        subscriptionId:
+          typeof subscription === "string" ? subscription : stringOrUndefined(subscription?.id),
+        status: stringOrUndefined(invoice.status),
+        amountDue: cents(invoice.amount_due),
+        amountPaid: cents(invoice.amount_paid),
+        amountRemaining: cents(invoice.amount_remaining),
+        currency: stringOrUndefined(invoice.currency)?.toUpperCase(),
+        periodStart: isoDay(invoice.lines?.data?.[0]?.period?.start ?? invoice.period_start),
+        periodEnd: isoDay(invoice.lines?.data?.[0]?.period?.end ?? invoice.period_end),
+        dueDate: isoDay(invoice.due_date),
+        paidAt: isoDay(invoice.status_transitions?.paid_at),
+        createdAt: isoDay(invoice.created),
+        hostedInvoiceUrl: stringOrUndefined(invoice.hosted_invoice_url),
+        description: stringOrUndefined(invoice.description),
+      };
+    });
+  return { subscriptions, invoices };
 }
 
 function stringOrUndefined(value: unknown): string | undefined {

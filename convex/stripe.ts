@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { can, refusal } from "./lib/capabilities";
-import { internalMutation, internalQuery, mutation } from "./_generated/server";
-import { requireUser } from "./lib";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { getCurrentUser, requireUser } from "./lib";
 import { encryptForStorage } from "./lib/tokenHelpers";
 
 /**
@@ -21,6 +21,24 @@ export const getIntegration = internalQuery({
         q.eq("orgId", args.orgId).eq("provider", "stripe"),
       )
       .first();
+  },
+});
+
+/** Whether Stripe is connected, and how many contracts the last import mirrored. */
+export const status = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    if (!user) return { connected: false, contracts: 0 };
+    const row = await ctx.db
+      .query("integrations")
+      .withIndex("by_orgId_provider", (q) => q.eq("orgId", user.orgId).eq("provider", "stripe"))
+      .first();
+    const contracts = await ctx.db
+      .query("revenueContracts")
+      .withIndex("by_orgId_and_stripeSubscriptionId", (q) => q.eq("orgId", user.orgId))
+      .take(1000);
+    return { connected: Boolean(row?.isActive), contracts: contracts.length };
   },
 });
 

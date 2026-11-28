@@ -16,6 +16,7 @@ import { cn, getErrorMessage } from "@/lib/utils";
 import { canEditRecordField, visibleRecordFields } from "../../../recipes/recordFields";
 import { splitRecordActions } from "../../../recipes/recordActionBar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { RecordSummary } from "./record-summary";
 import { RecordText } from "./record-text";
 import { recordHref } from "./record-target";
 import { SelectField } from "@/components/ui/select";
@@ -43,12 +44,11 @@ type RecordBlockData = RelationSource & {
   splitTeam?: readonly TeamMember[];
 };
 
-const card = "min-w-0 border border-border bg-card";
 function fold(title: string, collapsed: boolean | undefined, body: ReactNode) {
   if (!collapsed) return body;
-  return <details className={card}>
-    <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium">{title}</summary>
-    {body}
+  return <details className="record-panel">
+    <RecordSummary className="record-panel-pad">{title}</RecordSummary>
+    <div data-record-fold-body>{body}</div>
   </details>;
 }
 
@@ -84,25 +84,25 @@ function Highlights({ data, section, actions }: { data: RecordBlockData; section
     const field = available.find((f) => f.apiName === name || f.fieldId === name);
     return field ? [field] : [];
   }).slice(0, 7);
-  return <section data-record-highlights aria-label={section.title} className={card}>
-    <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+  return <section data-record-highlights aria-label={section.title} className="record-panel">
+    <div className="flex flex-wrap items-start justify-between gap-3 record-panel-pad">
       <div className="flex min-w-0 items-center gap-3">
         <span className="grid size-9 shrink-0 place-items-center bg-primary/10 text-primary">{icon}</span>
         <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{desc.label}</p>
-          <h1 className="break-words font-display text-xl font-semibold">{title || "Untitled"}</h1>
+          <p className="record-label">{desc.label}</p>
+          <h1 className="record-title">{title || "Untitled"}</h1>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">{actions}</div>
     </div>
-    {fields.length > 0 && <dl className="flex flex-wrap gap-x-7 gap-y-2 border-t border-border px-4 py-2.5">
+    {fields.length > 0 && <dl className="flex flex-wrap gap-x-7 gap-y-2 record-panel-divider-top record-panel-pad">
       {fields.map((field) => {
         const value = values[field.fieldId] as CellValue | undefined;
         return <div key={field.fieldId} className="min-w-0 max-w-full">
-          <dt className="text-xs text-muted-foreground">{field.label}</dt>
-          <dd className="break-words text-sm font-medium">
+          <dt className="record-label">{field.label}</dt>
+          <dd className="break-words record-value">
             {field.type === "lookup" && typeof value === "string" && value
-              ? <LookupLink object={field.lookupTo} id={value} className="underline" />
+              ? <LookupLink object={field.lookupTo} id={value} className="record-link underline" />
               : formatValue(field, value, team, money)}
           </dd>
         </div>;
@@ -117,24 +117,24 @@ function RecordFieldSection({ data, section, context, save }: { data: RecordBloc
   const { title, fields, columns, collapsible, collapsed } = section.props;
   const money = useWorkspaceMoney();
   const recordMoney = typeof data.values.currency === "string" ? { ...money, currency: data.values.currency } : money;
-  const body = <dl className={cn("grid gap-3 px-4 py-3", columns === 2 && "sm:grid-cols-2")}>
+  const body = <dl className={cn("record-field-grid grid record-panel-pad", columns === 2 && "sm:grid-cols-2")}>
     {visibleRecordFields(data.desc.fields, fields).map((field) => {
       const value = data.values[field.fieldId] as CellValue | undefined;
       const readOnly = !canEditRecordField(context.canEdit === true, Boolean(save) && !data.desc.register, field, data.desc.readOnlyFields) || !isEditable(field);
       const onSave = (next: CellValue, version: number) => !readOnly && save ? save(field, next, version) : Promise.resolve(false);
       return <div key={field.fieldId} className="min-w-0">
-        <dt className="px-2 text-xs text-muted-foreground">{field.label}</dt>
-        <dd>{field.type === "lookup"
+        <dt className="px-2 record-label">{field.label}</dt>
+        <dd className="record-value">{field.type === "lookup"
           ? <LookupField field={field} value={value} version={data.version} readOnly={readOnly} onSave={onSave} />
           : <InlineField field={field} value={value} version={data.version} team={field.type === "splits" ? data.splitTeam : data.team} money={recordMoney} readOnly={readOnly} onSave={onSave} />}</dd>
       </div>;
     })}
   </dl>;
   const startsClosed = collapsed ?? section.collapsed;
-  const heading = "border-b border-border px-4 py-2.5 text-sm font-medium";
+  const heading = "record-panel-divider record-panel-pad";
   return (collapsible ?? Boolean(startsClosed))
-    ? <details className={card} open={!startsClosed}><summary className={cn(heading, "cursor-pointer")}>{title}</summary>{body}</details>
-    : <section className={card} aria-label={title}><h2 className={heading}>{title}</h2>{body}</section>;
+    ? <details className="record-panel" open={!startsClosed}><RecordSummary className={heading}>{title}</RecordSummary>{body}</details>
+    : <section className="record-panel" aria-label={title}><h2 className={cn(heading, "record-block-heading record-section-title")}>{title}</h2>{body}</section>;
 }
 
 function RelatedRecord({ data, relation, section }: { data: RecordBlockData; relation: ParentRecordRelation; section: SectionOf<"relatedRecord"> }) {
@@ -160,15 +160,20 @@ function RelatedRecord({ data, relation, section }: { data: RecordBlockData; rel
   const currency = result?.values.currency;
   const money = typeof currency === "string" ? { ...workspaceMoney, currency } : workspaceMoney;
   const title = section.props.title ?? section.title;
-  return <section className={card} aria-label={title}>
-    <h2 className="border-b border-border px-4 py-2.5 text-sm font-medium">{result
-      ? <Link href={recordHref(relation.object, result.id)} className="text-primary hover:underline">{title}</Link> : title}</h2>
-    {result ? <dl className="space-y-2 px-4 py-3">
-      {fields.map((field) => <div key={field.fieldId}>
-        <dt className="text-xs text-muted-foreground">{field.label}</dt>
-        <dd className="break-words text-sm">{formatValue(field, result.values[field.fieldId] as CellValue | undefined, data.team, money) || "—"}</dd>
-      </div>)}
-    </dl> : <p className="px-4 py-3 text-sm text-muted-foreground">{result === undefined ? "Loading record…" : "Related record unavailable."}</p>}
+  return <section className="record-panel" aria-label={title}>
+    <h2 className="record-panel-divider record-block-heading record-panel-pad record-section-title">{result
+      ? <Link href={recordHref(relation.object, result.id)} className="record-link hover:underline">{title}</Link> : title}</h2>
+    {result ? <div className="record-panel-pad">
+      {!fields.some((field) => field.fieldId === desc?.titleFieldId) && <Link href={recordHref(relation.object, result.id)} className="record-embedded-link record-link mb-2 underline">{result.title}</Link>}
+      <dl className="record-field-grid grid">
+        {fields.map((field) => <div key={field.fieldId}>
+          <dt className="record-label">{field.label}</dt>
+          <dd className="break-words record-value">{field.fieldId === desc?.titleFieldId
+            ? <Link href={recordHref(relation.object, result.id)} className="record-link underline">{result.title}</Link>
+            : formatValue(field, result.values[field.fieldId] as CellValue | undefined, data.team, money) || "—"}</dd>
+        </div>)}
+      </dl>
+    </div> : <p className="record-panel-pad record-value text-muted-foreground">{result === undefined ? "Loading record…" : "Related record unavailable."}</p>}
   </section>;
 }
 
@@ -180,7 +185,7 @@ function RecordActionBar({ section, actions }: { section: SectionOf<"actionBar">
   const controls = actions(placed, "actionBar");
   const { buttons, overflow } = splitRecordActions(controls);
   if (!buttons.length) return null;
-  return <section aria-label={section.title} className={cn(card, "flex flex-wrap items-center gap-2 px-4 py-2.5")}>
+  return <section aria-label={section.title} className="record-panel flex flex-wrap items-center gap-2 record-panel-pad">
     {buttons}
     {overflow.length > 0 && <DropdownMenu>
       <DropdownMenuTrigger className={btn} aria-label="More record actions">⋯</DropdownMenuTrigger>
@@ -210,10 +215,10 @@ function RecordPath({ section, data, context, save }: { section: SectionOf<"path
   const disabled = saving || !save || !offer || offer.disabled || !canChangeRecordPath(context.canEdit === true, field?.apiName, data.desc.readOnlyFields, steps.some((step) => step.active && step.value !== value));
   const rail = <>
     {steps.length ? <ol aria-label={field?.label} className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-x-2 gap-y-3">
-      {steps.map((step, i) => <li key={step.value} aria-current={i === index ? "step" : undefined} className={cn("min-w-0 text-xs [overflow-wrap:anywhere]", i === index ? "font-semibold" : "text-muted-foreground")}>
-        <span aria-hidden className={cn("mb-1.5 block h-1 rounded-full", i === index ? lost ? "bg-destructive" : "bg-primary" : i < index && !lost && (!("forecastCategory" in step) || !stageOutcome(step).isClosed) ? "bg-primary/40" : "bg-muted")} />{step.label}
+      {steps.map((step, i) => <li key={step.value} aria-current={i === index ? "step" : undefined} className="min-w-0 record-step [overflow-wrap:anywhere]">
+        <span aria-hidden className={cn("mb-1.5 block h-1 rounded-full", i === index ? "bg-primary" : i < index && !lost && (!("forecastCategory" in step) || !stageOutcome(step).isClosed) ? "bg-primary/40" : "bg-muted")} />{step.label}
       </li>)}
-    </ol> : <p className="text-sm text-muted-foreground">No picklist stages available.</p>}
+    </ol> : <p className="record-value text-muted-foreground">No picklist stages available.</p>}
     {section.props.change && offer && <SelectField aria-label={offer.label} disabled={disabled} value="" className="mt-3 w-fit" onValueChange={async (next) => {
       if (disabled || !save || !field || !steps.some((step) => step.active && step.value === next && step.value !== value)) return;
       setSaving(true);
@@ -221,8 +226,8 @@ function RecordPath({ section, data, context, save }: { section: SectionOf<"path
     }} options={[{ value: "", label: offer.label }, ...steps.filter((step) => step.active && step.value !== value).map(({ value, label }) => ({ value, label }))]} />}
   </>;
   return section.collapsed
-    ? <details className={cn(card, "p-4")}><summary className="mb-3 cursor-pointer text-sm font-medium">{section.title}</summary>{rail}</details>
-    : <section aria-label={section.title} className={cn(card, "p-4")}><h2 className="mb-3 text-sm font-medium">{section.title}</h2>{rail}</section>;
+    ? <details className="record-panel record-panel-pad"><RecordSummary className="mb-3">{section.title}</RecordSummary>{rail}</details>
+    : <section aria-label={section.title} className="record-panel record-panel-pad"><h2 className="record-block-heading mb-3 record-section-title">{section.title}</h2>{rail}</section>;
 }
 
 function useRelatedRows(source: RelationSource, relation: RecordRelation, props: Partial<SectionOf<"relatedList">["props"]>, cursor?: string) {
@@ -259,9 +264,9 @@ type NavigateRelation = (event: React.MouseEvent<HTMLAnchorElement>, relation: s
 function QuickRelation({ source, relation, jump }: { source: RelationSource; relation: RecordRelation; jump?: NavigateRelation }) {
   const state = useRelatedRows(source, relation, { limit: 1 });
   if (state?.error) return null;
-  return <a className="flex items-center gap-2 text-sm text-primary hover:underline" href={relatedListHref(source, relation)} onClick={(event) => jump?.(event, relation.id)}>
+  return <a className="flex items-center gap-2 record-value record-link hover:underline" href={relatedListHref(source, relation)} onClick={(event) => jump?.(event, relation.id)}>
     {relation.label}
-    <span className="border border-border bg-muted/60 px-1.5 text-xs tabular-nums text-muted-foreground">{state?.data ? relatedCount(state.data.rows.total) : "…"}</span>
+    <span className="border border-border bg-muted/60 px-1.5 record-meta tabular-nums">{state?.data ? relatedCount(state.data.rows.total) : "…"}</span>
   </a>;
 }
 
@@ -269,11 +274,11 @@ function QuickLinks({ section, source, relations, jump }: { section: SectionOf<"
   const chosen = section.props.relationships
     ? [...new Set(section.props.relationships)].flatMap((id) => relations?.find((r) => r.id === id) ?? [])
     : relations ?? [];
-  return <nav aria-label={section.title} className={cn(card, "px-4 py-3")}>
-    <h2 className="mb-2 text-sm font-medium">{section.title}</h2>
+  return <nav aria-label={section.title} className="record-panel record-panel-pad">
+    <h2 className="record-block-heading mb-2 record-section-title">{section.title}</h2>
     <div className="flex flex-wrap gap-x-5 gap-y-2">
       {chosen.map((relation) => <QuickRelation key={relation.id} source={source} relation={relation} jump={jump} />)}
-      {!chosen.length && <p className="text-sm text-muted-foreground">{relations ? "No related lists available." : "Loading related lists…"}</p>}
+      {!chosen.length && <p className="record-value text-muted-foreground">{relations ? "No related lists available." : "Loading related lists…"}</p>}
     </div>
   </nav>;
 }
@@ -313,20 +318,20 @@ function RelatedList({ source, section, relation, context }: { source: RelationS
   const state = useRelatedRows(source, relation, section.props);
   const result = state?.data;
   const icon = createElement(objectIcon(result?.desc.icon ?? standardIcons[relation.object]), { className: "mt-0.5 size-4 shrink-0 text-primary", "aria-hidden": true });
-  return <section aria-label={section.title} className={card}>
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 border-b border-border px-4 py-2.5">
-      <h2 className="flex items-start gap-2 text-sm font-medium">{icon}<span>{section.title}
-        {result && <span className="ml-2 whitespace-nowrap text-xs tabular-nums text-muted-foreground">({relatedCount(result.rows.total)})</span>}</span>
+  return <section aria-label={section.title} className="record-panel">
+    <div className="record-panel-actions record-panel-divider record-panel-pad">
+      <h2 className="record-block-heading flex items-start gap-2 record-section-title">{icon}<span>{section.title}
+        {result && <span className="ml-2 whitespace-nowrap record-meta tabular-nums">({relatedCount(result.rows.total)})</span>}</span>
       </h2>
       {result && result.canLink !== false && section.props.create && <RelatedCreate source={source} relation={relation} desc={result.desc} context={context} actions={section.actions} />}
     </div>
-    <div className="px-4 py-2">
-      {state?.error ? <p role="alert" className="text-sm text-muted-foreground">{state.error}</p> : result
+    <div className="record-panel-pad">
+      {state?.error ? <p role="alert" className="record-value text-muted-foreground">{state.error}</p> : result
         ? <DataResult kind="table" query={result.query} answer={result} compact />
-        : <p role="status" className="text-sm text-muted-foreground">Loading records…</p>}
+        : <p role="status" className="record-value text-muted-foreground">Loading records…</p>}
     </div>
-    <div className="border-t border-border px-4 py-2 text-center">
-      <Link className="text-sm font-medium text-primary hover:underline" href={relatedListHref(source, relation)}>View all</Link>
+    <div className="record-panel-divider-top record-panel-pad text-center">
+      <Link className="record-value record-link hover:underline" href={relatedListHref(source, relation)}>View all</Link>
     </div>
   </section>;
 }
@@ -391,18 +396,18 @@ export function useRecordBlockRenderers({ data, page, context, save, actions }: 
       const relation = parents?.find((r) => r.id === section.props.relationship);
       const title = section.props.title ?? section.title;
       return fold(title, section.collapsed, relation ? <RelatedRecord data={data} relation={relation} section={section} /> :
-        <section className={cn(card, "p-4")}><h2 className="text-sm font-medium">{title}</h2><p className="text-sm text-muted-foreground">{parents ? "Relationship unavailable." : "Loading relationship…"}</p></section>);
+        <section className="record-panel record-panel-pad"><h2 className="record-block-heading record-section-title">{title}</h2><p className="record-value text-muted-foreground">{parents ? "Relationship unavailable." : "Loading relationship…"}</p></section>);
     },
     actionBar: (section: SectionOf<"actionBar">) => data && fold(section.title, section.collapsed, <RecordActionBar section={section} actions={actions} />),
-    richText: (section: SectionOf<"richText">) => data && fold(section.title, section.collapsed, <section aria-label={section.title} className={cn(card, "space-y-2 p-4")}>
-      <h2 className="text-sm font-medium">{section.title}</h2><RecordText markdown={section.props.markdown} />
+    richText: (section: SectionOf<"richText">) => data && fold(section.title, section.collapsed, <section aria-label={section.title} className="record-panel record-field-grid grid record-panel-pad">
+      <h2 className="record-block-heading record-section-title">{section.title}</h2><RecordText markdown={section.props.markdown} />
     </section>),
     relatedList: (section: SectionOf<"relatedList">) => {
       if (!data) return null;
       const relation = relations?.find((r) => r.id === section.props.relationship);
       return <div id={idOf(section)} tabIndex={-1} className="scroll-mt-4">
         {relation ? fold(section.title, section.collapsed, <RelatedList source={data} section={section} relation={relation} context={context} />) :
-          <section className={cn(card, "p-4")}><h2 className="text-sm font-medium">{section.title}</h2><p className="text-sm text-muted-foreground">{relations ? "Relationship unavailable." : "Loading relationship…"}</p></section>}
+          <section className="record-panel record-panel-pad"><h2 className="record-block-heading record-section-title">{section.title}</h2><p className="record-value text-muted-foreground">{relations ? "Relationship unavailable." : "Loading relationship…"}</p></section>}
       </div>;
     },
   };
@@ -433,9 +438,9 @@ export function RelatedRecordsPage({ sourceObject, sourceId, object, relationshi
     return () => { live = false; };
   }, [client, sourceObject, sourceId]);
   return <div className="space-y-4 p-4 sm:p-8">
-    <Link href={`/dashboard/records/${encodeURIComponent(sourceObject)}/${encodeURIComponent(sourceId)}`} className="text-sm underline">Back to record</Link>
+    <Link href={`/dashboard/records/${encodeURIComponent(sourceObject)}/${encodeURIComponent(sourceId)}`} className="record-value underline">Back to record</Link>
     {source && relation ? <RelatedResults source={source} relation={relation} /> :
-      <p className="text-sm text-muted-foreground">{source === null || (relations && !relation) ? "Relationship unavailable." : "Loading relationship…"}</p>}
+      <p className="record-value text-muted-foreground">{source === null || (relations && !relation) ? "Relationship unavailable." : "Loading relationship…"}</p>}
   </div>;
 }
 
@@ -444,8 +449,8 @@ function RelatedResults({ source, relation }: { source: RelationSource; relation
   const state = useRelatedRows(source, relation, { limit: 50 }, cursors.at(-1));
   const result = state?.data;
   const next = result?.rows.nextCursor;
-  return <section className={cn(card, "space-y-3 p-4")}>
-    <h1 className="font-display text-xl font-semibold">{relation.label} {result && <span className="text-sm text-muted-foreground">({result.rows.total})</span>}</h1>
+  return <section className="record-panel space-y-3 record-panel-pad">
+    <h1 className="record-title">{relation.label} {result && <span className="record-meta">({result.rows.total})</span>}</h1>
     {state?.error ? <p role="alert">{state.error}</p> : result ? <DataResult kind="table" query={result.query} answer={result} /> : <p role="status">Loading records…</p>}
     {(cursors.length > 0 || next) && <div className="flex gap-2">
       <button type="button" className={btn} disabled={!cursors.length} onClick={() => setCursors((all) => all.slice(0, -1))}>Previous</button>

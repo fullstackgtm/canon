@@ -76,6 +76,7 @@ export function useIntegrationStatuses(): Record<IntegrationKey, IntegrationStat
   const explee = useQuery(api.explee.status);
   const sequencers = useQuery(api.audiences.sequencerStatus);
   const deepline = useQuery(api.deepline.status);
+  const stripe = useQuery(api.stripe.status);
   const linkedin = useQuery(api.linkedin.mine);
   const dialer = useQuery(api.dialer.overview);
   const slack = useQuery(api.agentSlack.status);
@@ -110,6 +111,14 @@ export function useIntegrationStatuses(): Record<IntegrationKey, IntegrationStat
     instantly: sequencerStatus(sequencers?.instantly),
     emailbison: sequencerStatus(sequencers?.emailbison),
     smartlead: sequencerStatus(sequencers?.smartlead),
+    stripe:
+      stripe === undefined ? LOADING
+      : !stripe.connected ? { tone: "off", label: "Not connected" }
+      : {
+          tone: "connected",
+          label: "Connected",
+          detail: `${stripe.contracts.toLocaleString("en-US")} ${stripe.contracts === 1 ? "contract" : "contracts"} imported`,
+        },
     deepline:
       deepline === undefined ? LOADING
       : deepline.connected ? { tone: "connected", label: "Connected" }

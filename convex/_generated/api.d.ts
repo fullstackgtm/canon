@@ -629,6 +629,7 @@ import type * as researchAgentActions from "../researchAgentActions.js";
 import type * as researchAgents from "../researchAgents.js";
 import type * as researchSessionActions from "../researchSessionActions.js";
 import type * as researchSessions from "../researchSessions.js";
+import type * as revenueContracts from "../revenueContracts.js";
 import type * as salesforce from "../salesforce.js";
 import type * as salesforceActions from "../salesforceActions.js";
 import type * as salesforceImport from "../salesforceImport.js";
@@ -1292,6 +1293,7 @@ declare const fullApi: ApiFromModules<{
   researchAgents: typeof researchAgents;
   researchSessionActions: typeof researchSessionActions;
   researchSessions: typeof researchSessions;
+  revenueContracts: typeof revenueContracts;
   salesforce: typeof salesforce;
   salesforceActions: typeof salesforceActions;
   salesforceImport: typeof salesforceImport;

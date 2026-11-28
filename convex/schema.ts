@@ -2085,6 +2085,76 @@ export default defineSchema({
     .index("by_dealId", ["dealId"])
     .index("by_orgId", ["orgId"]),
 
+  // ── Revenue contracts (docs/revenue-contracts.md) ────────────
+  // One contract per Stripe subscription; invoices attach to it. A new
+  // invoice never creates a deal or a contract.
+
+  revenueContracts: defineTable({
+    orgId: v.id("organizations"),
+    source: v.literal("stripe"),
+    stripeSubscriptionId: v.string(),
+    stripeCustomerId: v.optional(v.string()),
+    customerName: v.optional(v.string()),
+    customerEmail: v.optional(v.string()),
+    customerDomain: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("canceled"), v.literal("ended"), v.literal("pending")),
+    stripeStatus: v.string(),
+    startDate: v.optional(v.string()),
+    // Absent = open ended.
+    endDate: v.optional(v.string()),
+    currency: v.optional(v.string()),
+    // Monthly booking amount; absent when a recurring price is metered or tiered.
+    mrr: v.optional(v.number()),
+    arr: v.optional(v.number()),
+    billingInterval: v.optional(v.string()),
+    lines: v.array(
+      v.object({
+        priceId: v.optional(v.string()),
+        product: v.optional(v.string()),
+        quantity: v.number(),
+        unitAmount: v.optional(v.number()),
+        interval: v.optional(v.string()),
+        intervalCount: v.optional(v.number()),
+      }),
+    ),
+    billed: v.number(),
+    collected: v.number(),
+    outstanding: v.number(),
+    invoiceCount: v.number(),
+    firstInvoiceAt: v.optional(v.string()),
+    lastInvoiceAt: v.optional(v.string()),
+    importedAt: v.number(),
+  })
+    .index("by_orgId_and_stripeSubscriptionId", ["orgId", "stripeSubscriptionId"])
+    .index("by_orgId_and_customerDomain", ["orgId", "customerDomain"]),
+
+  revenueInvoices: defineTable({
+    orgId: v.id("organizations"),
+    source: v.literal("stripe"),
+    stripeInvoiceId: v.string(),
+    // Absent = no subscription: listed for review, never booked.
+    contractId: v.optional(v.id("revenueContracts")),
+    stripeSubscriptionId: v.optional(v.string()),
+    stripeCustomerId: v.optional(v.string()),
+    customerName: v.optional(v.string()),
+    customerDomain: v.optional(v.string()),
+    number: v.optional(v.string()),
+    status: v.optional(v.string()),
+    amountDue: v.number(),
+    amountPaid: v.number(),
+    amountRemaining: v.number(),
+    currency: v.optional(v.string()),
+    periodStart: v.optional(v.string()),
+    periodEnd: v.optional(v.string()),
+    dueDate: v.optional(v.string()),
+    paidAt: v.optional(v.string()),
+    createdDate: v.optional(v.string()),
+    hostedInvoiceUrl: v.optional(v.string()),
+    importedAt: v.number(),
+  })
+    .index("by_orgId_and_stripeInvoiceId", ["orgId", "stripeInvoiceId"])
+    .index("by_contractId", ["contractId"]),
+
   // ── Commission Plans ─────────────────────────────────────────
 
   commissionPlans: defineTable({

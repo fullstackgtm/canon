@@ -514,22 +514,22 @@ export const HELP: Record<string, HelpEntry> = {
     seeAlso: ["bulk-update", "plans", "apply"],
   },
   backfill: {
-    summary: "Stripe paid invoices → closed-won deal proposals (governed)",
+    summary: "Stripe subscriptions → one closed-won booking each, invoices attached (governed)",
     phase: "Remediate",
     synopsis: [
       "fullstackgtm backfill stripe|runs [--since <iso>] [--pipeline <id|label>] [--match-property <name>] [--skip-unmatched] [source options] [--save] [--dry-run] [--json]",
     ],
     detail:
-      "`backfill runs` replays LOCAL execution history to the paired hosted app (idempotent: deterministic run ids + server-side dedupe): every stored plan's apply runs and the health.jsonl timeline, so the hosted feed and Home health trend cover the engagement from its CLI-only beginning. Requires `login --via`; only what live reporting sends leaves the machine (statuses, counts, timestamps, scores — never CRM field values). `backfill stripe`: billing is the revenue source of truth — proposes ONE closed-won deal per paid Stripe invoice (amount = invoice total, close date = paid date, associated to the matched customer account, deduped by invoice id). Customers are matched to CRM accounts by domain, then exact name; a customer the CRM doesn't know gets an explicit proposed ACCOUNT create in the same plan (billing-email domain used unless it is freemail; a customer with no usable name/domain stays report-only; `--skip-unmatched` restores report-only for all unmatched). Emits a dry-run create_record plan — nothing is written until `plans approve` → `apply`, where the connector re-resolves each invoice id (and each account by domain/name) and creates only on a confirmed miss. Deal creation is HubSpot-only for now.",
+      "`backfill runs` replays LOCAL execution history to the paired hosted app (idempotent: deterministic run ids + server-side dedupe): every stored plan's apply runs and the health.jsonl timeline, so the hosted feed and Home health trend cover the engagement from its CLI-only beginning. Requires `login --via`; only what live reporting sends leaves the machine (statuses, counts, timestamps, scores — never CRM field values). `backfill stripe`: billing is the revenue source of truth — proposes ONE closed-won deal per Stripe subscription, never one per invoice (amount = the monthly booking amount, close date = the contract start, open ended until canceled, associated to the matched customer account, deduped by subscription id). Invoices attach to their subscription's booking; invoices with no subscription are listed for review, not booked. Customers are matched to CRM accounts by domain, then exact name; a customer the CRM doesn't know gets an explicit proposed ACCOUNT create in the same plan (billing-email domain used unless it is freemail; a customer with no usable name/domain stays report-only; `--skip-unmatched` restores report-only for all unmatched). Emits a dry-run create_record plan — nothing is written until `plans approve` → `apply`, where the connector re-resolves each subscription id (and each account by domain/name) and creates only on a confirmed miss. Deal creation is HubSpot-only for now.",
     options: [
-      ["--since <iso>", "only invoices created on/after this timestamp"],
+      ["--since <iso>", "only contracts that started on/after this date"],
       ["--pipeline <id|label>", "target deal pipeline (default: the portal's default pipeline)"],
-      ["--match-property <name>", "deal dedupe property stamped with the invoice id (default stripe_invoice_id)"],
+      ["--match-property <name>", "deal dedupe property stamped with the subscription id (default stripe_subscription_id)"],
       ["--skip-unmatched", "do not propose accounts for unmatched customers (report-only, the pre-1.3 behavior)"],
       ["--provider <name>", "CRM snapshot to match against: hubspot | salesforce"],
       ["--input <path>", "match against a saved snapshot JSON instead of a live pull"],
       ["--save", "persist the dry-run plan for approve → apply"],
-      ["--json", "machine-readable {plan, counts, unmatched, proposedAccounts} (stripe) or replay summary (runs)"],
+      ["--json", "machine-readable {plan, counts, unmatched, proposedAccounts, unattachedInvoices} (stripe) or replay summary (runs)"],
       ["--dry-run", "(runs) count what would be replayed without sending anything"],
     ],
     seeAlso: ["enrich", "plans", "apply", "resolve"],

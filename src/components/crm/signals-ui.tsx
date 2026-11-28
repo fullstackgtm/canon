@@ -370,17 +370,17 @@ function TimelineSection({ here, items, loaded, userName, cadences, children, mo
   const [limit, setLimit] = useState(PAGE);
   return (
     <TimelineRecord.Provider value={here}>
-    <section className="border border-border bg-card p-4">
-      <h2 className="mb-2 text-xs font-medium text-muted-foreground">{title}</h2>
+    <section className="record-panel record-panel-pad">
+      <h2 className="record-block-heading record-section-title mb-2">{title}</h2>
       {children}
-      {moduleActivityUnavailable && <p role="status" className="mb-2 text-sm text-muted-foreground">Module activities are unavailable. Open the module to view its records.</p>}
+      {moduleActivityUnavailable && <p role="status" className="mb-2 record-value text-muted-foreground">Module activities are unavailable. Open the module to view its records.</p>}
       {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{loaded ? "Nothing yet." : "Loading…"}</p>
+        <p className="record-value text-muted-foreground">{loaded ? "Nothing yet." : "Loading…"}</p>
       ) : (
-        <ul className="space-y-2 text-sm">
+        <ul className="space-y-2 record-value">
           {items.slice(0, limit).map((item, index) => (
             <li key={`${item.kind}-${item.at}-${index}`} className="grid grid-cols-[6rem_1fr] gap-3 border-b border-border pb-2 last:border-b-0">
-              <time className="font-mono text-xs text-muted-foreground" title={item.kind === "module" && item.date ? item.date : new Date(item.at).toLocaleString()}>{item.kind === "module" && item.date ? new Date(item.at).toLocaleDateString(undefined, { timeZone: "UTC" }) : day(item.at)}</time>
+              <time className="record-meta" title={item.kind === "module" && item.date ? item.date : new Date(item.at).toLocaleString()}>{item.kind === "module" && item.date ? new Date(item.at).toLocaleDateString(undefined, { timeZone: "UTC" }) : day(item.at)}</time>
               <div><TimelineEntry item={item} userName={userName} cadences={cadences} /></div>
             </li>
           ))}

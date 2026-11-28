@@ -1,4 +1,4 @@
-import { tabs } from "./helpers/layout-tabs.ts";
+import { recordSummary, tabs } from "./helpers/layout-tabs.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -25,6 +25,7 @@ const pageSections: { PageSections?: ComponentType<Record<string, unknown>> } = 
 const NO_SHAPE = { LayoutTreeContext: createContext(undefined), useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children,
   useShapeMode: ({ base }: { base: recipes.PageSpec }) => ({ page: base, provider: (children: ReactNode) => children }) };
 runInNewContext(transpile("../src/components/records/page-sections.tsx"), { exports: pageSections, require: (id: string) => (id === "@/components/ui/tabs" ? tabs :
+  id === "./record-summary" ? recordSummary :
   id === "@/components/shell/nav" ? nav :
   id === "../../../recipes/theme" ? theme :
   id === "../../../recipes" ? recipes :
@@ -46,6 +47,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     "../../../convex/_generated/api": { api: { objects: { describe: "describe", get: "get" }, recipes: { forOrg: "forOrg" }, workspaceRecipes: {}, users: {}, automations: {}, fieldClaims: {}, crmDisagreements: {} } },
     "../../../recipes": recipes,
     "../../../recipes/blocks": { pageKind },
+    "./record-summary": recordSummary,
     "./record-blocks": { RecordBlocks: ({ children }: { children: (renderers: object) => ReactNode }) => children({}) },
     "./dropdown-menu": {},
     "@/components/dashboard": {}, "@/components/ui/dialog": {}, "@/lib/toast": {},
