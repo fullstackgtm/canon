@@ -38,7 +38,7 @@ export function ChartPicker({ current, suggested, why, onPick }: {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" aria-label={`Chart: ${current.label}`} className="flex w-full items-center gap-3 border border-border bg-background px-2 py-1.5 text-left text-sm hover:border-foreground/30 data-[state=open]:border-primary">
+        <button type="button" aria-label={`Chart: ${current.label}`} className="flex w-full items-center gap-3 border border-border bg-background px-2 py-1.5 text-left text-sm hover:border-foreground/30 data-open:border-primary">
           <Thumb id={current.id} className="h-8 w-12 shrink-0 border border-border bg-card" />
           <span className="flex-1">{current.label}</span>
           <ChevronDown className="size-4 text-muted-foreground opacity-50" />

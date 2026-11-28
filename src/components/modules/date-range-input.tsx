@@ -45,7 +45,7 @@ export function DateRangeInput({ label, value, fiscalYearStartMonth, onChange, c
     <div className={cn("flex items-center gap-1 text-xs", className)} role="group" aria-label={label}>
       <Popover open={open} onOpenChange={show}>
         <PopoverTrigger asChild>
-          <button type="button" aria-label={`${label}: ${shown}`} className="flex h-8 min-w-0 flex-1 items-center gap-2 border border-border bg-background px-2.5 text-left text-xs hover:border-foreground/30 data-[state=open]:border-primary">
+          <button type="button" aria-label={`${label}: ${shown}`} className="flex h-8 min-w-0 flex-1 items-center gap-2 border border-border bg-background px-2.5 text-left text-xs hover:border-foreground/30 data-open:border-primary">
             <CalendarRange aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">
               <span className="text-muted-foreground">{label}: </span>{shown}

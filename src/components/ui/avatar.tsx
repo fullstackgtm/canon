@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { Avatar as AvatarPrimitive } from "radix-ui"
+import * as AvatarPrimitive from "@ui-sdk/react/avatar"
+
+import { type UiProps } from "@/components/ui/composition"
 
 import { cn } from "@/lib/utils"
 
@@ -9,11 +11,11 @@ function Avatar({
   className,
   size = "default",
   ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Root> & {
+}: UiProps<typeof AvatarPrimitive.Avatar> & {
   size?: "default" | "sm" | "lg"
 }) {
   return (
-    <AvatarPrimitive.Root
+    <AvatarPrimitive.Avatar
       data-slot="avatar"
       data-size={size}
       className={cn(
@@ -28,9 +30,9 @@ function Avatar({
 function AvatarImage({
   className,
   ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Image>) {
+}: UiProps<typeof AvatarPrimitive.AvatarImage>) {
   return (
-    <AvatarPrimitive.Image
+    <AvatarPrimitive.AvatarImage
       data-slot="avatar-image"
       className={cn("aspect-square size-full", className)}
       {...props}
@@ -41,9 +43,9 @@ function AvatarImage({
 function AvatarFallback({
   className,
   ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Fallback>) {
+}: UiProps<typeof AvatarPrimitive.AvatarFallback>) {
   return (
-    <AvatarPrimitive.Fallback
+    <AvatarPrimitive.AvatarFallback
       data-slot="avatar-fallback"
       className={cn(
         "bg-muted text-muted-foreground flex size-full items-center justify-center rounded-full text-sm group-data-[size=sm]/avatar:text-xs",
