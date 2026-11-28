@@ -6,6 +6,7 @@ import { useAction } from "convex/react";
 import { Eye } from "lucide-react";
 import { api } from "../../../../convex/_generated/api";
 import type { CompiledRecipe } from "../../../../recipes/md/parse";
+import { isCustomObjectName } from "../../../../modules/kernel/reportLanguage";
 import { pageOf, type PageObject } from "../../../../recipes";
 import { RecordPage } from "@/components/records/record-page";
 import { SelectField } from "@/components/ui/select";
@@ -15,11 +16,11 @@ const OBJECTS: readonly PageObject[] = ["deal", "account", "contact"];
 const PICKS = 5;
 
 /** Which page a line of recipe.md lays out: the `{page=…}` heading above it, else the deal's. */
-export function pageAtLine(markdown: string, line: number): PageObject {
+export function pageAtLine(markdown: string, line: number): string {
   const lines = markdown.split("\n").slice(0, line);
   for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /^# .*\{[^}]*\bpage=(account|contact)\b/.exec(lines[i]);
-    if (m) return m[1] as PageObject;
+    const m = /^# .*\{[^}]*\bpage=(account|contact|custom_[a-z][a-z0-9_]*)\b/.exec(lines[i]);
+    if (m) return m[1];
     if (/^# /.test(lines[i]) && i > 0) return "deal";
   }
   return "deal";
@@ -32,14 +33,14 @@ export function pageAtLine(markdown: string, line: number): PageObject {
  */
 export function RecipePreview({ recipe, stale, focus }: { recipe: CompiledRecipe; stale: boolean; focus: string }) {
   const names = useObjectLabels();
-  const pages = OBJECTS.filter((o) => pageOf(recipe, o).length > 0);
+  const pages = [...OBJECTS, ...(recipe.workspacePages ?? []).map((p) => p.slug).filter(isCustomObjectName)].filter((o) => pageOf(recipe, o).length > 0);
   // A tab picked holds until the caret moves into another page of recipe.md.
-  const [picked, setPicked] = useState<{ object: PageObject; focus: string } | null>(null);
-  const chosen = picked?.focus === focus ? picked.object : focus as PageObject;
+  const [picked, setPicked] = useState<{ object: string; focus: string } | null>(null);
+  const chosen = picked?.focus === focus ? picked.object : focus;
   const object = pages.includes(chosen) ? chosen : pages[0];
   const list = useAction(api.objects.list);
-  const [rows, setRows] = useState<Partial<Record<PageObject, Array<{ id: string; title: string }>>>>({});
-  const [id, setId] = useState<Partial<Record<PageObject, string>>>({});
+  const [rows, setRows] = useState<Partial<Record<string, Array<{ id: string; title: string }>>>>({});
+  const [id, setId] = useState<Partial<Record<string, string>>>({});
 
   useEffect(() => {
     if (!object || rows[object]) return;
@@ -61,7 +62,7 @@ export function RecipePreview({ recipe, stale, focus }: { recipe: CompiledRecipe
         <div role="tablist" className="flex gap-1">
           {pages.map((o) => (
             <button key={o} type="button" role="tab" aria-selected={o === object} onClick={() => setPicked({ object: o, focus })}
-              className={cn("border px-1.5 py-0.5", o === object ? "border-foreground" : "border-border text-muted-foreground hover:bg-muted")}>{names(o)!.label}</button>
+              className={cn("border px-1.5 py-0.5", o === object ? "border-foreground" : "border-border text-muted-foreground hover:bg-muted")}>{names(o)?.label ?? o}</button>
           ))}
         </div>
         {choices && choices.length > 1 && (
@@ -74,7 +75,7 @@ export function RecipePreview({ recipe, stale, focus }: { recipe: CompiledRecipe
       </div>
       <div className={cn("min-h-0 flex-1 overflow-auto", stale && "opacity-60")}>
         {choices === undefined ? <p className="p-4 text-sm text-muted-foreground">Finding a record…</p>
-          : !current ? <p className="p-4 text-sm text-muted-foreground">This workspace has no {names(object)!.label.toLowerCase()} records to preview.</p>
+          : !current ? <p className="p-4 text-sm text-muted-foreground">This workspace has no {(names(object)?.label ?? object).toLowerCase()} records to preview.</p>
           : <div inert className="pointer-events-none select-none">
               <RecordPage key={`${object}:${current}`} object={object} id={current} layout={{ layoutTree: recipe.layouts?.[object], page: pageOf(recipe, object), hasPlays: object === "deal" && recipe.data !== null }} />
             </div>}

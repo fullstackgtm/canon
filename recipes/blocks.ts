@@ -2,13 +2,14 @@ import { DATA_QUERIES, type DataQuery } from "./data.ts";
 /** The page block vocabulary shared by recipes, the editor and renderer coverage types. Pure: no Node imports. */
 import { z } from "zod";
 import { DEAL_STAGES, type DealStage } from "../convex/lib/plays/model.ts";
+import { isCustomObjectName } from "../modules/kernel/reportLanguage.ts";
 import type { KernelAction } from "./actions.ts";
 import type { PageSection } from "./kernel.ts";
 
 export const PAGE_OBJECTS = ["deal", "account", "contact"] as const;
 export type PageObject = (typeof PAGE_OBJECTS)[number];
-export type PageKind = PageObject | "workspace";
-export const pageKind = (target: string): PageKind => (PAGE_OBJECTS as readonly string[]).includes(target) ? target as PageObject : "workspace";
+export type PageKind = PageObject | "workspace" | "custom";
+export const pageKind = (target: string): PageKind => (PAGE_OBJECTS as readonly string[]).includes(target) ? target as PageObject : isCustomObjectName(target) ? "custom" : "workspace";
 export const PANELS = { draftPanel: "plan" } as const;
 
 const ACTION_CATALOG = {
@@ -72,28 +73,28 @@ const ACTION_CATALOG = {
   "kernel.setStatus": { hosts: { account: { header: "record" } }, calls: "records.edit", writes: true, requires: "!deleted", ready: "canEdit", gate: "the edit lands on the company's ledger, with the person as its author" },
   "kernel.setOwner": { hosts: { account: { header: "record" } }, calls: "records.edit", writes: true, requires: "!deleted", ready: "canEdit", gate: "an active teammate, or nobody; the edit lands on the company's ledger" },
   "kernel.editField": {
-    hosts: { workspace: { board: "record" }, deal: { detail: "record", board: "record" }, account: { fields: "record", detail: "record", board: "record" }, contact: { fields: "record", detail: "record", board: "record" } }, calls: "records.edit, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
+    hosts: { workspace: { board: "record" }, deal: { detail: "record", board: "record", path: "record" }, account: { fields: "record", detail: "record", board: "record", path: "record" }, contact: { fields: "record", detail: "record", board: "record", path: "record" }, custom: { path: "record" } }, calls: "records.edit, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
     gate: "a field the workspace made read-only stays so; an edit to a row nobody has worked puts it on the ledger first",
   },
   "kernel.findEmail": {
-    hosts: { contact: { header: { on: "record", requires: "canEdit && contact.company && !contact.email" } }, account: { related: { on: "personRow", requires: "row.primary && !row.email" } } },
+    hosts: { contact: { header: { on: "record", requires: "canEdit && contact.company && !contact.email" }, highlights: { on: "record", requires: "canEdit && contact.company && !contact.email" } }, account: { related: { on: "personRow", requires: "row.primary && !row.email" } } },
     calls: "records.findEmail", writes: true, gate: "reads the person's company domain; within the workspace's lookup limit, and it writes only what it finds",
   },
   "kernel.findPhone": {
-    hosts: { contact: { header: { on: "record", requires: "canEdit && contact.company && !contact.phone" } }, account: { related: { on: "personRow", requires: "row.primary && !row.phone" } } },
+    hosts: { contact: { header: { on: "record", requires: "canEdit && contact.company && !contact.phone" }, highlights: { on: "record", requires: "canEdit && contact.company && !contact.phone" } }, account: { related: { on: "personRow", requires: "row.primary && !row.phone" } } },
     calls: "records.findPhone", writes: true, gate: "reads the person's company domain; within the workspace's lookup limit, and it writes only what it finds",
   },
   "kernel.merge": {
-    hosts: { account: { header: "record" }, contact: { header: "record" } }, calls: "recordMerges.merge", writes: true, requires: "canDelete && !deleted",
+    hosts: { account: { header: "record", highlights: "record" }, contact: { header: "record", highlights: "record" } }, calls: "recordMerges.merge", writes: true, requires: "canDelete && !deleted",
     gate: "a person compares the records and picks each value; the merge is undone from the kept record's history",
   },
   "kernel.archive": {
-    hosts: { deal: { header: "record" }, account: { header: "record" }, contact: { header: "record" } }, calls: "records.bulkRegister, objects.remove", writes: true, requires: "canDelete && !deleted",
+    hosts: { deal: { header: "record", highlights: "record" }, account: { header: "record", highlights: "record" }, contact: { header: "record", highlights: "record" }, custom: { highlights: "record" } }, calls: "records.bulkRegister, objects.remove", writes: true, requires: "canDelete && !deleted",
     gate: "the record leaves lists, search, reports and agents; nothing is erased, and Restore or the toast's Undo brings it back",
   },
-  "kernel.restore": { hosts: { deal: { header: "record" }, account: { header: "record" }, contact: { header: "record" } }, calls: "records.bulkRegister, objects.restore", writes: true, requires: "canDelete && deleted", gate: "brings an archived record back" },
+  "kernel.restore": { hosts: { deal: { header: "record", highlights: "record" }, account: { header: "record", highlights: "record" }, contact: { header: "record", highlights: "record" }, custom: { highlights: "record" } }, calls: "records.bulkRegister, objects.restore", writes: true, requires: "canDelete && deleted", gate: "brings an archived record back" },
   "kernel.createRecord": {
-    hosts: { workspace: { form: "record" }, deal: { form: "record" }, account: { form: "record" }, contact: { form: "record" } },
+    hosts: { workspace: { form: "record" }, deal: { form: "record", relatedList: "record" }, account: { form: "record", relatedList: "record" }, contact: { form: "record", relatedList: "record" }, custom: { relatedList: "record" } },
     calls: "deals.createScoped, records.upsert, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
     gate: "the existing create path checks the caller, tenant, create permission, visible and writable fields, references, validation and duplicates; a form cannot add a write",
   },
@@ -169,8 +170,37 @@ function dataBlock<K extends keyof typeof DATA_QUERIES, const O extends Partial<
   return { ...block(id, "data", objects, title, "Read records through a declarative query."), query: DATA_QUERIES[id] };
 }
 
+export const RECORD_PROPS = /* @__PURE__ */ (() => {
+  const fieldName = z.string().min(1).max(80);
+  const relationshipName = z.string().regex(/^[a-zA-Z][\w.:-]{0,159}$/);
+  const highlightAction = z.enum(["kernel.archive", "kernel.restore", "kernel.merge", "kernel.findEmail", "kernel.findPhone"]);
+  return {
+    highlights: z.strictObject({ fields: z.array(fieldName).max(7).optional(), actions: z.array(highlightAction).max(5).optional() }),
+    path: z.strictObject({ field: fieldName.optional(), change: z.boolean().optional() }),
+    quickLinks: z.strictObject({ relationships: z.array(relationshipName).max(30).optional() }),
+    relatedList: z.strictObject({
+      relationship: relationshipName,
+      columns: z.array(fieldName).min(1).max(30).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+      sort: z.strictObject({ field: fieldName, dir: z.enum(["asc", "desc"]) }).optional(),
+      create: z.boolean().optional(),
+    }),
+  };
+})();
+export type RecordBlock = keyof typeof RECORD_PROPS;
+export type RecordProps<K extends RecordBlock = RecordBlock> = z.infer<typeof RECORD_PROPS[K]>;
+export const isRecordBlock = (id: string): id is RecordBlock => Object.hasOwn(RECORD_PROPS, id);
+
+function recordBlock<K extends RecordBlock>(id: K, rank: number, title: string, purpose: string) {
+  return { ...block(id, "record", { deal: rank, account: rank, contact: rank, custom: rank }, title, purpose), settings: RECORD_PROPS[id] };
+}
+
 /** Object ranks preserve the existing add-menu and grammar order, independently of catalog order. */
 export const BLOCKS = {
+  highlights: /* @__PURE__ */ recordBlock("highlights", 40, "Highlights", "Record title, key fields and permitted record actions."),
+  path: /* @__PURE__ */ recordBlock("path", 41, "Path", "Ordered picklist steps and an optional Change stage control."),
+  quickLinks: /* @__PURE__ */ recordBlock("quickLinks", 42, "Related links", "Jump to related lists, with viewer-scoped counts."),
+  relatedList: /* @__PURE__ */ recordBlock("relatedList", 43, "Related list", "A compact table of related records with View all and optional New."),
   form: /* @__PURE__ */ dataBlock("form", "Form", /* @__PURE__ */ dataObjects(34)),
   board: /* @__PURE__ */ dataBlock("board", "Board", /* @__PURE__ */ dataObjects(35)),
   detail: /* @__PURE__ */ dataBlock("detail", "Detail", { deal: 36, account: 36, contact: 36 }),
@@ -189,7 +219,7 @@ export const BLOCKS = {
   accountMap: /* @__PURE__ */ block("accountMap", "play", { deal: 9 }, "Account map", "The deal's committee, sorted by role, as a table (role, person, reports to, persona, angle, confidence, thread) or an org chart from reports-to. Persona and angle are hypotheses and the page says so. Below: the people research suggests, and anyone else at the company."),
   touches: /* @__PURE__ */ block("touches", "play", { deal: 10 }, "Touches", "LinkedIn, email, calls and meetings with the people on this deal, newest first."),
   fieldGrid: /* @__PURE__ */ block("fieldGrid", "record", { deal: 11 }, "Field grid", "The deal's own fields, its timeline, history and related records, folded."),
-  fields: /* @__PURE__ */ block("fields", "record", { deal: 12, account: 2, contact: 1 }, "Fields", "A section lists field api names, and rest."),
+  fields: /* @__PURE__ */ block("fields", "record", { deal: 12, account: 2, contact: 1, custom: 12 }, "Fields", "A section lists field api names, and rest."),
   timeline: /* @__PURE__ */ block("timeline", "record", { deal: 13, account: 5, contact: 6 }, "Timeline", "The record's activity timeline."),
   history: /* @__PURE__ */ block("history", "record", { deal: 14, account: 10, contact: 7 }, "History", "The record's history."),
   related: /* @__PURE__ */ block("related", "record", { deal: 15, account: 9, contact: 3 }, "Related", "The record's related people, companies and hierarchy."),
@@ -230,3 +260,12 @@ export const COMPONENTS = { deal: /* @__PURE__ */ componentsOf("deal"), account:
  * draws them all; with it, only those it names.
  */
 export const PARTS: Partial<Record<PageComponent, readonly string[]>> = /* @__PURE__ */ (() => Object.fromEntries(Object.values(BLOCKS).filter((b) => b.parts).map((b) => [b.id, b.parts])))();
+
+export function parseRecordProps<K extends RecordBlock>(component: K, input: unknown, object: PageKind): RecordProps<K> {
+  const result = RECORD_PROPS[component].parse(input === undefined ? {} : input) as RecordProps<K>;
+  if ("actions" in result && result.actions) {
+    const allowed = BLOCKS.highlights.actions.filter((action) => action.object === object);
+    for (const id of result.actions) if (!allowed.some((action) => action.id === id)) throw new Error(`${id} cannot run in highlights on ${object}`);
+  }
+  return result;
+}

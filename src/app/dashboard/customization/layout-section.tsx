@@ -1,6 +1,7 @@
 "use client";
-import { pageKind } from "../../../../recipes/blocks";
+import { pageKind, isRecordBlock, type RecordBlock } from "../../../../recipes/blocks";
 import { isDataComponent, DATA_QUERIES } from "../../../../recipes/data";
+import { RecordBlockSettings } from "./record-block-settings";
 import { QuerySettings } from "./query-settings";
 import { sectionKey, type LayoutNode, type LayoutTree } from "../../../../recipes/layout";
 
@@ -141,6 +142,7 @@ export function SectionCard({ ctx, index, over, setOver, autoRename }: { ctx: Ct
       )}
       {open && (
         <div className="space-y-3 px-3 pb-3 pl-8">
+          {isRecordBlock(s.component) && <RecordBlockSettings key={JSON.stringify(s.props)} component={s.component} object={layout.object} value={s.props} disabled={readOnly} onSave={(props) => edit({ op: "setProps", object: layout.object, section: s.ref, props }, key, "Updated settings")} />}
           {s.query && isDataComponent(s.component) && <QuerySettings kind={s.component} query={s.query} disabled={readOnly} onSave={(query) => edit({ op: "setQuery", object: layout.object, section: s.ref, query }, key, "Updated query")} />}
           {layout.object === "deal" && props.when && <Prop label="Shows in"><StageChips ctx={ctx} s={s} index={index} /></Prop>}
           {props.collapsed && <Prop label="Starts">
@@ -443,8 +445,9 @@ export function AddSection({ ctx, onAdded }: { ctx: Ctx; onAdded: (index: number
   const [fields, setFields] = useState<string | null>(null);
   const [title, setTitle] = useState("Details");
   const pending = useRef<PageComponent | null>(null);
+  const [recordBlock, setRecordBlock] = useState<RecordBlock | null>(null);
   if (ctx.readOnly || !layout.addable.length) return null;
-  const add = (op: LayoutOp) => { if (edit(op, "page", "Added a section")) { onAdded(layout.sections.length); setFields(null); } };
+  const add = (op: LayoutOp) => { if (edit(op, "page", "Added a section")) { onAdded(layout.sections.length); setFields(null); setRecordBlock(null); } };
   return (
     <div className="space-y-2">
       <DropdownMenu>
@@ -457,6 +460,7 @@ export function AddSection({ ctx, onAdded }: { ctx: Ctx; onAdded: (index: number
             if (!c) return;
             e.preventDefault();
             if (c === "fields") setFields("");
+            else if (isRecordBlock(c)) setRecordBlock(c);
             else add({ op: "addSection", object: layout.object, component: c, title: BLOCKS[c].title, ...(isDataComponent(c) ? { query: DATA_QUERIES[c].parse({ object: "deal", ...(c === "metric" || c === "chart" ? { aggregate: { fn: "count" } } : {}), ...(c === "form" ? { fields: ["name", "closeDate", "stage"], defaults: {} } : {}), ...(c === "detail" ? { columns: ["name"] } : {}), ...(c === "chart" || c === "board" ? { groupBy: { field: "stage" } } : {}) }) } : {}), before: null });
           }}>
           {layout.addable.map((c) => (
@@ -466,6 +470,7 @@ export function AddSection({ ctx, onAdded }: { ctx: Ctx; onAdded: (index: number
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+      {recordBlock && <RecordBlockSettings key={recordBlock} component={recordBlock} object={layout.object} onCancel={() => setRecordBlock(null)} onSave={(props) => add({ op: "addSection", object: layout.object, component: recordBlock, title: BLOCKS[recordBlock].title, props, before: null })} />}
       {fields !== null && (
         <form className="flex flex-wrap items-end gap-2 border border-border bg-card p-2"
           onSubmit={(e) => { e.preventDefault(); add({ op: "addSection", object: layout.object, component: "fields", title, fields: fields.split(",").map((f) => f.trim()).filter(Boolean), before: null }); }}>

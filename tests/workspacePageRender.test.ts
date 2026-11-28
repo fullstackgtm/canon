@@ -6,12 +6,14 @@ import { runInNewContext } from "node:vm";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
+import { isCustomObjectName } from "../modules/kernel/reportLanguage.ts";
 const require = createRequire(import.meta.url);
 test("workspace route draws loading, not found and an enabled page through the shared renderers", () => {
   let spec: unknown;
   let workflow: unknown = null;
   const exports: { default?: React.ComponentType<any> } = {};
   const stubs: Record<string, unknown> = {
+    "../../../../../modules/kernel/reportLanguage": { isCustomObjectName },
     "@/components/customize/customize-mode": { useCustomizeMode: () => ({ workflow }) },
     "../../../../../recipes/md/parse": { parseRecipe: () => ({ recipe: { meta: { title: "Draft" }, workspacePages: [{ slug: "open-deals", title: "Draft page", sections: [{ component: "metric", title: "Draft metric" }] }] } }) },
     react: { ...React, use: () => ({ slug: "open-deals" }) },

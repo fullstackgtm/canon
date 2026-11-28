@@ -7,6 +7,7 @@ import { api } from "../../../convex/_generated/api";
 import { SuggestedPrompt, useDealRecordId, usePromptSuggestions } from "./suggested-prompt";
 import { useCustomizeMode } from "./customize-mode";
 import { getErrorMessage } from "@/lib/utils";
+import { isCustomObjectName } from "../../../modules/kernel/reportLanguage";
 import { useReferenceImages } from "./use-reference-images";
 
 export function WorkflowTray() {
@@ -67,4 +68,4 @@ function routeTarget(pathname: string): string | null {
   return null;
 }
 
-export const workflowHref = (target: string) => ["deal", "account", "contact"].includes(target) ? `/dashboard/${{ deal: "deals", account: "accounts", contact: "contacts" }[target]}` : `/dashboard/p/${target}`;
+export const workflowHref = (target: string) => ["deal", "account", "contact"].includes(target) ? `/dashboard/${{ deal: "deals", account: "accounts", contact: "contacts" }[target]}` : isCustomObjectName(target) ? `/dashboard/records/${target}` : `/dashboard/p/${target}`;

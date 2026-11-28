@@ -37,7 +37,7 @@ import { DRAWN, drawnText, refuseSectionRename } from "../recipes/md/pointed.ts"
 import { isWorkspaceId, lineDiff } from "../recipes/workspace.ts";
 import { jevSystemOne, type SystemOneQuestion } from "./lib/segments/jev";
 import { resolveLlm } from "./lib/llmResolver";
-import { recipeAgentStandIn, standInWorkflow, standInColumns, standInImageNote, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
+import { recipeAgentStandIn, standInWorkflow, standInColumns, standInReferenceLayout, standInImageNote, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
 import type { ActionCaller } from "./records";
 
 const STAGE_NAMES: Record<DealStage, string> = { in: "Get in (first stage, finding the way in)", case: "Build the case (middle stage)", close: "Close (final stage)" };
@@ -211,19 +211,19 @@ const opsSchema = (object: string) => ({
       items: {
         type: "object",
         properties: {
-          op: { type: "string", enum: ["addPage", "removePage", "moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "setQuery", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition", "wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"] },
+          op: { type: "string", enum: ["addPage", "removePage", "moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "setProps", "setQuery", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition", "wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"] },
           slug: { type: "string" }, icon: { type: "string" }, object: { type: "string" },
           section: { type: "object", properties: { component: { type: "string" }, nth: { type: "number" } }, description: "The section the op is about, as its ref in the layout." },
           before: { description: "moveSection/addSection: the ref of the section it goes before, or null for the end. moveAction: the action id it goes before, or null." },
           sections: { type: "array", items: { type: "object", properties: { component: { type: "string" }, nth: { type: "number" } }, required: ["component"] } },
-          kind: { type: "string", enum: ["columns", "tabs", "card"] },
+          kind: { type: "string", enum: ["stack", "columns", "tabs", "card"] },
           id: { type: "string" },
           container: { type: "string" },
-          props: { type: "object", properties: { widths: { type: "array", items: { type: "integer" } }, labels: { type: "array", items: { type: "string" } }, title: { type: "string" } } },
           collapsed: { type: "boolean" },
           ...(object === "deal" ? { when: { description: "setWhen: {stage:[...]} to show only in those stages, {notStage:[...]} to hide in them, or null for every stage. Stages: in, case, close." } } : {}),
           title: { type: "string", description: "renameSection/addSection: the section's title." },
           component: { type: "string", description: "addSection: one of the layout's addable components." },
+          props: { type: "object", description: "addSection/setProps for highlights, path, quickLinks and relatedList. Use the settings schema and available fields and relationships." },
           query: { type: "object", description: "addSection/setQuery: declarative data query; object, filter (ListFilter[]), sort {field,dir}, columns for table/list, limit 1–200; aggregate {fn:count} or {fn:sum|avg,field} for metric/chart; chart groupBy {field,bucket?:day|week|month|quarter|year}. Filter values may be {record:id} or {record:fieldId}." },
           action: { type: "string", description: "The action's id, for action ops." },
           label: { type: "string", description: "setActionLabel/addAction: the button's label." },
@@ -258,12 +258,13 @@ function lunaPrompt(layout: Layout, target: SectionRef | null, request: string, 
     'Built-in sections with asQuery can become table, list, metric or chart data sections. Use their asQuery, retaining from, filters and record references. from:"companyDeals" is a read-only relation allowed only on the account page with object:"deal"; it reads the same deals as the built-in Deals section, including CRM mirrors. Filters, sorting, columns, limits and aggregates then apply to those rows. Table/list keep columns; metric/chart replace columns with aggregate:{fn:"count"}; chart also needs groupBy:{field:"stage"} for deals or a suitable picklist. "Make this into X" replaces the section using removeSection and addSection at the same position (before the next section); "add/also show X" adds beside it. This is supported even though Canon draws the original component. If replacing a section with actions, explain in the summary which buttons go away, that a form block can bring record creation back, and that Undo restores the original. Without asQuery, do not invent a query or promise to change a built-in display.',
     "Tree ops: wrapSections {sections:[refs], kind:columns|tabs|card, id:uniqueName, props:{widths?:[2,1], labels?:[one label per tab], title?:card title}} groups siblings; unwrap {container:id} removes a container; moveIntoContainer {section,container,before:ref|null} moves a leaf; setContainerProps {container,props} changes props. Columns need 2–3 children. Tabs need labels. Cards need a title. Existing moveSection moves within its container.",
     "Return the fewest changes that do what the person asked. Never invent settings, components, actions or data the customization doesn't have. If the request can't be done in this customization, return nothing and say why in the summary.",
+    "For record-page references prefer highlights, path, quickLinks and relatedList for the matching regions. Configure them with props in addSection or setProps.",
     layout.object === "deal" ? FIXED : "The layout lists the sections and actions this page can customize. Controls drawn inside a component are not recipe actions.",
     pointed ? `The person pointed at ${pointed}.` : "",
     target ? `That is inside the section with ref ${JSON.stringify(target)}. "this", "it" or an unnamed subject means what they pointed at: a button is that action; the section's title means the section, so a request that only gives new words ("change to X", "call it X") renames it; "title", "heading" or "section" in the request always means the section's title, even when they pointed at a field or control inside it, so "change title to X" renames the section; a part is that part of the section's show=. Pointing is only a hint at where: judge by what the request asks for. A request about how the section works (how many, how long, which, when) is a customization change wherever they pointed. Only when the request changes the wording, look or presence of "a control or text the section's component draws" itself, return nothing and say plainly that Canon draws it and it can't change here yet; never rename or change the section in its place.` : "What they pointed at is outside every customization section, so it's one of the parts the customization doesn't control unless the request names a section. Never apply the request to some other section as a guess: if it is about what they pointed at, return nothing and say plainly that Canon draws that part and it can't change here yet.",
     ...(layout.object === "deal" ? ["Stages: in = Get in, case = Build the case, close = Close."] : []),
     `Instruction: ${request}`,
-    `Layout: ${JSON.stringify({ tree: layout.tree, sections: layout.sections.map((s, i) => ({ ref: s.ref, title: s.title, when: s.when, collapsed: s.collapsed, ...(s.asQuery ? { asQuery: s.asQuery } : {}), ...(PARTS[s.component] ? { parts: PARTS[s.component], show: page[i]?.show ?? PARTS[s.component] } : {}), actions: s.actions.map((a) => ({ id: a.id, label: a.label, ...(a.panel ? { panel: a.panel } : {}) })), addableActions: s.addable })), addableComponents: layout.addable })}`,
+    `Layout: ${JSON.stringify({ tree: layout.tree, sections: layout.sections.map((s, i) => ({ ref: s.ref, title: s.title, when: s.when, collapsed: s.collapsed, ...(s.asQuery ? { asQuery: s.asQuery } : {}), ...(s.props ? { props: s.props } : {}), ...(PARTS[s.component] ? { parts: PARTS[s.component], show: page[i]?.show ?? PARTS[s.component] } : {}), actions: s.actions.map((a) => ({ id: a.id, label: a.label, ...(a.panel ? { panel: a.panel } : {}) })), addableActions: s.addable })), addableComponents: layout.addable })}`,
     `customization.md:\n<<<\n${markdown}\n>>>`,
   ].join("\n\n");
 }
@@ -330,7 +331,7 @@ async function runEdit(
   if (recipeAgentStandIn()) {
     const section = target && layout.sections.find((s) => sameRef(s.ref, target));
     const view = builtInDataView(layout, target, request);
-    let ops: LayoutOp[] = standInColumns(layout, target, request);
+    let ops: LayoutOp[] = standInReferenceLayout(layout, request) ?? standInColumns(layout, target, request);
     if (section && /^(?:fold|collapse)\b/i.test(request)) ops = [{ op: "setCollapsed", object, section: section.ref, collapsed: true }];
     else if (section && /^move (?:this|it) to the top[.!]?$/i.test(request)) ops = [{ op: "moveSection", object, section: section.ref, before: layout.sections[0]?.ref ?? null }];
     const checked = check(args.markdown, ops);
@@ -430,7 +431,7 @@ export const save = action({
     const base = await ctx.runQuery(internal.workspaceRecipes.editBase, { recipeId });
     const out = await ctx.runAction(api.workspaceRecipes.save, { recipeId, markdown, baseRevision: base.revision, note, acceptFailingEvals: args.acceptFailingEvals });
     if (!out.blocked) {
-      if (pageKind(object) === "workspace") await ctx.runMutation(internal.recipes.activateWorkspacePageCopy, { recipeId, sourceId: args.recipeId, slug: object });
+      if (pageKind(object) === "workspace" || pageKind(object) === "custom") await ctx.runMutation(internal.recipes.activateWorkspacePageCopy, { recipeId, sourceId: args.recipeId, slug: object });
       else await ctx.runMutation(api.recipes.enableContribution, { point: `${object}.page`, recipeId, key: "page" });
     }
     return { recipeId, revision: out.revision, copied: true, blocked: out.blocked, failing: out.evals.filter((e) => !e.ok).map((e) => e.name), evalsNotRun: out.evalsNotRun };

@@ -8,6 +8,7 @@ import { createContext, createElement, Fragment, type ComponentType, type ReactN
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as recipes from "../recipes/index.ts";
+import { pageKind } from "../recipes/blocks.ts";
 import * as recordTarget from "../src/components/records/record-target.ts";
 
 const require = createRequire(import.meta.url);
@@ -38,6 +39,8 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     },
     "../../../convex/_generated/api": { api: { objects: { describe: "describe", get: "get" }, recipes: { forOrg: "forOrg" }, workspaceRecipes: {}, users: {}, automations: {}, fieldClaims: {}, crmDisagreements: {} } },
     "../../../recipes": recipes,
+    "../../../recipes/blocks": { pageKind },
+    "./record-blocks": { RecordBlocks: ({ children }: { children: (renderers: object) => ReactNode }) => children({}) },
     "@/components/dashboard": {}, "@/components/ui/dialog": {}, "@/lib/toast": {},
     "@/lib/utils": { cn: (...v: unknown[]) => v.filter(Boolean).join(" ") },
     "./fields": {}, "@/components/research/ai-cell": {},

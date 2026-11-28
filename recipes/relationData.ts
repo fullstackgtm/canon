@@ -10,7 +10,7 @@ export type CompanyDealRow = {
 const AVAILABLE = new Set(["id", "recordTitle", "name", "stage", "amount", "currency", "closeDate", "isClosed", "isWon", "createdAt"]);
 
 /** forCompany has already applied the viewer's record and field permissions. Never fill missing values from another source. */
-export function companyDealsData(query: DataQuery, deals: readonly CompanyDealRow[], def: ResolvedObjectDef) {
+export function companyDealsData(query: DataQuery, deals: readonly CompanyDealRow[], def: ResolvedObjectDef, cursor?: string) {
   const used = [...query.filter.map((f) => f.field), ...(query.sort ? [query.sort.field] : []), ...("columns" in query ? query.columns : []), ...("aggregate" in query && query.aggregate.fn !== "count" ? [query.aggregate.field] : []), ...("groupBy" in query ? [query.groupBy.field] : [])];
   for (const name of used) if (!AVAILABLE.has(name)) throw new Error(`companyDeals does not provide field ${name}`);
   const rows: ListRow[] = deals.map((deal) => ({
@@ -26,7 +26,7 @@ export function companyDealsData(query: DataQuery, deals: readonly CompanyDealRo
     return { aggregate: aggregateRowsInMemory(compiled, rows, () => new Map(), {}) };
   }
   return {
-    rows: listRowsInMemory(def, rows, { filter: query.filter, ...(query.sort ? { sort: query.sort } : {}), limit: query.limit }, {}),
+    rows: listRowsInMemory(def, rows, { filter: query.filter, ...(query.sort ? { sort: query.sort } : {}), limit: query.limit, cursor }, {}),
     unlinked: deals.filter((d) => !d.streamId).map((d) => d.dealId),
   };
 }

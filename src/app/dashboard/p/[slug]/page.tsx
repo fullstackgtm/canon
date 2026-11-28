@@ -1,4 +1,5 @@
 "use client";
+import { isCustomObjectName } from "../../../../../modules/kernel/reportLanguage";
 import { useCustomizeMode } from "@/components/customize/customize-mode";
 import { parseRecipe } from "../../../../../recipes/md/parse";
 import { use, useMemo } from "react";
@@ -10,11 +11,12 @@ import { useShapeMode } from "@/components/records/shape/shape-mode";
 
 export default function WorkspacePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const stored = useQuery(api.recipes.workspacePage, { slug });
-  const workflow = useCustomizeMode()?.workflow?.targets.find((t) => t.target === slug);
+  const isRecord = isCustomObjectName(slug);
+  const stored = useQuery(api.recipes.workspacePage, isRecord ? "skip" : { slug });
+  const workflow = useCustomizeMode()?.workflow?.targets.find((t) => !isRecord && t.target === slug);
   const parsed = useMemo(() => workflow ? parseRecipe(workflow.markdown).recipe : null, [workflow]);
   const preview = parsed && parsed.workspacePages?.find((p) => p.slug === slug);
-  const spec = preview && workflow ? { ...preview, recipeId: workflow.recipeId, recipeTitle: parsed!.meta.title, layoutTree: parsed!.layouts?.[slug], canEdit: true } : stored;
+  const spec = isRecord ? null : preview && workflow ? { ...preview, recipeId: workflow.recipeId, recipeTitle: parsed!.meta.title, layoutTree: parsed!.layouts?.[slug], canEdit: true } : stored;
   const markdown = useQuery(api.workspaceRecipes.markdown, spec?.canEdit ? { recipeId: spec.recipeId } : "skip");
   const shape = useShapeMode({ object: slug, base: spec?.sections ?? [], layoutTree: spec?.layoutTree, markdown: workflow?.markdown ?? markdown?.markdown ?? null, recipeId: spec?.canEdit ? spec.recipeId : null, revision: markdown?.revision ?? null, recipeTitle: spec?.recipeTitle });
   if (spec === undefined) return <p role="status" className="p-6 text-sm text-muted-foreground">Loading page…</p>;

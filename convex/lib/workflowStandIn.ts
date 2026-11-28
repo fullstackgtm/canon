@@ -1,6 +1,38 @@
-import { describeLayout as describeLayoutForStandIn, type LayoutOp } from "../../recipes/md/edit.ts";
+import { describeLayout as describeLayoutForStandIn, type Layout, type LayoutOp } from "../../recipes/md/edit.ts";
+
+export function standInReferenceLayout(layout: Layout, request: string): LayoutOp[] | null {
+  if (layout.object !== "deal" || !/\bsalesforce\b/i.test(request)) return null;
+  const object = "deal";
+  if (layout.sections.some((section) => section.component === "highlights")) return [];
+  const before = layout.sections[0]?.ref ?? null;
+  const fields = layout.sections.filter((section) => section.component === "fields").map((section) => section.ref);
+  const related = { component: "relatedList" } as const;
+  const ops: LayoutOp[] = [
+    { op: "addSection", object, before, component: "highlights", title: "Highlights", props: { actions: ["kernel.archive", "kernel.restore"] } },
+    { op: "addSection", object, before, component: "path", title: "Pipeline path", props: { change: true } },
+    { op: "addSection", object, before, component: "quickLinks", title: "Related links", props: { relationships: ["companyDeals", "companyPeople", "dealPeople"] } },
+    ...(!fields.length ? [{ op: "addSection", object, before, component: "fields", title: "Details", fields: ["rest"] } as const] : []),
+    { op: "addSection", object, before, component: "relatedList", title: "Opportunities at this account",
+      props: { relationship: "companyDeals", columns: ["stage", "amount"], create: true } },
+  ];
+  if (before?.component === "header") ops.push({ op: "removeSection", object, section: before });
+  const [first = { component: "fields" }, ...rest] = fields;
+  ops.push({ op: "wrapSections", object, sections: [first, related], kind: "columns", id: "recordColumns", props: { widths: [2, 1] } });
+  if (rest.length) {
+    ops.push({ op: "wrapSections", object, sections: [first], kind: "stack", id: "recordFields" });
+    for (const section of rest) ops.push({ op: "moveIntoContainer", object, section, container: "recordFields", before: null });
+  }
+  return ops;
+}
 
 export function standInWorkflow(input: import("./workflowAgent.ts").WorkflowInput) {
+  const dealPage = input.pages.find((p) => p.target === "deal");
+  if (dealPage && (!input.imageReference?.currentTarget || input.imageReference.currentTarget === "deal") && /\bsalesforce\b/i.test(input.request)) {
+    const layout = describeLayoutForStandIn(dealPage.markdown, "deal");
+    const ops = !("error" in layout) ? standInReferenceLayout(layout, input.request) : null;
+    if (ops?.length) return { plan: [{ target: "deal", why: "Bring pipeline progress and related records together." }],
+      ops: { deal: ops }, summary: "Added highlights, the pipeline path, related links and an opportunities card beside the fields." };
+  }
   if (/\badd\b.*\bstage rail\b/i.test(input.request)) {
     const deal = input.pages.find((p) => p.target === "deal");
     const layout = deal && describeLayoutForStandIn(deal.markdown, "deal");
@@ -13,7 +45,7 @@ export function standInWorkflow(input: import("./workflowAgent.ts").WorkflowInpu
     }
   }
   const sdr = /SDR|morning.queue/i.test(input.request);
-  if (!sdr && !/renewal/i.test(input.request)) return { plan: [], ops: {}, summary: "The local stand-in handles renewals desk and SDR morning queue only." };
+  if (!sdr && !/renewal/i.test(input.request)) return { plan: [], ops: {}, summary: "The local stand-in handles Salesforce-style deal layouts, renewals desks and SDR morning queues." };
   const target = sdr ? "morning-queue" : "renewals";
   const existing = input.pages.find((p) => p.target === target);
   const plan: import("./workflowAgent.ts").WorkflowPlan[] = [{ target, ...(existing ? {} : { create: { slug: target, title: sdr ? "Morning queue" : "Renewals desk" } }), why: sdr ? "Start the day with contacts; open a person to log a call." : "Review approaching renewals or, without a contract date, open deals by close date." }];

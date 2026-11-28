@@ -22,6 +22,7 @@ const input = "border border-border bg-background px-2 py-1 text-sm";
 const heading = "mb-2 text-xs font-medium text-muted-foreground";
 
 const SECTION_LABEL: Record<PageComponent, string> = {
+  highlights: "Highlights", path: "Path", quickLinks: "Related links", relatedList: "Related list",
   form: "Form", board: "Board", detail: "Detail",
   table: "Table", list: "List", metric: "Metric", chart: "Chart",
   queue: "Deal queue", summary: "Summary", stageRail: "Stage rail", fanOut: "Find the way in", prep: "Prep", plan: "Plan",

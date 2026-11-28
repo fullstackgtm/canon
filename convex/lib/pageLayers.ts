@@ -5,6 +5,8 @@ import { FIRST_PARTY_MARKDOWN } from "../../recipes/_bundles.generated.ts";
 import { fromManifest, toManifest } from "../../recipes/manifest.ts";
 import { parseRecipe } from "../../recipes/md/parse.ts";
 import { enabledFor, orgRecipe } from "./recipes";
+import { apply } from "../../recipes/md/edit.ts";
+import { isCustomObjectName } from "../../modules/kernel/reportLanguage.ts";
 import { merge3 } from "../../recipes/merge.ts";
 
 export type PageTarget = { point: string; key: string };
@@ -21,15 +23,25 @@ export const ownLayers = (ctx: Pick<QueryCtx, "db">, user: Doc<"users">) => ctx.
 export const ownLayer = (ctx: Pick<QueryCtx, "db">, user: Doc<"users">, target: PageTarget) => ctx.db.query("pageLayers")
   .withIndex("by_orgId_and_userId_and_target_point_and_target_key", (q) => q.eq("orgId", user.orgId).eq("userId", user._id).eq("target.point", target.point).eq("target.key", target.key)).unique();
 
+function withRecordPage(markdown: string, target?: PageTarget) {
+  if (target?.point !== "workspace.pages" || !isCustomObjectName(target.key)) return markdown;
+  if (parseRecipe(markdown).recipe.workspacePages?.some((p) => p.slug === target.key)) return markdown;
+  const page = apply(markdown, { op: "addPage", slug: target.key, title: "Record", record: true });
+  if ("error" in page) throw new ConvexError(page.error);
+  const fields = apply(page.markdown, { op: "addSection", object: target.key, component: "fields", title: "Details", fields: ["rest"], before: null });
+  if ("error" in fields) throw new ConvexError(fields.error);
+  return fields.markdown;
+}
+
 export async function pageBase(ctx: Pick<QueryCtx, "db">, orgId: Id<"organizations">, recipeId: string, target?: PageTarget) {
   if (target?.point === "deal.page") recipeId = (await orgRecipe(ctx, orgId)).recipe.id;
   else if (target?.point === "account.page" || target?.point === "contact.page" || target?.point === "workspace.pages") {
     recipeId = (await enabledFor(ctx, orgId, target.point)).find((e) => e.contribution.key === target.key)?.recipe.id ?? recipeId;
   }
   const first = (FIRST_PARTY_MARKDOWN as Record<string, string>)[recipeId];
-  if (first) return { recipeId, markdown: first, revision: null };
+  if (first) return { recipeId, markdown: withRecordPage(first, target), revision: null };
   for await (const row of ctx.db.query("recipeMarkdownRevisions").withIndex("by_orgId_and_recipeId_and_revision", (q) => q.eq("orgId", orgId).eq("recipeId", recipeId)).order("desc")) {
-    if (row.status === "current") return { recipeId, markdown: row.markdown, revision: row.revision };
+    if (row.status === "current") return { recipeId, markdown: withRecordPage(row.markdown, target), revision: row.revision };
   }
   throw new ConvexError("This page has no editable markdown. Customize its package first.");
 }

@@ -1,4 +1,4 @@
-import { componentsOf, type PageKind } from "./blocks.ts";
+import { componentsOf, isRecordBlock, parseRecordProps, pageKind as kindOfPage, type PageKind } from "./blocks.ts";
 import { isComponentOf } from "./kernel.ts";
 import { validPageSlug, PAGE_ICONS } from "./pages.ts";
 import { isDataComponent, validateDataQuery } from "./data.ts";
@@ -180,9 +180,16 @@ const ACTION = obj({
 
 /** An object's page: sections of its own components; only a deal's sections pick stages. */
 const pageCheck = (object: PageKind, min: number) => list(obj({
-  query: json(16_384), component: oneOf(componentsOf(object)), title: str(1, 80), fields: list(str(1, 80, /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/, "a field name"), 200),
+  props: json(16_384), query: json(16_384), component: oneOf(object === "workspace" ? [...componentsOf(object), ...componentsOf("custom")] : componentsOf(object)), title: str(1, 80), fields: list(str(1, 80, /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/, "a field name"), 200),
   ...(object === "deal" ? { when: obj({ stage: subset(DEAL_STAGES), notStage: subset(DEAL_STAGES) }, ["stage", "notStage"]) } : {}), collapsed: bool, show: subset([...new Set(Object.values(PARTS).flat())]), actions: list(ACTION, 30),
-}, ["query", "title", "fields", "when", "collapsed", "show", "actions"]), 30, min);
+}, ["props", "query", "title", "fields", "when", "collapsed", "show", "actions"]), 30, min);
+
+function checkRecordProps(section: PageSpec[number], kind: PageKind) {
+  if (isRecordBlock(section.component)) {
+    if (!("props" in section)) throw new Error("A record building block needs props");
+    parseRecordProps(section.component, section.props, kind);
+  } else if ("props" in section) throw new Error("Only record building blocks take props");
+}
 
 const MANIFEST = obj({
   id: str(3, 104, PACKAGE_ID, "a namespaced id like @agency/customization-name"),
@@ -236,14 +243,18 @@ function crossChecks(m: Manifest, errors: string[]) {
   if (m.workspacePages?.length && !m.permissions.slots.includes("workspace.pages")) errors.push("permissions.slots must list workspace.pages for standalone pages");
   const pageSlugs = new Set<string>();
   for (const p of m.workspacePages ?? []) {
-    if (!validPageSlug(p.slug) || pageSlugs.has(p.slug)) errors.push(`invalid or duplicate page slug ${p.slug}`);
+    const kind = kindOfPage(p.slug);
+    if ((kind === "custom" ? p.nav !== "hidden" : !validPageSlug(p.slug)) || pageSlugs.has(p.slug)) errors.push(`invalid or duplicate page slug ${p.slug}`);
     pageSlugs.add(p.slug);
     if (p.icon && !(PAGE_ICONS as readonly string[]).includes(p.icon)) errors.push(`invalid page icon ${p.icon}`);
     p.sections.forEach((s) => {
-      if (!s || !isDataComponent(s.component) || !isComponentOf(p.slug, s.component)) { errors.push(`invalid standalone page block`); return; }
-      try { validateDataQuery(s.component, "query" in s ? s.query : undefined, "workspace"); }
+      if (!s || !isComponentOf(p.slug, s.component)) { errors.push(`invalid standalone page block`); return; }
+      try {
+        if (isDataComponent(s.component)) validateDataQuery(s.component, "query" in s ? s.query : undefined, kind);
+        else checkRecordProps(s, kind);
+      }
       catch (e) { errors.push(String(e)); }
-      for (const a of s.actions ?? []) errors.push(...actionProblems(a, s.component, "workspace").map((p) => p.message));
+      for (const a of s.actions ?? []) errors.push(...actionProblems(a, s.component, kind).map((p) => p.message));
     });
     if (m.layouts?.[p.slug]) try { validateTree(m.layouts[p.slug]!, pageKeys(p.sections)); } catch (e) { errors.push(String(e)); }
   }
@@ -267,6 +278,7 @@ function crossChecks(m: Manifest, errors: string[]) {
       catch (e) { errors.push(`layouts.${object}: ${String(e)}`); }
     }
     page.forEach((s, i) => {
+      try { checkRecordProps(s, object); } catch (e) { errors.push(`${key}[${i}]: ${String(e)}`); }
       if (isDataComponent(s.component)) {
         try { validateDataQuery(s.component, "query" in s ? s.query : undefined, object); }
         catch (e) { errors.push(`${key}[${i}].query: ${e instanceof Error ? e.message : String(e)}`); }

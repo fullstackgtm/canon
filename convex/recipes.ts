@@ -1,3 +1,4 @@
+import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 /**
  * The workspace's recipes (docs/recipes.md): which one lays out deal pages (R1), and the workspace's settings for
  * each, kept as revisions an admin or manager writes and can revert (R2). A member or their agent can propose a
@@ -234,7 +235,7 @@ export const workspacePages = query({
           pages.set(page.slug, { slug: page.slug, title: page.title, icon: page.icon, nav: page.nav });
       }
     }
-    return [...pages.values()];
+    return [...pages.values()].filter((p) => !isCustomObjectName(p.slug));
   },
 });
 export const workspacePage = query({

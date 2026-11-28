@@ -16,7 +16,7 @@ import { FIELD_SLUG } from "../recipes/fields.ts";
 import { BLOCKS, COMPONENTS } from "../recipes/blocks.ts";
 import { BESIDE, CEILINGS, HOLDS, PAGE_OBJECTS, RECIPE_FORMAT, RECIPE_GRAMMAR_SHA256, REST_FIELDS } from "../recipes/kernel.ts";
 import { RECIPE_MAX_BYTES } from "../recipes/manifest.ts";
-import { KIND_LIMITS, RECIPE_GRAMMAR } from "../recipes/md/parse.ts";
+import { KIND_LIMITS, RECIPE_GRAMMAR, RECORD_PROPS_GRAMMAR } from "../recipes/md/parse.ts";
 import { HEALTH_PARTS, LEAD_FIELDS, LEAD_OPERATORS, MODEL_POINTS, MODEL_POINT_IDS } from "../recipes/models.ts";
 import { POINTS, POINT_IDS } from "../recipes/points.ts";
 import { TEMPLATE_KINDS, TEMPLATE_KIND_IDS } from "../recipes/templates.ts";
@@ -366,6 +366,10 @@ export function generate(): { skill: string; module: string } {
     '```query',
     '{"object":"deal","from":"companyDeals","filter":[{"field":"isClosed","op":"eq","value":false}],"columns":["recordTitle","amount"],"limit":10}',
     '```',
+    "For record-page reference images, prefer highlights (title, fields, actions), path (picklist and stage control), quickLinks (jump links and counts) and relatedList (rows and New). Keep the existing Canon blocks where they fit.",
+    "Under these headings, a fenced props block holds one JSON object. addSection takes props, and setProps replaces them. Use visible field names, relationship IDs from the page context, and action IDs allowed on this object. Highlights shows up to seven fields; path defaults to the deal pipeline or the first available picklist; relatedList defaults to five rows.",
+    ...Object.entries(RECORD_PROPS_GRAMMAR).map(([kind, schema]) => `${code(kind)} props: ${code(JSON.stringify(schema.properties))}.`),
+    "Custom record pages use a heading such as # Details {page=custom_subscription} and contribute through workspace.pages. They open on the object's record route. They can use fields and the four record building blocks.",
     `Standalone workspace pages: heading # Open deals {page=open-deals icon=chart nav=main}. Add workspace.pages to contributes. Lowercase kebab slugs must be unique and cannot name a dashboard route or deal/account/contact. nav=hidden omits the sidebar. Each page holds its own sections and optional layout. Use only table, list, metric, chart, form and board, with no {record:…} references. Editors support addPage {slug,title,icon?}, removePage {slug}, and existing section/query/tree ops with object set to the slug.`,
     `Layout containers: ${LAYOUT_GRAMMAR.containers.join(", ")}. At most one fenced layout block per page, scoped like headings. Leaves use component#nth (zero-based). Two spaces per level. Unmentioned sections render afterward. Columns need 2–3 children, optional widths. Tabs need one label per child. Cards need a title. Example using existing Velocity sections:`,
     '```layout',
