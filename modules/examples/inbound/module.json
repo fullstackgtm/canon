@@ -40,7 +40,8 @@
           "status": {"fieldType": {"type": "string"}, "optional": false},
           "publicId": {"fieldType": {"type": "string"}, "optional": true},
           "publishedBy": {"fieldType": {"type": "ref", "to": "users"}, "optional": true},
-          "publishedAt": {"fieldType": {"type": "number"}, "optional": true}
+          "publishedAt": {"fieldType": {"type": "number"}, "optional": true},
+          "routeToAccountOwner": {"fieldType": {"type": "boolean"}, "optional": true}
         }
       },
       "key": "auto",
@@ -63,27 +64,55 @@
           "personId": {"fieldType": {"type": "string"}, "optional": true},
           "companyId": {"fieldType": {"type": "string"}, "optional": true},
           "accountOwner": {"fieldType": {"type": "string"}, "optional": true},
-          "matchUnavailable": {"fieldType": {"type": "boolean"}, "optional": true}
+          "matchUnavailable": {"fieldType": {"type": "boolean"}, "optional": true},
+          "assignee": {"fieldType": {"type": "ref", "to": "users"}, "optional": true},
+          "resolvedBy": {"fieldType": {"type": "ref", "to": "users"}, "optional": true},
+          "resolvedAt": {"fieldType": {"type": "number"}, "optional": true},
+          "candidates": {
+            "fieldType": {
+              "type": "array",
+              "value": {
+                "type": "object",
+                "value": {
+                  "object": {"fieldType": {"type": "string"}, "optional": false},
+                  "id": {"fieldType": {"type": "string"}, "optional": false},
+                  "reason": {"fieldType": {"type": "string"}, "optional": false},
+                  "ownerId": {"fieldType": {"type": "string"}, "optional": true},
+                  "url": {"fieldType": {"type": "string"}, "optional": true}
+                }
+              }
+            },
+            "optional": true
+          }
         }
       },
       "key": "auto",
-      "indexes": {},
-      "access": {"manager": "all", "rep": "none", "other": "none"}
+      "indexes": {"byOutcomeReceived": ["outcome", "receivedAt"]},
+      "access": {"manager": "all", "rep": "own", "other": "none"},
+      "owner": "assignee"
     }
   },
   "views": {
     "forms.all": {"kind": "list", "collection": "forms", "limit": 100, "order": "desc"},
     "forms.one": {"kind": "one", "collection": "forms", "args": {"key": "string"}, "key": {"arg": "key"}},
     "submissions.all": {"kind": "list", "collection": "submissions", "limit": 100, "order": "desc"},
-    "submissions.one": {"kind": "one", "collection": "submissions", "args": {"key": "string"}, "key": {"arg": "key"}}
+    "submissions.one": {"kind": "one", "collection": "submissions", "args": {"key": "string"}, "key": {"arg": "key"}},
+    "submissions.review": {"kind": "list", "collection": "submissions", "index": "byOutcomeReceived", "eq": ["needs_review"], "order": "desc", "limit": 100, "where": {"field": "outcome", "in": ["needs_review"]}}
   },
   "ops": {
-    "forms.create": {"label": "New form", "kind": "create", "collection": "forms", "fields": ["name", "fields", "hiddenParams", "leadSource", "dailyCap", "message", "redirect"], "roles": ["admin"], "agent": "propose"},
+    "forms.create": {
+      "label": "New form",
+      "kind": "create",
+      "collection": "forms",
+      "fields": ["name", "fields", "hiddenParams", "leadSource", "dailyCap", "message", "redirect", "routeToAccountOwner"],
+      "roles": ["admin"],
+      "agent": "propose"
+    },
     "forms.update": {
       "label": "Save form",
       "kind": "update",
       "collection": "forms",
-      "fields": ["name", "fields", "hiddenParams", "leadSource", "dailyCap", "message", "redirect"],
+      "fields": ["name", "fields", "hiddenParams", "leadSource", "dailyCap", "message", "redirect", "routeToAccountOwner"],
       "roles": ["admin"],
       "agent": "propose",
       "guards": [{"when": {"field": "status", "in": ["draft"]}, "message": "Only draft forms can be edited."}]
@@ -92,12 +121,27 @@
       "label": "Receive submission",
       "kind": "create",
       "collection": "submissions",
-      "fields": ["formKey", "answers", "utm", "hidden", "outcome", "receivedAt", "ipHash", "userAgent", "leadId", "personId", "companyId", "accountOwner", "matchUnavailable"],
+      "fields": ["formKey", "answers", "utm", "hidden", "outcome", "receivedAt", "ipHash", "userAgent", "leadId", "personId", "companyId", "accountOwner", "matchUnavailable", "assignee", "candidates"],
       "roles": [],
       "system": true,
-      "agent": "allowed"
+      "agent": "allowed",
+      "effects": [
+        {"notify": [{"doc": "assignee"}], "when": {"truthy": {"doc": "assignee"}}, "message": "A form you route to was submitted", "link": "submissions/:key"},
+        {"notify": [{"role": ["admin", "manager"]}], "when": {"field": "outcome", "in": ["needs_review"]}, "message": "A form submission needs review", "link": "submissions/:key"}
+      ]
     },
-    "submissions.delete": {"label": "Delete submission", "kind": "delete", "collection": "submissions", "roles": ["admin"], "agent": "human", "reason": "Delete the retained answers"}
+    "submissions.delete": {"label": "Delete submission", "kind": "delete", "collection": "submissions", "roles": ["admin"], "agent": "human", "reason": "Delete the retained answers"},
+    "submissions.resolve": {
+      "label": "Resolve submission",
+      "kind": "update",
+      "collection": "submissions",
+      "fields": ["outcome", "leadId", "personId", "companyId", "assignee", "resolvedBy", "resolvedAt"],
+      "roles": [],
+      "system": true,
+      "agent": "allowed",
+      "guards": [{"when": {"ref": {"collection": "submissions", "key": {"doc": "key"}}, "where": {"field": "outcome", "in": ["needs_review"]}}, "message": "Already resolved"}],
+      "effects": [{"notify": [{"doc": "assignee"}], "when": {"truthy": {"doc": "assignee"}}, "message": "A form you route to was submitted", "link": "submissions/:key"}]
+    }
   },
   "calls": {
     "publish": {
@@ -111,6 +155,28 @@
       "returns": "value",
       "canon": {"operation": "forms.publish", "then": {"machine": "form", "transition": "publish", "key": "key", "expect": "expect", "input": {}, "args": {"publicId": {"result": "publicId"}}}},
       "reason": "Publishing authorizes anonymous lead creation"
+    },
+    "resolve": {
+      "label": "Resolve submission",
+      "roles": ["admin", "manager"],
+      "agent": "human",
+      "reason": "A person chooses the matching record",
+      "args": {
+        "type": "object",
+        "value": {
+          "key": {"fieldType": {"type": "string"}, "optional": false},
+          "expect": {"fieldType": {"type": "number"}, "optional": false},
+          "action": {
+            "fieldType": {"type": "union", "value": [{"type": "literal", "value": "link"}, {"type": "literal", "value": "create"}, {"type": "literal", "value": "dismiss"}]},
+            "optional": false
+          },
+          "candidateId": {"fieldType": {"type": "string"}, "optional": true}
+        }
+      },
+      "reads": {},
+      "writes": [],
+      "returns": "value",
+      "canon": {"operation": "submissions.resolve"}
     }
   },
   "machines": {
@@ -144,7 +210,13 @@
       "bind": {"forms": {"view": "forms.all"}},
       "body": [
         {"c": "header", "title": "Forms", "actions": [{"op": "forms.create", "then": "forms/:key"}]},
-        {"c": "table", "columns": [{"label": "Name", "value": "{$row.name}"}, {"label": "Status", "value": "{$row.status}"}], "rowLink": "forms/:key", "empty": "No forms yet.", "from": "forms"}
+        {
+          "c": "table",
+          "columns": [{"label": "Name", "value": "{$row.name}"}, {"label": "Status", "value": "{$row.status}"}],
+          "rowLink": "forms/:key",
+          "empty": "No forms yet.",
+          "from": "forms"
+        }
       ]
     },
     {
@@ -164,31 +236,40 @@
             {"field": "leadSource", "label": "Leadsource"},
             {"field": "dailyCap", "label": "Dailycap"},
             {"field": "message", "label": "Message"},
-            {"field": "redirect", "label": "Redirect"}
+            {"field": "redirect", "label": "Redirect"},
+            {"field": "routeToAccountOwner", "label": "Give leads from known accounts to the account owner"}
           ],
           "from": "form"
         },
         {"c": "actions", "items": [{"call": "publish", "args": {"key": {"bind": "form", "field": "key"}, "expect": {"bind": "form", "field": "version"}}}]},
         {"c": "actions", "machine": "form", "target": "form"},
         {"c": "formLink", "from": "form"},
-        {"c": "prose", "text": "Intake pauses if the publisher leaves, loses admin access or cannot create leads."}
+        {"c": "prose", "text": "Intake pauses if the publisher leaves, loses admin access or cannot create leads."},
+        {"c": "prose", "text": "Routing recipe: Lead created; lead source is this form and Owner is empty; assign owner; email the record owner."},
+        {"c": "actions", "items": [{"canon": "automations", "label": "Automations"}]}
       ]
     },
     {
       "path": "submissions",
       "title": "Submissions",
       "tab": {"label": "Submissions", "order": 1},
-      "roles": ["admin", "manager"],
+      "roles": ["admin", "manager", "rep"],
       "bind": {"submissions": {"view": "submissions.all"}},
       "body": [
         {"c": "header", "title": "Submissions"},
-        {"c": "table", "columns": [{"label": "Outcome", "value": "{$row.outcome}"}, {"label": "Receivedat", "value": "{$row.receivedAt}"}], "rowLink": "submissions/:key", "empty": "No submissions yet.", "from": "submissions"}
+        {
+          "c": "table",
+          "columns": [{"label": "Outcome", "value": "{$row.outcome}"}, {"label": "Receivedat", "value": "{$row.receivedAt}"}],
+          "rowLink": "submissions/:key",
+          "empty": "No submissions yet.",
+          "from": "submissions"
+        }
       ]
     },
     {
       "path": "submissions/:key",
       "title": "Submission",
-      "roles": ["admin", "manager"],
+      "roles": ["admin", "manager", "rep"],
       "bind": {"submission": {"view": "submissions.one", "args": {"key": {"route": "key"}}}},
       "body": [
         {"c": "header", "title": "Submission"},
@@ -210,7 +291,45 @@
             {"label": "matchUnavailable", "value": "{$submission.matchUnavailable}"}
           ]
         },
+        {
+          "c": "table",
+          "from": "submission",
+          "rows": "candidates",
+          "columns": [{"label": "Object", "value": "{$row.object}"}, {"label": "Reason", "value": "{$row.reason}"}, {"label": "Record", "value": "{$row.id}", "link": {"path": "url"}}],
+          "empty": "No stored candidates."
+        },
+        {
+          "c": "actions",
+          "roles": ["admin", "manager"],
+          "when": {"bind": "submission", "field": "outcome", "in": ["needs_review"]},
+          "items": [
+            {
+              "call": "resolve",
+              "label": "Link",
+              "args": {"key": {"bind": "submission", "field": "key"}, "expect": {"bind": "submission", "field": "version"}, "action": "link"},
+              "fields": [{"field": "candidateId", "label": "Candidate", "options": {"from": "submission", "list": "candidates", "value": "id", "label": "{$item.object}: {$item.reason} ({$item.id})"}}]
+            },
+            {
+              "call": "resolve",
+              "label": "Create lead",
+              "args": {"key": {"bind": "submission", "field": "key"}, "expect": {"bind": "submission", "field": "version"}, "action": "create"},
+              "fields": [{"field": "candidateId", "label": "Candidate", "options": {"from": "submission", "list": "candidates", "value": "id", "label": "{$item.object}: {$item.reason} ({$item.id})"}}]
+            },
+            {"call": "resolve", "label": "Dismiss", "args": {"key": {"bind": "submission", "field": "key"}, "expect": {"bind": "submission", "field": "version"}, "action": "dismiss"}}
+          ]
+        },
         {"c": "actions", "items": [{"op": "submissions.delete", "target": "submission"}]}
+      ]
+    },
+    {
+      "path": "review",
+      "title": "Review",
+      "roles": ["admin", "manager"],
+      "tab": {"label": "Review", "order": 2},
+      "bind": {"submissions": {"view": "submissions.review"}},
+      "body": [
+        {"c": "header", "title": "Review"},
+        {"c": "table", "from": "submissions", "columns": [{"label": "Received", "value": "{$row.receivedAt}"}], "rowLink": "submissions/:key", "empty": "No submissions need review."}
       ]
     }
   ]

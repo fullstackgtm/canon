@@ -17,7 +17,7 @@ export async function registerInboundMatch(w: Workspace, raw: InboundMatchInput)
     return {
       leads,
       companies: (await all(c, `SELECT id, name, domain, ownerId FROM accounts WHERE deletedAt IS NULL ORDER BY id LIMIT ${MATCH_SCAN_MAX + 1}`)).map((r): MatchCompany => ({ id: String(r.id), name: String(r.name ?? ""), domain: text(r.domain), ownerId: text(r.ownerId) })),
-      people: (await all(c, `SELECT id, email, additionalEmails, accountId FROM contacts WHERE deletedAt IS NULL AND (lower(trim(email)) = $email OR list_contains(list_transform(additionalEmails, e -> lower(trim(e))), $email)) ORDER BY id LIMIT ${MATCH_CANDIDATES_MAX + 1}`, { email: input.email })).map((r): MatchPerson => ({ id: String(r.id), email: text(r.email), accountId: text(r.accountId), additionalEmails: Array.isArray(r.additionalEmails) ? r.additionalEmails.map(String) : [] })),
+      people: (await all(c, `SELECT id, email, additionalEmails, accountId, ownerId FROM contacts WHERE deletedAt IS NULL AND (lower(trim(email)) = $email OR list_contains(list_transform(additionalEmails, e -> lower(trim(e))), $email)) ORDER BY id LIMIT ${MATCH_CANDIDATES_MAX + 1}`, { email: input.email })).map((r): MatchPerson => ({ id: String(r.id), email: text(r.email), accountId: text(r.accountId), ownerId: text(r.ownerId), additionalEmails: Array.isArray(r.additionalEmails) ? r.additionalEmails.map(String) : [] })),
     };
   });
   return matchInbound(input, companies, people, leads.map((r) => ({ id: String(r.id), email: text(r.email) })));

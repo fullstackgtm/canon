@@ -1064,7 +1064,7 @@ export type ColumnTone = { by: RowPath; cases: readonly ({ tone: ToneName } & ({
  * (`?line=` query lines, ";" between them, every one of which a company must pass; `?of=` names them), each opened as
  * Canon's own page.
  */
-export const CANON_PAGES = ["team", "deals", "deal", "company", "person", "lead", "settings", "targets", "workspace", "patchPlans", "companies", "people"] as const;
+export const CANON_PAGES = ["automations", "team", "deals", "deal", "company", "person", "lead", "settings", "targets", "workspace", "patchPlans", "companies", "people"] as const;
 /** The record pages a link names by a ref: each with the ref it takes. */
 const RECORD_PAGES: Partial<Record<(typeof CANON_PAGES)[number], RefTo>> = { deal: "deals", company: "companies", person: "people" };
 export type CanonLink = { canon: (typeof CANON_PAGES)[number]; ref?: string; query?: Record<string, Text> };
@@ -3714,7 +3714,12 @@ function crossChecks(declared: ModuleManifest, e: string[]) {
     };
     const canonFields = (read: CanonRead): string[] => ["key", "id", "createdAt", ...(read === "me.status" ? ["name", "status", "intakeStatus", "url"] : []), ...(m.reads?.[CANON_READS[read].object] ?? [])];
     /** Whether `path` names a value of a row of bind `b`: a field, `key`, a count, or a joined doc's field. */
+    let embeddedFields: ObjectValidator | undefined;
     const rowPathOk = (path: string, b: string, where: string) => {
+      if (embeddedFields) {
+        if (!Object.hasOwn(embeddedFields.value, path.split('.')[0])) e.push(`${where} names an undeclared embedded row field`);
+        return;
+      }
       const canon = binds[b]?.canon;
       if (canon !== undefined && !canonFields(canon).includes(path.split(".")[0])) e.push(`${where} names ${path}, which ${b}'s records don't have, or reads doesn't grant`);
       const c = m.collections[bindCollection(b) ?? ""];
@@ -4394,11 +4399,23 @@ function crossChecks(declared: ModuleManifest, e: string[]) {
           break;
         }
         case "table": {
+          const previousEmbedded = embeddedFields;
+          embeddedFields = undefined;
           const view = m.views[binds[n.from]?.view ?? ""];
           const calls = callBind(n.from);
           if (!binds[n.from]) e.push(`${nat}.from names ${n.from}, which the page doesn't bind`);
-          else if (!calls && view && view.kind !== "list") e.push(`${nat}.from names ${n.from}, which binds one doc, not a list`);
-          if (n.rows !== undefined && !calls) e.push(`${nat}.rows is only for a call's value`);
+          else if (!calls && n.rows === undefined && view && view.kind !== "list") e.push(`${nat}.from names ${n.from}, which binds one doc, not a list`);
+          if (n.rows !== undefined && !calls) {
+            const field = m.collections[view?.collection ?? ""]?.schema.value[n.rows];
+            const shape = field && coreOf(field.fieldType);
+            if (!view || view.kind !== "one" || !shape || shape.type !== "array" || coreOf(shape.value).type !== "object") e.push(`${nat}.rows needs an object array on a one-doc binding`);
+            if (n.rowActions?.length || n.select || n.reorder || n.rowLink) e.push(`${nat}: embedded rows are read-only`);
+          }
+          if (n.rows && !calls && view) {
+            const field = m.collections[view.collection]?.schema.value[n.rows];
+            const shape = field && coreOf(field.fieldType);
+            if (shape?.type === "array" && coreOf(shape.value).type === "object") embeddedFields = coreOf(shape.value) as ObjectValidator;
+          }
           if (n.focus?.aliases?.includes(n.focus.param)) e.push(`${nat}.focus.aliases repeats its primary parameter`);
           if (n.focus && n.rowLink) e.push(`${nat}.focus cannot also navigate with rowLink`);
           if (canonBind(n.from) && (n.rowActions?.length || n.select || n.reorder)) e.push(`${nat}: a Canon read's rows take no actions, picks or reordering`);
@@ -4507,6 +4524,7 @@ function crossChecks(declared: ModuleManifest, e: string[]) {
           }
           if (n.totalBar) { textOk(n.totalBar.label, `${nat}.totalBar.label`, false); if (!n.columns.some((c) => c.total)) e.push(`${nat}.totalBar shows the columns' totals, but no column has a total`); }
           if (n.group?.link !== undefined) linkOk(n.group.link, n.from, `${nat}.group.link`);
+          embeddedFields = previousEmbedded;
           break;
         }
         case "stepper":

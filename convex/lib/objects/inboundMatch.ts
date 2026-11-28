@@ -3,12 +3,12 @@ import { domainOfEmail } from "./leadConversion.ts";
 import { inboundMatchInput, type InboundMatchInput } from "../../../modules/kernel/inboundMatchInput.ts";
 
 export type MatchCompany = { id: string; name: string; domain?: string | null; ownerId?: string | null };
-export type MatchPerson = { id: string; email?: string | null; additionalEmails?: readonly string[] | null; accountId?: string | null };
+export type MatchPerson = { id: string; email?: string | null; additionalEmails?: readonly string[] | null; accountId?: string | null; ownerId?: string | null };
 export type MatchLead = { id: string; email?: string | null };
-export type MatchCandidate = { object: "company" | "person" | "lead"; id: string; reason: "email" | "domain" | "domain_family" | "name" };
+export type MatchCandidate = { object: "company" | "person" | "lead"; id: string; reason: "email" | "domain" | "domain_family" | "name"; ownerId?: string };
 export type InboundMatch =
   | { by: "none" | "ambiguous"; candidates: MatchCandidate[] }
-  | { by: "email"; personId: string; companyId?: string; accountOwner?: string; candidates: MatchCandidate[] }
+  | { by: "email"; personId: string; personOwner?: string; companyId?: string; accountOwner?: string; candidates: MatchCandidate[] }
   | { by: "email"; leadId: string; candidates: MatchCandidate[] }
   | { by: "domain" | "domain_family"; companyId: string; accountOwner?: string; candidates: MatchCandidate[] };
 
@@ -27,21 +27,21 @@ export function matchInbound(input: InboundMatchInput, companies: readonly Match
   const contacts = people.filter((p) => [p.email, ...(p.additionalEmails ?? [])].some(sameEmail));
   const matchingLeads = leads.filter((l) => sameEmail(l.email));
   const exact = candidates([
-    ...contacts.map((p): MatchCandidate => ({ object: "person", id: p.id, reason: "email" })),
+    ...contacts.map((p): MatchCandidate => ({ object: "person", id: p.id, reason: "email", ...(p.ownerId ? { ownerId: p.ownerId } : {}) })),
     ...matchingLeads.map((l): MatchCandidate => ({ object: "lead", id: l.id, reason: "email" })),
   ]);
   if (exact.length > 1) return { by: "ambiguous", candidates: exact };
   if (contacts.length === 1) {
     const person = contacts[0];
     const company = companies.find((c) => c.id === person.accountId);
-    return { by: "email", personId: person.id, ...(company ? { companyId: company.id, ...(company.ownerId ? { accountOwner: company.ownerId } : {}) } : {}), candidates: exact };
+    return { by: "email", personId: person.id, ...(person.ownerId ? { personOwner: person.ownerId } : {}), ...(company ? { companyId: company.id, ...(company.ownerId ? { accountOwner: company.ownerId } : {}) } : {}), candidates: exact };
   }
   if (matchingLeads.length === 1) return { by: "email", leadId: matchingLeads[0].id, candidates: exact };
   const domain = domainOfEmail(email);
   if (domain) {
     for (const reason of ["domain", "domain_family"] as const) {
       const matches = companies.filter((c) => reason === "domain" ? domainKey(c.domain) === domainKey(domain) : domainFamily(c.domain) === domainFamily(domain));
-      const found = candidates(matches.map((c) => ({ object: "company", id: c.id, reason })));
+      const found = candidates(matches.map((c) => ({ object: "company", id: c.id, reason, ...(c.ownerId ? { ownerId: c.ownerId } : {}) })));
       if (matches.length > 1) return { by: "ambiguous", candidates: found };
       if (matches.length === 1) {
         const company = matches[0];
@@ -50,5 +50,5 @@ export function matchInbound(input: InboundMatchInput, companies: readonly Match
     }
   }
   const name = nameKey(companyName);
-  return { by: "none", candidates: candidates(name ? companies.filter((c) => nameKey(c.name) === name).map((c) => ({ object: "company", id: c.id, reason: "name" })) : []) };
+  return { by: "none", candidates: candidates(name ? companies.filter((c) => nameKey(c.name) === name).map((c) => ({ object: "company", id: c.id, reason: "name", ...(c.ownerId ? { ownerId: c.ownerId } : {}) })) : []) };
 }

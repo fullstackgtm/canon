@@ -1,12 +1,15 @@
 import { ConvexError } from 'convex/values';
 import type { MutationCtx, QueryCtx } from '../../_generated/server';
-import { isDevAuthBypassEnabled, requireUser } from '../../lib';
-import { accessFor, principalAccess, roleIn } from '../../permissions';
-import { requireWritable, saveAsCaller } from '../../objects';
+import { isDevAuthBypassEnabled, requireUser, agentClientOf } from '../../lib';
+import { accessFor, principalAccess, roleIn, roleBasesOf } from '../../permissions';
+import { requireWritable, saveAsCaller, view, recordVisibleTo } from '../../objects';
 import { installedModule, isEnabled } from './packages';
 import { systemScope } from './scope';
-import { formProblems, normalizeSubmission, type InboundForm } from '../../../modules/kernel/inboundForms.ts';
-import type { InboundMatch } from '../objects/inboundMatch.ts';
+import { formProblems, normalizeSubmission, leadValuesFrom, type InboundForm } from '../../../modules/kernel/inboundForms.ts';
+import { canSeeRecord, may, narrowsReads } from '../access';
+import { baseRole } from '../roles';
+import type { Id } from '../../_generated/dataModel';
+import type { MatchCandidate, InboundMatch } from '../objects/inboundMatch.ts';
 const MODULE = '@canon/inbound';
 export const formsEnabled = () => process.env.INBOUND_FORMS === 'on' || isDevAuthBypassEnabled();
 const dead = () => new ConvexError('Form not found');
@@ -88,16 +91,103 @@ export async function commit(ctx: MutationCtx, args: SubmitInput, version: numbe
   await ctx.db.insert('moduleRateLimits', { key: base, count: 1, windowStart: Date.now(), expiresAt: Date.now() + 2 * 86400000 });
   let outcome = match?.by === 'ambiguous' ? 'needs_review' : 'received';
   let leadId = match && 'leadId' in match ? match.leadId : undefined;
+  let assignee: string | undefined;
   const personId = match && 'personId' in match ? match.personId : undefined;
+  if (leadId || personId) assignee = await linkedAssignee(ctx, f.link.orgId, leadId, personId, match && 'personOwner' in match ? match.personOwner : undefined, match && 'accountOwner' in match ? match.accountOwner : undefined);
   if (!leadId && !personId && outcome !== 'needs_review') {
     const recent = await recentLead(ctx, f.link.orgId, n.values.email);
     if (recent.created) outcome = 'duplicate';
     else {
-      const saved = await saveAsCaller(ctx, f.user, 'lead', { op: 'create', values: n.values }, { intake: { formKey: f.link.formKey } });
-      if (saved.status === 'applied' || saved.status === 'unchanged') { leadId = saved.streamId; await recent.mark(); }
+      const owner = f.config.routeToAccountOwner && match && 'accountOwner' in match ? await leadOwner(ctx, f.link.orgId, match.accountOwner) : undefined;
+      const saved = await saveAsCaller(ctx, f.user, 'lead', { op: 'create', values: { ...n.values, ...(owner ? { ownerId: owner } : {}) } }, { intake: { formKey: f.link.formKey } });
+      if (saved.status === 'applied' || saved.status === 'unchanged') { leadId = saved.streamId; assignee = owner; await recent.mark(); }
       else outcome = 'failed';
     }
   }
-  await f.scope.op('submissions.receive', { data: { formKey: f.link.formKey, answers: JSON.stringify(n.answers), utm: JSON.stringify(n.utm), hidden: JSON.stringify(n.hidden), outcome, receivedAt: Date.now(), ipHash: args.ipHash, userAgent: args.userAgent.slice(0,400), ...(leadId ? { leadId } : {}), ...(personId ? { personId } : {}), ...(match && 'companyId' in match && match.companyId ? { companyId: match.companyId } : {}), ...(match && 'accountOwner' in match && match.accountOwner ? { accountOwner: match.accountOwner } : {}), ...(!match ? { matchUnavailable: true } : {}) } });
+  await f.scope.op('submissions.receive', { data: { formKey: f.link.formKey, answers: JSON.stringify(n.answers), utm: JSON.stringify(n.utm), hidden: JSON.stringify(n.hidden), outcome, ...(assignee ? { assignee } : {}), ...(match?.by === 'ambiguous' ? { candidates: match.candidates.slice(0,50).map(c => ({ object: c.object, id: c.id, reason: c.reason, ...(c.ownerId ? { ownerId: c.ownerId } : {}), url: `/dashboard/${c.object === 'company' ? 'accounts' : c.object === 'person' ? 'records/contact' : 'records/lead'}/${encodeURIComponent(c.id)}` })) } : {}), receivedAt: Date.now(), ipHash: args.ipHash, userAgent: args.userAgent.slice(0,400), ...(leadId ? { leadId } : {}), ...(personId ? { personId } : {}), ...(match && 'companyId' in match && match.companyId ? { companyId: match.companyId } : {}), ...(match && 'accountOwner' in match && match.accountOwner ? { accountOwner: match.accountOwner } : {}), ...(!match ? { matchUnavailable: true } : {}) } });
   return { status: 200, message: f.config.message || 'Thank you. Your submission was received.', ...(f.config.redirect ? { redirect: f.config.redirect } : {}) };
+}
+
+async function activePrincipal(ctx: QueryCtx, orgId: Id<'organizations'>, raw?: string) {
+  if (!raw) return null;
+  const id = ctx.db.normalizeId('users', raw), user = id ? await ctx.db.get(id) : null;
+  const access = user?.isActive && !user.isHidden ? (await principalAccess(ctx, orgId, [raw]))?.[0] : null;
+  return user && access ? { user: { ...user, orgId }, access } : null;
+}
+async function leadOwner(ctx: MutationCtx, orgId: Id<'organizations'>, raw?: string) {
+  const principal = await activePrincipal(ctx, orgId, raw);
+  if (!principal || !canSeeRecord(principal.access, 'lead', true, raw!) || !may(principal.access, 'lead', 'edit')) return undefined;
+  try { await requireWritable(ctx, principal.user, principal.access, 'lead', 'edit', undefined, { ownerId: raw }); } catch { return undefined; }
+  return raw;
+}
+async function linkedAssignee(ctx: MutationCtx, orgId: Id<'organizations'>, leadId?: string, personId?: string, personOwner?: string, accountOwner?: string) {
+  if (leadId) {
+    const id = ctx.db.normalizeId('canonEntities', leadId);
+    const row = id ? await view(ctx, orgId, id, 4000, new Map()) : null;
+    if (!row || row.object !== 'lead') return undefined;
+    const raw = typeof row.values.ownerId === 'string' ? row.values.ownerId : accountOwner;
+    const principal = await activePrincipal(ctx, orgId, raw);
+    return principal && await recordVisibleTo(ctx, principal.access, orgId, id!) ? raw : undefined;
+  }
+  if (!personId) return undefined;
+  const raw = personOwner || accountOwner, principal = await activePrincipal(ctx, orgId, raw);
+  if (!principal || !personOwner && narrowsReads(principal.access)) return undefined;
+  return canSeeRecord(principal.access, 'contact', true, personOwner ?? null) ? raw : undefined;
+}
+export async function resolveSubmission(ctx: MutationCtx, args: { key: string; expect: number; action: 'link' | 'create' | 'dismiss'; candidateId?: string }) {
+  const user = await requireUser(ctx), role = await roleIn(ctx, user, user.orgId);
+  if (await agentClientOf(ctx) || !role || !['admin','manager'].includes(baseRole(role, await roleBasesOf(ctx, user.orgId)))) throw new ConvexError('Only an admin or manager may resolve submissions.');
+  const pkg = await installedModule(ctx, user.orgId, MODULE);
+  if (!pkg || pkg.source.kind !== 'canon' || pkg.source.id !== 'inbound' || pkg.pending || !(await isEnabled(ctx, user.orgId, MODULE))) throw dead();
+  const scope = await systemScope(ctx, user.orgId, MODULE), submission = await scope?.peek('submissions', args.key);
+  if (!submission) throw new ConvexError('Submission not found');
+  if (submission.version !== args.expect || submission.data.outcome !== 'needs_review') throw new ConvexError('Already resolved');
+  const access = (await principalAccess(ctx, user.orgId, [user._id]))?.[0];
+  if (!access) throw dead();
+  const candidates = (submission.data.candidates ?? []) as MatchCandidate[];
+  const candidate = args.candidateId ? candidates.slice(0,50).find(c => c.id === args.candidateId) : undefined;
+  if (args.candidateId && !candidate || args.action === 'link' && (!candidate || candidate.object === 'company') || args.action === 'create' && candidate && candidate.object !== 'company') throw new ConvexError('Choose a stored candidate for this action.');
+  if (candidate) {
+    if (candidate.object === 'lead') {
+      const id = ctx.db.normalizeId('canonEntities', candidate.id);
+      if (!id || !await recordVisibleTo(ctx, access, user.orgId, id)) throw new ConvexError('Your role cannot resolve to that record.');
+    } else if (candidate.ownerId === undefined && narrowsReads(access) || !canSeeRecord(access, candidate.object === 'person' ? 'contact' : 'account', true, candidate.ownerId ?? null)) throw new ConvexError('Your role cannot resolve to that record.');
+  }
+  const data: Record<string,unknown> = { outcome: 'dismissed', resolvedBy: user._id, resolvedAt: Date.now() };
+  if (args.action === 'link') {
+    const c = candidate!;
+    data.outcome = 'linked'; data[c.object === 'lead' ? 'leadId' : 'personId'] = c.id;
+    const assignee = await linkedAssignee(ctx, user.orgId, c.object === 'lead' ? c.id : undefined, c.object === 'person' ? c.id : undefined, c.ownerId, typeof submission.data.accountOwner === 'string' ? submission.data.accountOwner : undefined);
+    if (assignee) data.assignee = assignee;
+  } else if (args.action === 'create') {
+    await requireWritable(ctx, user, access, 'lead', 'create');
+    const form = await scope!.peek('forms', String(submission.data.formKey));
+    if (!form || !['live','archived'].includes(String(form.data.status)) || formProblems(form.data).length) throw new ConvexError('The published form mapping is unavailable.');
+    const config = form.data as unknown as InboundForm;
+    const owner = config.routeToAccountOwner ? await leadOwner(ctx, user.orgId, candidate?.ownerId) : undefined;
+    const values = leadValuesFrom(config, JSON.parse(String(submission.data.answers)));
+    const assignedValues = { ...values, ...(owner ? { ownerId: owner } : {}) };
+    await requireWritable(ctx, user, access, 'lead', 'create', undefined, assignedValues);
+    const saved = await saveAsCaller(ctx, { ...user, role }, 'lead', { op: 'create', values: assignedValues }, { intake: { formKey: String(submission.data.formKey) } });
+    if (saved.status !== 'applied' && saved.status !== 'unchanged') throw new ConvexError('Lead could not be created.');
+    data.outcome = 'received'; data.leadId = saved.streamId;
+    if (candidate) data.companyId = candidate.id;
+    if (owner) data.assignee = owner;
+  }
+  return scope!.op('submissions.resolve', { key: args.key, expect: args.expect, data });
+}
+
+/** Anonymous intake can otherwise create an unbounded stream of notices to a workspace member. */
+export async function boundedInboundRecipients(ctx: MutationCtx, orgId: Id<'organizations'>, formKey: string, review: boolean, recipients: readonly string[]) {
+  const allowed: string[] = [], now = Date.now(), hour = 3600000, windowStart = Math.floor(now / hour) * hour;
+  for (const recipient of recipients) {
+    const key = review ? `form:${orgId}:notice:review:${formKey}:${recipient}` : `form:${orgId}:notice:assignee:${recipient}`;
+    const row = await ctx.db.query('moduleRateLimits').withIndex('by_key', q => q.eq('key',key)).unique();
+    const count = row?.windowStart === windowStart ? row.count : 0;
+    if (count >= (review ? 1 : 10)) continue;
+    const next = { key, windowStart, count: count + 1, expiresAt: windowStart + hour };
+    if (row) await ctx.db.patch(row._id,next); else await ctx.db.insert('moduleRateLimits',next);
+    allowed.push(recipient);
+  }
+  return allowed;
 }

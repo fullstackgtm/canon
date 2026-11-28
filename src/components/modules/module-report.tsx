@@ -1016,6 +1016,7 @@ export function ModuleTree({ n, rows, text, href }: { n: Of<"tree">; rows: Doc[]
  * by query lines).
  */
 export function canonHref(page: (typeof CANON_PAGES)[number], recordId?: unknown): string | null {
+  if (page === "automations") return "/dashboard/automations";
   if (page === "targets") return "/dashboard/settings/targets";
   if (page === "settings") return "/dashboard/settings";
   if (page === "patchPlans") return "/dashboard/patch-plans";

@@ -4427,3 +4427,41 @@ HTTP stack: without it every visitor shares one rate bucket, so one script could
 hold every form at its limit. The switch remains off on dev until that header is
 set there (#1335). Embeds, cross-origin intake, custom
 field mapping, routing queues, SLA timers and booking are outside this slice.
+
+### Inbound routing and review
+
+On a form, account-owner routing is off by default. An admin can enable
+"Give leads from known accounts to the account owner" while the form is a draft.
+An active account owner who can own and edit leads receives the new lead;
+otherwise it is created without an owner. Configure Automations with this recipe:
+Lead created; lead source is the form's lead source (by default `Form: <name>`)
+and Owner is empty; assign owner; email the record owner. This keeps routing in
+Canon's automation rules.
+
+An ambiguous submission retains up to 50 candidates in the Review tab. Admins
+and managers can Link to a lead or person, Create lead with an optional company,
+or Dismiss and keep the row. Each action compares the version and accepts only
+an unresolved submission. Reps see only submissions assigned to them; other
+roles see none. Candidate links open record pages with their own access checks.
+
+Notices are in app only and contain fixed text. Each member receives at most
+one needs-review notice per form per hour, and an assignee receives at most ten
+form notices per hour across forms in the workspace. The existing 50-recipient
+ceiling per effect is retained; extra review recipients are truncated instead of
+refusing anonymous intake. Extra submissions are
+retained in the tabs. Duplicate submissions send no notice.
+
+Candidate owners are snapshots from receipt time. Resolution uses that stored
+owner for visibility and assignment even if the record has since changed hands.
+Submission answers are visitor-provided; record pages still enforce current
+access. Candidates without owner information require a resolver whose role does
+not narrow reads. [Fresh owner reads](https://github.com/fullstackgtm/canoncrm/issues/1432) during resolution require an action-side
+preparation step and remain follow-up work. Older matching services remain
+supported; a linked person without its own owner metadata falls back to its
+account owner where that member's access permits assignment.
+
+A read-only `table` can show an object-array field on a one-document binding
+with `from` and `rows` naming the binding and field. Its columns read each
+array item as `$row`. Embedded rows have no document version and cannot take
+row actions, selections, reordering or a document `rowLink`; columns can link
+to the record each item names.

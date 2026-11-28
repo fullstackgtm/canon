@@ -21,7 +21,7 @@ let agentClient: string | null = null;
 /** The companies the record service holds, as list rows by id, and who each read of one ran as: an If reads a related company through its member's sight. */
 const companies = new Map<string, Record<string, unknown>>();
 const companyReads: Array<{ id: unknown; userIds: string[] }> = [];
-const M = loadConvex(["automations.ts", "objects.ts", "recordWebhooks.ts", "outboundDispatch.ts", "canon.ts"], {
+const M = loadConvex(["automations.ts", "objects.ts", "recordWebhooks.ts", "outboundDispatch.ts", "canon.ts", "lib/modules/intake.ts"], {
   "lib.ts": (real) => ({
     ...real, getCurrentUser: async () => signedIn, requireUser: async () => { if (!signedIn) throw new Error("Not authenticated"); return signedIn; }, agentClientOf: async () => agentClient,
   }),
@@ -788,4 +788,36 @@ test("intake lead creation triggers its created assign-owner rule", async () => 
   await fanout(w); await drain(w);
   assert.equal(runs(w).length, 1);
   assert.equal((await lead(w, result.streamId)).ownerId, AVERY);
+});
+
+async function inboundModule(w: W, routeToAccountOwner = false) {
+  const manifest=JSON.parse(readFileSync('modules/examples/inbound/module.json','utf8'));
+  await w.db.insert('modulePackages',{orgId:ORG,moduleId:manifest.id,slug:'inbound',status:'installed',epoch:1,version:manifest.version,manifest:JSON.stringify(manifest),manifestHash:'inbound',source:{kind:'canon',id:'inbound',ref:'0.1.0',sha:'abc'}});
+  await w.db.insert('recipeEnablements',{orgId:ORG,point:'module',contributionKey:'nav',recipeId:manifest.id,enabled:true});
+  const publicId='abcdefghijklmnopqrstuv';
+  const form={name:'Contact',fields:[{key:'email',label:'Email',kind:'email',required:true,mapsTo:'email'}],routeToAccountOwner,status:'live',publicId,publishedBy:RILEY};
+  await w.db.insert('moduleDocs',{orgId:ORG,moduleId:manifest.id,collection:'forms',key:'contact',version:2,createdAt:1,updatedAt:1,data:form});
+  await w.db.insert('moduleFormLinks',{orgId:ORG,moduleId:manifest.id,formKey:'contact',publicId,createdBy:RILEY,createdAt:1});
+  return {manifest,publicId};
+}
+test('resolving Create triggers the created assign-owner rule',async()=>{
+  const w=workspace();await rule(w,{name:'Inbound resolution',object:'lead',trigger:{kind:'created'},actions:[{kind:'assign_owner',owner:{kind:'member',userId:AVERY}}]});
+  const {manifest}=await inboundModule(w);
+  const id=await w.db.insert('moduleDocs',{orgId:ORG,moduleId:manifest.id,collection:'submissions',key:'review',version:1,createdAt:1,updatedAt:1,data:{formKey:'contact',answers:JSON.stringify({email:'new@example.test'}),utm:'{}',hidden:'{}',outcome:'needs_review',receivedAt:1,ipHash:'hash',userAgent:'test',candidates:[{object:'company',id:'company',reason:'domain',ownerId:AVERY}]}});
+  await (M['lib/modules/intake.ts'].resolveSubmission as any)(w.ctx,{key:'review',expect:1,action:'create',candidateId:'company'});
+  const submission:any=await w.db.get(id);await fanout(w);await drain(w);
+  assert.equal((await lead(w,submission.data.leadId)).ownerId,AVERY);assert.equal(runs(w).length,1);
+});
+test('known account ownership prevents Owner-is-empty rules from reassigning; default-off leaves routing to the rule',async()=>{
+  for(const enabled of [true,false]){
+    const w=workspace();await rule(w,{name:'Empty-owner routing',object:'lead',trigger:{kind:'created'},conditions:[{field:'ownerId',op:'empty'}],actions:[{kind:'assign_owner',owner:{kind:'member',userId:MORGAN}}]});
+    const {publicId}=await inboundModule(w,enabled);
+    const input={publicId,nonce:'unique',ipHash:'hash',userAgent:'test',answers:{email:'new@example.test'},params:{}};
+    // The intake feature flag is separate from enabling the module.
+    const previous=process.env.INBOUND_FORMS;process.env.INBOUND_FORMS='on';
+    try {await (M['lib/modules/intake.ts'].commit as any)(w.ctx,input,2,{by:'domain',companyId:'company',accountOwner:AVERY,candidates:[]});}
+    finally {if(previous===undefined)delete process.env.INBOUND_FORMS;else process.env.INBOUND_FORMS=previous;}
+    await fanout(w);await drain(w);const submission:any=w.db.rows('moduleDocs').find((r:any)=>r.collection==='submissions');
+    assert.equal((await lead(w,submission.data.leadId)).ownerId,enabled?AVERY:MORGAN);
+  }
 });
