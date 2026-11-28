@@ -553,6 +553,16 @@ export const HELP: Record<string, HelpEntry> = {
     seeAlso: ["plans", "apply"],
   },
 
+  // Agent traces → routines
+  routines: {
+    summary: "find GTM work your AI agents repeat → automation proposals",
+    phase: "Govern",
+    synopsis: ["fullstackgtm routines scan [--from <path>]… [--since 30d] [--min-occurrences 2] [--json] [--out <path>]"],
+    detail:
+      "Reads Claude Code session logs (~/.claude/projects), Codex rollouts (~/.codex/sessions) and ChatGPT or Claude.ai data exports (conversations.json) on this machine, finds the GTM work you asked for more than once, and prints each as a candidate with a ready request. Nothing leaves the machine: prompts are redacted, and you (or your agent over /mcp) send a chosen candidate to canon_automations.import_routine, which turns it into a proposal an admin approves.",
+    seeAlso: ["schedule"],
+  },
+
   // Govern — the plan/apply spine
   suggest: {
     summary: "derive values for requires_human_* placeholders (evidence-backed)",
@@ -681,7 +691,7 @@ export const HELP: Record<string, HelpEntry> = {
 
 // Verbs that print their own richer multi-subcommand help; runCli routes their
 // `--help` to themselves, so commandHelp() only renders these via `help <verb>`.
-export const BESPOKE_HELP = ["init", "call", "market", "tam", "enrich", "schedule", "signals", "icp", "draft"];
+export const BESPOKE_HELP = ["init", "call", "market", "tam", "enrich", "schedule", "signals", "icp", "draft", "routines"];
 
 export const GLOBAL_FLAGS = ["--help", "--full"];
 export const GLOBAL_SHORT_FLAGS = ["-h"];
@@ -716,6 +726,7 @@ export const COMMAND_FLAGS: Record<string, string[]> = {
   backfill: [...SOURCE_FLAGS, "--since", "--pipeline", "--match-property", "--skip-unmatched", "--save", "--dry-run", "--verbose", "--json"],
   enrich: [...SOURCE_FLAGS, "--config", "--source", "--icp", "--input", "--provider", "--list", "--stale-days", "--assign-owner", "--objects", "--max", "--scan-limit", "--company-domain", "--staged-run", "--run-label", "--label", "--runs", "--save", "--dry-run", "--verbose", "--json", "--out"],
   call: [...SOURCE_FLAGS, "--transcript", "--title", "--source", "--model", "--deterministic", "--heuristics", "--llm", "--verbose", "--json", "--ndjson", "--out", "--call", "--call-type", "--rubric", "--list", "--list-rubrics", "--attendees", "--domain", "--deal", "--save", "--dry-run"],
+  routines: ["--from", "--since", "--min-occurrences", "--json", "--out"],
   suggest: [...SOURCE_FLAGS, "--plan-id", "--plan", "--json", "--out"],
   plans: ["--status", "--operations", "--value", "--values-from", "--min-confidence", "--include-creates", "--acknowledge-uncertain-writes", "--verbose", "--json"],
   apply: ["--plan", "--plan-id", "--provider", "--channel", "--token-env", "--approve", "--value", "--verbose", "--json", "--config"],
@@ -744,6 +755,7 @@ export function shortUsage() {
     ["Prevent — gate writes", ["resolve"]],
     ["Remediate — governed writes", ["fix", "bulk-update", "dedupe", "reassign", "route", "enrich", "backfill"]],
     ["Calls → evidence", ["call"]],
+    ["Agent traces → routines", ["routines"]],
     ["Govern — the plan/apply spine", ["suggest", "plans", "apply", "audit-log", "merge"]],
     ["Market intelligence", ["market", "tam"]],
     ["Outbound — signals → judge → draft", ["signals", "icp", "draft"]],

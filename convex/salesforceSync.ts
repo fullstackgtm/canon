@@ -44,6 +44,7 @@ import {
   simCdcSource,
   type CdcSource,
   type EnginePorts,
+  RecordWriteRejected,
   type RecordPort,
   type SyncPolicy,
   type SyncState,
@@ -159,7 +160,8 @@ export const releaseTick = internalMutation({
   handler: async (ctx, args) => {
     const row = await stateRow(ctx, args.orgId);
     if (!row) return;
-    await ctx.db.patch(row._id, { tickLeaseUntil: undefined, lastStats: args.stats, lastError: args.error });
+    const errors = [...new Set<string>([...(row.lastStats?.errors ?? []), ...(args.stats?.errors ?? [])])].slice(-100);
+    await ctx.db.patch(row._id, { tickLeaseUntil: undefined, lastStats: { ...(args.stats ?? row.lastStats), errors }, lastError: args.error });
   },
 });
 
@@ -455,7 +457,7 @@ function registerRecordPort(
           const out = await ctx.runMutation(internal.canon.saveSyncedRecordPatch, {
             orgId, object, recordId: id, sfId, streamId: String(local.fields.stream), ...write,
           });
-          if (out.rejected.length) throw new Error(`ledger refused ${object} ${id}: ${out.rejected.map((e) => e.message).join("; ")}`);
+          if (out.rejected.length) throw new RecordWriteRejected(`ledger refused ${object} ${id}: ${out.rejected.map((e) => e.message).join("; ")}`);
         }
         if (client.mode === "http") await client.nudgeProjector(orgId, await ctx.runQuery(internal.ledgerFeed.shardHeadsOf, { orgId }), process.env.CONVEX_SITE_URL, { wait: true });
       }

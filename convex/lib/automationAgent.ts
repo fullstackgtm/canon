@@ -12,6 +12,8 @@ export const REQUEST_MAX = 2_000;
 /** One request's model budget, charged before each call (lib/agents/webhook.ts turnMeter). */
 export const ASK_BUDGET = { maxTokens: 60_000, maxSeconds: 120 };
 export const ASK_AGENT = "ask-canon";
+/** The author of a proposal made from a routine found in a person's agent traces (docs/routine-import.md). */
+export const ROUTINE_IMPORT_AGENT = "routine-import";
 export const NO_PLAN = "Ask Canon writes rules on your own ChatGPT plan, and you haven't connected one. Connect ChatGPT in Integrations, then ask again.";
 
 export const RULE_TOOL = "automation_rule";

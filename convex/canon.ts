@@ -931,7 +931,10 @@ export const saveSyncedRecordPatch = internalMutation({
   handler: async (ctx, args) => {
     const s = partyStores(ctx);
     const entityId = await registerStream(ctx, args.orgId, args.object, args.streamId);
-    if (!entityId) throw new ConvexError(`stream ${args.streamId} is not this org's ${args.object}`);
+    if (!entityId) return {
+      entityId: args.streamId, status: "invalid",
+      rejected: [{ field: "streamId", message: `stream ${args.streamId} is not this org's ${args.object}` }],
+    };
     const op = { provider: `op:sync:${args.object}`, key: args.idempotencyKey };
     if ((await s.objects.findByExternalId(args.orgId, op.provider, op.key)) !== null) return { entityId, status: "unchanged", rejected: [] };
     const ids = args.object === "account"

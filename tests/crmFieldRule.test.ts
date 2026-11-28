@@ -558,3 +558,16 @@ test("the record service keeps every held company and person field of a row on t
     assert.deepEqual(PERSON_HELD_FIELDS[object]!.filter((f) => !(f in REGISTER_COLUMNS[object])), [], object);
   }
 });
+
+test("scheduled Salesforce updates preserve imported currency, initialize new deals and skip unchanged snapshots", async () => {
+  const w = world();
+  await w.crm.salesforceImport(null, null, { currency: "EUR" });
+  await w.crm.salesforceSync(null, { amount: 2200 });
+  assert.equal((await w.deal()).currency, "EUR");
+  const entries = w.db.rows("ledgerEntries").length;
+  await w.crm.salesforceSync(null, { amount: 2200 });
+  assert.equal(w.db.rows("ledgerEntries").length, entries);
+  const fresh = world();
+  await fresh.crm.salesforceSync(null);
+  assert.equal((await fresh.deal()).currency, "USD");
+});

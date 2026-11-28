@@ -41,7 +41,7 @@ import {
   type Mapped,
   type ParentAccount,
 } from "./mapping.ts";
-import { bulkQueryPage, countRecords, createBulkQueryJob, describeGlobal, describeSObject, restGet, restGetText, soql, waitBulkQueryJob } from "./sfClient.ts";
+import { BulkQuerySliceExpired, bulkQueryPage, countRecords, createBulkQueryJob, describeGlobal, describeSObject, restGet, restGetText, soql, waitBulkQueryJob } from "./sfClient.ts";
 import { DOCUMENT_FIELDS, EVENT_FIELDS, NOTE_FIELDS, TASK_FIELDS, mapDocument, mapEvent, mapLegacyNote, mapTask } from "./activities.ts";
 import { customFieldSpecs, customValue, historyPoints, type CustomFieldPlacement } from "./history.ts";
 
@@ -162,7 +162,15 @@ export async function runImport(opts: RunOptions): Promise<{ done: boolean }> {
       } else if (!isStandard(obj.apiName) && !caches.defs.has(obj.apiName)) {
         await fieldsFor(opts, obj.apiName, caches);
       }
-      await waitBulkQueryJob(opts.conn, obj.bulkJobId);
+      let lastHeartbeat = now();
+      await waitBulkQueryJob(opts.conn, obj.bulkJobId, {
+        deadlineAt: opts.deadlineAt, now,
+        heartbeat: async () => {
+          if (now() - lastHeartbeat < 30_000) return;
+          await checkpoint(opts.objects, []);
+          lastHeartbeat = now();
+        },
+      });
       for (;;) {
         if (opts.deadlineAt !== undefined && now() >= opts.deadlineAt) return { done: false };
         const page = await bulkQueryPage(opts.conn, obj.bulkJobId, obj.locator, chunkSize);
@@ -190,6 +198,7 @@ export async function runImport(opts: RunOptions): Promise<{ done: boolean }> {
         if (!page.nextLocator) break;
       }
     } catch (error) {
+      if (error instanceof BulkQuerySliceExpired) return { done: false };
       if (error instanceof CheckpointError) throw error.cause;
       obj.state = "failed";
       obj.error = (error instanceof Error ? error.message : String(error)).slice(0, 500);
