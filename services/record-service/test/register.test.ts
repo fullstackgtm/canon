@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { all } from "../src/db.ts";
-import { FakeLedger } from "./ledgerFake.ts";
+import { contactIdFor } from "../src/upsert.ts";
+import { shardOf, FakeLedger } from "./ledgerFake.ts";
 import { startApp } from "./helpers.ts";
 
 describe("one register of accounts and contacts", () => {
@@ -436,6 +437,54 @@ describe("one register of accounts and contacts", () => {
     assert.deepEqual(rows.map((r) => [r.title, r.accountId, r.values.accountIcpIds]), [["Ann Acme", acme, ["sw"]], ["Bo Free", "", null], ["Cy Later", later, null]]);
     const history = await sql(w, `SELECT id, field, newValue, source FROM field_history WHERE field = 'accountId' ORDER BY newValue`);
     assert.deepEqual(history.map((h) => [h.field, h.newValue, h.source]), [["accountId", acme, "link:domain"], ["accountId", later, "link:domain"]].sort((a, b) => String(a[1]).localeCompare(String(b[1]))));
+  });
+
+  it("applies primary company edges before domain guesses regardless of projection order, including rebuilds", async () => {
+    const streamAt = (prefix: string, shard: number) => {
+      for (let i = 0; ; i++) if (shardOf(`${prefix}${i}`) === shard) return `${prefix}${i}`;
+    };
+    for (const [mode, contactShard, edgeShard, edgeFirst] of [
+      ["edge-shard-first", 1, 0, true], ["contact-shard-first", 0, 1, false],
+      ["edge-batch-first", 0, 0, true], ["contact-batch-first", 0, 0, false],
+      ["rebuild", 1, 0, true],
+    ] as const) {
+      const w = `edge-order-${mode}`;
+      const [company] = (await upsert(w, [{ domain: "chosen.example", name: "Chosen" }, { domain: "guess.example", name: "Guess" }], "companies")).json.ids;
+      const email = "ann@guess.example";
+      const contactId = contactIdFor("", { fullName: "Ann", email });
+      const contactStream = streamAt("person-", contactShard);
+      const edgeStream = streamAt("edge-", edgeShard);
+      const contact = () => ledger.set(w, "contact", contactStream, { fullName: "Ann", email }, 1000);
+      const edge = () => ledger.set(w, "association", edgeStream, { association: "contact_account", fromId: contactId, toId: company, primary: true }, 1000);
+      if (edgeFirst) { edge(); contact(); } else { contact(); edge(); }
+      if (mode === "rebuild") {
+        const defs = ledger.defs.bind(ledger);
+        ledger.defs = (org) => defs(org).filter((d) => org !== w || d.apiName !== "contact");
+        assert.equal((await nudge(w)).status, 200);
+        ledger.defs = defs;
+      }
+      assert.equal((await nudge(w)).status, 200);
+      assert.deepEqual((await sql(w, `SELECT accountId, accountLedger FROM contacts WHERE id = '${contactId}'`)).map((r) => [r.accountId, r.accountLedger]), [[company, true]], mode);
+    }
+  });
+
+  it("keeps the new primary when a contact edit projects between promotion and demotion", async () => {
+    const w = "edge-interleaved";
+    const [a, b] = (await upsert(w, [{ domain: "a.example", name: "A" }, { domain: "b.example", name: "B" }], "companies")).json.ids;
+    const email = "ann@a.example";
+    const id = contactIdFor("", { fullName: "Ann", email });
+    const streamAt = (prefix: string, shard: number) => {
+      for (let i = 0; ; i++) if (shardOf(`${prefix}${i}`) === shard) return `${prefix}${i}`;
+    };
+    const contact = streamAt("contact-", 1), old = streamAt("old-", 15), next = streamAt("next-", 0);
+    ledger.set(w, "contact", contact, { fullName: "Ann", email }, 1000);
+    ledger.set(w, "association", old, { association: "contact_account", fromId: id, toId: a, primary: true }, 1000);
+    assert.equal((await nudge(w)).status, 200);
+    ledger.set(w, "association", next, { association: "contact_account", fromId: id, toId: b, primary: true }, 1100);
+    ledger.set(w, "contact", contact, { title: "CEO" }, 1100);
+    ledger.set(w, "association", old, { primary: false }, 1100);
+    assert.equal((await nudge(w)).status, 200);
+    assert.equal((await sql(w, `SELECT accountId FROM contacts WHERE id = '${id}'`))[0].accountId, b);
   });
 
   it("writes a contact's accountId from its primary edge, which upserts and domain linking then leave alone (1.20.0)", async () => {

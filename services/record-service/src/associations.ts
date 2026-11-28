@@ -11,7 +11,9 @@
 // applies edges in, and moving the primary is one change in the history.
 import type { DuckDBConnection } from "@duckdb/node-api";
 import { project, type FoldState } from "./core/objects/fold.ts";
-import { edgeOf, type Edge, type ResolvedObjectDef } from "./core/objects/registry.ts";
+import { edgeOf, indexObjectDef, type ObjectDef, type Edge, type ResolvedObjectDef } from "./core/objects/registry.ts";
+import { fieldColumn } from "./core/objects/listSpec.ts";
+import { ident, rowTable, stateTable } from "./projection.ts";
 import { all, lit } from "./db.ts";
 import { refitSql, writeChanges, writeHistory } from "./upsert.ts";
 import { isMergeRef } from "./register.ts";
@@ -53,4 +55,19 @@ export async function writeBackAssociations(c: DuckDBConnection, def: ResolvedOb
     await writeChanges(c, [{ object: "contact", id: contactId, values: { accountId: next } }], by.merged ? "merge" : "edit", by.kind, now);
   }
   if (moved.size) await c.run(refitSql(`WHERE a.id IN (${[...moved].map(lit).join(", ")})`));
+}
+
+/** Apply an edge projected before its contact existed, before domain linking can guess a company. */
+export async function applyPrimaryAssociations(c: DuckDBConnection, contactIds: readonly string[], now: number) {
+  if (!contactIds.length) return;
+  const [build] = await all(c, `SELECT build_id, def FROM projection_builds WHERE object = 'association' AND status = 'done'`);
+  if (!build) return;
+  const def = indexObjectDef(JSON.parse(String(build.def)) as ObjectDef);
+  const col = (apiName: string) => `r.${ident(fieldColumn(def.byApiName.get(apiName)!.fieldId))}`;
+  const rows = await all(c, `SELECT s.state FROM ${ident(stateTable("association", Number(build.build_id)))} s
+    JOIN ${ident(rowTable("association", Number(build.build_id)))} r ON r.id = s.id
+    JOIN contacts contact ON contact.id = ${col("fromId")} AND contact.accountLedger IS NOT TRUE
+    WHERE ${col("fromId")} IN (${contactIds.map(lit).join(", ")})
+      AND ${col("association")} = 'contact_account' AND ${col("primary")} = true AND r.deleted_at IS NULL`);
+  await writeBackAssociations(c, def, rows.map((r) => JSON.parse(String(r.state)) as FoldState), now);
 }
