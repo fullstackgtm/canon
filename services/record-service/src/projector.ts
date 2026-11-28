@@ -444,16 +444,30 @@ export class Projector {
         stateApp.closeSync();
         // A rebuild links and writes back every stream it folds; rows already current change nothing.
         if (isRegisterObject(object)) await writeBackRegister(c, object, def, folded, Date.now());
-        if (object === ASSOCIATION_OBJECT) await writeBackAssociations(c, def, folded, Date.now());
         await c.run(`UPDATE projection_builds SET cursor = $cur WHERE object = $o AND build_id = $b`, { cur: last, o: object, b });
       }, "exclusive");
       cursor = last;
       this.opts.onRebuildChunk?.(object, chunk);
     }
 
+    if (object === ASSOCIATION_OBJECT) {
+      await w.write(async (c) => {
+        for (const stmt of indexBuildTables(object, b)) await c.run(stmt.replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS "));
+      }, "exclusive");
+      let after = "";
+      for (;;) {
+        this.checkStopping();
+        const rows = await w.read((c) => all(c, `SELECT state FROM ${ident(stateTable(object, b))} WHERE id > $after ORDER BY id LIMIT ${this.opts.rebuildChunk}`, { after }));
+        if (!rows.length) break;
+        const states = rows.map((r) => JSON.parse(String(r.state)) as FoldState);
+        await w.write((c) => writeBackAssociations(c, def, states, Date.now(), b), "exclusive");
+        after = states[states.length - 1].streamId;
+      }
+    }
+
     const previous = (await loadBuilds(w)).get(object);
     await w.write(async (c) => {
-      for (const stmt of indexBuildTables(object, b)) await c.run(stmt);
+      if (object !== ASSOCIATION_OBJECT) for (const stmt of indexBuildTables(object, b)) await c.run(stmt);
       await c.run(`CREATE OR REPLACE VIEW ${ident(viewName(object))} AS SELECT * FROM ${ident(rowTable(object, b))}`);
       await c.run(`UPDATE projection_builds SET status = 'done', def = $d, finished_at = $t WHERE object = $o AND build_id = $b`, { o: object, b, d: storedDef(def), t: Date.now() });
       if (previous) {

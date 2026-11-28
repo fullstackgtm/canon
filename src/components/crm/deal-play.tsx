@@ -129,7 +129,7 @@ function EditText({ value, placeholder, multiline, disabled, onSave, className }
 }
 
 /** The record's own sections, which the record page draws: its header, fields, timeline, history, related records, products, splits and apps. */
-export type RecordRenderers = Pick<Renderers, RecordComponent | "header">;
+export type RecordRenderers = Pick<Renderers, RecordComponent | import("../../../recipes/data").DataComponent | "header">;
 
 /** `page` is the workspace recipe's `deal.page` slot. Every section, the play's and the record's, shows in its order. */
 export function DealPlay({ streamId, amount, currency, team, page, record }: { streamId: string; amount: number | null; currency: string | null; team: Team | undefined; page: PageSpec; record: RecordRenderers }) {

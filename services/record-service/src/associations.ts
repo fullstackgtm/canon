@@ -7,8 +7,8 @@
 // A contact's edges in one batch are resolved together: an active primary edge
 // among them sets the account; otherwise a removed edge clears the account
 // while it is that edge's company. Convex keeps at most one primary per
-// contact, so the result does not depend on the order a catch-up or a rebuild
-// applies edges in, and moving the primary is one change in the history.
+// contact at the source. While projections overlap during a move, the newest
+// winning primary fact decides between them, including across rebuild chunks.
 import type { DuckDBConnection } from "@duckdb/node-api";
 import { project, type FoldState } from "./core/objects/fold.ts";
 import { edgeOf, indexObjectDef, type ObjectDef, type Edge, type ResolvedObjectDef } from "./core/objects/registry.ts";
@@ -18,9 +18,22 @@ import { all, lit } from "./db.ts";
 import { refitSql, writeChanges, writeHistory } from "./upsert.ts";
 import { isMergeRef } from "./register.ts";
 
-type Touched = { edge: Edge; kind: string; actor: string; merged: boolean };
+type Touched = { edge: Edge; kind: string; actor: string; merged: boolean; at: number; observedAt: number; streamId: string };
 
-export async function writeBackAssociations(c: DuckDBConnection, def: ResolvedObjectDef, states: readonly FoldState[], now: number) {
+export async function writeBackAssociations(c: DuckDBConnection, def: ResolvedObjectDef, states: readonly FoldState[], now: number, buildId?: number) {
+  const incoming = states;
+  const primaryContacts = new Set(states.flatMap((st) => {
+    const row = project(def, st), edge = edgeOf(row.values, row.deletedAt);
+    return edge?.association === "contact_account" && edge.active && edge.primary ? [edge.fromId] : [];
+  }));
+  if (primaryContacts.size) {
+    const build = buildId ?? Number((await all(c, `SELECT build_id FROM projection_builds WHERE object = 'association' AND status = 'done'`))[0]?.build_id);
+    if (Number.isFinite(build)) {
+      const projected = await primaryStates(c, def, build, [...primaryContacts]);
+      const replaced = new Set(incoming.map((st) => st.streamId));
+      states = [...incoming, ...projected.filter((st) => !replaced.has(st.streamId))];
+    }
+  }
   const byContact = new Map<string, Touched[]>();
   for (const st of states) {
     const row = project(def, st);
@@ -30,7 +43,7 @@ export async function writeBackAssociations(c: DuckDBConnection, def: ResolvedOb
     const kind = row.meta.primary?.sourceKind ?? "ledger";
     const fact = st.fields.primary?.candidates.find((f) => f.factId === row.meta.primary?.factId);
     const actor = kind === "user" && fact ? fact.sourceRef.split(":")[1] || "user" : kind;
-    byContact.set(edge.fromId, [...(byContact.get(edge.fromId) ?? []), { edge, kind, actor, merged: Boolean(fact && isMergeRef(fact.sourceRef)) }]);
+    byContact.set(edge.fromId, [...(byContact.get(edge.fromId) ?? []), { edge, kind, actor, merged: Boolean(fact && isMergeRef(fact.sourceRef)), at: fact ? fact.validFrom ?? fact.observedAt : -Infinity, observedAt: fact?.observedAt ?? -Infinity, streamId: st.streamId }]);
   }
   // A person moving decides whether either company has a buyer (contract 1.30.0): both are refit below.
   const moved = new Set<string>();
@@ -38,7 +51,8 @@ export async function writeBackAssociations(c: DuckDBConnection, def: ResolvedOb
     const contact = (await all(c, `SELECT accountId, accountLedger FROM contacts WHERE id = $id LIMIT 1`, { id: contactId }))[0];
     if (!contact) continue;
     const current = String(contact.accountId ?? "");
-    const primary = touched.find((t) => t.edge.active && t.edge.primary);
+    const primary = touched.filter((t) => t.edge.active && t.edge.primary).sort((a, b) =>
+      b.at - a.at || b.observedAt - a.observedAt || (a.streamId < b.streamId ? -1 : a.streamId > b.streamId ? 1 : 0))[0];
     // Only a removed edge clears its company: a demoted one is always demoted alongside the edge promoted in its
     // place, which can be on another shard and so be applied later.
     const cleared = !primary && touched.some((t) => !t.edge.active && t.edge.toId === current);
@@ -63,11 +77,16 @@ export async function applyPrimaryAssociations(c: DuckDBConnection, contactIds: 
   const [build] = await all(c, `SELECT build_id, def FROM projection_builds WHERE object = 'association' AND status = 'done'`);
   if (!build) return;
   const def = indexObjectDef(JSON.parse(String(build.def)) as ObjectDef);
+  const contacts = await all(c, `SELECT id FROM contacts WHERE id IN (${contactIds.map(lit).join(", ")}) AND accountLedger IS NOT TRUE`);
+  if (!contacts.length) return;
+  await writeBackAssociations(c, def, await primaryStates(c, def, Number(build.build_id), contacts.map((r) => String(r.id))), now);
+}
+
+async function primaryStates(c: DuckDBConnection, def: ResolvedObjectDef, build: number, contactIds: readonly string[]): Promise<FoldState[]> {
   const col = (apiName: string) => `r.${ident(fieldColumn(def.byApiName.get(apiName)!.fieldId))}`;
-  const rows = await all(c, `SELECT s.state FROM ${ident(stateTable("association", Number(build.build_id)))} s
-    JOIN ${ident(rowTable("association", Number(build.build_id)))} r ON r.id = s.id
-    JOIN contacts contact ON contact.id = ${col("fromId")} AND contact.accountLedger IS NOT TRUE
+  const rows = await all(c, `SELECT state FROM ${ident(stateTable("association", build))} WHERE id IN (
+    SELECT r.id FROM ${ident(rowTable("association", build))} r
     WHERE ${col("fromId")} IN (${contactIds.map(lit).join(", ")})
-      AND ${col("association")} = 'contact_account' AND ${col("primary")} = true AND r.deleted_at IS NULL`);
-  await writeBackAssociations(c, def, rows.map((r) => JSON.parse(String(r.state)) as FoldState), now);
+      AND ${col("association")} = 'contact_account' AND ${col("primary")} = true AND r.deleted_at IS NULL)`);
+  return rows.map((r) => JSON.parse(String(r.state)) as FoldState);
 }

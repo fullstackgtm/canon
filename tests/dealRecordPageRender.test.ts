@@ -46,6 +46,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     // The play draws the record's sections where the page puts them, here a deal building the case.
     "@/components/crm/deal-play": { NO_PLAY, DealPlay: ({ page, record }: { page: recipes.PageSpec; record: Record<string, unknown> }) =>
       createElement(Fragment, null, createElement("section", null, "Deal play sentinel"), createElement(pageSections.PageSections!, { object: "deal", page, stage: "case", renderers: { ...NO_PLAY, ...record } })) },
+    "./data-section": { dataRenderers: () => ({ table: () => null, list: () => null, metric: () => null, chart: () => null }) },
     "./page-sections": pageSections,
     "./shape/shape-mode": NO_SHAPE,
     "./convert-lead": { ConvertLeadDialog: empty },

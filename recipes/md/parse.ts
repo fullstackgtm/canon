@@ -1,3 +1,4 @@
+import { DATA_QUERY_GRAMMAR, isDataComponent, validateDataQuery } from "../data.ts";
 import { parseLayout, pageKeys, LAYOUT_GRAMMAR, type LayoutTree } from "../layout.ts";
 /**
  * A recipe's `recipe.md` read into the data Canon stores and runs (docs/recipes.md, "Writing a recipe"): the
@@ -444,7 +445,7 @@ const EVAL_KEYS = ["name", "description", "call", "expect"];
 const ACTION_KEYS = ["id", "label", "label_after", "runs", "prompt", "prompts", "review", "input", "writes", "fields", "shows", "enabled", "llm", "gate", "done", "note"];
 const ACTION_ID = /^[a-z][A-Za-z0-9]{0,39}$/;
 const PLAYS_FENCES = ["stages", "data", "people"];
-const KNOWN_FENCES = ["layout", "fields", "action", "logic", "evals", "ts", "choices", "schema", "output", "theme", "template", "ai-fields", ...PLAYS_FENCES];
+const KNOWN_FENCES = ["query", "layout", "fields", "action", "logic", "evals", "ts", "choices", "schema", "output", "theme", "template", "ai-fields", ...PLAYS_FENCES];
 const TEMPLATE_ATTRS = ["kind", "key"];
 /** Questions Jev answers rather than prompts a model is sent: the remit (people.center) and the buyer fit (people.fit). */
 const JEV_PROMPTS = ["people.center", "people.fit"];
@@ -613,6 +614,17 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
     open.section = { ...open.section, fields: names } as PageSection;
   }
   for (const s of sections) if (s.section.component === "fields" && s.fieldsLine === null) at(s.line, `section ${s.section.title} needs a \`\`\`fields block naming its fields`);
+
+  for (const f of fences.filter((x) => x.lang === "query")) {
+    const open = sections.find((s) => s.heading === f.heading);
+    if (!open || !isDataComponent(open.section.component)) { at(f.line, "a query belongs under a data section"); continue; }
+    if ("query" in open.section) { at(f.line, "only one query per section"); continue; }
+    try {
+      const query = validateDataQuery(open.section.component, JSON.parse(f.lines.map((l) => l.text).join("\n")), open.object);
+      open.section = { ...open.section, query } as unknown as PageSection;
+    } catch (e) { at(f.line, `query: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  for (const s of sections) if (isDataComponent(s.section.component) && !("query" in s.section)) at(s.line, "a data section needs a valid query block");
 
   // ── Prompts ──
   const prompts: Record<string, Prompt> = {};
@@ -993,6 +1005,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
  */
 export const RECIPE_GRAMMAR = {
   layout: LAYOUT_GRAMMAR,
+  query: DATA_QUERY_GRAMMAR,
   frontmatter: { keys: FRONT_KEYS, objects: RECIPE_OBJECTS, sources: RECIPE_SOURCES, permissions: ["read", "llm", "sources"] },
   points: Object.fromEntries(POINT_IDS.map((id) => [id, { kind: POINTS[id].kind, cardinality: POINTS[id].cardinality, binds: POINTS[id].binds }])),
   models: Object.fromEntries(MODEL_POINT_IDS.map((id) => [id, { settings: MODEL_POINTS[id].settings, tables: Object.fromEntries(Object.entries(MODEL_POINTS[id].tables).map(([n, t]) => [n, t.columns])), prose: MODEL_POINTS[id].prose }])),

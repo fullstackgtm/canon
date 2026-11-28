@@ -1,5 +1,6 @@
 "use client";
 
+import { dataRenderers } from "./data-section";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -248,6 +249,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
     </details>
   ) : body;
   const recordSections: RecordRenderers = {
+    ...dataRenderers({ id, values: record.values }, desc.fields),
     // A deal's header offers the archive and restore its recipe lists, in its order.
     header: (section, { stage }) => <>
       {header(sectionActions(section).flatMap((a) => offered([a], "header", [a.runs], { canEdit: writable, canDelete: canArchive, deleted, ...(stage ? { stage } : {}) }, {}, "deal").map((o) =>

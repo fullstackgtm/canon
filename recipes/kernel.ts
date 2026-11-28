@@ -34,7 +34,7 @@ export const RECIPE_FORMAT = "4";
  * grammar fails tests/recipeFormat.test.ts until this is updated, and a change that refuses a recipe the old grammar
  * read also bumps RECIPE_FORMAT and adds a changelog entry, so a published recipe fails with one clear line.
  */
-export const RECIPE_GRAMMAR_SHA256 = "df011aa740f201933157f7991e3e2db29cc17c35834adb27f68d6b391962a33f";
+export const RECIPE_GRAMMAR_SHA256 = "eccda2edf3378ca7bfb56b2443f6ccad3949815ba503b0fa6248c00e2c0e36b4";
 
 export const RECIPE_IDS = ["canon-base", "fsgtm-enterprise-deal", "canon-ledger", "canon-plain-html"] as const;
 /** A first-party recipe, in this repo. An installed package's id is namespaced instead: `@fsgtm/velocity-deal`. */
@@ -66,7 +66,7 @@ export const DEAL_FRAME: readonly PageComponent[] = ["header", "products", "spli
 export const REST_FIELDS = "rest";
 
 /** What each component takes besides the props every section has. */
-type ComponentProps = { [K in PageComponent]: K extends "fields" ? { title: string; fields: readonly string[] } : { title?: string } };
+type ComponentProps = { [K in PageComponent]: K extends import("./data.ts").DataComponent ? { title: string; query: import("./data.ts").DataQuery } : K extends "fields" ? { title: string; fields: readonly string[] } : { title?: string } };
 /**
  * One section of a page: a kernel component and its props. `when` shows it only in those stages, on a deal's page;
  * `collapsed` starts it folded; `show` picks which of its component's PARTS it draws. A `fields` section lists field api names, and `rest`. `actions` are what a person can

@@ -14,6 +14,7 @@ const ctx = {} as never;
 
 test("the generated bundles are current, and the bundle returns what the recipe returns in-process", async () => {
   assert.equal(readFileSync(BUNDLES_FILE, "utf8"), (await generate()).bundles, "recipes/_bundles.generated.ts is stale: run scripts/build-recipes.ts");
+  assert.doesNotMatch(RECIPE_BUNDLES["fsgtm-enterprise-deal"]!.code, /node_modules\/zod\//, "editor validation schemas stay out of play-runtime bundles");
   const bundle = await importCode(RECIPE_BUNDLES["fsgtm-enterprise-deal"]!.code);
   delete process.env.RECIPE_RUNTIME_URL;
   for (const seed of [1, 2, 3]) {

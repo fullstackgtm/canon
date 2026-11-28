@@ -6,6 +6,7 @@
  * An edit goes through records.edit, which puts a row nobody has worked onto the ledger first, and returns once the
  * row shows it. History exists once the row is on the ledger.
  */
+import { dataRenderers } from "./data-section";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ModulePanels } from "../modules/module-panels";
 import Link from "next/link";
@@ -369,6 +370,7 @@ function AccountSections(p: Page) {
   ) : null;
   const renderers: Renderers<ComponentOf<"account">> = {
     ...shared,
+    ...dataRenderers({ id, values: row.values }, p.desc.fields),
     fitBar: () => (data ? <FitBar fit={data.account.fit} explanation={explanation} /> : null),
     whyFit: (section, { held }) => data ? (
       <WhyThisFit title={section.title} explanation={explanation} citations={company.citations ?? []} values={{ industry: data.account.industry, country: data.account.country, employees: data.account.employees }}>
@@ -399,6 +401,7 @@ function ContactSections(p: Page) {
   const fields = desc.fields;
   const renderers: Renderers<ComponentOf<"contact">> = {
     ...partyRenderers(p, {}),
+    ...dataRenderers({ id, values: row.values }, desc.fields),
     aiFields: (section) => aiFields.length > 0 ? <AiFieldsPanel fields={aiFields} answers={aiAnswers?.[id]} contactId={id} actions={sectionActions(section)} ctx={p.ctx} title={section.title} /> : null,
     related: (section) => <ContactRelations contactId={id} placed={{ actions: sectionActions(section), ctx: p.ctx }} />,
     callPanel: (section) => <CallContact contactId={id} phone={phoneOf(fields, row.values)} actions={sectionActions(section)} ctx={p.ctx} title={section.title} />,

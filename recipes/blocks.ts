@@ -1,3 +1,4 @@
+import { DATA_QUERIES } from "./data.ts";
 /** The page block vocabulary shared by recipes, the editor and renderer coverage types. Pure: no Node imports. */
 import { z } from "zod";
 import { DEAL_STAGES, type DealStage } from "../convex/lib/plays/model.ts";
@@ -156,8 +157,16 @@ function block<const I extends string, const G extends string, const O extends P
   return { id, group, objects, title, purpose, parts, actions, props: headingSchema(id, parts) };
 }
 
+function dataBlock<K extends keyof typeof DATA_QUERIES>(id: K, title: string, rank: number) {
+  return { ...block(id, "data", { deal: rank, account: rank, contact: rank }, title, "Read records through a declarative query."), query: DATA_QUERIES[id] };
+}
+
 /** Object ranks preserve the existing add-menu and grammar order, independently of catalog order. */
 export const BLOCKS = {
+  table: /* @__PURE__ */ dataBlock("table", "Table", 30),
+  list: /* @__PURE__ */ dataBlock("list", "List", 31),
+  metric: /* @__PURE__ */ dataBlock("metric", "Metric", 32),
+  chart: /* @__PURE__ */ dataBlock("chart", "Chart", 33),
   queue: /* @__PURE__ */ block("queue", "play", { deal: 1 }, "Queue", "The rep's open deals, at risk and closing soon first, and why the next one needs them."),
   summary: /* @__PURE__ */ block("summary", "play", { deal: 2 }, "Summary", "The deal's health, amount, close date and owner, and the account research run with its status.", ["health", "amount", "closeDate", "owner", "research"]),
   stageRail: /* @__PURE__ */ block("stageRail", "play", { deal: 3 }, "Stage rail", "The three stages, the current one marked, and its exit."),

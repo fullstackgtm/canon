@@ -1,4 +1,6 @@
 "use client";
+import { isDataComponent, DATA_QUERIES } from "../../../../recipes/data";
+import { QuerySettings } from "./query-settings";
 import { sectionKey, type LayoutNode, type LayoutTree } from "../../../../recipes/layout";
 
 import { useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
@@ -138,6 +140,7 @@ export function SectionCard({ ctx, index, over, setOver, autoRename }: { ctx: Ct
       )}
       {open && (
         <div className="space-y-3 px-3 pb-3 pl-8">
+          {s.query && isDataComponent(s.component) && <QuerySettings kind={s.component} query={s.query} disabled={readOnly} onSave={(query) => edit({ op: "setQuery", object: layout.object, section: s.ref, query }, key, "Updated query")} />}
           {layout.object === "deal" && props.when && <Prop label="Shows in"><StageChips ctx={ctx} s={s} index={index} /></Prop>}
           {props.collapsed && <Prop label="Starts">
             <div role="radiogroup" aria-label={`${s.title} starts`} className="flex">
@@ -453,7 +456,7 @@ export function AddSection({ ctx, onAdded }: { ctx: Ctx; onAdded: (index: number
             if (!c) return;
             e.preventDefault();
             if (c === "fields") setFields("");
-            else add({ op: "addSection", object: layout.object, component: c, title: BLOCKS[c].title, before: null });
+            else add({ op: "addSection", object: layout.object, component: c, title: BLOCKS[c].title, ...(isDataComponent(c) ? { query: DATA_QUERIES[c].parse({ object: "deal", ...(c === "metric" || c === "chart" ? { aggregate: { fn: "count" } } : {}), ...(c === "chart" ? { groupBy: { field: "stage" } } : {}) }) } : {}), before: null });
           }}>
           {layout.addable.map((c) => (
             <DropdownMenuItem key={c} className="rounded-none text-xs" onSelect={() => { pending.current = c; }}>

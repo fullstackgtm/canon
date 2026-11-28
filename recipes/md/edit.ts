@@ -1,3 +1,4 @@
+import { isDataComponent, validateDataQuery, type DataQuery } from "../data.ts";
 import { CONTAINERS, completeTree, pageKeys, printLayout, sectionKey, validateTree, type LayoutNode, type LayoutTree, type ContainerKind, type ContainerProps } from "../layout.ts";
 /**
  * Layout edits to a recipe.md, made in its text (docs/recipes.md, "Writing a recipe"). A visual layout editor and an
@@ -29,12 +30,13 @@ export type TreeOp =
   | { op: "moveIntoContainer"; object: PageObject; section: SectionRef; container: string; before: SectionRef | null }
   | { op: "setContainerProps"; object: PageObject; container: string; props: ContainerProps };
 export type LayoutOp = TreeOp
+  | { op: "setQuery"; object: PageObject; section: SectionRef; query: DataQuery }
   | { op: "moveSection"; object: PageObject; section: SectionRef; before: SectionRef | null }
   | { op: "setCollapsed"; object: PageObject; section: SectionRef; collapsed: boolean }
   | { op: "setWhen"; object: "deal"; section: SectionRef; when: When | null }
   | { op: "renameSection"; object: PageObject; section: SectionRef; title: string }
   | { op: "removeSection"; object: PageObject; section: SectionRef }
-  | { op: "addSection"; object: PageObject; component: PageComponent; title: string; fields?: readonly string[]; before: SectionRef | null }
+  | { op: "addSection"; object: PageObject; component: PageComponent; title: string; fields?: readonly string[]; query?: DataQuery; before: SectionRef | null }
   | { op: "moveAction"; object: PageObject; section: SectionRef; action: string; before: string | null }
   | { op: "setActionLabel"; object: PageObject; section: SectionRef; action: string; label: string }
   | { op: "removeAction"; object: PageObject; section: SectionRef; action: string }
@@ -53,6 +55,7 @@ export type LayoutSection = {
   collapsed: boolean;
   when: When | null;
   fields?: readonly string[];
+  query?: DataQuery;
   actions: Array<Pick<PageAction, "id" | "runs" | "label" | "labelAfter" | "panel" | "shows" | "enabled">>;
   addable: Array<{ runs: ActionId; panel?: Panel }>;
 };
@@ -321,11 +324,17 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
     if ((op.component === "fields") !== (op.fields !== undefined)) return { error: "a fields section, and only a fields section, names its fields" };
     const fields = op.fields ?? [];
     if (op.component === "fields" && !fields.length) return { error: "a fields section names at least one field" };
+    let query: DataQuery | undefined;
+    if (isDataComponent(op.component)) {
+      try { query = validateDataQuery(op.component, op.query, op.object); }
+      catch (e) { return { error: String(e) }; }
+    } else if (op.query) return { error: "only data sections accept queries" };
     const before = op.before && sectionAt(op.before);
     if (before && "error" in before) return before;
     const block = [`${"#".repeat(at[0].head.level)} ${title} {section=${op.component}}`, ...(op.component === "fields" ? ["", "```fields", fields.join(", "), "```"] : [])];
+    if (query) block.push("", "```query", ...JSON.stringify(query, null, 2).split("\n"), "```");
     put(lines, before ? before.loc.head.at : last.head.end, block);
-    const section = { component: op.component, title, ...(op.component === "fields" ? { fields } : {}) } as PageSection;
+    const section = { component: op.component, title, ...(op.component === "fields" ? { fields } : {}), ...(query ? { query } : {}) } as PageSection;
     const i = before ? before.i : page.length;
     return { lines, page: [...page.slice(0, i), section, ...page.slice(i)] };
   }
@@ -368,6 +377,15 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
   const head = loc.head;
 
   switch (op.op) {
+    case "setQuery": {
+      if (!isDataComponent(s.component)) return { error: "only data sections accept queries" };
+      let query: DataQuery;
+      try { query = validateDataQuery(s.component, op.query, op.object); } catch (e) { return { error: String(e) }; }
+      const fence = doc.fences.find((f) => f.lang === "query" && enclosing(f.head, "section") === head);
+      if (!fence) return { error: "section has no query" };
+      lines.splice(fence.at + 1, fence.close - fence.at - 1, ...JSON.stringify(query, null, 2).split("\n"));
+      return { lines, page: withSection(page, i, { ...s, query } as unknown as PageSection) };
+    }
     case "moveSection": {
       const before = op.before && sectionAt(op.before);
       if (before && "error" in before) return before;
@@ -503,6 +521,7 @@ export function describeLayout(markdown: string, object: PageObject): Layout | {
       return {
         ref: refOf(page, i), component: s.component, title: s.title ?? s.component, collapsed: Boolean(s.collapsed), when: (s.when as When | undefined) ?? null,
         ...(s.component === "fields" ? { fields: s.fields } : {}),
+        ...("query" in s ? { query: s.query } : {}),
         actions: actions.map((a) => ({ id: a.id, runs: a.runs, label: a.label, ...(a.labelAfter !== undefined ? { labelAfter: a.labelAfter } : {}), ...(a.panel ? { panel: a.panel } : {}), ...(a.shows !== undefined ? { shows: a.shows } : {}), ...(a.enabled !== undefined ? { enabled: a.enabled } : {}) })),
         addable: BLOCKS[s.component].actions.filter((p) => p.object === object && hosts.has(p.host) && !actions.some((a) => a.runs === p.id && a.panel === hosts.get(p.host)))
           .map((p) => ({ runs: p.id, ...(hosts.get(p.host) ? { panel: hosts.get(p.host) } : {}) })),
