@@ -502,6 +502,46 @@ describe("one register of accounts and contacts", () => {
     assert.equal((await sql(w, `SELECT accountId FROM contacts WHERE id = '${id}'`))[0].accountId, b);
   });
 
+  it("recovers the newest primary when the contact first projects between promotion and demotion", async () => {
+    const w = "edge-first-interleaved";
+    const [a, b] = (await upsert(w, [{ domain: "a.example", name: "A" }, { domain: "b.example", name: "B" }], "companies")).json.ids;
+    const email = "ann@a.example", id = contactIdFor("", { fullName: "Ann", email });
+    const streamAt = (prefix: string, shard: number) => {
+      for (let i = 0; ; i++) if (shardOf(`${prefix}${i}`) === shard) return `${prefix}${i}`;
+    };
+    const contact = streamAt("person-", 1), old = streamAt("old-", 15), next = streamAt("next-", 0);
+    ledger.set(w, "contact", contact, { fullName: "Ann", email }, 1000);
+    const edge = ledger.set(w, "association", old, { association: "contact_account", fromId: id, toId: a, primary: true }, 1000);
+    assert.equal((await ws(w).post("projector/nudge", { wait: true, heads: { [edge.shard]: edge.seq } })).status, 200);
+    assert.equal((await sql(w, `SELECT id FROM contacts WHERE id = '${id}'`)).length, 0);
+    ledger.set(w, "association", next, { association: "contact_account", fromId: id, toId: b, primary: true }, 1100);
+    ledger.set(w, "association", old, { primary: false }, 1100);
+    assert.equal((await nudge(w)).status, 200);
+    assert.deepEqual((await sql(w, `SELECT accountId, accountLedger FROM contacts WHERE id = '${id}'`)).map((r) => [r.accountId, r.accountLedger]), [[b, true]]);
+  });
+
+  it("rebuilds competing primaries by primary fact time, then stable stream ID, without transient company moves", async () => {
+    for (const [oldFirst, split, primaryAt] of [[true, false, 1100], [true, true, 1100], [false, true, 1100], [false, true, 1000]] as const) {
+      const w = `edge-competing-rebuild-${oldFirst}-${split}-${primaryAt}`;
+      const [a, b] = (await upsert(w, [{ domain: "a.example", name: "A" }, { domain: "b.example", name: "B" }], "companies")).json.ids;
+      const [id] = (await ws(w).post("contacts/upsert", { records: [{ accountId: a, fullName: "Ann", email: "ann@a.example" }], source: "csv", idempotencyKey: "contact" })).json.ids;
+      const old = oldFirst ? "a-old" : "z-old", next = oldFirst ? "z-new" : "a-new";
+      ledger.set(w, "association", old, { association: "contact_account", fromId: id, toId: a, primary: true }, 1000);
+      ledger.set(w, "association", next, { association: "contact_account", fromId: id, toId: b, primary: true }, primaryAt);
+      if (split) ledger.set(w, "association", "m-other", { association: "contact_account", fromId: "other", toId: a, primary: false }, 1000);
+      assert.equal((await nudge(w)).status, 200);
+      assert.equal((await sql(w, `SELECT accountId FROM contacts WHERE id = '${id}'`))[0].accountId, b);
+      ledger.set(w, "association", old, { toId: a }, 1200);
+      assert.equal((await nudge(w)).status, 200);
+      assert.equal((await sql(w, `SELECT accountId FROM contacts WHERE id = '${id}'`))[0].accountId, b);
+      const before = (await changes(w)).length;
+      await ctx.app.registry.with(w, (db) => db.write((c) => c.run(`UPDATE contacts SET accountId = '', accountLedger = NULL WHERE id = '${id}'`), "exclusive"));
+      assert.equal((await ws(w).post("projector/rebuild", { object: "association" })).status, 200);
+      assert.deepEqual((await sql(w, `SELECT accountId, accountLedger FROM contacts WHERE id = '${id}'`)).map((r) => [r.accountId, r.accountLedger]), [[b, true]], `oldFirst=${oldFirst}`);
+      assert.deepEqual((await changes(w)).slice(before).filter((c) => c.id === id).map((c) => [c.op, c.origin]), [["edit", "user"]]);
+    }
+  });
+
   it("writes a contact's accountId from its primary edge, which upserts and domain linking then leave alone (1.20.0)", async () => {
     const w = "r22";
     const [acme, beta] = (await upsert(w, [{ domain: "acme.example", name: "Acme" }, { domain: "beta.example", name: "Beta" }], "u22")).json.ids;

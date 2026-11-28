@@ -965,7 +965,17 @@ alter behaviour.
 
 ### Format changelog
 
-**Format 4.** Optional fenced `layout` blocks arrange existing sections in
+**Format 4.** Read-only `table`, `list`, `metric` and `chart` sections accept one JSON `query` fence. This extends the newly introduced format 4 before external package release. Existing recipes remain unchanged.
+
+### Open deals {section=table}
+
+```query
+{"object":"deal","filter":[{"field":"companyId","op":"eq","value":{"record":"id"}},{"field":"isClosed","op":"eq","value":false}],"columns":["recordTitle","amount"],"limit":10}
+```
+
+Queries name a listed object (including `custom_<slug>`), ListFilter `filter`, optional `sort` and a `limit` from 1 to 200 (default 10). Table/list `columns` name fields (default `recordTitle`). Metric/chart use `aggregate: {"fn":"count"}` or `{"fn":"sum"|"avg","field":"amount"}`; charts also require `groupBy: {"field":"stage"}` or a date field with a `bucket` from day, week, month, quarter, year. Aggregates count all matching records; limit caps rows or chart groups displayed. Filter values `{ "record": "id" }` or `{ "record": "fieldId" }` bind the current record. Unknown custom fields are checked at runtime; unavailable fields and permissions show an inline error. Reads use objects.list and reports.run as the viewer. `addSection` accepts a query; `setQuery` replaces it.
+
+**Format 4 layout.** Optional fenced `layout` blocks arrange existing sections in
 stacks, columns, tabs and titled cards. Format-3 recipes still parse and render
 unchanged. Each page has at most one layout block, scoped by its enclosing
 `{page=account}` or `{page=contact}` heading, otherwise the deal page.

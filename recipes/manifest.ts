@@ -1,3 +1,4 @@
+import { isDataComponent, validateDataQuery } from "./data.ts";
 import { validateTree, pageKeys, type LayoutTree } from "./layout.ts";
 /**
  * An installed recipe as Canon stores it (docs/recipes.md, "The package"). A package is `recipe.md`, and
@@ -175,9 +176,9 @@ const ACTION = obj({
 
 /** An object's page: sections of its own components; only a deal's sections pick stages. */
 const pageCheck = (object: PageObject, min: number) => list(obj({
-  component: oneOf(COMPONENTS[object]), title: str(1, 80), fields: list(str(1, 80, /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/, "a field name"), 200),
+  query: json(16_384), component: oneOf(COMPONENTS[object]), title: str(1, 80), fields: list(str(1, 80, /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/, "a field name"), 200),
   ...(object === "deal" ? { when: obj({ stage: subset(DEAL_STAGES), notStage: subset(DEAL_STAGES) }, ["stage", "notStage"]) } : {}), collapsed: bool, show: subset([...new Set(Object.values(PARTS).flat())]), actions: list(ACTION, 30),
-}, ["title", "fields", "when", "collapsed", "show", "actions"]), 30, min);
+}, ["query", "title", "fields", "when", "collapsed", "show", "actions"]), 30, min);
 
 const MANIFEST = obj({
   id: str(3, 104, PACKAGE_ID, "a namespaced id like @agency/customization-name"),
@@ -247,6 +248,10 @@ function crossChecks(m: Manifest, errors: string[]) {
       catch (e) { errors.push(`layouts.${object}: ${String(e)}`); }
     }
     page.forEach((s, i) => {
+      if (isDataComponent(s.component)) {
+        try { validateDataQuery(s.component, "query" in s ? s.query : undefined, object); }
+        catch (e) { errors.push(`${key}[${i}].query: ${e instanceof Error ? e.message : String(e)}`); }
+      } else if ("query" in s) errors.push(`${key}[${i}] only data sections have a query`);
       if ((s.component === "fields") !== ("fields" in s)) errors.push(`${key}[${i}] must list fields when, and only when, it is a fields section`);
       if (s.component === "fields" && !s.title) errors.push(`${key}[${i}].title is missing`);
     });
