@@ -212,6 +212,28 @@ export const forOrg = query({
   },
 });
 
+export const workspacePages = query({
+  args: {},
+  handler: async (ctx) => {
+    const caller = await callerOf(ctx);
+    if (!caller) return [];
+    const enabled = await enabledFor(ctx, caller.user.orgId, "workspace.pages");
+    return enabled.sort((a, b) => a.recipe.id.localeCompare(b.recipe.id) || (a.recipe.workspacePages ?? []).findIndex((p) => p.slug === a.contribution.key) - (b.recipe.workspacePages ?? []).findIndex((p) => p.slug === b.contribution.key)).flatMap(({ recipe, contribution }) => {
+      const page = recipe.workspacePages?.find((p) => p.slug === contribution.key);
+      return page ? [{ slug: page.slug, title: page.title, icon: page.icon, nav: page.nav }] : [];
+    });
+  },
+});
+export const workspacePage = query({
+  args: { slug: v.string() },
+  handler: async (ctx, { slug }) => {
+    const caller = await callerOf(ctx);
+    if (!caller) return null;
+    const found = (await enabledFor(ctx, caller.user.orgId, "workspace.pages")).find((e) => e.contribution.key === slug);
+    const page = found?.recipe.workspacePages?.find((p) => p.slug === slug);
+    return found && page ? { ...page, recipeId: found.recipe.id, recipeTitle: found.recipe.title, layoutTree: found.recipe.layouts?.[slug], canEdit: mayDecide(caller) } : null;
+  },
+});
 /** The sections of the account or contact page the workspace has on (account.page, contact.page), in the recipe's order. */
 export const recordPage = query({
   args: { object: v.union(v.literal("account"), v.literal("contact")) },
@@ -285,7 +307,7 @@ async function namedContribution(ctx: MutationCtx, orgId: Id<"organizations">, a
   return { point: args.point as PointId, found };
 }
 
-async function setEnabled(ctx: MutationCtx, user: Doc<"users">, point: PointId, recipeId: string, key: string, enabled: boolean) {
+export async function setEnabled(ctx: MutationCtx, user: Doc<"users">, point: PointId, recipeId: string, key: string, enabled: boolean) {
   const row = await enablementRow(ctx, user.orgId, point, recipeId, key);
   const change = { enabled, by: user._id, at: Date.now() };
   if (row) { if (row.enabled !== enabled) await ctx.db.patch(row._id, change); }
@@ -321,6 +343,21 @@ export const enableContribution = mutation({
 });
 
 /** Turn a contribution off at an additive point. An exclusive point is switched with enableContribution instead. */
+export const activateWorkspacePageCopy = internalMutation({
+  args: { recipeId: v.string(), sourceId: v.string(), slug: v.string() },
+  handler: async (ctx, args) => {
+    const user = await requireDecider(ctx);
+    const { found } = await namedContribution(ctx, user.orgId, { point: "workspace.pages", recipeId: args.recipeId, key: args.slug });
+    if (found.pkg?.source?.kind !== "workspace" || found.pkg.source.forkedFrom.id !== args.sourceId) throw new ConvexError("This page is not a copy of that recipe.");
+    const enabled = await enabledFor(ctx, user.orgId, "workspace.pages");
+    const source = enabled.filter((e) => e.recipe.id === args.sourceId && e.contribution.key === args.slug);
+    const plan = planEnable(pointOf("workspace.pages"), enabled.filter((e) => !source.includes(e)).map((e) => e.contribution), found.contribution);
+    if (!plan.ok) throw new ConvexError(plan.error);
+    for (const e of source) await setEnabled(ctx, user, "workspace.pages", e.recipe.id, args.slug, false);
+    await setEnabled(ctx, user, "workspace.pages", args.recipeId, args.slug, true);
+  },
+});
+
 export const disableContribution = mutation({
   args: contributionArgs,
   handler: async (ctx, args) => {

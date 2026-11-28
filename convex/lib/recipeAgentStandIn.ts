@@ -1,3 +1,4 @@
+import { apply, type LayoutOp } from "../../recipes/md/edit.ts";
 /**
  * The recipe agent's stand-in model on a local stack (docs/recipes.md, "Editing with an agent"). A local stack's dev
  * user may carry a real ChatGPT session, and a local check must never spend it, so on a loopback deployment with the
@@ -26,6 +27,12 @@ const SECTION = /^(#+) (.+?) \{[^}]*\bsection=/;
  * first section that isn't folded.
  */
 export function standInAnswer(markdown: string, request: string): { markdown: string; summary: string } {
+  if (/make me a page of open deals/i.test(request)) {
+    const result = apply(markdown, { op: "addPage", slug: "open-deals", title: "Open deals", icon: "chart" });
+    if ("error" in result) return { markdown, summary: result.error };
+    const table = apply(result.markdown, openDealsTable());
+    return "error" in table ? { markdown, summary: table.error } : { markdown: table.markdown, summary: "Added the Open deals page." };
+  }
   const lines = markdown.split("\n");
   const sections = lines.flatMap((l, i) => {
     const m = SECTION.exec(l);
@@ -49,6 +56,8 @@ export function standInAnswer(markdown: string, request: string): { markdown: st
 }
 
 export function standInColumns(layout: import("../../recipes/md/edit.ts").Layout, target: import("../../recipes/md/edit.ts").SectionRef | undefined, request: string): import("../../recipes/md/edit.ts").LayoutOp[] {
+  if (/make me a page of open deals/i.test(request)) return [{ op: "addPage", slug: "open-deals", title: "Open deals", icon: "chart" }, openDealsTable()];
+  if (/add a metric/i.test(request)) return [{ op: "addSection", object: layout.object, component: "metric", title: "Open deals count", before: null, query: { object: "deal", filter: [{ field: "isClosed", op: "eq", value: false }], aggregate: { fn: "count" }, limit: 10 } }];
   if (layout.object === "account" && /add a form to create a deal (?:here|from this account)/i.test(request)) return [{
     op: "addSection", object: "account", component: "form", title: "New deal", before: null,
     query: { object: "deal", filter: [], limit: 10, fields: ["name", "closeDate", "amount", "stage"], defaults: { companyId: { record: "id" }, currency: "USD" } },
@@ -66,4 +75,8 @@ export function standInColumns(layout: import("../../recipes/md/edit.ts").Layout
   let id = "columns", i = 1;
   while (ids.has(id)) id = `columns${i++}`;
   return [{ op: "wrapSections", object: layout.object, sections: [target, other.ref], kind: "columns", id }];
+}
+
+function openDealsTable(): LayoutOp {
+  return { op: "addSection", object: "open-deals", component: "table", title: "Open deals", before: null, query: { object: "deal", filter: [{ field: "isClosed", op: "eq", value: false }], columns: ["recordTitle", "amount"], limit: 10 } };
 }

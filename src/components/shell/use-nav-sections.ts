@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useObjectLabels } from "../records/object-labels";
-import { homeHref, visibleSections, withObjectLabels, withRecordObjects, type NavSection } from "./nav";
+import { MODULE_ICONS, withoutHidden, homeHref, visibleSections, withObjectLabels, withRecordObjects, type NavSection } from "./nav";
 
 /**
  * The sidebar's and the palette's sections: the fixed pages less those workspace.nav hides from the viewer, each
@@ -15,6 +15,7 @@ export function useNav(): { sections: readonly NavSection[]; home: string | null
   const available = useQuery(api.integrationsAvailable.status);
   const objects = useQuery(api.customObjects.list);
   const nav = useQuery(api.recipes.nav);
+  const pages = useQuery(api.recipes.workspacePages);
   const modules = useQuery(api.modules.list);
   const names = useObjectLabels();
   return useMemo(() => {
@@ -26,8 +27,10 @@ export function useNav(): { sections: readonly NavSection[]; home: string | null
       if (item.href.startsWith("/dashboard/m/dialer") && !available?.dialer) return false;
       return true;
     }) }));
-    return { sections, home: nav === undefined || modules === undefined || available === undefined ? null : homeHref(sections, nav?.home ?? "accounts") };
-  }, [objects, nav, modules, names, available]);
+    const custom = (pages ?? []).filter((p) => p.nav === "main").map((p) => ({ id: p.slug, label: p.title, href: `/dashboard/p/${p.slug}`, icon: MODULE_ICONS[p.icon as keyof typeof MODULE_ICONS] ?? MODULE_ICONS.layout }));
+    const all = withoutHidden(custom.length ? [...sections, { label: "Pages", items: custom }] : sections, nav?.hidden ?? []);
+    return { sections: all, home: nav === undefined || modules === undefined || available === undefined ? null : homeHref(sections, nav?.home ?? "accounts") };
+  }, [objects, nav, modules, names, available, pages]);
 }
 
 export function useNavSections(): readonly NavSection[] {

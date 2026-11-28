@@ -30,12 +30,12 @@ export function pageAtLine(markdown: string, line: number): PageObject {
  * out by the draft's page and actions through the app's own record page. It is inert, so its actions show but never
  * run. `recipe` is the last draft that checked clean; `stale` marks it once the draft has errors.
  */
-export function RecipePreview({ recipe, stale, focus }: { recipe: CompiledRecipe; stale: boolean; focus: PageObject }) {
+export function RecipePreview({ recipe, stale, focus }: { recipe: CompiledRecipe; stale: boolean; focus: string }) {
   const names = useObjectLabels();
   const pages = OBJECTS.filter((o) => pageOf(recipe, o).length > 0);
   // A tab picked holds until the caret moves into another page of recipe.md.
-  const [picked, setPicked] = useState<{ object: PageObject; focus: PageObject } | null>(null);
-  const chosen = picked?.focus === focus ? picked.object : focus;
+  const [picked, setPicked] = useState<{ object: PageObject; focus: string } | null>(null);
+  const chosen = picked?.focus === focus ? picked.object : focus as PageObject;
   const object = pages.includes(chosen) ? chosen : pages[0];
   const list = useAction(api.objects.list);
   const [rows, setRows] = useState<Partial<Record<PageObject, Array<{ id: string; title: string }>>>>({});

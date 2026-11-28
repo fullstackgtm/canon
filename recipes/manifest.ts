@@ -1,3 +1,6 @@
+import { componentsOf, type PageKind } from "./blocks.ts";
+import { isComponentOf } from "./kernel.ts";
+import { validPageSlug, PAGE_ICONS } from "./pages.ts";
 import { isDataComponent, validateDataQuery } from "./data.ts";
 import { validateTree, pageKeys, type LayoutTree } from "./layout.ts";
 /**
@@ -14,7 +17,7 @@ import { REFRESH_CADENCES } from "../convex/lib/research/runPlan.ts";
 import { ACTION_IDS, PANELS, actionProblems, placements, type Host } from "./actions.ts";
 import {
   CEILINGS, COMPONENTS, OUTPUTS, PARTS, RECIPE_FORMAT, PAGE_KEYS, PAGE_OBJECTS, RECIPE_OBJECTS, RECIPE_SOURCES, bindingProblems, checkSetting, pageOf, resolveData,
-  type AnyDescriptor, type PageObject, type PageSpec, type Permissions, type RecipeDefinition, type Settings,
+  type AnyDescriptor, type PageSpec, type Permissions, type RecipeDefinition, type Settings,
 } from "./kernel.ts";
 import type { CompiledRecipe } from "./md/parse.ts";
 import type { RecipeEval } from "./evals.ts";
@@ -45,7 +48,8 @@ export type Manifest = {
   permissions: Permissions;
   settingsSchema: readonly AnyDescriptor[];
   defaults: Settings;
-  layouts?: Partial<Record<PageObject, LayoutTree>>;
+  workspacePages?: import("./kernel.ts").WorkspacePage[];
+  layouts?: Partial<Record<string, LayoutTree>>;
   dealPage: PageSpec;
   /** The workspace theme it contributes; absent in every manifest stored before themes. */
   theme?: ThemeDecl;
@@ -175,8 +179,8 @@ const ACTION = obj({
 }, ["labelAfter", "panel", "shows", "enabled", "prompts", "fields", "llm", "gate", "done", "note"]);
 
 /** An object's page: sections of its own components; only a deal's sections pick stages. */
-const pageCheck = (object: PageObject, min: number) => list(obj({
-  query: json(16_384), component: oneOf(COMPONENTS[object]), title: str(1, 80), fields: list(str(1, 80, /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/, "a field name"), 200),
+const pageCheck = (object: PageKind, min: number) => list(obj({
+  query: json(16_384), component: oneOf(componentsOf(object)), title: str(1, 80), fields: list(str(1, 80, /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/, "a field name"), 200),
   ...(object === "deal" ? { when: obj({ stage: subset(DEAL_STAGES), notStage: subset(DEAL_STAGES) }, ["stage", "notStage"]) } : {}), collapsed: bool, show: subset([...new Set(Object.values(PARTS).flat())]), actions: list(ACTION, 30),
 }, ["query", "title", "fields", "when", "collapsed", "show", "actions"]), 30, min);
 
@@ -190,6 +194,7 @@ const MANIFEST = obj({
   permissions: obj({ read: subset(RECIPE_OBJECTS), slots: subset(POINT_IDS), llm: oneOf(["owner", "none"]), sources: subset(RECIPE_SOURCES) }),
   settingsSchema: list(descriptor, 100),
   defaults: dict(any, 100),
+  workspacePages: list(obj({ slug: str(1, 80), title: str(1, 80), icon: str(1, 40), nav: oneOf(["main", "hidden"]), sections: pageCheck("workspace", 0) }, ["icon"]), 100),
   layouts: any,
   dealPage: pageCheck("deal", 0),
   accountPage: pageCheck("account", 0),
@@ -203,7 +208,7 @@ const MANIFEST = obj({
   templates: list(obj({ kind: oneOf(TEMPLATE_KIND_IDS), key: str(1, 63), title: str(1, 80), spec: any }), 100),
   fields: list(any, 50),
   data: any,
-}, ["layouts", "accountPage", "contactPage", "models", "templates", "fields", "theme"]);
+}, ["workspacePages", "layouts", "accountPage", "contactPage", "models", "templates", "fields", "theme"]);
 
 /** What Jev's buyer-fit question answers: the kernel orders buyers by it. */
 export const FIT_CHOICES = ["left", "right", "tie"];
@@ -224,9 +229,23 @@ export function playsDataErrors(resolved: unknown): string[] {
 
 /** Why the manifest's settings, data and deal page don't hold together, once each has its right shape. */
 function crossChecks(m: Manifest, errors: string[]) {
-  if (m.layouts !== undefined && (m.layouts === null || typeof m.layouts !== "object" || Array.isArray(m.layouts) || Object.keys(m.layouts).some((key) => !(PAGE_OBJECTS as readonly string[]).includes(key)))) {
+  if (m.layouts !== undefined && (m.layouts === null || typeof m.layouts !== "object" || Array.isArray(m.layouts) || Object.keys(m.layouts).some((key) => ![...PAGE_OBJECTS, ...(m.workspacePages ?? []).map((p) => p.slug)].includes(key)))) {
     errors.push("layouts is a map of deal, account or contact trees");
     return;
+  }
+  if (m.workspacePages?.length && !m.permissions.slots.includes("workspace.pages")) errors.push("permissions.slots must list workspace.pages for standalone pages");
+  const pageSlugs = new Set<string>();
+  for (const p of m.workspacePages ?? []) {
+    if (!validPageSlug(p.slug) || pageSlugs.has(p.slug)) errors.push(`invalid or duplicate page slug ${p.slug}`);
+    pageSlugs.add(p.slug);
+    if (p.icon && !(PAGE_ICONS as readonly string[]).includes(p.icon)) errors.push(`invalid page icon ${p.icon}`);
+    p.sections.forEach((s) => {
+      if (!s || !isDataComponent(s.component) || !isComponentOf(p.slug, s.component)) { errors.push(`invalid standalone page block`); return; }
+      try { validateDataQuery(s.component, "query" in s ? s.query : undefined, "workspace"); }
+      catch (e) { errors.push(String(e)); }
+      for (const a of s.actions ?? []) errors.push(...actionProblems(a, s.component, "workspace").map((p) => p.message));
+    });
+    if (m.layouts?.[p.slug]) try { validateTree(m.layouts[p.slug]!, pageKeys(p.sections)); } catch (e) { errors.push(String(e)); }
   }
   const keys = m.settingsSchema.map((d) => d.key);
   if (new Set(keys).size !== keys.length) errors.push("settingsSchema describes a setting twice");
@@ -303,7 +322,7 @@ export function parseManifest(raw: unknown): { ok: true; manifest: Manifest } | 
 export function fromManifest(m: Manifest): RecipeDefinition {
   return Object.freeze({
     id: m.id, version: m.version, title: m.title, description: m.description, author: m.author, permissions: m.permissions,
-    settings: m.defaults, settingsSchema: m.settingsSchema, dealPage: m.dealPage, ...(m.layouts ? { layouts: m.layouts } : {}), theme: m.theme ?? null, accountPage: m.accountPage ?? [], contactPage: m.contactPage ?? [], models: m.models ?? {}, templates: m.templates ?? [], fields: m.fields ?? [], data: m.data, code: null, evals: m.evals,
+    settings: m.defaults, settingsSchema: m.settingsSchema, dealPage: m.dealPage, ...(m.layouts ? { layouts: m.layouts } : {}), ...(m.workspacePages ? { workspacePages: m.workspacePages } : {}), theme: m.theme ?? null, accountPage: m.accountPage ?? [], contactPage: m.contactPage ?? [], models: m.models ?? {}, templates: m.templates ?? [], fields: m.fields ?? [], data: m.data, code: null, evals: m.evals,
   });
 }
 
@@ -316,7 +335,7 @@ export function toManifest(r: CompiledRecipe): Manifest {
   return {
     id: r.meta.id, version: r.meta.version, title: r.meta.title, description: r.meta.description, author: r.meta.author as Manifest["author"], engines: { canon: RECIPE_FORMAT },
     permissions: r.meta.permissions, settingsSchema: r.settingsSchema, defaults: r.defaults, evals: r.evals, data: r.data, templates: r.templates, fields: r.fields, ...(Object.keys(r.models).length ? { models: r.models } : {}),
-    ...(r.layouts ? { layouts: r.layouts } : {}),
+    ...(r.layouts ? { layouts: r.layouts } : {}), ...(r.workspacePages ? { workspacePages: r.workspacePages } : {}),
     dealPage: r.dealPage.map((s) => ({ ...s, actions: s.actions ?? [] })),
     ...(r.accountPage.length ? { accountPage: r.accountPage.map((s) => ({ ...s, actions: s.actions ?? [] })) } : {}),
     ...(r.contactPage.length ? { contactPage: r.contactPage.map((s) => ({ ...s, actions: s.actions ?? [] })) } : {}),

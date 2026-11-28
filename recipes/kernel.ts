@@ -34,7 +34,7 @@ export const RECIPE_FORMAT = "4";
  * grammar fails tests/recipeFormat.test.ts until this is updated, and a change that refuses a recipe the old grammar
  * read also bumps RECIPE_FORMAT and adds a changelog entry, so a published recipe fails with one clear line.
  */
-export const RECIPE_GRAMMAR_SHA256 = "12470ba0adc3252454412e41288ba19c68236c2959bf784278284afc95fcc561";
+export const RECIPE_GRAMMAR_SHA256 = "f7feb3e8dcce5eb18eef8746539da6de117236346c70c9922b22694dc152f01c";
 
 export const RECIPE_IDS = ["canon-base", "fsgtm-enterprise-deal", "canon-ledger", "canon-plain-html"] as const;
 /** A first-party recipe, in this repo. An installed package's id is namespaced instead: `@fsgtm/velocity-deal`. */
@@ -42,8 +42,8 @@ export type RecipeId = (typeof RECIPE_IDS)[number];
 
 export { PAGE_OBJECTS, PLAY_COMPONENTS, RECORD_COMPONENTS, PARTY_COMPONENTS, PAGE_COMPONENTS, COMPONENTS, PARTS } from "./blocks.ts";
 export type { PageObject, PlayComponent, RecordComponent, PartyComponent, PageComponent, ComponentOf } from "./blocks.ts";
-import { COMPONENTS, type PageObject, type PageComponent } from "./blocks.ts";
-export const isComponentOf = (object: PageObject, component: string): component is PageComponent => (COMPONENTS[object] as readonly string[]).includes(component);
+import { COMPONENTS, WORKSPACE_COMPONENTS, pageKind, type PageObject, type PageComponent } from "./blocks.ts";
+export const isComponentOf = (object: string, component: string): component is PageComponent => ((pageKind(object) === "workspace" ? WORKSPACE_COMPONENTS : COMPONENTS[object as PageObject]) as readonly string[]).includes(component);
 /**
  * A section that draws inside the one before it when it follows it: the score history sits in the fit's panel, and
  * the fit bar beside the record's title. Placed anywhere else, each draws on its own.
@@ -81,7 +81,8 @@ export type PageSpec = readonly PageSection[];
 /** Where a recipe definition holds each object's page. */
 export const PAGE_KEYS = { deal: "dealPage", account: "accountPage", contact: "contactPage" } as const satisfies Record<PageObject, string>;
 /** A recipe's page for `object`, empty when it lays out none. */
-export const pageOf = (recipe: Partial<Pick<RecipeDefinition, (typeof PAGE_KEYS)[PageObject]>>, object: PageObject): PageSpec => recipe[PAGE_KEYS[object]] ?? [];
+export type WorkspacePage = { slug: string; title: string; icon?: string; nav: "main" | "hidden"; sections: PageSpec };
+export const pageOf = (recipe: Partial<Pick<RecipeDefinition, (typeof PAGE_KEYS)[PageObject] | "workspacePages">>, object: string): PageSpec => pageKind(object) === "workspace" ? recipe.workspacePages?.find((p) => p.slug === object)?.sections ?? [] : recipe[PAGE_KEYS[object as PageObject]] ?? [];
 
 /** Whether a section shows at `stage`. Before the stage is known (or with no plays), only `stage` lists hide it. */
 export function shows(section: PageSection, stage: DealStage | null): boolean {
@@ -374,7 +375,8 @@ export type RecipeDefinition = {
   permissions: Permissions;
   settings: Settings;
   settingsSchema: readonly AnyDescriptor[];
-  layouts?: Partial<Record<PageObject, import("./layout.ts").LayoutTree>>;
+  workspacePages?: WorkspacePage[];
+  layouts?: Partial<Record<string, import("./layout.ts").LayoutTree>>;
   dealPage: PageSpec;
   /** The workspace theme it contributes (recipes/theme.ts), its values bound to settings; null for none. */
   theme: ThemeDecl | null;

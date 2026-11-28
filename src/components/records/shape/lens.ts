@@ -3,7 +3,7 @@
  * and what it produces, in the recipe's own words. The parser keeps a section's actions but not its prose or each
  * action's `input`/`writes` lines, so this reads them from the markdown directly. Pure.
  */
-import type { PageObject, PageSpec } from "../../../../recipes";
+import type { PageSpec } from "../../../../recipes";
 
 export type LensAction = { id: string; label: string; input?: string; writes: string[]; prompts: string[]; llm?: string; gate?: string; done?: string };
 export type LensSection = { title: string; component: string; purpose: string; settings: string[]; logic: string[]; actions: LensAction[] };
@@ -12,7 +12,7 @@ const HEADING = /^#{2,6}\s+(.+?)\s*\{[^}]*\bsection=(\w+)/;
 const list = (v: string | undefined) => (v ? v.replace(/^\[|\]$/g, "").split(",").map((s) => s.trim()).filter(Boolean) : []);
 
 /** The selected page's sections as the markdown describes them, in order. */
-export function readLens(markdown: string, object: PageObject = "deal"): LensSection[] {
+export function readLens(markdown: string, object: string = "deal"): LensSection[] {
   const lines = markdown.split("\n");
   const start = lines.findIndex((l) => new RegExp(`^##\\s+The ${object} page`, "i").test(l) || (object === "deal" && /^# Deal\s*$/i.test(l)) || new RegExp(`^#{1,6}\\s+.*\\{[^}]*page=${object}\\b`).test(l));
   if (start < 0) return [];

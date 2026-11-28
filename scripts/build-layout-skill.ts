@@ -357,6 +357,7 @@ export function generate(): { skill: string; module: string } {
     '```query',
     '{"object":"deal","filter":[{"field":"companyId","op":"eq","value":{"record":"id"}},{"field":"isClosed","op":"eq","value":false}],"columns":["recordTitle","amount"],"limit":10}',
     '```',
+    `Standalone workspace pages: heading # Open deals {page=open-deals icon=chart nav=main}. Add workspace.pages to contributes. Lowercase kebab slugs must be unique and cannot name a dashboard route or deal/account/contact. nav=hidden omits the sidebar. Each page holds its own sections and optional layout. Use only table, list, metric, chart, form and board, with no {record:…} references. Editors support addPage {slug,title,icon?}, removePage {slug}, and existing section/query/tree ops with object set to the slug.`,
     `Layout containers: ${LAYOUT_GRAMMAR.containers.join(", ")}. At most one fenced layout block per page, scoped like headings. Leaves use component#nth (zero-based). Two spaces per level. Unmentioned sections render afterward. Columns need 2–3 children, optional widths. Tabs need one label per child. Cards need a title. Example using existing Velocity sections:`,
     '```layout',
     'stack root',

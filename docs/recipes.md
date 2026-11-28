@@ -965,6 +965,16 @@ alter behaviour.
 
 ### Format changelog
 
+**Format 4 workspace pages (WC4).** `workspace.pages` contributes additive pages.
+Declare `# Open deals {page=open-deals icon=chart nav=main}`, with sections
+and an optional layout block beneath it. Slugs are unique lowercase kebab names
+that cannot name record objects or dashboard routes. `nav=hidden` omits navigation.
+Only table, list, metric, chart, form and board blocks are allowed, without
+record references. Enable each page independently. It opens at
+`/dashboard/p/open-deals`. Layout operations accept a page slug as `object`;
+`addPage` and `removePage` create and remove page headings. This extends format 4
+before external release. Existing recipes are unchanged.
+
 **Format 4 write blocks (WC3b).** Adds `form`, `board` and `detail` queries and
 `kernel.createRecord` while format 4 remains in dev. Writes use existing scoped
 create/edit paths. Register boards are refused until they have CAS.

@@ -4,14 +4,14 @@ import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { AlertCircle, Undo2 } from "lucide-react";
 import type { DealStage } from "../../../../convex/lib/plays/model";
 import { sectionKey, type LayoutNode } from "../../../../recipes/layout";
-import { PAGE_OBJECTS, type PageObject } from "../../../../recipes/kernel";
+import { PAGE_OBJECTS } from "../../../../recipes/kernel";
 import { apply, describeLayout, type LayoutOp } from "../../../../recipes/md/edit";
 import { parseRecipe } from "../../../../recipes/md/parse";
 import { cn } from "@/lib/utils";
 import { AddSection, btn, SectionCard, type Ctx, type Drag } from "./layout-section";
 import type { Slot } from "./layout-drops";
 
-const PAGE_TITLE: Record<PageObject, string> = { deal: "Deal page", account: "Account page", contact: "Person page" };
+const PAGE_TITLE: Record<string, string> = { deal: "Deal page", account: "Account page", contact: "Person page" };
 
 /**
  * The visual layout mode (docs/recipes.md, "Visual layout mode"): the pages a recipe.md lays out, edited by
@@ -19,9 +19,11 @@ const PAGE_TITLE: Record<PageObject, string> = { deal: "Deal page", account: "Ac
  * markdown editor show one draft. A refused change shows why and leaves the draft as it was. Undo's history lives in
  * the editor's draft (editor-draft.ts), so it outlasts a switch to Markdown.
  */
-export function LayoutMode({ markdown, object, onPage, onChange, canUndo, onUndo, readOnly = false }: { markdown: string; object?: PageObject; onPage?: (page: PageObject) => void; onChange: (next: string) => void; canUndo: boolean; onUndo: () => void; readOnly?: boolean }) {
-  const pages = useMemo(() => PAGE_OBJECTS.filter((o) => { const l = describeLayout(markdown, o); return !("error" in l) && l.sections.length > 0; }), [markdown]);
-  const [chosen, setChosen] = useState<PageObject | undefined>(object);
+export function LayoutMode({ markdown, object, onPage, onChange, canUndo, onUndo, readOnly = false }: { markdown: string; object?: string; onPage?: (page: string) => void; onChange: (next: string) => void; canUndo: boolean; onUndo: () => void; readOnly?: boolean }) {
+  const parsed = useMemo(() => parseRecipe(markdown).recipe, [markdown]);
+  const titles = { ...PAGE_TITLE, ...Object.fromEntries((parsed.workspacePages ?? []).map((p) => [p.slug, p.title])) };
+  const pages = useMemo(() => [...PAGE_OBJECTS, ...(parsed.workspacePages ?? []).map((p) => p.slug)].filter((o) => { const l = describeLayout(markdown, o); return !("error" in l) && (l.sections.length > 0 || parsed.workspacePages?.some((p) => p.slug === o)); }), [markdown, parsed]);
+  const [chosen, setChosen] = useState<string | undefined>(object);
   const page = chosen && pages.includes(chosen) ? chosen : pages[0] ?? object ?? "deal";
   useEffect(() => onPage?.(page), [onPage, page]);
   const layout = useMemo(() => describeLayout(markdown, page), [markdown, page]);
@@ -86,12 +88,20 @@ export function LayoutMode({ markdown, object, onPage, onChange, canUndo, onUndo
             {pages.map((o) => (
               <button key={o} type="button" role="radio" aria-checked={o === page} onClick={() => { setChosen(o); setNotice(null); setFresh(null); }}
                 className={cn("-ml-px border px-3 py-1 text-xs font-medium first:ml-0", o === page ? "relative border-foreground bg-foreground text-background" : "border-border hover:bg-muted")}>
-                {PAGE_TITLE[o]}
+                {titles[o]}
               </button>
             ))}
           </div>
-        ) : <h2 className="text-sm font-semibold">{PAGE_TITLE[page]}</h2>}
+        ) : <h2 className="text-sm font-semibold">{titles[page]}</h2>}
         <div className="flex items-center gap-2">
+          {!readOnly && <form className="flex flex-wrap gap-1" onSubmit={(e) => {
+            e.preventDefault();
+            const data = new FormData(e.currentTarget), title = String(data.get("title") ?? "");
+            const slug = String(data.get("slug") ?? "");
+            const result = apply(markdown, { op: "addPage", slug, title });
+            if ("error" in result) setNotice({ key: "page", message: result.error });
+            else { onChange(result.markdown); setChosen(slug); }
+          }}><input name="title" aria-label="Page title" placeholder="Page title" required className="w-28 border px-2 text-xs" /><input name="slug" aria-label="Page slug" placeholder="page-slug" required className="w-28 border px-2 text-xs" /><button className={btn}>Add a page</button></form>}
           <span role="status" aria-live="polite" className="text-xs text-muted-foreground">{status}</span>
           {!readOnly && <button type="button" className={btn} disabled={!canUndo} onClick={undo} title="Undo (⌘Z)"><Undo2 className="h-3.5 w-3.5" />Undo</button>}
         </div>
@@ -100,7 +110,7 @@ export function LayoutMode({ markdown, object, onPage, onChange, canUndo, onUndo
         <p className="border border-border bg-card p-4 text-sm text-muted-foreground">This customization lays out no page. Its sections are headings with <span className="font-mono">{"{section=…}"}</span> in customization.md.</p>
       ) : (
         <>
-          <ol aria-label={`Sections of the ${PAGE_TITLE[page].toLowerCase()}`} className="border border-border bg-card" onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null); }}>
+          <ol aria-label={`Sections of the ${titles[page].toLowerCase()}`} className="border border-border bg-card" onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null); }}>
             {layout.tree.children.map(outline)}
           </ol>
           {notice?.key === "page" && <p role="alert" className="border border-warning/50 bg-warning/10 px-2 py-1.5 text-xs">{notice.message}</p>}

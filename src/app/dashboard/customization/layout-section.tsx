@@ -1,4 +1,5 @@
 "use client";
+import { pageKind } from "../../../../recipes/blocks";
 import { isDataComponent, DATA_QUERIES } from "../../../../recipes/data";
 import { QuerySettings } from "./query-settings";
 import { sectionKey, type LayoutNode, type LayoutTree } from "../../../../recipes/layout";
@@ -349,7 +350,7 @@ function ConditionsEditor({ ctx, s, a, onDone, errorKey }: { ctx: Ctx; s: Layout
   const [shows, setShows] = useState(a.shows ?? "");
   const [enabled, setEnabled] = useState(a.enabled ?? "");
   const last = useRef<"shows" | "enabled">("shows");
-  const scope = scopeOf(a.runs as ActionId, a.panel ?? s.component, ctx.layout.object);
+  const scope = scopeOf(a.runs as ActionId, a.panel ?? s.component, pageKind(ctx.layout.object));
   const insert = (name: string) => {
     const set = last.current === "shows" ? setShows : setEnabled;
     set((v) => (v.trim() ? `${v.trim()} && ${name}` : name));

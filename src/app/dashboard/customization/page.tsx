@@ -148,6 +148,7 @@ export default function CustomizationPage() {
           <Section title="Every page">
             <WorkspaceShape canEdit={view.canEdit} rows={[
               { title: "Theme", value: inForce("workspace.theme"), onClick: () => setPage({ label: "Theme", ids: ["workspace.theme"] }) },
+              { title: "Pages", value: inForce("workspace.pages"), onClick: () => setPage({ label: "Pages", ids: ["workspace.pages"] }) },
               { title: "Navigation", value: workspace.applied.some((a) => a.point === "workspace.nav") ? inForce("workspace.nav") : "Canon's default", onClick: () => setPage({ label: "Navigation", ids: ["workspace.nav"] }) },
             ]} />
           </Section>

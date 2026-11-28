@@ -1,3 +1,4 @@
+import type { PageKind } from "./blocks.ts";
 /**
  * The actions a deal, account or contact page can offer (docs/recipes.md, "Actions"). A recipe's ```action block names
  * one of these by its `runs:` id and gives it a label, a place in its section and the conditions it shows and runs
@@ -7,7 +8,7 @@
  * the same table.
  */
 import { DEAL_STAGES, ITEM_KINDS, PLAY_CHANNELS, type DealStage } from "../convex/lib/plays/model.ts";
-import { shows, type PageComponent, type PageObject, type PageSpec } from "./kernel.ts";
+import { shows, type PageComponent, type PageSpec } from "./kernel.ts";
 import { KERNEL_ACTIONS, PANELS } from "./blocks.ts";
 import { holds, parseCondition, type Condition, type Context, type Scope, type VarType } from "./conditions.ts";
 
@@ -23,7 +24,8 @@ const oneOf = (...values: readonly string[]): VarType => ({ kind: "enum", values
 const RUN_STATUS = ["none", "running", "done", "failed"];
 
 /** What every action on each object's page can read. */
-const PAGE: Readonly<Record<PageObject, Scope>> = {
+const PAGE: Readonly<Record<PageKind, Scope>> = {
+  workspace: { canEdit: bool, deleted: bool },
   deal: {
     canEdit: bool,
     canDelete: bool,
@@ -93,7 +95,7 @@ export type Placement = { on: Binding; requires?: string; ready?: string; after?
  * the placement's scope, and a placement's own replace the action's.
  */
 export type KernelAction = {
-  hosts: Partial<Record<PageObject, Partial<Record<Host, Binding | Placement>>>>;
+  hosts: Partial<Record<PageKind, Partial<Record<Host, Binding | Placement>>>>;
   /** The Convex function it calls, or null for a navigation. */
   calls: string | null;
   writes: boolean;
@@ -123,7 +125,7 @@ export type PageAction = {
 };
 
 /** Where `id` sits in `host` on `object`'s page, with its conditions and gate there, or null when it doesn't. */
-export function placement(id: ActionId, host: Host, object: PageObject = "deal"): Required<Pick<Placement, "on" | "gate">> & Omit<Placement, "on" | "gate"> | null {
+export function placement(id: ActionId, host: Host, object: PageKind = "deal"): Required<Pick<Placement, "on" | "gate">> & Omit<Placement, "on" | "gate"> | null {
   const k: KernelAction = KERNEL_ACTIONS[id];
   const at = k.hosts[object]?.[host];
   if (!at) return null;
@@ -133,10 +135,10 @@ export function placement(id: ActionId, host: Host, object: PageObject = "deal")
 
 /** Every place each kernel action sits, by object and host, for the grammar and the docs. */
 export const placements = () => ACTION_IDS.flatMap((id) => Object.entries(KERNEL_ACTIONS[id].hosts as KernelAction["hosts"]).flatMap(([object, hosts]) =>
-  Object.keys(hosts ?? {}).map((host) => ({ id, object: object as PageObject, host: host as Host, ...placement(id, host as Host, object as PageObject)! }))));
+  Object.keys(hosts ?? {}).map((host) => ({ id, object: object as PageKind, host: host as Host, ...placement(id, host as Host, object as PageKind)! }))));
 
 /** What `action` reads in `host` on `object`'s page: the page, plus its binding's scope. */
-export function scopeOf(id: ActionId, host: Host, object: PageObject = "deal"): Scope {
+export function scopeOf(id: ActionId, host: Host, object: PageKind = "deal"): Scope {
   const p = placement(id, host, object);
   return p ? { ...PAGE[object], ...BINDINGS[p.on].scope } : PAGE[object];
 }
@@ -156,7 +158,7 @@ function labelProblem(label: string, binding: Binding): string | null {
  * Why a recipe can't place `action` in `host`, each problem with the action key it is about: a host the kernel action
  * doesn't sit in, a label naming a value it lacks, or a condition that doesn't parse over its scope.
  */
-export function actionProblems(action: Pick<PageAction, "runs" | "label" | "labelAfter" | "shows" | "enabled">, host: Host, object: PageObject = "deal"): Array<{ key: string; message: string }> {
+export function actionProblems(action: Pick<PageAction, "runs" | "label" | "labelAfter" | "shows" | "enabled">, host: Host, object: PageKind = "deal"): Array<{ key: string; message: string }> {
   const binding = placement(action.runs, host, object)?.on;
   if (!binding) {
     const where = placements().filter((p) => p.id === action.runs).map((p) => (p.object === object ? p.host : `${p.object}.${p.host}`));
@@ -192,7 +194,7 @@ export function fillLabel(label: string, values: LabelValues): string {
 export type Offer = { action: PageAction; label: string; disabled: boolean };
 
 const parsed = new Map<string, Condition | null>();
-function passes(text: string | undefined, id: ActionId, host: Host, object: PageObject, ctx: Context): boolean {
+function passes(text: string | undefined, id: ActionId, host: Host, object: PageKind, ctx: Context): boolean {
   if (text === undefined) return true;
   const key = `${object} ${id} ${host} ${text}`;
   if (!parsed.has(key)) {
@@ -209,7 +211,7 @@ function passes(text: string | undefined, id: ActionId, host: Host, object: Page
  * order. The kernel's `requires` and the recipe's `shows` decide whether it shows, `ready` and `enabled` whether it can
  * run, and `after` whether it reads its `label_after`. An action placed where the kernel doesn't sit it is never offered.
  */
-export function offered(actions: readonly PageAction[], host: Host, runs: readonly ActionId[], ctx: Context, values: LabelValues = {}, object: PageObject = "deal"): Offer[] {
+export function offered(actions: readonly PageAction[], host: Host, runs: readonly ActionId[], ctx: Context, values: LabelValues = {}, object: PageKind = "deal"): Offer[] {
   return actions.filter((a) => runs.includes(a.runs)).flatMap((action) => {
     const p = placement(action.runs, host, object);
     const holdsHere = (text: string | undefined) => passes(text, action.runs, host, object, ctx);
