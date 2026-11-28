@@ -1,8 +1,21 @@
 "use client"
 
 import * as React from "react"
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, SearchIcon } from "lucide-react"
 import * as SelectPrimitive from "@ui-sdk/react/select"
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxGroupLabel,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxItemIndicator,
+  ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@ui-sdk/react/combobox"
 
 import { type UiProps } from "@/components/ui/composition"
 
@@ -26,6 +39,9 @@ function SelectValue({
   return <SelectPrimitive.SelectValue data-slot="select-value" {...props} placeholder={typeof placeholder === "string" ? placeholder : undefined}>{children ?? ((state) => state.placeholder ? placeholder : state.label)}</SelectPrimitive.SelectValue>
 }
 
+/** The closed control's look, shared by SelectField and SearchableSelectField so the two sit level in one form. */
+const TRIGGER_CLASS = "border-border data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-primary/30 aria-invalid:border-destructive data-open:border-primary flex w-fit items-center justify-between gap-2 border bg-background px-2.5 text-sm text-foreground whitespace-nowrap transition-[color,border-color,box-shadow] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:px-2 data-[size=sm]:text-xs *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+
 function SelectTrigger({
   className,
   size = "default",
@@ -39,7 +55,7 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "border-border data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-primary/30 aria-invalid:border-destructive data-open:border-primary flex w-fit items-center justify-between gap-2 border bg-background px-2.5 text-sm text-foreground whitespace-nowrap transition-[color,border-color,box-shadow] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:px-2 data-[size=sm]:text-xs *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        TRIGGER_CLASS,
         className
       )}
       {...props}
@@ -153,8 +169,8 @@ function SelectScrollDownButton({ onClick, ...props }: React.ComponentProps<"but
 }
 
 /** Options by their group, in first-seen order; ungrouped ones form a group of their own (no heading). */
-function groupsOf(options: ReadonlyArray<SelectFieldOption>): Array<[string | undefined, SelectFieldOption[]]> {
-  const out = new Map<string | undefined, SelectFieldOption[]>()
+function groupsOf<O extends { group?: string }>(options: ReadonlyArray<O>): Array<[string | undefined, O[]]> {
+  const out = new Map<string | undefined, O[]>()
   for (const o of options) out.set(o.group, [...(out.get(o.group) ?? []), o])
   return [...out]
 }
@@ -169,6 +185,8 @@ type SelectFieldOption = {
   className?: string
   /** A heading the option sits under; options of one group are listed together, in the order given. */
   group?: string
+  /** Other text a search matches without showing it (SearchableSelectField), such as a zone's "Pacific Standard Time". */
+  keywords?: readonly string[]
 }
 
 /**
@@ -233,7 +251,121 @@ function SelectField({
   )
 }
 
+/**
+ * SelectField for long lists: the same closed trigger, and a popup that opens
+ * with a search box which filters options by label or `keywords`. Options need
+ * string labels. Escape or closing returns focus to the trigger.
+ */
+function SearchableSelectField({
+  value,
+  onValueChange,
+  options,
+  placeholder,
+  disabled,
+  size = "sm",
+  className,
+  searchLabel = "Search",
+  searchPlaceholder = "Search…",
+  emptyText = "No matches.",
+  id,
+  "aria-label": ariaLabel,
+}: {
+  value: string
+  onValueChange: (value: string) => void
+  options: ReadonlyArray<SelectFieldOption & { label: string }>
+  placeholder?: React.ReactNode
+  disabled?: boolean
+  size?: "sm" | "default"
+  className?: string
+  searchLabel?: string
+  searchPlaceholder?: string
+  emptyText?: React.ReactNode
+  id?: string
+  "aria-label"?: string
+}) {
+  const [button, setButton] = React.useState<HTMLButtonElement | null>(null)
+  const [query, setQuery] = React.useState("")
+  // Same as SelectField: an option valued "" is a real choice ("Any"), distinct from no selection.
+  const hasEmpty = options.some((o) => o.value === "")
+  const toItem = (v: string) => (v === "" ? EMPTY_VALUE : v)
+  const labels = React.useMemo(() => new Map(options.map((o) => [toItem(o.value), o.label])), [options])
+  return (
+    <Combobox<string>
+      value={value === "" && !hasEmpty ? null : toItem(value)}
+      onValueChange={(next) => { if (next !== null) onValueChange(next === EMPTY_VALUE ? "" : next) }}
+      itemToLabel={(v) => labels.get(v) ?? v}
+      query={query}
+      onQueryChange={setQuery}
+      onOpenChange={(open) => { if (open) setQuery("") }}
+      // Back to the trigger after Escape or a pick, but never away from a field the user tabbed or clicked into.
+      onOpenChangeComplete={(open) => {
+        const active = document.activeElement
+        if (!open && (!active || active === document.body)) button?.focus()
+      }}
+      autoHighlight
+      disabled={disabled}
+    >
+      <ComboboxTrigger
+        ref={setButton}
+        id={id}
+        aria-label={ariaLabel}
+        data-size={size}
+        className={cn(TRIGGER_CLASS, "max-w-full", className)}
+      >
+        <span data-slot="select-value">
+          <ComboboxValue>{(state) => state.label || placeholder}</ComboboxValue>
+        </span>
+        <ChevronDownIcon aria-hidden="true" className="size-4 opacity-50" />
+      </ComboboxTrigger>
+      <ComboboxContent
+        anchor={button}
+        align="start"
+        sideOffset={4}
+        className="bg-popover text-popover-foreground z-50 flex max-h-[min(24rem,var(--available-height))] w-(--anchor-width) min-w-[16rem] flex-col border border-border shadow-lg"
+      >
+        <div className="flex items-center gap-2 border-b border-border px-2.5">
+          <SearchIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          <ComboboxInput
+            autoFocus
+            aria-label={searchLabel}
+            placeholder={searchPlaceholder}
+            className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+        <ComboboxEmpty className="px-2.5 py-3 text-sm text-muted-foreground empty:hidden">{emptyText}</ComboboxEmpty>
+        <ComboboxList className="min-h-0 flex-1 overflow-y-auto p-1">
+          {groupsOf(options).map(([group, items]) => {
+            const rows = items.map((o) => (
+              <ComboboxItem
+                key={o.value}
+                value={toItem(o.value)}
+                label={o.label}
+                keywords={o.keywords ? [...o.keywords] : undefined}
+                disabled={o.disabled}
+                className={cn(
+                  "data-highlighted:bg-muted data-highlighted:text-foreground data-selected:text-primary relative flex w-full cursor-default items-center py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                  size === "sm" && "text-xs",
+                  o.className,
+                )}
+              >
+                {o.label}
+                <ComboboxItemIndicator className="absolute right-2 flex size-3.5 items-center justify-center">
+                  <CheckIcon aria-hidden="true" className="size-3.5 text-primary" />
+                </ComboboxItemIndicator>
+              </ComboboxItem>
+            ))
+            return group === undefined
+              ? <React.Fragment key="">{rows}</React.Fragment>
+              : <ComboboxGroup key={`g:${group}`}><ComboboxGroupLabel className="px-2 py-1.5 text-xs text-muted-foreground">{group}</ComboboxGroupLabel>{rows}</ComboboxGroup>
+          })}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  )
+}
+
 export {
+  SearchableSelectField,
   Select,
   SelectContent,
   SelectField,

@@ -36,6 +36,7 @@ import { RecordLink } from "./record-context";
 import { recordListOf } from "./record-target";
 import { RegisterRecordPage } from "./register-page";
 import { DealProducts } from "./deal-products";
+import { dealStagePath } from "./deal-stage-path";
 import { DealPipelineRail } from "./deal-pipeline-rail";
 import { useShapeMode } from "./shape/shape-mode";
 
@@ -114,6 +115,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const desc = useQuery(api.objects.describe, { object });
   const streamId = id as Id<"canonEntities">;
   const record = useQuery(api.objects.get, { streamId });
+  const pipelines = useQuery(api.pipelines.list, object === "deal" ? {} : "skip");
   const computed = useComputedValues(object, id, desc, record?.version);
   const team = useQuery(api.users.list) as TeamMember[] | undefined;
   const workspaceMoney = useWorkspaceMoney();
@@ -194,7 +196,12 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const sectionGroups = toGroups(groupFields(page, shownFields));
   const gridGroups = object === "deal" ? toGroups(groupFields(DEFAULT_DEAL_PAGE, shownFields)) : [{ title: "Details", collapsed: false, fields: shownFields }];
   const lastFields = page.filter(isFieldsSection).at(-1);
+  const stage = record.values.stage;
+  const stageSteps = pipelines ? dealStagePath(pipelines, typeof stage === "string" ? stage : undefined).steps : undefined;
+  const stageChoices = stageSteps?.filter((step) => step.active);
+  const stageNote = stageSteps?.find((step) => step.selected)?.note;
   const renderField = (f: FieldDescription) => {
+    const isDealStage = object === "deal" && f.apiName === "stage" && f.type === "picklist";
     const meta = record.meta[f.fieldId];
     return (
       <div key={f.fieldId} className="grid grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)] items-center gap-3 record-field-row border-b border-border last:border-b-0 [&>*]:min-w-0 [&>*]:break-words">
@@ -216,8 +223,9 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
           ) : f.type === "lookup" ? (
             <LookupField field={f} value={record.values[f.fieldId] as CellValue | undefined} version={record.version} readOnly={!writable || desc.readOnlyFields.includes(f.apiName)} onSave={(next, expected) => saveField(f, next, expected)} />
           ) : (
-            <InlineField field={f} value={(f.type === "formula" ? computed[f.fieldId] : record.values[f.fieldId]) as CellValue | undefined} version={record.version} team={f.type === "splits" ? splitTeam : team} money={money} readOnly={!writable || desc.readOnlyFields.includes(f.apiName)} onSave={(next, expected) => saveField(f, next, expected)} />
+            <InlineField field={f} picklistChoices={isDealStage ? stageChoices : undefined} value={(f.type === "formula" ? computed[f.fieldId] : record.values[f.fieldId]) as CellValue | undefined} version={record.version} team={f.type === "splits" ? splitTeam : team} money={money} readOnly={!writable || desc.readOnlyFields.includes(f.apiName) || (isDealStage && !stageChoices)} onSave={(next, expected) => saveField(f, next, expected)} />
           )}
+          {isDealStage && stageNote && <span className="block px-2 record-meta">{stageNote}</span>}
           {crmClaims?.filter((c) => c.field === f.fieldId).map((c) => <CrmFieldNote key={c.id} claim={c} canTake={writable && !desc.readOnlyFields.includes(f.apiName)} fields={fields} team={team} money={money} />)}
         </dd>
       </div>

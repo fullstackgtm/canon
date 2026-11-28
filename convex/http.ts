@@ -159,6 +159,29 @@ http.route({
 });
 
 http.route({
+  path: "/api/stripe/callback",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+    const redirectBase = `${(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "")}/dashboard/integrations?selected=stripe`;
+    if (url.searchParams.get("error")) {
+      return Response.redirect(`${redirectBase}&error=stripe_oauth_denied`, 302);
+    }
+    if (!code || !state) return Response.redirect(`${redirectBase}&error=invalid_callback`, 302);
+    try {
+      const result = await ctx.runAction(internal.stripeActions.exchangeCodeInternal, { code, state });
+      if ("error" in result) return Response.redirect(`${redirectBase}&error=${result.error}`, 302);
+      return Response.redirect(`${redirectBase}&connected=stripe`, 302);
+    } catch (e) {
+      console.error("Stripe OAuth callback error:", e instanceof Error ? e.message : "unknown");
+      return Response.redirect(`${redirectBase}&error=stripe_oauth_failed`, 302);
+    }
+  }),
+});
+
+http.route({
   path: "/api/salesforce/callback",
   method: "GET",
   handler: httpAction(async (ctx, request) => {

@@ -3,6 +3,7 @@ import { DATA_QUERIES, type DataQuery } from "./data.ts";
 import { z } from "zod";
 import { DEAL_STAGES, type DealStage } from "../convex/lib/plays/model.ts";
 import { isCustomObjectName } from "../modules/kernel/reportLanguage.ts";
+import { ACTIVITY_COMPOSER_KINDS, ACTIVITY_OBJECTS } from "../convex/lib/activities.ts";
 import { RECORD_MARKDOWN_MAX, safeRecordMarkdown } from "./recordText.ts";
 import type { KernelAction } from "./actions.ts";
 import type { PageSection } from "./kernel.ts";
@@ -52,7 +53,7 @@ const ACTION_CATALOG = {
   "kernel.saveGmailDraft": {
     hosts: {
       deal: { draftPanel: { on: "draft", requires: 'step.channel == "email" && draft.exists && gmail.linked && person.email' } },
-      contact: { composeEmail: { on: "email", requires: "contact.email", ready: "gmail.linked" } },
+      contact: { composeEmail: { on: "email", requires: "contact.email", ready: "gmail.linked" }, activity: { on: "email", ready: "canEdit && !deleted && contact.email && gmail.linked" } },
     },
     calls: "emailActions.draftToContact", writes: true, gate: "saves to the person's Gmail drafts; nothing sends",
   },
@@ -100,7 +101,12 @@ const ACTION_CATALOG = {
     gate: "the existing create path checks the caller, tenant, create permission, visible and writable fields, references, validation and duplicates; a form cannot add a write",
   },
   "kernel.logActivity": {
-    hosts: { deal: { form: "activity" }, account: { timeline: "activity", form: "activity" }, contact: { timeline: "activity", form: "activity" } }, calls: "activityTargets.logScoped", writes: true,
+    hosts: {
+      deal: { form: "activity", activity: { on: "activity", ready: "canEdit && !deleted" } },
+      account: { timeline: "activity", form: "activity", activity: { on: "activity", ready: "canEdit && !deleted" } },
+      contact: { timeline: "activity", form: "activity", activity: { on: "activity", ready: "canEdit && !deleted" } },
+      custom: { activity: { on: "activity", ready: "canEdit && !deleted" } },
+    }, calls: "activityTargets.logScoped", writes: true,
     gate: "a note, task, call or meeting about the record and the records it implies, such as a person's company",
   },
   "kernel.link": { hosts: { account: { related: "record" }, contact: { related: "record" } }, calls: "associations.link", writes: true, gate: "links a person and a company; a person's first company is their primary" },
@@ -194,6 +200,16 @@ export const RECORD_PROPS = /* @__PURE__ */ (() => {
     richText: z.strictObject({
       markdown: z.string().min(1).max(RECORD_MARKDOWN_MAX).refine(safeRecordMarkdown, { message: "Use only http(s) links" }),
     }),
+    activity: z.strictObject({
+      composer: z.array(z.enum(ACTIVITY_COMPOSER_KINDS)).max(ACTIVITY_COMPOSER_KINDS.length).optional(),
+      filter: z.strictObject({
+        kinds: z.array(fieldName).max(30).optional(),
+        range: z.enum(["upcoming", "past", "all"]).optional(),
+        mine: z.boolean().optional(),
+      }).optional(),
+      group: z.enum(["none", "day", "upcomingOverdue"]).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
   };
 })();
 export type RecordBlock = keyof typeof RECORD_PROPS;
@@ -214,6 +230,7 @@ export const BLOCKS = {
   relatedRecord: /* @__PURE__ */ recordBlock("relatedRecord", 45, "Related record", "Read-only fields and a link to one parent record."),
   actionBar: /* @__PURE__ */ recordBlock("actionBar", 46, "Action bar", "Record actions in the configured order, with an overflow menu."),
   richText: /* @__PURE__ */ recordBlock("richText", 47, "Rich text", "Markdown headings, paragraphs, lists, emphasis and http(s) links."),
+  activity: /* @__PURE__ */ recordBlock("activity", 48, "Activity", "A gated activity composer and a viewer-scoped timeline with filters and grouping."),
   form: /* @__PURE__ */ dataBlock("form", "Form", /* @__PURE__ */ dataObjects(34)),
   board: /* @__PURE__ */ dataBlock("board", "Board", /* @__PURE__ */ dataObjects(35)),
   detail: /* @__PURE__ */ dataBlock("detail", "Detail", { deal: 36, account: 36, contact: 36 }),
@@ -274,11 +291,20 @@ export const COMPONENTS = { deal: /* @__PURE__ */ componentsOf("deal"), account:
  */
 export const PARTS: Partial<Record<PageComponent, readonly string[]>> = /* @__PURE__ */ (() => Object.fromEntries(Object.values(BLOCKS).filter((b) => b.parts).map((b) => [b.id, b.parts])))();
 
+export function activityComposerKinds(object: PageKind) {
+  if (object === "workspace") return [];
+  return object === "contact" ? ACTIVITY_COMPOSER_KINDS : ACTIVITY_OBJECTS;
+}
+
 export function parseRecordProps<K extends RecordBlock>(component: K, input: unknown, object: PageKind): RecordProps<K> {
   const result = RECORD_PROPS[component].parse(input === undefined ? {} : input) as RecordProps<K>;
   if ("actions" in result && result.actions) {
     const allowed = BLOCKS[component].actions.filter((action) => action.object === object);
     for (const id of result.actions) if (!allowed.some((action) => action.id === id)) throw new Error(`${id} cannot run in ${component} on ${object}`);
+  }
+  if ("composer" in result && result.composer) {
+    const allowed = activityComposerKinds(object);
+    for (const kind of result.composer) if (!allowed.some((option) => option === kind)) throw new Error(`${kind} cannot be composed on ${object}`);
   }
   return result;
 }

@@ -15,6 +15,7 @@ import { getCurrentUser } from "./lib";
 import { accessFor } from "./permissions";
 import { canSeeRecord, may, permissionOf, refuseLockedWrite, type Access, type RecordOp } from "./lib/access";
 import { scopedRecordClient } from "./lib/scopedRecordClient";
+import { peopleFilterClient } from "./lib/peopleFilterClient";
 import { editPartyRecord, foundEmailEdit, isLedgerEditField, writeFoundEmail, type RecordAccountSnapshot, type RecordContactSnapshot, type RecordEditPorts, type RecordPatch } from "./lib/canon/partyLedger";
 import { partyFieldValue as fieldValue } from "./lib/objects/validators";
 import { TREG_PHONE_ENDPOINT } from "./lib/phoneFinder";
@@ -420,12 +421,14 @@ export function principalClient(ctx: ActionCtx, orgId: string, accesses: readonl
       return result;
     },
   };
-  return scopedRecordClient(activityClient, accesses, () =>
+  const scoped = scopedRecordClient(activityClient, accesses, () =>
     ctx.runQuery(internal.permissions.dealScopeOf, { orgId: orgId as Id<"organizations">, accesses: [...accesses] }), async () => {
       const snapshot = await ctx.runQuery(internal.ledgerFeed.heads, { org: orgId });
       if (!snapshot) throw new ConvexError("Workspace definitions unavailable");
       return snapshot.defs;
     });
+  return peopleFilterClient(scoped, accesses, (streams) =>
+    ctx.runQuery(internal.dealCommittee.filterMemberIds, { orgId: orgId as Id<"organizations">, streams, accesses: [...accesses] }));
 }
 
 /** Refuse `op` on a register row the caller's role may not perform or see; a hidden row reads as missing. */

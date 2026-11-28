@@ -1,4 +1,5 @@
-import { compileListRequest, FILTERS_MAX } from "../../convex/lib/objects/listSpec.ts";
+import { validateViewListRequest, type PeopleFilterDefs } from "../../convex/lib/objects/peopleFilters.ts";
+import { FILTERS_MAX } from "../../convex/lib/objects/listSpec.ts";
 import { FILTER_OPS, type FilterOp } from "../../modules/kernel/reportLanguage.ts";
 import type { ResolvedObjectDef } from "../../convex/lib/objects/registry.ts";
 import type { ViewFilter } from "../../modules/kernel/reportValidators.ts";
@@ -17,7 +18,7 @@ export function jsonQueryValue(query: Readonly<Record<string, string>>, param: s
   try { return JSON.parse(raw); } catch { throw new Error(`The ${param} parameter is not valid JSON. Reopen the filter builder.`); }
 }
 
-export function parsePeopleFilter(value: unknown, def: ResolvedObjectDef, available?: ReadonlySet<string>): ViewFilter[] {
+export function parsePeopleFilter(value: unknown, def: ResolvedObjectDef, available?: ReadonlySet<string>, related?: PeopleFilterDefs): ViewFilter[] {
   if (!Array.isArray(value)) throw new Error("A People filter must be a list.");
   if (value.length > FILTERS_MAX) throw new Error(`A People query accepts at most ${FILTERS_MAX} filters.`);
   const filters: ViewFilter[] = value.map((item: unknown) => {
@@ -29,7 +30,7 @@ export function parsePeopleFilter(value: unknown, def: ResolvedObjectDef, availa
     return { field: f.field, op: f.op as FilterOp, ...(f.value === undefined ? {} : { value: f.value as ViewFilter["value"] }) };
   });
   if (available && filters.some((f) => !available.has(f.field))) throw new Error("The filter names a field that is unavailable in the People list.");
-  compileListRequest(def, { filter: filters });
+  validateViewListRequest(def, { filter: filters }, related);
   return filters;
 }
 

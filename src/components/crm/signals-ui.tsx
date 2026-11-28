@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
-import type { Activity, ActivityObject, TargetObject } from "../../../convex/lib/activities";
+import type { Activity, ActivityObject } from "../../../convex/lib/activities";
 import { projectedPast } from "../../../convex/lib/objects/views";
 import type { LinkedinEvent } from "../../../convex/lib/signals/observations";
 import type { MessageText } from "../../../convex/lib/conversations/store";
@@ -232,7 +232,7 @@ function ActivityLine({ item, title, detail, userName }: { item: Activity; title
 const CATCH_UP_MS = 10_000;
 
 /** A record's activities. After a save, re-read until the projection shows it, or show what there is after CATCH_UP_MS. */
-export function useActivities({ object, id }: { object: TargetObject; id: string }) {
+export function useActivities({ object, id }: { object: string; id: string }) {
   const load = useAction(api.activityTargets.forRecord);
   const [activities, setActivities] = useState<Activity[] | undefined>(undefined);
   const [moduleActivityUnavailable, setModuleActivityUnavailable] = useState(false);
@@ -350,7 +350,7 @@ export function LeadTimeline({ leadId, userName }: { leadId: string; userName: (
 }
 
 /** The people on a company, for choosing who an activity was with. */
-function useCompanyPeople(companyId: string | null | undefined) {
+export function useCompanyPeople(companyId: string | null | undefined) {
   const related = useAction(api.associations.related);
   const [people, setPeople] = useState<Array<{ id: string; fullName: string }>>([]);
   useEffect(() => {

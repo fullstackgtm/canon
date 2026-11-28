@@ -10,6 +10,7 @@ import { canEditRecordField, visibleRecordFields } from "../recipes/recordFields
 import { splitRecordActions } from "../recipes/recordActionBar.ts";
 import { RECORD_MARKDOWN_MAX, recordTextSpans } from "../recipes/recordText.ts";
 import { canChangeRecordPath } from "../recipes/recordPath.ts";
+import { activityComposerOffers, activityTimeline, type ActivityItem } from "../recipes/recordActivity.ts";
 import { parentRecordRelations, recordRelations, relatedCount, relatedListQuery } from "../recipes/recordRelations.ts";
 import { resolveObjectDef, STANDARD_OBJECTS } from "../convex/lib/objects/registry.ts";
 import { standInWorkflow } from "../convex/lib/workflowStandIn.ts";
@@ -25,6 +26,7 @@ const props = {
   relatedRecord: { relationship: "dealCompany", fields: ["name", "domain"], title: "Account details" },
   actionBar: { actions: ["kernel.archive", "kernel.restore"] },
   richText: { markdown: "### Next steps\n\n- **Review** the [account](https://example.com) with *Sales*." },
+  activity: { composer: ["note", "task", "call"], filter: { kinds: ["task", "call"], range: "all", mine: true }, group: "upcomingOverdue", limit: 3 },
 } satisfies Record<RecordBlock, RecordProps>;
 
 function edited(markdown: string, op: LayoutOp) {
@@ -65,11 +67,11 @@ test("custom-object layouts use the record grammar and survive manifest validati
   let markdown = edited(base, { op: "addPage", slug: object, title: "Subscription", record: true });
   markdown = edited(markdown, { op: "addSection", object, component: "highlights", props: { actions: ["kernel.archive"] }, title: "Subscription", before: null });
   markdown = edited(markdown, { op: "addSection", object, component: "path", props: { field: "custom.status" }, title: "Status", before: null });
-  for (const component of ["fieldSection", "relatedRecord", "actionBar", "richText"] as const) {
+  for (const component of ["fieldSection", "relatedRecord", "actionBar", "richText", "activity"] as const) {
     markdown = edited(markdown, { op: "addSection", object, component, props: props[component], title: component, before: null });
   }
   const { recipe } = parseRecipe(forkMarkdown(markdown, { id: "@workspace/subscriptions", title: "Subscriptions", org: "workspace" }));
-  assert.deepEqual(recipe.workspacePages?.find((p) => p.slug === object)?.sections.map((s) => s.component), ["highlights", "path", "fieldSection", "relatedRecord", "actionBar", "richText"]);
+  assert.deepEqual(recipe.workspacePages?.find((p) => p.slug === object)?.sections.map((s) => s.component), ["highlights", "path", "fieldSection", "relatedRecord", "actionBar", "richText", "activity"]);
   assert.equal(recipe.workspacePages?.[0].nav, "hidden");
   const manifest = parseManifest(JSON.parse(JSON.stringify(toManifest(recipe))));
   assert.ok(manifest.ok, JSON.stringify(manifest));
@@ -122,7 +124,12 @@ test("the local Salesforce request builds the styled record layout and only upda
   assert.equal(columns.gap, "tight");
   const [left, right] = columns.children;
   assert.ok("kind" in left && left.kind === "stack");
-  assert.deepEqual(left.children[0], { section: "fieldSection#0" });
+  const [tabs] = left.children;
+  assert.ok("kind" in tabs && tabs.kind === "tabs");
+  assert.deepEqual(tabs.labels, ["Details", "Activity"]);
+  assert.deepEqual(tabs.children[1], { section: "activity#0" });
+  assert.deepEqual(layout.sections.find((s) => s.component === "activity")?.props, { composer: ["note", "task", "call"], group: "upcomingOverdue" });
+  assert.equal(layout.sections.some((s) => s.component === "timeline"), false);
   assert.ok("kind" in right && right.kind === "stack");
   assert.deepEqual(right.children, [{ section: "relatedRecord#0" }, { section: "relatedList#0" }]);
 
@@ -130,6 +137,49 @@ test("the local Salesforce request builds the styled record layout and only upda
   const repeat = (text: string) => standInWorkflow({ ...input, pages: [{ ...input.pages[0], markdown: text }] });
   assert.deepEqual(repeat(restyled).ops, { deal: [{ op: "setPageStyle", object: "deal", style }] });
   assert.deepEqual(repeat(markdown).ops, {});
+});
+
+test("activity props reject unknown settings and unsupported composer kinds", () => {
+  assert.deepEqual(parseRecordProps("activity", undefined, "deal"), {});
+  assert.deepEqual(parseRecordProps("activity", { composer: ["email"], filter: { kinds: ["custom"], range: "past", mine: false }, group: "day", limit: 5 }, "contact"),
+    { composer: ["email"], filter: { kinds: ["custom"], range: "past", mine: false }, group: "day", limit: 5 });
+  for (const object of ["deal", "account", "custom"] as const) {
+    assert.throws(() => parseRecordProps("activity", { composer: ["email"] }, object));
+  }
+  for (const bad of [{ composer: ["sms"] }, { filter: { range: "today" } }, { filter: { mine: "yes" } }, { group: "week" }, { limit: 0 }]) {
+    assert.throws(() => parseRecordProps("activity", bad, "contact"));
+  }
+});
+
+test("the activity composer uses kernel offers for the current object and edit permission", () => {
+  const enabled = { canEdit: true, deleted: false, "contact.email": true, "gmail.linked": true };
+  const summarize = (offers: ReturnType<typeof activityComposerOffers>) => offers.map(({ kind, action, disabled }) => [kind, action.runs, disabled]);
+  assert.deepEqual(summarize(activityComposerOffers("deal", ["email", "task"], undefined, enabled)), [["task", "kernel.logActivity", false]]);
+  assert.deepEqual(summarize(activityComposerOffers("custom", ["call"], undefined, { ...enabled, canEdit: false })), [["call", "kernel.logActivity", true]]);
+  assert.deepEqual(summarize(activityComposerOffers("contact", ["email"], undefined, enabled)), [["email", "kernel.saveGmailDraft", false]]);
+  assert.deepEqual(summarize(activityComposerOffers("contact", ["email"], undefined, { ...enabled, "gmail.linked": false })), [["email", "kernel.saveGmailDraft", true]]);
+  assert.deepEqual(summarize(activityComposerOffers("contact", ["note", "email"], undefined, { ...enabled, canEdit: false })),
+    [["note", "kernel.logActivity", true], ["email", "kernel.saveGmailDraft", true]]);
+  assert.deepEqual(activityComposerOffers("account", [], undefined, enabled), []);
+  assert.deepEqual(activityComposerOffers("account", undefined, undefined, enabled).map(({ kind }) => kind), ["note", "task", "call", "meeting"]);
+});
+
+test("activity filters combine kind, owner and range before grouping", () => {
+  const at = (day: string) => Date.parse(`${day}T12:00:00`);
+  const now = at("2026-11-28");
+  const items: ActivityItem[] = [
+    { id: "call", kind: "call", subject: "Talked", at: at("2026-11-27"), ownerId: "me", outcome: null },
+    { id: "task", kind: "task", subject: "Follow up", at: at("2026-11-25"), ownerId: "me", dueDate: "2026-11-26", status: "not_started" },
+    { id: "done", kind: "task", subject: "Sent notes", at: at("2026-11-27"), ownerId: "me", dueDate: "2026-12-01", status: "completed" },
+    { id: "meeting", kind: "meeting", title: "Next meeting", at: at("2026-12-01"), ownerId: "them", startAt: at("2026-12-01") },
+  ];
+  const summarize = (groups: ReturnType<typeof activityTimeline>) => groups.map(({ label, rows }) => [label, rows.map(({ item }) => "id" in item ? item.id : item.key)]);
+  assert.deepEqual(summarize(activityTimeline(items, {}, "upcomingOverdue", now)), [
+    ["Upcoming & Overdue", ["task", "meeting"]], ["Past activity", ["call", "done"]],
+  ]);
+  assert.deepEqual(summarize(activityTimeline(items, { kinds: ["task"], mine: true, range: "upcoming" }, "none", now, "me")), [["", ["task"]]]);
+  assert.deepEqual(activityTimeline(items, { range: "past", mine: true }, "day", now, "me").map(({ rows }) => rows.length), [2]);
+  assert.deepEqual(activityTimeline(items, { mine: true }, "day", now), []);
 });
 
 test("field section edits require permission, compare-and-set and a writable field", () => {

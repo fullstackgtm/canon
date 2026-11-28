@@ -11,12 +11,15 @@ import type { ModuleActivity as DeclaredModuleActivity } from "../../modules/ker
 
 export const ACTIVITY_OBJECTS = ["note", "task", "call", "meeting"] as const;
 export type ActivityObject = (typeof ACTIVITY_OBJECTS)[number];
+export const ACTIVITY_COMPOSER_KINDS = [...ACTIVITY_OBJECTS, "email"] as const;
+export type ActivityComposerKind = (typeof ACTIVITY_COMPOSER_KINDS)[number];
 
 /** Activities read per object. */
 export const ACTIVITIES_PER_OBJECT = 50;
 
 /** A record an activity is about. `name` is its title as the register lists it. */
-export type TargetObject = "account" | "contact" | "deal" | "lead";
+export const ACTIVITY_TARGET_OBJECTS = ["account", "contact", "deal", "lead"] as const;
+export type TargetObject = (typeof ACTIVITY_TARGET_OBJECTS)[number];
 export type ActivityTarget = { object: TargetObject; id: string; name: string };
 
 /** `targets` is set when a timeline names the records an activity is about (convex/activityTargets.ts). */

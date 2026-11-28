@@ -294,7 +294,7 @@ export const CENSUS: readonly Mechanism[] = [
       { table: "approvalRequests", index: "by_orgId", open: (r) => r.status === "pending" || r.status === "approved", checklist: { history: "cancelled with its plan" } },
     ],
     here: [any("integrations"), any("moduleGrants", "by_orgId_and_moduleId")],
-    runs: ["internal.integrationActions.runScheduledSyncs", "internal.salesforceSync.tick", "internal.canon.sweepPartyMirror", "/api/hubspot/callback", "/api/salesforce/callback", "/record-service/changes"],
+    runs: ["internal.integrationActions.runScheduledSyncs", "internal.salesforceSync.tick", "internal.canon.sweepPartyMirror", "/api/hubspot/callback", "/api/salesforce/callback", "/api/stripe/callback", "/record-service/changes"],
   },
   {
     key: "automation", does: "run an automation rule's actions on record changes or on its schedule",

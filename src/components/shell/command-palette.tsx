@@ -176,6 +176,7 @@ export function CommandPalette() {
   }, []);
 
   const commandOwnsFocus = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const execute = (cmd: PaletteCommand) => {
     if (cmd.disabled) return;
     commandOwnsFocus.current = true;
@@ -199,7 +200,12 @@ export function CommandPalette() {
   return (
     <Dialog open={open} onOpenChange={(next) => (setOpen(next), setQuery(""))}>
       <DialogContent className="top-[20%] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-lg" showCloseButton={false}
-        onOpenAutoFocus={() => { commandOwnsFocus.current = false; }}
+        onOpenAutoFocus={(event) => {
+          commandOwnsFocus.current = false;
+          // Focus the search input ourselves so typing starts at once after ⌘K.
+          event.preventDefault();
+          inputRef.current?.focus();
+        }}
         onCloseAutoFocus={(event) => {
           if (commandOwnsFocus.current) event.preventDefault();
           commandOwnsFocus.current = false;
@@ -209,6 +215,7 @@ export function CommandPalette() {
           <div className="flex items-center gap-2 border-b border-border px-3">
             <Search className="size-4 text-muted-foreground" />
             <Command.Input
+              ref={inputRef}
               autoFocus
               value={query}
               onValueChange={setQuery}

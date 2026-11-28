@@ -20,14 +20,18 @@ import { asListError, saveAsCaller } from "./objects";
 import { callerClient, requireCaller } from "./records";
 import { edgeStore } from "./associations";
 import { applyEdgeCommand } from "./lib/objects/associations";
-import { ACTIVITY_OBJECTS, linkedActivities, targetNames, type Activity, type ModuleActivityRow, type TargetObject } from "./lib/activities";
+import { ACTIVITY_OBJECTS, ACTIVITY_TARGET_OBJECTS, linkedActivities, targetNames, targetObjectOf, type Activity, type ModuleActivityRow, type TargetObject } from "./lib/activities";
 import type { ProjectedThrough } from "./lib/objects/listSpec";
 import { fieldValue } from "./lib/objects/validators";
 import { readModuleActivities } from "./lib/modules/activities";
 import { createOnce, createdOrProposed } from "./lib/idempotency";
+import { may } from "./lib/access";
+import { loadOrgObject } from "./lib/objects/orgDefs";
+import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 
 const activityObject = v.union(...ACTIVITY_OBJECTS.map((o) => v.literal(o)));
-const targetObject = v.union(v.literal("account"), v.literal("contact"), v.literal("deal"), v.literal("lead"));
+const targetObject = v.union(...ACTIVITY_TARGET_OBJECTS.map((o) => v.literal(o)));
+const isStandardTarget = (object: string): object is TargetObject => ACTIVITY_TARGET_OBJECTS.some((kind) => kind === object);
 
 /** The lookup an activity names its company, person or deal in. A lead has none: an activity is about a lead by its edge alone. */
 const lookupOf: Partial<Record<TargetObject, "accountId" | "contactId" | "dealId">> = { account: "accountId", contact: "contactId", deal: "dealId" };
@@ -45,7 +49,7 @@ type Caller = Awaited<ReturnType<typeof requireCaller>>;
 const logArgs = {
   object: activityObject,
   values: v.record(v.string(), fieldValue),
-  targets: v.array(v.object({ object: targetObject, id: v.string() })),
+  targets: v.array(v.object({ object: v.string(), id: v.string() })),
   /** A create's Idempotency-Key (lib/idempotency.ts). */
   idempotencyKey: v.optional(v.string()),
 };
@@ -81,30 +85,42 @@ export const logScoped = action({
   },
 });
 
-async function logAs(ctx: MutationCtx, { idempotencyKey, ...args }: { object: (typeof ACTIVITY_OBJECTS)[number]; values: Record<string, unknown>; targets: Array<{ object: TargetObject; id: string }>; idempotencyKey?: string }, admitted: ReadonlySet<string>) {
+type LogInput = { object: (typeof ACTIVITY_OBJECTS)[number]; values: Record<string, unknown>; targets: Array<{ object: string; id: string }> };
+
+async function logAs(ctx: MutationCtx, { idempotencyKey, ...args }: LogInput & { idempotencyKey?: string }, admitted: ReadonlySet<string>) {
   const user = await requireUser(ctx);
   return createOnce(ctx, { orgId: user.orgId, userId: user._id }, idempotencyKey, { op: "activities.log", ...args }, () => logAsUser(ctx, user, args, admitted), createdOrProposed);
 }
 
-async function logAsUser(ctx: MutationCtx, user: Doc<"users">, args: { object: (typeof ACTIVITY_OBJECTS)[number]; values: Record<string, unknown>; targets: Array<{ object: TargetObject; id: string }> }, admitted: ReadonlySet<string>) {
+async function logAsUser(ctx: MutationCtx, user: Doc<"users">, args: LogInput, admitted: ReadonlySet<string>) {
   {
     // Every record the activity is about must be one the caller sees; a hidden one reads as missing (CP14).
-    const judge = sightJudge(ctx, [await accessFor(ctx, user)], admitted);
+    const access = await accessFor(ctx, user);
+    const judge = sightJudge(ctx, [access], admitted);
+    if (args.targets.some((t) => !isStandardTarget(t.object) && !isCustomObjectName(t.object))) throw new ConvexError("Unsupported activity target");
     for (const t of args.targets.filter((t) => t.id)) {
       if (t.object === "account" || t.object === "contact") {
-        if (!judge.record(t.object, t.id)) throw new ConvexError(`${t.object === "account" ? "Company" : "Person"} not found`);
+        if (targetObjectOf(t.id) !== t.object || !judge.record(t.object, t.id)) throw new ConvexError(`${t.object === "account" ? "Company" : "Person"} not found`);
         continue;
       }
       // A deal or lead by its stream; an id that names no record is the edge command's to refuse.
       const streamId = ctx.db.normalizeId("canonEntities", t.id);
       const entity = streamId ? await ctx.db.get(streamId) : null;
+      if (isCustomObjectName(t.object)) {
+        if (entity?.orgId !== user.orgId || entity.entityType !== t.object || !may(access, t.object, "edit")) throw new ConvexError("Record not found or unavailable for editing");
+        const def = await loadOrgObject(ctx, user.orgId, t.object);
+        const row = await ctx.db.query("recordRows").withIndex("by_orgId_streamId", (q) => q.eq("orgId", user.orgId).eq("streamId", entity._id)).unique();
+        if (!def || def.archivedAt !== undefined || row?.lifecycle.status !== "active") throw new ConvexError("Record not found");
+      } else if (entity && (entity.orgId !== user.orgId || (t.object === "deal" ? "opportunity" : t.object) !== entity.entityType)) {
+        throw new ConvexError("Record not found");
+      }
       if (entity && entity.orgId === user.orgId && !(await judge.entity(entity))) throw new ConvexError("Record not found");
     }
     const targets = args.targets.filter((t) => t.id);
     // The first company, person and deal fill the lookups (the last assignment below is the first target).
     const lookups: Record<string, string> = {};
     for (const t of [...targets].reverse()) {
-      const lookup = lookupOf[t.object];
+      const lookup = isStandardTarget(t.object) && lookupOf[t.object];
       if (lookup) lookups[lookup] = t.id;
     }
     const result = await saveAsCaller(ctx, user, args.object, { op: "create", values: { ...args.values, ...lookups } }, { references: admitted });
@@ -203,7 +219,7 @@ function lowest(all: readonly ProjectedThrough[]): ProjectedThrough {
  * RELATED_MAX of each). Each lists the records it is about, so a page can say which one it was on.
  */
 export const forRecord = action({
-  args: { object: targetObject, id: v.string() },
+  args: { object: v.string(), id: v.string() },
   returns: v.object({ activities: v.array(activity), projectedThrough: v.record(v.string(), v.number()), moduleActivityUnavailable: v.optional(v.boolean()) }),
   handler: async (ctx, args): Promise<{ activities: Activity[]; projectedThrough: ProjectedThrough; moduleActivityUnavailable?: boolean }> =>
     activitiesForRecord(ctx, await requireCaller(ctx, { read: true }), args.object, args.id),
@@ -211,14 +227,22 @@ export const forRecord = action({
 
 /** forRecord's read, for a caller already resolved (a deal's play reads its deal's calls and meetings). */
 export async function activitiesForRecord(
-  ctx: ActionCtx, caller: Caller, object: TargetObject, id: string,
+  ctx: ActionCtx, caller: Caller, object: string, id: string,
 ): Promise<{ activities: Activity[]; projectedThrough: ProjectedThrough; moduleActivityUnavailable?: boolean }> {
   // Every activity, person and deal read as the caller sees them (CP14).
   const client = callerClient(ctx, caller);
   const orgId = caller.orgId as Id<"organizations">;
+  const standard = isStandardTarget(object);
+  const empty = { activities: [], projectedThrough: {} };
+  if ((!standard && !isCustomObjectName(object)) || !may(caller.access, object, "read")) return empty;
+  const targetRequest = { filter: [{ field: "id", op: "eq" as const, value: id }], limit: 1 };
+  const readTarget = (deleted: boolean) => object === "account" || object === "contact"
+    ? client.listRegister(caller.orgId, object, { ...targetRequest, deleted })
+    : client.listObjects(caller.orgId, object, { ...targetRequest, deleted });
+  if (!(await readTarget(false)).rows.length && !(await readTarget(true)).rows.length) return empty;
   const read = async () => {
     const on: Record<TargetObject, string[]> = { account: [], contact: [], deal: [], lead: [] };
-    on[object].push(id);
+    if (standard) on[object].push(id);
     if (object === "account") {
       const [inbound, primary, deals] = await Promise.all([
         ctx.runQuery(internal.associations.edges, { orgId, association: "contact_account", side: "to", id }),
@@ -233,7 +257,7 @@ export async function activitiesForRecord(
         const field = lookupOf[o];
         return field && on[o].length ? [linkedActivities(client, caller.orgId, { field, id: on[o] })] : [];
       })),
-      ctx.runQuery(internal.activityTargets.aboutRecords, { orgId, toIds: Object.values(on).flat(), limit: EDGE_ACTIVITIES_MAX }),
+      ctx.runQuery(internal.activityTargets.aboutRecords, { orgId, toIds: standard ? Object.values(on).flat() : [id], limit: EDGE_ACTIVITIES_MAX }),
     ]);
     const known = new Set(byLookup.flatMap((l) => l.activities.map((a) => a.id)));
     const byEdge = await linkedActivities(client, caller.orgId, { field: "id", id: edgeIds.filter((id) => !known.has(id)) });
@@ -263,7 +287,7 @@ export async function activitiesForRecord(
   let modules: ModuleActivityRow[] = [];
   let moduleActivityUnavailable = false;
   try {
-    modules = await readModuleActivities(ctx, client, caller.orgId, { targets: ledger.targets, since: null, limit: 1000 });
+    if (ledger.targets.length) modules = await readModuleActivities(ctx, client, caller.orgId, { targets: ledger.targets, since: null, limit: 1000 });
   } catch (error) {
     if (!(error instanceof ConvexError) || typeof error.data !== "object" || error.data === null || !("kind" in error.data) || error.data.kind !== "module_activity_limit") throw error;
     moduleActivityUnavailable = true;

@@ -19,6 +19,7 @@ import * as peopleResearch from "../convex/lib/plays/peopleResearch.ts";
 import * as drafts from "../convex/lib/plays/drafts.ts";
 import * as runs from "../convex/lib/plays/runs.ts";
 import * as pipelines from "../convex/lib/pipelines.ts";
+import * as dealStagePath from "../src/components/records/deal-stage-path.ts";
 
 const savedIcps = [
   { key: "revenue", name: "Revenue leaders", active: true, spec: { ...icps.emptySpec(), persona: { levels: [], departments: [], titles: ["VP Revenue"] } } },
@@ -70,6 +71,7 @@ test("the record's stage rail shows the deal's pipeline in order and marks open 
     "convex/react": { useQuery: () => configured },
     "../../../convex/_generated/api": { api: { pipelines: { list: "pipelines:list" } } },
     "../../../convex/lib/pipelines": pipelines,
+    "./deal-stage-path": dealStagePath,
     "./record-summary": recordSummary,
     "@/lib/utils": { cn: (...classes: string[]) => classes.join(" ") },
   };

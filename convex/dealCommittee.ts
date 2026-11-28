@@ -22,6 +22,7 @@ import { edgeStore, peopleOfCompany, rowsById } from "./associations";
 import { applyEdgeCommand, EDGES_PER_RECORD_MAX, seedDealRoles, type EdgeResult, type LegacyDealRole, type StoredDisagreement } from "./lib/objects/associations";
 import { DEAL_ROLES, type DealRole } from "./lib/objects/registry";
 import type { RecordClient } from "./lib/recordClient";
+import { PEOPLE_FILTER_DEAL_BATCH } from "./lib/peopleFilterClient";
 
 /** Rows one deal's legacy committee held (#225's cap). */
 const LEGACY_MAX = 50;
@@ -83,6 +84,21 @@ export const dealPeople = internalQuery({
     const deal = user ? await dealOfStream(ctx, args.orgId, args.streamId) : null;
     if (!user || !deal || !sees(args.access, deal)) return null;
     return { companyId: deal.companyId ?? null, canEdit: mayEdit(user, deal), members: await membersOf(ctx, args.orgId, deal, args.streamId) };
+  },
+});
+
+/** Match People against current membership of the same scoped opportunities that matched the record-service query. */
+export const filterMemberIds = internalQuery({
+  args: { orgId: v.id("organizations"), streams: v.array(v.string()), accesses: v.array(v.any()) },
+  returns: v.array(v.string()),
+  handler: async (ctx, { orgId, streams, accesses }) => {
+    if (streams.length > PEOPLE_FILTER_DEAL_BATCH || !accesses.length) throw new ConvexError("Invalid opportunity membership request");
+    const members = await Promise.all(streams.map(async (stream) => {
+      const deal = await dealOfStream(ctx, orgId, stream);
+      if (!deal || deal.archivedAt !== undefined || !accesses.every((a) => dealVisible(a as Access, deal))) return [];
+      return membersOf(ctx, orgId, deal, stream);
+    }));
+    return [...new Set(members.flat().map((member) => member.contactId))];
   },
 });
 
