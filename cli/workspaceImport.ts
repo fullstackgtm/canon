@@ -5,8 +5,10 @@
  * and writes nothing. The import refuses to start while the dry run finds any refusal, and Convex checks every page
  * again whatever this sends.
  *
- * Node built-ins only, plus the pure import rows module.
+ * Node built-ins and pure archive and object-policy modules.
  */
+import { unhideableFields, type ObjectRule } from "../convex/lib/access.ts";
+import { resolveOrgObject, type OrgObjectExtension } from "../convex/lib/objects/registry.ts";
 import { createHash } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { decodeRow, DEFERRED, IMPORT_TABLES, moduleOf, registerIdOf, SKIPPED, type RemapEnv, type Shape, type Unmapped } from "../convex/lib/workspaceArchive/importRows.ts";
@@ -168,6 +170,10 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
 
   const users = sectionLines(files, manifest, "users").map((l) => JSON.parse(l) as Record<string, string>);
   const sections = sectionsToImport(files, manifest, plan);
+  const definitions = new Map(sectionLines(files, manifest, "objectDefs").map((line) => {
+    const row = JSON.parse(line) as Record<string, unknown>;
+    return [String(row.apiName), row as unknown as OrgObjectExtension] as const;
+  }));
   const sim = new Map<string, string>([[manifest.workspace.id, plan.workspace.id]]);
   for (const u of users) sim.set(u._id, `user:${u._id}`);
   const referenced = new Set<string>();
@@ -213,6 +219,16 @@ export async function planImport(files: Map<string, Uint8Array>, plan: ImportPla
       if (IMPORT_TABLES[section].kind === "self") { delete raw.signupInvestigation; }
       const d = decodeRow(section, IMPORT_TABLES[section].kind === "self" ? { ...shape, fields: Object.fromEntries(Object.entries(shape.fields ?? {}).map(([k, f]) => [k, { ...f, optional: true }])) } : shape,
         section.startsWith("register.") ? { ...raw, _id: undefined } : raw, env, { deferSelf: !!plan.secondPass[section], scopeField: plan.scopeFields[section] ?? undefined });
+      if (section === "rolePermissions" && !d.unmapped.length) {
+        for (const rule of d.row.rules as ObjectRule[]) {
+          const def = resolveOrgObject(rule.object, definitions.get(rule.object));
+          const title = def?.byFieldId.get(def.titleFieldId)?.apiName;
+          const unhideable = new Set(unhideableFields(rule.object, title));
+          for (const field of rule.fields ?? []) if (field.level === "hidden" && unhideable.has(field.apiName)) {
+            refusals.push(`${field.apiName} names or matches ${rule.object} records, so it can be read-only but not hidden`);
+          }
+        }
+      }
       unmapped.push(...d.unmapped.filter((u) => !(typeof u.value === "string" && u.value.includes("\u0000"))));
       for (const [t, n] of Object.entries(d.cleared)) counts.cleared[t] = (counts.cleared[t] ?? 0) + n;
       foreign += d.foreign;

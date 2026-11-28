@@ -4,8 +4,11 @@ import type { ServiceJwtConfig } from './canonServiceJwt.ts';
 import { authBrokerClient, rateLimit, clientIp } from '../app/api/cli/_lib.ts';
 import { api } from '../../convex/_generated/api.js';
 import { visitHeaders } from './visitHeaders.ts';
+import { localHttp } from './visitHttp.ts';
 export type FormSubmit = { publicId: string; nonce: string; ipHash: string; userAgent: string; answers: Record<string, unknown>; params: Record<string, unknown> };
 export type FormDeps = { env: Record<string,string|undefined>; signer: ServiceJwtConfig | null; available(pid: string): Promise<boolean>; submit(args: FormSubmit): Promise<{status:number; message?:string; redirect?:string}>; limit(request:Request):boolean; now():number };
+/** Per-visitor limits need the ingress to name the client. Without that every visitor shares one bucket, so one script could lock every form: forms stay closed, except on the local HTTP stack. */
+export const formsReachable = (env: Record<string,string|undefined>) => !!env.CANON_CLIENT_IP_HEADER?.trim() || localHttp(env);
 const json = (body: unknown, status: number) => Response.json(body, { status, headers: visitHeaders() });
 const missing = () => json({ error: 'Form not found' }, 404);
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -31,7 +34,7 @@ function defaults(): FormDeps {
 }
 export async function handleFormSubmit(request: Request, deps: FormDeps = defaults()): Promise<Response> {
   try {
-    if (!deps.signer || !deps.env.NEXT_PUBLIC_SITE_URL || request.headers.get('origin') !== deps.env.NEXT_PUBLIC_SITE_URL || request.headers.get('content-type') !== 'application/json') return missing();
+    if (!deps.signer || !formsReachable(deps.env) || !deps.env.NEXT_PUBLIC_SITE_URL || request.headers.get('origin') !== deps.env.NEXT_PUBLIC_SITE_URL || request.headers.get('content-type') !== 'application/json') return missing();
     const reader = request.body?.getReader();
     if (!reader) return missing();
     const chunks: Uint8Array[] = []; let size = 0;

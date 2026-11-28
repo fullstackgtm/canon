@@ -280,7 +280,7 @@ export async function canonRead(ctx: QueryCtx, orgId: Id<"organizations">, acces
     for (const d of latest) {
       if (!d.isClosed || d.isWon !== args.won || d.archivedAt !== undefined || !dealVisible(access, d)) continue;
       if (out.length >= Math.min(limit, 15)) break;
-      const account = fields.includes("companyId") && !d.companyId && d.accountId ? await ctx.db.get(d.accountId) : null;
+      const account = readableCrmAccount(access, fields.includes("companyId") && !d.companyId && d.accountId ? await ctx.db.get(d.accountId) : null);
       const companyId = d.companyId ?? (account?.orgId === orgId && account.domain ? accountIdFor(account.domain) : null);
       out.push({ id: d._id as string, createdAt: d.createdAt, ...Object.fromEntries(fields.filter((f) => f !== "companyName").map((f) => [f, f === "companyId" ? companyId : DEAL_FIELDS[f](d, access)])) });
     }

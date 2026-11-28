@@ -4,6 +4,7 @@
  * the meeting on the people and company it was with and on their open deal,
  * as the rep whose note it is, so it shows on every one of their timelines.
  */
+import { callReader } from "./lib/modules/transcripts";
 import { NO_CREDENTIAL } from "./lib/sealed";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
@@ -65,8 +66,11 @@ export const status = query({
     const user = await getCurrentUser(ctx);
     const row = user && (await granolaIntegration(ctx, user.orgId));
     if (!user || !row?.isActive) return { connected: false as const };
-    const calls = await ctx.db.query("callRecordings").withIndex("by_orgId_provider", (q) => q.eq("orgId", user.orgId).eq("provider", "granola")).order("desc").take(RECENT_SCAN);
+    const imported = await ctx.db.query("callRecordings").withIndex("by_orgId_provider", (q) => q.eq("orgId", user.orgId).eq("provider", "granola")).order("desc").take(RECENT_SCAN);
     const access = await accessFor(ctx, user);
+    const reader = callReader(ctx, user.orgId, access);
+    const admitted = await Promise.all(imported.map((c) => reader.callSeen(c)));
+    const calls = imported.filter((_, i) => admitted[i]);
     // Newest meeting first: a backfill imports old meetings after new ones.
     const latest = calls
       .map((c) => ({ c, at: c.callDate ? Date.parse(c.callDate) : c.createdAt }))
@@ -124,8 +128,11 @@ export const meetings = query({
     const user = await getCurrentUser(ctx);
     if (!user) return [];
     // By meeting date, not import order: a backfill imports old meetings after new ones.
-    const calls = await ctx.db.query("callRecordings").withIndex("by_orgId_callDate", (q) => q.eq("orgId", user.orgId)).order("desc").filter((q) => q.eq(q.field("provider"), "granola")).take(MEETINGS_MAX);
+    const imported = await ctx.db.query("callRecordings").withIndex("by_orgId_callDate", (q) => q.eq("orgId", user.orgId)).order("desc").filter((q) => q.eq(q.field("provider"), "granola")).take(MEETINGS_MAX);
     const access = await accessFor(ctx, user);
+    const reader = callReader(ctx, user.orgId, access);
+    const admitted = await Promise.all(imported.map((c) => reader.callSeen(c)));
+    const calls = imported.filter((_, i) => admitted[i]);
     const deals = new Map<string, string | null>();
     const rows = await Promise.all(calls.map(async (c) => {
       if (c.dealId && !deals.has(c.dealId)) {

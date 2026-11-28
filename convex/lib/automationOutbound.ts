@@ -12,6 +12,7 @@ import type { MutationCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { enqueue, queueWorkspaceEmail } from "./outbound/queue";
 import { renderMessage } from "./automations";
+import { escapeSlack } from "./agents/slack";
 import type { ListRow } from "./objects/listSpec";
 import type { ResolvedObjectDef } from "./objects/registry";
 import type { LeafAction } from "../../modules/kernel/automation";
@@ -42,7 +43,7 @@ export async function sendStep(ctx: MutationCtx, c: Ctx, a: Outbound, to: Id<"us
     const name = a.channel.replace(/^#/, "").toLowerCase();
     const out = await enqueue(ctx, {
       orgId: c.rule.orgId, module: null, cause: causeOf(c), index: 0, channel: "slack", kind: "notice", from: "workspace", to: { slack: name }, target: `slack:${name}`, name,
-      rendered: { ok: true, rendered: { text: renderMessage(a.message, c.def, c.row) } }, fromUserId: c.actsAs,
+      rendered: { ok: true, rendered: { text: renderMessage(a.message, c.def, c.row, escapeSlack) } }, fromUserId: c.actsAs,
     });
     return { detail: outcome(out, `#${name}`, await reasonOf(ctx, out.id)) };
   }

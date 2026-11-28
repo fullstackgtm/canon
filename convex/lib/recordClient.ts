@@ -66,7 +66,7 @@ import { ACTIVITY_OBJECT } from "../../modules/kernel/reportLanguage.ts";
 import { findDuplicates, type DuplicateGroup, type DuplicateObject } from "./objects/duplicates.ts";
 
 export type RecordClient = {
-  checkReadFields?(object: string, fields: readonly string[]): void;
+  checkReadFields?(object: string, fields: readonly string[]): void | Promise<void>;
   mode: "http" | "fake";
   /** The service's contract version ("1.5.0"), or null when it can't be read. The fake implements the latest. */
   contractVersion(): Promise<string | null>;

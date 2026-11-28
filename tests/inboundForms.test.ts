@@ -75,7 +75,7 @@ const pair=generateKeyPairSync('rsa',{modulusLength:2048});
 const signer={issuer:'https://forms.example.test',kid:'test',privateKeyPem:pair.privateKey.export({format:'pem',type:'pkcs8'}).toString()};
 test('HTTP boundary refuses early tokens, foreign origins, unknown keys and oversized streams; honeypot writes nothing',async()=>{
   const now=Date.now(),publicId='abcdefghijklmnopqrstuv'; let writes=0;
-  const deps:FormDeps={env:{NEXT_PUBLIC_SITE_URL:'https://forms.example.test'},signer,available:async()=>true,limit:()=>true,now:()=>now,submit:async()=>{writes++;return {status:200};}};
+  const deps:FormDeps={env:{NEXT_PUBLIC_SITE_URL:'https://forms.example.test',CANON_CLIENT_IP_HEADER:'x-real-ip'},signer,available:async()=>true,limit:()=>true,now:()=>now,submit:async()=>{writes++;return {status:200};}};
   const body={publicId,token:renderFormToken(signer,publicId,now-4000),answers:{email:'a@example.test'},params:{},website:''};
   const req=(b:unknown,origin='https://forms.example.test')=>new Request('https://forms.example.test/api/forms/submit',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(b)});
   assert.equal((await handleFormSubmit(req({...body,website:'bot'}),deps)).status,200); assert.equal(writes,0);
@@ -83,6 +83,26 @@ test('HTTP boundary refuses early tokens, foreign origins, unknown keys and over
   for (const request of [req(body,'https://foreign.test'),req({...body,workspace:'other'}),req({...body,answers:{note:'x'.repeat(33000)}})]) assert.equal((await handleFormSubmit(request,deps)).status,404);
   assert.equal((await handleFormSubmit(req(body),deps)).status,200);assert.equal(writes,1);
   deps.available=async()=>false;assert.equal((await handleFormSubmit(req({...body,website:'bot'}),deps)).status,404);
+});
+test('forms stay closed where visitors cannot be told apart, except on the local HTTP stack',async()=>{
+  const now=Date.now(),publicId='abcdefghijklmnopqrstuv'; let writes=0;
+  const post=(site:string,env:Record<string,string>)=>handleFormSubmit(new Request(`${site}/api/forms/submit`,{method:'POST',headers:{origin:site,'content-type':'application/json'},body:JSON.stringify({publicId,token:renderFormToken(signer,publicId,now-4000),answers:{email:'a@example.test'},params:{}})}),
+    {env:{NEXT_PUBLIC_SITE_URL:site,...env},signer,available:async()=>true,limit:()=>true,now:()=>now,submit:async()=>{writes++;return {status:200};}});
+  // Without the ingress header every visitor shares one limit bucket, so one script could lock every form.
+  assert.equal((await post('https://forms.example.test',{})).status,404); assert.equal(writes,0);
+  assert.equal((await post('https://forms.example.test',{CANON_CLIENT_IP_HEADER:'x-real-ip'})).status,200);
+  assert.equal((await post('http://127.0.0.1:3000',{})).status,200);
+  assert.equal((await post('http://127.0.0.1:3000',{NODE_ENV:'production'})).status,404);
+});
+test('two submissions of one new email a moment apart create one lead',async()=>{
+  const {db,ctx,args}=fixture(); const none={by:'none',candidates:[]};
+  // Both were matched before either lead existed, as two tabs or a retry with a fresh token would be.
+  const a=await inbound.admit.handler(ctx,args); await inbound.commit.handler(ctx,{...args,version:a.version,match:none});
+  await inbound.commit.handler(ctx,{...args,nonce:'second',version:a.version,match:none});
+  assert.equal(db.rows('canonEntities').length,1);
+  assert.deepEqual(db.rows('moduleDocs').filter((r:any)=>r.collection==='submissions').map((r:any)=>[r.data.outcome,!!r.data.leadId]),[['received',true],['duplicate',false]]);
+  await inbound.commit.handler(ctx,{...args,nonce:'third',answers:{...args.answers,email:'other@example.test'},version:a.version,match:none});
+  assert.equal(db.rows('canonEntities').length,2);
 });
 
 
@@ -189,7 +209,7 @@ test('anonymous form responses reveal no email or company match outcome', async 
           method: 'POST', headers: { origin: 'https://forms.example.test', 'content-type': 'application/json' },
           body: JSON.stringify({ publicId: args.publicId, token: renderFormToken(signer, args.publicId, now - 4000), answers: args.answers, params: args.params, website: '' }),
         }), {
-          env: { NEXT_PUBLIC_SITE_URL: 'https://forms.example.test' }, signer, available, limit: () => true, now: () => now,
+          env: { NEXT_PUBLIC_SITE_URL: 'https://forms.example.test', CANON_CLIENT_IP_HEADER: 'x-real-ip' }, signer, available, limit: () => true, now: () => now,
           submit: async input => {
             const result = await actions.submit.handler(ctx, input);
             assert.deepEqual(JSON.parse(JSON.stringify(result)), { status: 200, ...success }, name);

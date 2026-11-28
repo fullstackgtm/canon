@@ -355,6 +355,11 @@ export function dealForCaller<D extends Record<string, unknown>>(access: Access,
   const out: Record<string, unknown> = { ...deal };
   for (const f of hidden) {
     if (f === "ownerId") for (const k of ["primaryRepId", "primaryRepName", "primaryRepEmail"]) delete out[k];
+    else if (f === "companyId") {
+      for (const k of ["companyId", "accountId", "link"]) delete out[k];
+      if ("company" in out) out.company = { kind: "none" };
+      for (const k of ["accountName", "accountDomain"]) if (k in out) out[k] = null;
+    }
     else delete out[f];
   }
   return out as D;

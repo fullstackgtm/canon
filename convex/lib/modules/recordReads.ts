@@ -110,7 +110,7 @@ const pick = (all: Record<string, unknown>, fields: readonly string[]) => Object
 
 export async function resolvePeopleRows(client: RecordClient, ws: string, addedTo: RecordReadPorts["addedTo"], query: { filter: ListFilter[]; related?: RelatedCondition[]; added?: AddedSource }, legacyAudience?: string): Promise<ListRow[]> {
   const over = () => refuse(`This audience has more than ${AUDIENCE_MAX.toLocaleString("en-US")} people. Narrow its filter.`);
-  relatedPorts(client, ws).check(query.related ?? []);
+  await relatedPorts(client, ws).check(query.related ?? []);
   const rows = await listAll((req) => client.listRegister(ws, "contact", req), query.filter, AUDIENCE_MAX, over);
   const matched = new Set(rows.map((r) => r.id));
   const additions = query.added ? await addedTo(query.added) : legacyAudience ? await addedTo(legacyAudience) : [];
