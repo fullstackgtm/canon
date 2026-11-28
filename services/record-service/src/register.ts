@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import type { DuckDBConnection } from "@duckdb/node-api";
 import { project, type FoldState } from "./core/objects/fold.ts";
 import type { ResolvedObjectDef } from "./core/objects/registry.ts";
+import { applyPrimaryAssociations } from "./associations.ts";
 import { REGISTER_COLUMNS } from "./core/objects/listSpec.ts";
 import { all, lit } from "./db.ts";
 import { accountIdFor, linkContactsByDomain, normDomain, refitAccountsOfContacts, refitSql, parseFua, writeChanges, writeHistory } from "./upsert.ts";
@@ -324,6 +325,7 @@ export async function writeBackRegister(
     written.set(st.streamId, id);
   }
   if (object === "contact") {
+    await applyPrimaryAssociations(c, [...written.values()], now);
     await linkContactsByDomain(c, now, { contactIds: [...written.values()] });
     await refitAccountsOfContacts(c, [...written.values()]);
   }
