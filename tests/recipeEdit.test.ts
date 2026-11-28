@@ -126,6 +126,7 @@ function cases(md: string, object: PageObject): Case[] {
     relatedRecord: { relationship: "dealCompany", fields: ["name"] },
     actionBar: { actions: [] },
     richText: { markdown: "New" },
+    activity: {},
   } satisfies Partial<Record<import("../recipes/blocks.ts").RecordBlock, import("../recipes/blocks.ts").RecordProps>>;
   for (const component of view.addable.filter((c) => c !== "fields")) for (const before of [null, page[0]]) {
     const added: Row = { component, title: "New", collapsed: false, when: null, actions: ["form", "board", "detail"].includes(component) ? [{ id: component, label: component === "form" ? "Create" : "Edit" }] : [] };
@@ -228,7 +229,7 @@ test("an edit that would break the recipe or leave its page is refused, and desc
     ["timeline", "Timeline", "logActivity", ""],
     ["history", "History", "", ""],
   ]);
-  assert.deepEqual(contact.addable, ["fields", "table", "list", "metric", "chart", "form", "board", "detail", "highlights", "path", "quickLinks", "relatedList", "fieldSection", "relatedRecord", "actionBar", "richText"]);
+  assert.deepEqual(contact.addable, ["fields", "table", "list", "metric", "chart", "form", "board", "detail", "highlights", "path", "quickLinks", "relatedList", "fieldSection", "relatedRecord", "actionBar", "richText", "activity"]);
   assert.deepEqual(layoutOf(RECIPES.velocity, "deal").sections.find((s) => s.component === "fanOut"), {
     ref: { component: "fanOut", nth: 0 }, component: "fanOut", title: "Get a reply", collapsed: false, when: { stage: ["in"] }, addable: [],
     actions: [

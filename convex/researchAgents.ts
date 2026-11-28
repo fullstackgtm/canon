@@ -35,7 +35,7 @@ import { getCurrentUser, requireCap, requireUser } from "./lib";
 import { filterValidator, type ContactScope, type RunScope } from "./lib/scopeValidators";
 import { proposedFactValidator, scheduleReapply, submitProposalBatch } from "./canonGate";
 import { registerCustomField } from "./canon";
-import { listedDef } from "./savedViews";
+import { listedDef, peopleFilterDefs } from "./savedViews";
 import { ID } from "./lib/canon/identity";
 import { dayColumnsOf, expandDayFilters } from "./lib/objects/views";
 import { actingAgent, ensureFieldAgent, fieldAgentView, ownerFactsOf, standing } from "./agents";
@@ -99,7 +99,7 @@ export async function resolveContactScope(ctx: QueryCtx, user: Doc<"users">, sco
   }
   const view = await ctx.db.get(scope.viewId);
   if (!view || view.orgId !== user.orgId || view.object !== "contact" || !(view.shared || view.createdBy === user._id)) throw new ConvexError("View not found");
-  return { filter: expandDayFilters(view.spec.filter, dayColumnsOf(await listedDef(ctx, user.orgId, "contact"))) };
+  return { filter: expandDayFilters(view.spec.filter, dayColumnsOf(await listedDef(ctx, user.orgId, "contact"), await peopleFilterDefs(ctx, user.orgId, view.spec.filter))) };
 }
 
 function specOf(a: Doc<"researchAgents">): AgentSpec {

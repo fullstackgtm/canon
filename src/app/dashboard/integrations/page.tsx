@@ -19,6 +19,9 @@ const OAUTH_ERRORS: Record<string, string> = {
   oauth_not_configured: "CRM OAuth is not configured",
   token_exchange_failed: "CRM token exchange failed",
   incomplete_token_response: "CRM returned an incomplete token response",
+  stripe_oauth_denied: "Stripe access was not approved",
+  stripe_invalid_state: "Stripe connection expired. Try connecting again.",
+  stripe_oauth_failed: "Stripe connection failed. Try again, or use a restricted key.",
 };
 
 /** OAuth and hosted-login returns land here: toast the result and select the integration it was for. */
@@ -32,12 +35,17 @@ function useReturnParams(select: (key: IntegrationKey) => void) {
       toast.success(`${connected === "hubspot" ? "HubSpot" : "Salesforce"} connected. Initial sync has started.`);
       select(connected);
     }
+    if (connected === "stripe") {
+      toast.success("Stripe connected. Import from Stripe to bring in contracts.");
+      select("stripe");
+    }
     if (error) {
       if (error === "hubspot_oauth_failed") toast.error(message || "HubSpot authorization failed");
       else if (error === "salesforce_oauth_failed") toast.error(message || "Salesforce authorization failed");
       else toast.error(OAUTH_ERRORS[error] ?? message ?? error);
       if (error.startsWith("hubspot")) select("hubspot");
       if (error.startsWith("salesforce")) select("salesforce");
+      if (error.startsWith("stripe")) select("stripe");
     }
     const gmail = searchParams.get("gmail");
     if (gmail === "connected") void toast.success("Mailbox linked. It shows here once Google or Microsoft confirms.");

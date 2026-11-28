@@ -132,7 +132,7 @@ function ValueInput({ filter, column, field, team, day, onChange }: {
 }
 
 /** The filter rows of a list view. Every change hands back the whole list. */
-export function FilterBar({ filters, columns, dayColumns, fields, team, canAdd, resetKey, onChange }: {
+export function FilterBar({ filters, columns, dayColumns, fields, fieldGroups, team, canAdd, resetKey, onChange }: {
   filters: ViewFilter[];
   /** Changes when the filters are replaced from outside (a saved view opened). */
   resetKey: number;
@@ -142,11 +142,16 @@ export function FilterBar({ filters, columns, dayColumns, fields, team, canAdd, 
   dayColumns: ReadonlySet<string>;
   columns: ReadonlyMap<string, ListColumn>;
   fields: readonly FieldDescription[];
+  fieldGroups?: ReadonlyMap<string, string>;
   team?: readonly TeamMember[];
   onChange: (next: ViewFilter[]) => void;
 }) {
   const labelOf = (name: string) => (name === "recordTitle" ? "Name" : name === "id" ? "Id" : fields.find((f) => f.apiName === name)?.label ?? name);
   const choices = [...columns.values()].filter((c) => c.field !== "id");
+  const fieldOptions = choices.map(({ field }) => {
+    const group = fieldGroups?.get(field);
+    return { value: field, label: group ? `${group} › ${labelOf(field)}` : labelOf(field), group };
+  });
   const [removals, setRemovals] = useState(0);
   const opsFor = (name: string, kind: ListColumn["kind"]): readonly FilterOp[] => {
     if (dayColumns.has(name)) return DAY_OPS;
@@ -171,7 +176,7 @@ export function FilterBar({ filters, columns, dayColumns, fields, team, canAdd, 
                 const col = columns.get(v)!;
                 set(i, { field: col.field, op: opsFor(col.field, col.kind)[0] });
               }}
-              options={choices.map((c) => ({ value: c.field, label: labelOf(c.field) }))}
+              options={fieldOptions}
             />
             <SelectField
               aria-label="Filter operator"

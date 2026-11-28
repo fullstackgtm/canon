@@ -68,6 +68,55 @@ async function requireManagerUser(ctx: any) {
   return user;
 }
 
+const STRIPE_INSTALL_URL = "https://marketplace.stripe.com/oauth/v2/authorize";
+const STRIPE_TOKEN_URL = "https://api.stripe.com/v1/oauth/token";
+const REFRESH_MARGIN_MS = 5 * 60 * 1000;
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new ConvexError(`${name} is not configured`);
+  return value;
+}
+
+/** Where Stripe sends the install back: this deployment's HTTP actions. */
+function callbackUrl(): string {
+  return `${requiredEnv("CONVEX_SITE_URL").replace(/\/$/, "")}/api/stripe/callback`;
+}
+
+type StripeTokenResponse = {
+  access_token: string;
+  refresh_token: string;
+  stripe_user_id?: string;
+  livemode?: boolean;
+  expires_in?: number;
+};
+
+/**
+ * POST /v1/oauth/token, authenticated with the app developer's key
+ * (STRIPE_APP_OAUTH_KEY: a Canon CRM account restricted key with Connect
+ * OAuth write). Status only on failure: the body can echo the grant.
+ */
+async function stripeToken(params: Record<string, string>): Promise<StripeTokenResponse> {
+  const response = await fetch(STRIPE_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${requiredEnv("STRIPE_APP_OAUTH_KEY")}:`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams(params).toString(),
+  });
+  if (!response.ok) {
+    await response.text().catch(() => undefined);
+    throw new ConvexError(`Stripe OAuth token request failed (HTTP ${response.status}).`);
+  }
+  return (await response.json()) as StripeTokenResponse;
+}
+
+/** Stripe App access tokens last one hour. */
+function expiresAt(token: StripeTokenResponse): number {
+  return Date.now() + (token.expires_in ?? 3600) * 1000;
+}
+
 async function stripeOptionsForOrg(
   ctx: any,
   orgId: Id<"organizations">,
@@ -78,9 +127,90 @@ async function stripeOptionsForOrg(
   if (!integration || !integration.isActive) {
     throw new ConvexError("No active Stripe integration. Connect Stripe first.");
   }
-  const apiKey = await decryptFromStorage(integration.accessToken);
+  let apiKey = await decryptFromStorage(integration.accessToken);
+  // An OAuth install expires hourly; a pasted key has no expiry.
+  if (integration.tokenExpiresAt && Date.now() > integration.tokenExpiresAt - REFRESH_MARGIN_MS) {
+    apiKey = await refreshAccessToken(ctx, orgId, integration);
+  }
   return { getApiKey: () => apiKey };
 }
+
+/**
+ * Refresh an OAuth install. Stripe rotates the refresh token on every
+ * exchange, so the new one is saved before the access token is used. Two
+ * refreshes racing: the loser's exchange fails on the already-rotated token,
+ * and it takes the winner's fresh access token instead.
+ */
+async function refreshAccessToken(ctx: any, orgId: Id<"organizations">, integration: any): Promise<string> {
+  try {
+    const token = await stripeToken({
+      grant_type: "refresh_token",
+      refresh_token: await decryptFromStorage(integration.refreshToken),
+    });
+    await ctx.runMutation(internal.stripe.storeOAuthTokens, {
+      orgId,
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token,
+      tokenExpiresAt: expiresAt(token),
+    });
+    return token.access_token;
+  } catch (error) {
+    // The winner may still be saving its tokens: wait for them, briefly.
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const latest = await ctx.runQuery(internal.stripe.getIntegration, { orgId });
+      if (latest?.isActive && latest.tokenExpiresAt && latest.tokenExpiresAt > Date.now() + REFRESH_MARGIN_MS) {
+        return decryptFromStorage(latest.accessToken);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new ConvexError(
+      error instanceof ConvexError
+        ? "Stripe access expired and could not be renewed. Connect Stripe again."
+        : "Stripe access could not be renewed.",
+    );
+  }
+}
+
+/**
+ * Start the click-through install: the Stripe App's install page, asking
+ * for its read-only permissions. STRIPE_APP_INSTALL_URL overrides the public
+ * link with an external-testing link while the app is unreviewed.
+ */
+export const getAuthUrl = action({
+  args: {},
+  handler: async (ctx): Promise<{ authUrl: string }> => {
+    const user = await requireManagerUser(ctx);
+    const state = Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, "0")).join("");
+    await ctx.runMutation(internal.stripe.createOAuthState, { state, orgId: user.orgId, userId: user._id });
+    const params = new URLSearchParams({
+      client_id: requiredEnv("STRIPE_APP_CLIENT_ID"),
+      redirect_uri: callbackUrl(),
+      state,
+    });
+    const base = process.env.STRIPE_APP_INSTALL_URL || STRIPE_INSTALL_URL;
+    return { authUrl: `${base}${base.includes("?") ? "&" : "?"}${params.toString()}` };
+  },
+});
+
+/** The install callback: consume the one-time state, exchange the code, save the tokens. */
+export const exchangeCodeInternal = internalAction({
+  args: { code: v.string(), state: v.string() },
+  handler: async (ctx, args): Promise<{ ok: true } | { error: string }> => {
+    const grant = await ctx.runMutation(internal.stripe.consumeOAuthState, { state: args.state });
+    if (!grant) return { error: "stripe_invalid_state" };
+    const token = await stripeToken({ grant_type: "authorization_code", code: args.code });
+    await ctx.runMutation(internal.stripe.storeOAuthTokens, {
+      orgId: grant.orgId,
+      userId: grant.userId,
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token,
+      tokenExpiresAt: expiresAt(token),
+      stripeAccountId: token.stripe_user_id,
+      livemode: token.livemode,
+    });
+    return { ok: true };
+  },
+});
 
 /**
  * Connect Stripe with a restricted (read-only) or secret key. Validates the

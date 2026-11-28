@@ -8,6 +8,7 @@ import { Download, Send } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ViewFilter } from "../../../modules/kernel/reportValidators";
+import { relatedPeopleField } from "../../../convex/lib/objects/peopleFilters";
 import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ type EditingAudience = { canEdit?: boolean; related?: RelatedCondition[]; _id: I
 /** The contacts list's outbound buttons: export what the filters match, save it as an audience, or save it back to the audience being edited. */
 export function ContactAudienceActions({ filter, viewId, audience, onDoneEditing }: { filter: ViewFilter[]; viewId?: Id<"savedViews">; audience: EditingAudience | null; onDoneEditing: () => void }) {
   const editing = audience?.canEdit === false ? null : audience;
+  const canSave = !filter.some((f) => relatedPeopleField(f.field));
   const exportCsv = useAction(api.audienceActions.exportViewCsv);
   const create = useMutation(api.audiences.create);
   const update = useMutation(api.audiences.update);
@@ -80,7 +82,7 @@ export function ContactAudienceActions({ filter, viewId, audience, onDoneEditing
           <button type="button" onClick={onDoneEditing} className="text-xs text-muted-foreground hover:text-foreground">Stop editing</button>
         </>
       )}
-      {editing ? null : name === null ? (
+      {editing || !canSave ? null : name === null ? (
         <button type="button" className={btn} onClick={() => setName("")}><Send className="h-3 w-3" /> Save as audience</button>
       ) : (
         <form

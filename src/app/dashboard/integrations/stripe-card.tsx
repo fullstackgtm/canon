@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { Download, KeyRound, Loader2, Unplug } from "lucide-react";
+import { Download, ExternalLink, KeyRound, Loader2, Unplug } from "lucide-react";
 import { api } from "../../../../convex/_generated/api";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";
@@ -23,6 +23,8 @@ function money(amount: number | undefined, currency: string | undefined): string
 export function StripeControls() {
   const status = useQuery(api.stripe.status);
   const connect = useAction(api.stripeActions.connect);
+  const getAuthUrl = useAction(api.stripeActions.getAuthUrl);
+  const [showKey, setShowKey] = useState(false);
   const importRevenue = useAction(api.stripeActions.importRevenue);
   const disconnect = useMutation(api.stripe.disconnect);
   const [key, setKey] = useState("");
@@ -40,6 +42,31 @@ export function StripeControls() {
   }
 
   if (status === undefined) return null;
+  if (!status.connected && status.oauthAvailable && !showKey) {
+    return (
+      <div data-testid="stripe-card" className="space-y-2">
+        <p className="text-sm text-muted-foreground">
+          Approve read-only access to customers, subscriptions, invoices and products in Stripe.
+        </p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              const { authUrl } = await getAuthUrl({});
+              window.location.assign(authUrl);
+            })
+          }
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ExternalLink className="h-4 w-4" />} Connect Stripe
+        </button>
+        <button type="button" onClick={() => setShowKey(true)} className="block text-xs text-muted-foreground underline">
+          Use a restricted key instead
+        </button>
+      </div>
+    );
+  }
   if (!status.connected) {
     return (
       <form
@@ -79,6 +106,10 @@ export function StripeControls() {
 
   return (
     <div data-testid="stripe-card" className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {status.method === "oauth" ? "Connected through the Canon CRM Stripe App" : "Connected with a restricted key"}
+        {status.account ? ` · ${status.account}` : ""}
+      </p>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"

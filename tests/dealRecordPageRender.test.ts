@@ -44,7 +44,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
         : q === "get" ? { object, title: "Example record", complete: true, lifecycle: { status }, values: {}, version: 1 }
         : q === "forOrg" ? { dealPage } : [],
     },
-    "../../../convex/_generated/api": { api: { objects: { describe: "describe", get: "get" }, recipes: { forOrg: "forOrg" }, workspaceRecipes: {}, users: {}, automations: {}, fieldClaims: {}, crmDisagreements: {} } },
+    "../../../convex/_generated/api": { api: { objects: { describe: "describe", get: "get" }, recipes: { forOrg: "forOrg" }, workspaceRecipes: {}, users: {}, automations: {}, fieldClaims: {}, crmDisagreements: {}, pipelines: { list: "pipelines:list" } } },
     "../../../recipes": recipes,
     "../../../recipes/blocks": { pageKind },
     "./record-summary": recordSummary,
@@ -64,6 +64,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     "./convert-lead": { ConvertLeadDialog: empty },
     "./deal-products": { DealProducts: empty },
     "./deal-pipeline-rail": { DealPipelineRail: empty },
+    "./deal-stage-path": { dealStagePath: () => ({ pipelineName: undefined, steps: [] }) },
     "./list-view": {},
     "./record-target": recordTarget,
     "./lookup-field": { useLookupTitles: empty },

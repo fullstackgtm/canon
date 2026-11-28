@@ -17,7 +17,7 @@ import { toast } from "@/lib/toast";
 import { api } from "../../../../convex/_generated/api";
 import { LoadingRows, StatusBadge } from "@/components/dashboard";
 import { cn } from "@/lib/utils";
-import { SelectField } from "@/components/ui/select";
+import { SearchableSelectField, SelectField } from "@/components/ui/select";
 import { fiscalMonth } from "../../../../modules/kernel/pacing";
 import { formatMoney, moneyDecimals } from "../../../../modules/kernel/text";
 
@@ -37,14 +37,30 @@ export const MONTHS = [
 ];
 
 const CURRENCIES = ["USD", "CAD", "EUR", "GBP", "AUD"];
+/** A labelled field: label text above its control, packed to the top so a neighbour's hint never pushes this control down. */
+const FIELD = "grid content-start gap-1.5 text-sm font-medium";
+/** A text input drawn like the select triggers beside it: same height, border, corners and padding. */
+const TEXT_FIELD = "h-8 w-full border border-border bg-background px-2.5 text-sm font-normal text-foreground outline-none transition-[border-color,box-shadow] hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50";
 /** Every IANA zone the browser knows, grouped by region (America, Europe, ...), with the saved one kept if it isn't listed. */
+/** What else a zone answers to in search: its raw IANA id and its long and short names ("Pacific Standard Time", "PST"). */
+function zoneKeywords(zone: string): string[] {
+  // January and July, so a zone answers to its standard and its daylight names (PST and PDT).
+  const names = [Date.UTC(2026, 0, 15), Date.UTC(2026, 6, 15)].flatMap((at) => (["long", "short"] as const).map((timeZoneName) => {
+    try {
+      return new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName }).formatToParts(at).find((p) => p.type === "timeZoneName")?.value;
+    } catch {
+      return undefined;
+    }
+  }));
+  return Array.from(new Set([zone, zone.replace(/_/g, " "), ...names.filter((n): n is string => !!n)]));
+}
 function timezoneOptions(current: string) {
   const zones: string[] = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
   const all = zones.includes(current) || !current ? zones : [current, ...zones];
   const region = (zone: string) => (zone.includes("/") ? zone.slice(0, zone.indexOf("/")) : "Other");
   return [...all]
     .sort((a, b) => region(a).localeCompare(region(b)) || a.localeCompare(b))
-    .map((zone) => ({ value: zone, label: zone.replace(/_/g, " ").replace(/\//g, " / "), group: region(zone) }));
+    .map((zone) => ({ value: zone, label: zone.replace(/_/g, " ").replace(/\//g, " / "), group: region(zone), keywords: zoneKeywords(zone) }));
 }
 const HIERARCHY_SOURCES = ["hubspot", "salesforce", "csv", "manual"] as const;
 const SYNC_SCHEDULES = ["daily", "weekly", "monthly"] as const;
@@ -166,27 +182,27 @@ export function WorkspaceForm() {
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <label className="grid gap-1.5 text-sm font-medium">
+            <label className={FIELD}>
               Organization name
               <input
                 value={name}
                 onChange={(event) => set("name")(event.target.value)}
                 disabled={!canEdit}
-                className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal disabled:cursor-not-allowed disabled:opacity-60"
+                className={TEXT_FIELD}
               />
             </label>
 
-            <label className="grid gap-1.5 text-sm font-medium">
+            <label className={FIELD}>
               Industry
               <input
                 value={industry}
                 onChange={(event) => set("industry")(event.target.value)}
                 disabled={!canEdit}
-                className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-normal disabled:cursor-not-allowed disabled:opacity-60"
+                className={TEXT_FIELD}
               />
             </label>
 
-            <label className="grid gap-1.5 text-sm font-medium">
+            <label className={FIELD}>
               Fiscal year starts
               <SelectField
                 size="default"
@@ -198,7 +214,7 @@ export function WorkspaceForm() {
               />
             </label>
 
-            <label className="grid gap-1.5 text-sm font-medium">
+            <label className={FIELD}>
               Currency
               <SelectField
                 size="default"
@@ -210,7 +226,7 @@ export function WorkspaceForm() {
               />
             </label>
 
-            <label className="grid gap-1.5 text-sm font-medium">
+            <label className={FIELD}>
               Currency decimal places
               <SelectField
                 size="default"
@@ -223,15 +239,18 @@ export function WorkspaceForm() {
               <span className="text-xs font-normal text-muted-foreground">Money shows as {formatMoney(123456789, defaultCurrency, currencyDecimals)}</span>
             </label>
 
-            <label className="grid gap-1.5 text-sm font-medium">
+            <label className={FIELD}>
               Timezone
-              <SelectField
+              <SearchableSelectField
                 size="default"
                 value={timezone}
                 onValueChange={set("timezone")}
                 disabled={!canEdit}
                 className="w-full font-normal"
                 options={timezones}
+                searchLabel="Search timezones"
+                searchPlaceholder="Search city, region or zone name…"
+                emptyText="No timezone matches."
               />
             </label>
           </div>
@@ -244,7 +263,7 @@ export function WorkspaceForm() {
           </div>
 
           <div className="mt-5 grid gap-4">
-            <label className="grid gap-1.5 text-sm font-medium">
+            <label className={FIELD}>
               Hierarchy source
               <SelectField
                 size="default"
@@ -256,7 +275,7 @@ export function WorkspaceForm() {
               />
             </label>
 
-            <label className="grid gap-1.5 text-sm font-medium">
+            <label className={FIELD}>
               Default sync cadence
               <SelectField
                 size="default"

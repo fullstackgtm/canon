@@ -4,7 +4,7 @@ import { createElement, useEffect, useId, useState, type ReactNode } from "react
 import { useConvex, useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "../../../convex/_generated/api";
-import { stageOf, stageOutcome } from "../../../convex/lib/pipelines";
+import { dealStagePath } from "./deal-stage-path";
 import { offered, type PageAction } from "../../../recipes/actions";
 import type { Context } from "../../../recipes/conditions";
 import { pageKind } from "../../../recipes/blocks";
@@ -18,6 +18,7 @@ import { splitRecordActions } from "../../../recipes/recordActionBar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { RecordSummary } from "./record-summary";
 import { RecordText } from "./record-text";
+import { RecordActivity } from "./record-activity";
 import { recordHref } from "./record-target";
 import { SelectField } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -204,26 +205,28 @@ function RecordPath({ section, data, context, save }: { section: SectionOf<"path
   const value = field ? data.values[field.fieldId] : undefined;
   const pipelineStage = data.object === "deal" && field?.apiName === "stage";
   const pipelines = useQuery(api.pipelines.list, pipelineStage ? {} : "skip");
-  const current = pipelineStage && typeof value === "string" && pipelines ? stageOf(pipelines, value) : null;
-  const pipeline = current?.pipeline ?? pipelines?.find((p) => p.isDefault);
-  const options = pipelineStage ? pipeline?.stages ?? [] : field && "options" in field ? field.options : [];
-  const lost = current?.stage.forecastCategory === "closed_lost";
-  const steps = options.filter((option) => option.active || option.value === value);
-  const index = steps.findIndex((step) => step.value === value);
+  const options = field && "options" in field ? field.options : [];
+  const picklistSteps = options.filter((option) => option.active || option.value === value);
+  const index = picklistSteps.findIndex((step) => step.value === value);
+  const steps = pipelineStage
+    ? pipelines ? dealStagePath(pipelines, typeof value === "string" ? value : undefined).steps : []
+    : picklistSteps.map((step, i) => ({ ...step, selected: i === index, passed: i < index, lost: false, note: undefined }));
+  const choices = steps.filter((step) => step.active && step.value !== value);
   const [offer] = offered(section.actions?.length ? section.actions : [{ id: "changeStage", label: "Change stage", runs: "kernel.editField" }],
     "path", ["kernel.editField"], context, {}, pageKind(data.object));
-  const disabled = saving || !save || !offer || offer.disabled || !canChangeRecordPath(context.canEdit === true, field?.apiName, data.desc.readOnlyFields, steps.some((step) => step.active && step.value !== value));
+  const disabled = saving || !save || !offer || offer.disabled || !canChangeRecordPath(context.canEdit === true, field?.apiName, data.desc.readOnlyFields, choices.length > 0);
   const rail = <>
     {steps.length ? <ol aria-label={field?.label} className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-x-2 gap-y-3">
-      {steps.map((step, i) => <li key={step.value} aria-current={i === index ? "step" : undefined} className="min-w-0 record-step [overflow-wrap:anywhere]">
-        <span aria-hidden className={cn("mb-1.5 block h-1 rounded-full", i === index ? "bg-primary" : i < index && !lost && (!("forecastCategory" in step) || !stageOutcome(step).isClosed) ? "bg-primary/40" : "bg-muted")} />{step.label}
+      {steps.map((step) => <li key={step.value} aria-current={step.selected ? "step" : undefined} className="min-w-0 record-step [overflow-wrap:anywhere]">
+        <span aria-hidden className={cn("mb-1.5 block h-1 rounded-full", step.lost ? "bg-destructive" : step.selected ? "bg-primary" : step.passed ? "bg-primary/40" : "bg-muted")} />{step.label}
+        {step.note && <span className="record-meta block text-muted-foreground">{step.note}</span>}
       </li>)}
     </ol> : <p className="record-value text-muted-foreground">No picklist stages available.</p>}
     {section.props.change && offer && <SelectField aria-label={offer.label} disabled={disabled} value="" className="mt-3 w-fit" onValueChange={async (next) => {
-      if (disabled || !save || !field || !steps.some((step) => step.active && step.value === next && step.value !== value)) return;
+      if (disabled || !save || !field || !choices.some((step) => step.value === next)) return;
       setSaving(true);
       try { await save(field, next, data.version); } finally { setSaving(false); }
-    }} options={[{ value: "", label: offer.label }, ...steps.filter((step) => step.active && step.value !== value).map(({ value, label }) => ({ value, label }))]} />}
+    }} options={[{ value: "", label: offer.label }, ...choices.map(({ value, label }) => ({ value, label }))]} />}
   </>;
   return section.collapsed
     ? <details className="record-panel record-panel-pad"><RecordSummary className="mb-3">{section.title}</RecordSummary>{rail}</details>
@@ -402,6 +405,15 @@ export function useRecordBlockRenderers({ data, page, context, save, actions }: 
     richText: (section: SectionOf<"richText">) => data && fold(section.title, section.collapsed, <section aria-label={section.title} className="record-panel record-field-grid grid record-panel-pad">
       <h2 className="record-block-heading record-section-title">{section.title}</h2><RecordText markdown={section.props.markdown} />
     </section>),
+    activity: (section: SectionOf<"activity">) => {
+      if (!data) return null;
+      const emailField = data.object === "contact" && data.desc.fields.find((field) => field.apiName === "email" && !field.hidden);
+      const email = emailField ? data.values[emailField.fieldId] : undefined;
+      const draftKey = `record-activity:${data.object}:${data.id}:${page.indexOf(section)}`;
+      return fold(section.title, section.collapsed, <RecordActivity key={`${draftKey}:${JSON.stringify(section.props)}:${data.companyId ?? ""}`} draftKey={draftKey}
+        object={data.object} id={data.id} companyId={data.companyId} email={typeof email === "string" && email.includes("@") ? email : undefined}
+        team={data.team} section={section} context={context} />);
+    },
     relatedList: (section: SectionOf<"relatedList">) => {
       if (!data) return null;
       const relation = relations?.find((r) => r.id === section.props.relationship);

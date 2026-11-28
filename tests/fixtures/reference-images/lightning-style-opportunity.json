@@ -1,0 +1,7 @@
+{
+  "blocks": ["highlights", "actionBar", "path", "quickLinks", "fieldSection", "relatedRecord", "relatedList", "activity"],
+  "topStrip": ["highlights", "actionBar", "path", "quickLinks"],
+  "columns": {"widths": [2, 1], "left": ["fieldSection"], "right": ["relatedRecord", "relatedList"]},
+  "activityTabs": {"details": "fieldSection", "activity": "activity"},
+  "style": {"density": "compact", "surface": "bordered", "headerBand": "tinted", "accentHue": "blue"}
+}

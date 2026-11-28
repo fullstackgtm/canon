@@ -6,11 +6,12 @@
  * Pure: no database access, no Node-only imports. The UI and tests share it.
  */
 import { shardOf } from "./write.ts";
-import { compileListRequest, ListRequestError, listColumns, type ListFilter, type ListSort, type ProjectedThrough, type Scalar } from "./listSpec.ts";
+import { ListRequestError, listColumns, type ListFilter, type ListSort, type ProjectedThrough, type Scalar } from "./listSpec.ts";
 import { bucketEnd, groupKeyKind, type AggregateRequest, type AggregateResponse } from "./reportSpec.ts";
 import { REPORT_BUCKETS, type ReportBucket } from "../../../modules/kernel/reportLanguage.ts";
 import type { ResolvedObjectDef } from "./registry.ts";
 import { calendarKind, daysFilter } from "./calendar.ts";
+import { PEOPLE_FILTER_RELATIONS, validateViewListRequest, type PeopleFilterDefs } from "./peopleFilters.ts";
 
 export const VIEW_COLUMNS_MAX = 40;
 
@@ -136,11 +137,11 @@ export function groupFilter(def: ResolvedObjectDef, group: ViewGroup, key: Scala
  * `displayColumns` are columns the list shows without sending them to the record query (contact AI
  * fields): a view may name them, but may not filter or sort by them.
  */
-export function viewSpecProblem(def: ResolvedObjectDef, spec: ViewSpecShape, displayColumns: ReadonlySet<string> = new Set()): string | null {
+export function viewSpecProblem(def: ResolvedObjectDef, spec: ViewSpecShape, displayColumns: ReadonlySet<string> = new Set(), related: PeopleFilterDefs = {}): string | null {
   const group = viewGroupOf(spec);
   try {
     // Validated with UTC days; any time zone gives the same shape. A group's rows add its own predicate, two for a date.
-    const filter = expandDayFilters(spec.filter, dayColumnsOf(def), (y, m, d) => Date.UTC(y, m - 1, d));
+    const filter = expandDayFilters(spec.filter, dayColumnsOf(def, related), (y, m, d) => Date.UTC(y, m - 1, d));
     const kind = group ? groupKeyKind(def, group.field) : null;
     if (group && !kind) return `${group.field} cannot be grouped by`;
     if (group?.bucket !== undefined && kind === "value") return `${group.field} is not a date`;
@@ -149,7 +150,7 @@ export function viewSpecProblem(def: ResolvedObjectDef, spec: ViewSpecShape, dis
     // A calendar reads its month as two more filters on its field, in place of a group's.
     const own = spec.layout === "calendar" ? daysFilter(spec.calendar!.field, calendarKind(def, spec.calendar!.field)!, "2000-01-01", "2000-02-01", "UTC")
       : group ? groupFilter(def, group, kind === "value" ? null : "2000-01-01") : [];
-    compileListRequest(def, { filter: [...filter, ...own], ...(spec.sort ? { sort: spec.sort } : {}) });
+    validateViewListRequest(def, { filter: [...filter, ...own], ...(spec.sort ? { sort: spec.sort } : {}) }, related);
   } catch (e) {
     if (e instanceof ListRequestError) return e.message;
     throw e;
@@ -264,9 +265,15 @@ const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
  * createdAt, updatedAt and datetime fields. Their filters hold a
  * `YYYY-MM-DD` day, so a shared view means the same days for every viewer.
  */
-export function dayColumnsOf(def: ResolvedObjectDef): Set<string> {
+export function dayColumnsOf(def: ResolvedObjectDef, related: PeopleFilterDefs = {}): Set<string> {
   const out = new Set(["createdAt", "updatedAt"]);
   for (const f of def.fields) if (f.type === "datetime" && !f.system) out.add(f.apiName);
+  if (def.apiName === "contact") {
+    for (const { prefix, object } of PEOPLE_FILTER_RELATIONS) {
+      const target = related[object];
+      if (target) for (const field of dayColumnsOf(target)) out.add(`${prefix}.${field}`);
+    }
+  }
   return out;
 }
 

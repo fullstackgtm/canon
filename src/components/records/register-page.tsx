@@ -244,7 +244,8 @@ function partyHeaderControls(p: Page, actions: readonly PageAction[], host: "hea
 
 function usePartyRecordBlocks(p: Page) {
   return useRecordBlockRenderers({
-    data: { object: p.object, id: p.id, desc: p.desc, title: p.row.title, values: p.row.values, version: p.row.version, team: p.team },
+    data: { object: p.object, id: p.id, desc: p.desc, title: p.row.title, values: p.row.values, version: p.row.version, team: p.team,
+      companyId: p.object === "contact" ? p.row.accountId || undefined : undefined },
     page: p.page, context: p.ctx,
     actions: (actions, host, control) => partyHeaderControls(p, actions, host, control?.menu),
   });
