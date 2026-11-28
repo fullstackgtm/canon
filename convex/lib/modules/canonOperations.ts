@@ -1,4 +1,4 @@
-import { publishForm } from "./intake";
+import { publishForm, resolveSubmission } from "./intake";
 import type { Sealed } from "../sealed";
 import { ConvexError } from "convex/values";
 import { z } from "zod";
@@ -60,6 +60,7 @@ const researchStart = (ctx: MutationCtx) => z.strictObject({
 });
 
 const operations = {
+  "submissions.resolve": operation(() => z.strictObject({ key: z.string().min(1).max(200), expect: z.number().int().positive(), action: z.enum(["link", "create", "dismiss"]), candidateId: z.string().min(1).max(200).optional() }), resolveSubmission),
   "forms.publish": operation(() => z.strictObject({ formKey: z.string().min(1).max(200) }), publishForm),
   "research.start": operation(researchStart, startResearchRun),
   "research.probe": operation(researchStart, probeResearchRun),

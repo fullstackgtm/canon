@@ -3,7 +3,7 @@ import { coreOf } from "./schema.ts";
 
 /** Canon owns these operations and their validation, independently of a module's call declaration. */
 export const CANON_OPERATIONS = [
-  "population.start", "forms.publish",
+  "population.start", "forms.publish", "submissions.resolve",
   "runs.stopJob",
   "research.start", "research.probe", "research.stop", "research.autoAccept", "research.refresh",
   "agents.create", "agents.archive", "agents.setRouting", "agents.setCrmTrigger", "agents.setSlack",
@@ -18,6 +18,7 @@ export const isCanonOperation = (name: string): name is CanonOperation =>
 
 /** The first atomic Canon binding supports only a free population's direct job id. */
 export function canonCallProblems(m: ModuleManifest, name: string, call: CallDecl): string[] {
+  if (call.canon?.operation === "submissions.resolve") return m.id !== "@canon/inbound" || call.canon.then ? ["submissions.resolve requires Inbound and no then binding"] : [];
   const then = call.canon?.then;
   if (!then) return call.canon?.operation === "forms.publish" ? ["forms.publish requires an atomic form binding"] : [];
   const at = `calls.${name}.canon.then`, errors: string[] = [];

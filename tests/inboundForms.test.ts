@@ -12,15 +12,16 @@ import { isPersonFact } from '../convex/lib/canon/personHold.ts';
 const manifest = JSON.parse(readFileSync('modules/examples/inbound/module.json','utf8'));
 let agent: string | null = null;
 let demo = true;
+const currentUser = 'publisher';
 const graph = loadConvex(['inboundForms.ts','modules.ts','objects.ts'], {
-  'lib.ts': real => ({...real, isDevAuthBypassEnabled:()=>demo, getCurrentUser:async (ctx:any)=>ctx.db.get("publisher"), requireUser:async (ctx:any)=>ctx.db.get("publisher"), agentClientOf:async()=>agent}),
+  'lib.ts': real => ({...real, isDevAuthBypassEnabled:()=>demo, getCurrentUser:async (ctx:any)=>ctx.db.get(currentUser), requireUser:async (ctx:any)=>ctx.db.get(currentUser), agentClientOf:async()=>agent}),
 });
 const inbound = graph['inboundForms.ts'];
 function fixture() {
   const publicId='abcdefghijklmnopqrstuv';
   const db=memoryDb({
     organizations:[{_id:'org-a',name:'A'},{_id:'org-b',name:'B'}],
-    users:[{_id:'publisher',orgId:'org-a',role:'admin',isActive:true,name:'Publisher'}],
+    users:[{_id:'publisher',orgId:'org-a',clerkUserId:'user_publisher',role:'admin',isActive:true,name:'Publisher'}],
     orgMemberships:[{_id:'membership',orgId:'org-a',userId:'publisher',role:'admin',isActive:true}],
     modulePackages:[{_id:'package',orgId:'org-a',moduleId:manifest.id,slug:'inbound',status:'installed',epoch:1,version:manifest.version,manifest:JSON.stringify(manifest),manifestHash:'hash',source:{kind:'canon',id:'inbound',ref:'0.1.0',sha:'abc'}}],
     recipeEnablements:[{_id:'enabled',orgId:'org-a',point:'module',contributionKey:'nav',recipeId:manifest.id,enabled:true}],
@@ -185,12 +186,12 @@ test('anonymous form responses reveal no email or company match outcome', async 
   const previous = process.env.CANON_SERVICE_JWT_ISSUER;
   process.env.CANON_SERVICE_JWT_ISSUER = 'https://broker.test';
   try {
-    for (const redirect of [undefined, 'https://forms.example.test/thanks']) {
+    for (const routeToAccountOwner of [false, true]) for (const redirect of [undefined, 'https://forms.example.test/thanks']) {
       for (const [name, match] of cases) {
         matching = match;
         const { db, ctx, args } = fixture();
         const row: any = await db.get('form');
-        await db.patch('form', { data: { ...row.data, message: 'Received', ...(redirect ? { redirect } : {}) } });
+        await db.patch('form', { data: { ...row.data, routeToAccountOwner, message: 'Received', ...(redirect ? { redirect } : {}) } });
         ctx.auth.getUserIdentity = async () => ({ issuer: 'https://broker.test', subject: 'auth_broker_server' });
         ctx.runMutation = async (ref: unknown, input: unknown) => {
           if (String(ref) === 'internal.inboundForms.admit') return inbound.admit.handler(ctx, input);
@@ -230,4 +231,214 @@ test('anonymous form responses reveal no email or company match outcome', async 
     if (previous === undefined) delete process.env.CANON_SERVICE_JWT_ISSUER;
     else process.env.CANON_SERVICE_JWT_ISSUER = previous;
   }
+});
+
+const submissionRow = (db: ReturnType<typeof memoryDb>) => db.rows('moduleDocs').find((r:any)=>r.collection==='submissions') as any;
+async function reviewFixture() {
+  const f=fixture();
+  await inbound.commit.handler(f.ctx,{...f.args,version:2,match:{by:'ambiguous',candidates:[{object:'person',id:'candidate',reason:'email',ownerId:'publisher',futureOwnerInfo:'ignored'}]}});
+  return {...f,row:submissionRow(f.db)};
+}
+async function resolve(ctx:any,row:any,action='dismiss',candidateId?:string, handlers=graph['modules.ts']) {
+  const input={module:'inbound',call:'resolve',args:{key:row.key,expect:row.version,action,...(candidateId?{candidateId}:{})}};
+  const authorization=await handlers.callDispatch.handler(ctx,input);
+  return handlers.executeCanonCall.handler(ctx,{...input,authorization});
+}
+async function asManager(db:any,rules:unknown[]=[]) {
+  await db.patch('publisher',{role:'manager'});await db.patch('membership',{role:'manager'});
+  await db.insert('rolePermissions',{orgId:'org-a',role:'manager',rules});
+}
+
+test('reps read only assigned submissions and never review rows',async()=>{
+  const {db,ctx,row}=await reviewFixture();
+  await db.patch('publisher',{role:'rep'});await db.patch('membership',{role:'rep'});
+  const views=graph['modules.ts'];
+  const result=await views.view.handler(ctx,{module:'inbound',view:'submissions.all',args:{}});
+  assert.equal(result.length,0);
+  assert.equal(await views.view.handler(ctx,{module:'inbound',view:'submissions.one',args:{key:row.key}}),null);
+  await db.patch(row._id,{ownerUserId:'publisher',data:{...row.data,assignee:'publisher',outcome:'received'}});
+  assert.equal((await views.view.handler(ctx,{module:'inbound',view:'submissions.all',args:{}})).length,1);
+  assert.ok(await views.view.handler(ctx,{module:'inbound',view:'submissions.one',args:{key:row.key}}));
+  assert.equal((await views.view.handler(ctx,{module:'inbound',view:'submissions.review',args:{}})).length,0);
+});
+test('other roles cannot read submissions',async()=>{
+  assert.ok(!manifest.pages.find((p:any)=>p.path==='review').roles.includes('other'));
+  const {db,ctx}=await reviewFixture();await db.patch('publisher',{role:'other'});await db.patch('membership',{role:'other'});
+  assert.equal((await graph['modules.ts'].view.handler(ctx,{module:'inbound',view:'submissions.all',args:{}})).length,0);
+});
+
+test('rep and agent resolution are refused',async()=>{
+  const {db,ctx,row}=await reviewFixture();await db.patch('publisher',{role:'rep'});await db.patch('membership',{role:'rep'});
+  await assert.rejects(resolve(ctx,row));
+  await db.patch('publisher',{role:'admin'});await db.patch('membership',{role:'admin'});agent='test-agent';
+  try {await assert.rejects(resolve(ctx,row));} finally {agent=null;}
+  assert.equal(((await db.get(row._id))!.data as any).outcome,'needs_review');
+});
+test('hidden lead candidates are refused to managers',async()=>{
+  const {db,ctx,row,args}=await reviewFixture();
+  await inbound.commit.handler(ctx,{...args,nonce:'seed-lead',version:2,match:{by:'none',candidates:[]}});
+  const hidden=String(db.rows('canonEntities')[0]._id);
+  await asManager(db,[{object:'lead',read:false}]);
+  await db.patch(row._id,{data:{...row.data,candidates:[{object:'lead',id:hidden,reason:'email'}]}});
+  await assert.rejects(resolve(ctx,row,'link',hidden));assert.equal(db.rows('canonEntities').length,1);
+});
+test('resolution refuses candidates outside the stored set',async()=>{
+  const {ctx,row}=await reviewFixture();await assert.rejects(resolve(ctx,row,'link','foreign'));
+});
+test('manager without lead create permission cannot create',async()=>{
+  const {db,ctx,row}=await reviewFixture();await asManager(db,[{object:'lead',create:false}]);
+  await assert.rejects(resolve(ctx,row,'create'));assert.equal(((await db.get(row._id))!.data as any).outcome,'needs_review');
+});
+test('resolution refuses a View as preview without changing the submission or creating a lead',async()=>{
+  const actual=loadConvex(['modules.ts','lib.ts']);
+  const requireActual=actual['lib.ts'].requireUser as unknown as (ctx:any)=>Promise<unknown>;
+  const previous=process.env.CANON_AUTH;process.env.CANON_AUTH='local';
+  try {
+    const {db,ctx,row}=await reviewFixture();
+    ctx.auth.getUserIdentity=async()=>({issuer:'https://clerk.test',subject:'user_publisher',tokenIdentifier:'https://clerk.test|user_publisher'});
+    await db.insert('users',{_id:'rep',orgId:'org-a',role:'rep',isActive:true});
+    await db.insert('accessPreviews',{orgId:'org-a',userId:'publisher',asUserId:'rep',expiresAt:Date.now()+60000});
+    const before=JSON.stringify(db.rows('moduleDocs'));
+    await assert.rejects(requireActual(ctx),/viewing as/i);
+    await assert.rejects(resolve(ctx,row,'create',undefined,actual['modules.ts']),/viewing as/i);
+    assert.equal(JSON.stringify(db.rows('moduleDocs')),before);
+    assert.equal(((await db.get(row._id))!.data as any).outcome,'needs_review');
+    assert.equal(db.rows('canonEntities').length,0);
+  } finally {if(previous===undefined)delete process.env.CANON_AUTH;else process.env.CANON_AUTH=previous;}
+});
+test('foreign workspace, fake and disabled packages refuse resolution',async()=>{
+  for(const mode of ['foreign','fake','disabled']) {
+    const {db,ctx,row}=await reviewFixture();
+    if(mode==='foreign')await db.patch('publisher',{orgId:'org-b'});
+    if(mode==='fake')await db.patch('package',{source:{kind:'canon',id:'fake'}});
+    if(mode==='disabled')await db.patch('enabled',{enabled:false});
+    await assert.rejects(resolve(ctx,row));
+  }
+});
+test('unknown candidate ownership refuses narrowed resolvers',async()=>{
+  const {db,ctx,row}=await reviewFixture();await asManager(db,[{object:'contact',visibility:'own',unowned:false}]);
+  await db.patch(row._id,{data:{...row.data,candidates:[{object:'person',id:'candidate',reason:'email'}]}});
+  await assert.rejects(resolve(ctx,row,'link','candidate'));
+});
+test('own-only resolvers link only to their own person candidate',async()=>{
+  for(const ownerId of ['someone-else','publisher']) {
+    const {db,ctx,row}=await reviewFixture();await asManager(db,[{object:'contact',visibility:'own',unowned:false}]);
+    await db.patch(row._id,{data:{...row.data,candidates:[{object:'person',id:'candidate',reason:'email',ownerId}]}});
+    if(ownerId==='publisher'){await resolve(ctx,row,'link','candidate');assert.equal(((await db.get(row._id))!.data as any).outcome,'linked');}
+    else await assert.rejects(resolve(ctx,row,'link','candidate'));
+  }
+});
+
+test('ambiguous submissions retain candidates and send one notice per admin and manager',async()=>{
+  const {db,ctx,row}=await reviewFixture();
+  assert.equal(row.data.candidates[0].id,'candidate');
+  assert.equal(db.rows('notifications').length,1);
+  await db.insert('orgRoles',{orgId:'org-a',key:'custom-manager',base:'manager',name:'Manager',capabilities:[]});
+  await db.insert('users',{_id:'manager',orgId:'org-a',role:'custom-manager',isActive:true,name:'Manager'});
+  await inbound.commit.handler(ctx,{...fixture().args,nonce:'second-review',version:2,match:{by:'ambiguous',candidates:[]}});
+  assert.deepEqual(db.rows('notifications').map((n:any)=>n.userId).sort(),['manager','publisher']);
+});
+test('Link records resolution metadata and notifies the assignee',async()=>{
+  for(const object of ['person','lead']) {
+    const {db,ctx,row}=await reviewFixture();let candidateId='candidate';
+    if(object==='lead') {
+      const save=graph['objects.ts'].saveAsCaller as unknown as (...args:any[])=>Promise<any>;
+      const saved=await save(ctx,await db.get('publisher'),'lead',{op:'create',values:{lastName:'Known',email:'known@example.test',ownerId:'publisher'}});
+      candidateId=saved.streamId;
+      await db.patch(row._id,{data:{...row.data,candidates:[{object,id:candidateId,reason:'email'}]}});
+    }
+    await resolve(ctx,row,'link',candidateId);
+    const resolved:any=(await db.get(row._id))!;
+    assert.equal(resolved.data.outcome,'linked');assert.equal(resolved.data[object==='person'?'personId':'leadId'],candidateId);assert.equal(resolved.data.assignee,'publisher');
+    assert.equal(resolved.data.resolvedBy,'publisher');assert.equal(typeof resolved.data.resolvedAt,'number');
+    assert.equal(db.rows('notifications').length,2);
+  }
+});
+test('Create with a company candidate uses intake values and creates exactly one lead',async()=>{
+  const {db,ctx,row}=await reviewFixture();
+  await db.patch(row._id,{data:{...row.data,candidates:[{object:'company',id:'company',reason:'domain',ownerId:'publisher'}]}});
+  await resolve(ctx,row,'create','company');
+  assert.equal(db.rows('canonEntities').length,1);
+  const resolved:any=(await db.get(row._id))!;assert.equal(resolved.data.companyId,'company');assert.equal(resolved.data.outcome,'received');
+  const hot:any=db.rows('recordRows')[0];assert.equal(hot.values.email,'new@example.test');assert.equal(hot.values.lastName,'new@example.test');
+  assert.ok(JSON.stringify(db.rows('ledgerEntries')).includes('intake:@canon/inbound:contact:user:publisher'));
+});
+test('Dismiss keeps the submission and creates no record',async()=>{
+  const {db,ctx,row}=await reviewFixture();await resolve(ctx,row);
+  assert.equal(((await db.get(row._id))!.data as any).outcome,'dismissed');assert.equal(db.rows('canonEntities').length,0);
+});
+test('resolution compares versions and accepts only needs-review submissions',async()=>{
+  const {db,ctx,row}=await reviewFixture();await resolve(ctx,row,'create');
+  await assert.rejects(resolve(ctx,row,'create'),/Already resolved/);
+  await assert.rejects(resolve(ctx,{...row,version:row.version+1},'create'),/Already resolved/);
+  assert.equal(db.rows('canonEntities').length,1);
+});
+test('account-owner routing is opt-in and refuses departed members',async()=>{
+  for(const setting of [false,true]){
+    const {db,ctx,args}=fixture();const row:any=await db.get('form');await db.patch('form',{data:{...row.data,routeToAccountOwner:setting}});
+    await inbound.commit.handler(ctx,{...args,version:2,match:{by:'domain',companyId:'company',accountOwner:'publisher',candidates:[]}});
+    assert.equal((db.rows('recordRows')[0] as any).values.ownerId??null,setting?'publisher':null);
+    assert.equal(submissionRow(db).data.assignee??null,setting?'publisher':null);
+  }
+  const {db,ctx,args}=fixture();const row:any=await db.get('form');await db.patch('form',{data:{...row.data,routeToAccountOwner:true}});
+  await inbound.commit.handler(ctx,{...args,version:2,match:{by:'domain',companyId:'company',accountOwner:'departed',candidates:[]}});
+  assert.equal((db.rows('recordRows')[0] as any).values.ownerId??null,null);assert.equal(submissionRow(db).data.assignee,undefined);
+});
+test('linked person falls back to the account owner when the older match omits ownership',async()=>{
+  const {db,ctx,args}=fixture();await inbound.commit.handler(ctx,{...args,version:2,match:{by:'email',personId:'person',accountOwner:'publisher',candidates:[]}});
+  assert.equal(submissionRow(db).data.assignee,'publisher');assert.equal(db.rows('notifications').length,1);
+});
+test('linked person prefers its own owner over the account owner',async()=>{
+  const {db,ctx,args}=fixture();await db.insert('users',{_id:'owner',orgId:'org-a',role:'rep',isActive:true,name:'Owner'});
+  await inbound.commit.handler(ctx,{...args,version:2,match:{by:'email',personId:'person',personOwner:'owner',accountOwner:'publisher',candidates:[]}});
+  assert.equal(submissionRow(db).data.assignee,'owner');
+});
+test('owners who cannot see the person receive neither assignment nor notice',async()=>{
+  const {db,ctx,args}=fixture();await db.insert('users',{_id:'owner',orgId:'org-a',role:'rep',isActive:true,name:'Owner'});
+  await db.insert('rolePermissions',{orgId:'org-a',role:'rep',rules:[{object:'contact',read:false}]});
+  await inbound.commit.handler(ctx,{...args,version:2,match:{by:'email',personId:'person',personOwner:'owner',candidates:[]}});
+  assert.equal(submissionRow(db).data.assignee,undefined);assert.equal(db.rows('notifications').length,0);
+});
+test('duplicate outcomes send no notices; hourly notice limits still retain every submission',async()=>{
+  const {db,ctx,args}=fixture();
+  for(let i=0;i<12;i++)await inbound.commit.handler(ctx,{...args,nonce:`linked-${i}`,version:2,match:{by:'email',personId:'person',accountOwner:'publisher',candidates:[]}});
+  assert.equal(db.rows('notifications').length,10);assert.equal(db.rows('moduleDocs').filter((r:any)=>r.collection==='submissions').length,12);
+  await inbound.commit.handler(ctx,{...args,nonce:'new-1',version:2,match:{by:'none',candidates:[]}});
+  await inbound.commit.handler(ctx,{...args,nonce:'new-2',version:2,match:{by:'none',candidates:[]}});
+  assert.equal(db.rows('notifications').length,10);assert.equal(db.rows('moduleDocs').filter((r:any)=>r.data.outcome==='duplicate').length,1);
+});
+test('routing config and shared mapping are validated and resolution is restricted to Inbound without then',async()=>{
+  const {formProblems,leadValuesFrom,normalizeSubmission}=await import('../modules/kernel/inboundForms.ts');
+  assert.ok(formProblems({...form,routeToAccountOwner:'yes'}).length);
+  const n=normalizeSubmission(form,{email:'UPPER@example.test',consent:true},{});assert.deepEqual(leadValuesFrom(form,n.answers),n.values);
+  const {canonCallProblems}=await import('../modules/kernel/canonOperations.ts');
+  assert.equal(canonCallProblems(manifest,'resolve',manifest.calls.resolve).length,0);
+  assert.ok(canonCallProblems({...manifest,id:'@canon/different'},'resolve',manifest.calls.resolve).length);
+  assert.ok(canonCallProblems(manifest,'resolve',{...manifest.calls.resolve,canon:{operation:'submissions.resolve',then:manifest.calls.publish.canon.then}}).length);
+});
+
+test('more than fifty review recipients cannot change public success or discard submissions',async()=>{
+  const {db,ctx,args}=fixture();
+  for(let i=0;i<51;i++)await db.insert('users',{_id:`admin-${i}`,orgId:'org-a',role:'admin',isActive:true,name:`Admin ${i}`});
+  for(let i=0;i<2;i++) {
+    const result=await inbound.commit.handler(ctx,{...args,nonce:`review-${i}`,version:2,match:{by:'ambiguous',candidates:[]}});
+    assert.deepEqual(JSON.parse(JSON.stringify(result)),{status:200,message:'Thank you. Your submission was received.'});
+  }
+  assert.equal(db.rows('notifications').length,50);assert.equal(db.rows('moduleDocs').filter((r:any)=>r.collection==='submissions').length,2);
+});
+test('resolution cannot write lead fields locked by the manager role',async()=>{
+  const {db,ctx,row}=await reviewFixture();await asManager(db,[{object:'lead',fields:[{apiName:'email',level:'readOnly'}]}]);
+  await assert.rejects(resolve(ctx,row,'create'));
+  assert.equal(db.rows('canonEntities').length,0);assert.equal(((await db.get(row._id))!.data as any).outcome,'needs_review');
+});
+
+test('owner metadata survives the HTTP client and remains additive to legacy match consumers',async()=>{
+  const {matchInbound}=await import('../convex/lib/objects/inboundMatch.ts');
+  const {createHttpRecordClient}=await import('../convex/lib/recordClient.ts');
+  const widened=matchInbound({email:'p@example.test'},[{id:'company',name:'Company',ownerId:'account-owner'}],[{id:'person',email:'p@example.test',accountId:'company',ownerId:'person-owner'}],[]);
+  const client=createHttpRecordClient({baseUrl:'https://service.test',token:'test',fetchImpl:async(input)=>new Response(JSON.stringify(String(input).endsWith('/healthz')?{version:'1.53.0'}:widened))});
+  const result=await client.matchInbound('workspace',{email:'p@example.test'});
+  assert.deepEqual(result,widened);
+  const {personOwner:_owner,candidates,...legacy}=result as any;
+  assert.deepEqual({...legacy,candidates:candidates.map(({ownerId:_id,...c}:any)=>c)},{by:'email',personId:'person',companyId:'company',accountOwner:'account-owner',candidates:[{object:'person',id:'person',reason:'email'}]});
 });

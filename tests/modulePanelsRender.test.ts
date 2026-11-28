@@ -203,3 +203,21 @@ test("a hosted form cannot put answers into a native GET before hydration", () =
   assert.match(html, /action="\/api\/forms\/submit"/);
   assert.match(html, /<button[^>]*disabled=""/);
 });
+
+test('Inbound candidate arrays render record links from the retained submission',async()=>{
+  const rows=await import('../modules/kernel/rows.ts');
+  const {Table}=load<{Table:ComponentType<Record<string,unknown>>}>('../src/components/modules/module-page.tsx',{
+    'convex/react':{useQuery:()=>undefined,useAction:()=>empty},
+    '../../../convex/_generated/api':{api:{modules:{judge:'judge',call:'call'}}},
+    '../../../modules/kernel/schema':schema,'../../../modules/kernel/text':text,'../../../modules/kernel/document':document,'../../../modules/kernel/rows':rows,
+    'next/link':{default:({children,...props}:{children:ReactNode})=>createElement('a',props,children)},
+    '@/lib/utils':{cn:(...values:string[])=>values.filter(Boolean).join(' '),getErrorMessage:String},
+  },'\nexports.Table = Table;');
+  const manifest=JSON.parse(readFileSync('modules/examples/inbound/module.json','utf8'));
+  const table=manifest.pages.find((p:any)=>p.path==='submissions/:key').body.find((n:any)=>n.c==='table');
+  const candidates=[{object:'person',reason:'email',id:'person',url:'/dashboard/records/contact/person'},{object:'lead',reason:'email',id:'lead',url:'/dashboard/records/lead/lead'},{object:'company',reason:'domain',id:'company',url:'/dashboard/accounts/company'}];
+  const ctx={view:{module:{id:'@canon/inbound',slug:'inbound'},loads:{},data:{submission:{key:'submission',version:1,data:{candidates}}},labels:{},formats:{},kinds:{},collections:{},files:{},refLabels:{},userId:'manager',currency:'USD'},loaded:{},text:{binds:{},members:new Map(),currency:'USD'},query:{},results:{}};
+  const html=renderToStaticMarkup(createElement(Table,{n:table,ctx}));
+  for(const candidate of candidates)assert.ok(html.includes(`href="${candidate.url}"`));
+  assert.ok(html.includes('domain'));assert.ok(html.includes('email'));
+});

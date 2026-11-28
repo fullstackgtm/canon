@@ -1698,8 +1698,9 @@ function Table({ n: declared, ctx, given }: { n: TableLike; ctx: Ctx; given?: Ro
   const hierarchy = n.hierarchy;
   const loadedCall = Object.hasOwn(ctx.view.loads as object, n.from);
   const loaded = loadedCall ? ctx.loaded[n.from] : undefined;
-  const callRows = given !== undefined || loadedCall;
-  const read: Doc[] = given ?? (loadedCall ? (loaded?.value === undefined ? [] : callRowsOf(loaded.value, n.rows)) : ((ctx.view.data[n.from] as Doc[] | undefined) ?? []));
+  const embedded = !loadedCall && n.rows !== undefined;
+  const callRows = given !== undefined || loadedCall || embedded;
+  const read: Doc[] = given ?? (loadedCall ? (loaded?.value === undefined ? [] : callRowsOf(loaded.value, n.rows)) : embedded ? callRowsOf((ctx.view.data[n.from] as Doc | null)?.data ?? {}, n.rows) : ((ctx.view.data[n.from] as Doc[] | undefined) ?? []));
   // A table people reorder shows its rows in the order its field holds (a stop's position).
   const orderBy = n.reorder?.by;
   const rows = orderBy ? [...read].sort((a, b) => Number(valueAt(a, orderBy) ?? Infinity) - Number(valueAt(b, orderBy) ?? Infinity)) : read;

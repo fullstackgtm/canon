@@ -1,3 +1,4 @@
+import { boundedInboundRecipients } from './intake';
 /**
  * The one way in to module data (docs/modules.md, "The choke point"). Every caller read and semantic write of
  * moduleDocs and moduleEvents goes through a scope built here. The activity publisher reads pinned physical state.
@@ -1844,7 +1845,11 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
    * from the doc after the move and its link to a page of the module.
    */
   async function notify(db: MutationCtx["db"], fx: Omit<NotifyEffect, "when">, env: Env, about: Cause) {
-    const to = await recipientsOf(fx.notify, env, NOTIFY_MAX, "A notification");
+    const inboundNotice = moduleId === "@canon/inbound" && pkg.source.kind === "canon" && pkg.source.id === "inbound" && about.collection === "submissions";
+    let to = await recipientsOf(fx.notify, env, NOTIFY_MAX, "A notification", inboundNotice);
+    if (inboundNotice && isMutation(ctx)) {
+      to = await boundedInboundRecipients({ ...ctx, db }, orgId, String(env.doc.data.formKey), env.doc.data.outcome === "needs_review", to);
+    }
     if (!to.length) return;
     const text = await textScope({ doc: { key: env.doc.key, version: 0, data: env.doc.data, owner: env.doc.owner } });
     const message = renderText(fx.message, text).slice(0, MESSAGE_MAX);
@@ -1858,16 +1863,18 @@ function scopeOf(ctx: QueryCtx | MutationCtx, principal: Principal, pkg: Doc<"mo
   // ── Outbound (docs/modules.md, "Outbound"): a send queues in the outbox in the write's own transaction ──
 
   /** The members a notification or a notice names: member values and roles, never the person who caused it. */
-  async function recipientsOf(list: readonly unknown[], env: Env | null, max: number, what: string): Promise<string[]> {
+  async function recipientsOf(list: readonly unknown[], env: Env | null, max: number, what: string, truncate = false): Promise<string[]> {
     const members = await workspaceMembers(ctx, orgId);
     const ids: string[] = [];
+    const bases = moduleId === "@canon/inbound" ? await roleBasesOf(ctx, orgId) : {};
     for (const r of list) {
-      if (r !== null && typeof r === "object" && "role" in r) { ids.push(...members.filter((u) => ((r as { role: readonly string[] }).role).includes(u.role)).map((u) => u.id as string)); continue; }
+      if (r !== null && typeof r === "object" && "role" in r) { ids.push(...members.filter((u) => ((r as { role: readonly string[] }).role).includes(moduleId === "@canon/inbound" ? baseRole(u.role, bases) : u.role)).map((u) => u.id as string)); continue; }
       const v = env ? await valueOf(r as never, env) : r;
       for (const id of [v].flat()) if (typeof id === "string") ids.push(id);
     }
     const in_ = new Set(members.map((u) => u.id as string));
     const to = [...new Set(ids)].filter((id) => in_.has(id) && id !== (system ? null : access.userId));
+    if (truncate) return to.slice(0, max);
     if (to.length > max) refuse(`${what} goes to at most ${max} members; this one names ${to.length}.`);
     return to;
   }

@@ -17,6 +17,9 @@ describe("workspace inbound matching", () => {
       { domain: "globex.co.uk", name: "Globex", ownerId: "ben" },
     ], source: "test", idempotencyKey: "accounts" });
     await ws.post("contacts/upsert", { records: [{ email: "jo@acme.com", fullName: "Jo", accountDomain: "acme.com" }], source: "test", idempotencyKey: "contacts" });
+    await ctx.app.registry.with("northwind", (w) => w.write(async (c) => {
+      await c.run("UPDATE contacts SET ownerId = 'jo-owner' WHERE email = 'jo@acme.com'");
+    }, "exclusive"));
     const acme = (await ws.post("accounts/list", {})).json.rows.find((a: { domain: string }) => a.domain === "acme.com");
     for (const [email, by] of [["JO@ACME.COM", "email"], ["sam@acme.com", "domain"], ["lee@eu.acme.com", "domain_family"], ["max@initech.de", "ambiguous"]]) {
       const result = await ws.post("match/inbound", { email });
@@ -26,6 +29,9 @@ describe("workspace inbound matching", () => {
         assert.equal(result.json.companyId, acme.id);
         assert.equal(result.json.accountOwner, "ana");
       }
+      if (by === "email") assert.equal(result.json.personOwner, "jo-owner");
+      if (by === "email") assert.equal(result.json.candidates[0].ownerId, "jo-owner");
+      if (by === "domain") assert.equal(result.json.candidates[0].ownerId, "ana");
       assert.ok(!JSON.stringify(result.json).includes("acme.com"), "No record fields leave the matcher");
     }
     const personal = (await ws.post("match/inbound", { email: "pat@gmail.com", companyName: "Globex" })).json;
