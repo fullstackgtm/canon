@@ -227,8 +227,10 @@ export const workspacePages = query({
     }));
     for (const layer of await ownLayers(ctx, caller.user)) {
       const personal = await personalPage(ctx, caller.user, layer.target, layer.recipeId);
-      for (const page of personal?.recipe.workspacePages ?? []) {
-        if (layer.target.point === "workspace.pages" && page.slug === layer.target.key || !personal!.basePages.includes(page.slug))
+      if (!personal) continue;
+      for (const page of personal.recipe.workspacePages ?? []) {
+        const direct = layer.target.point === "workspace.pages" && page.slug === layer.target.key;
+        if (direct || (!pages.has(page.slug) && !personal.basePages.includes(page.slug)))
           pages.set(page.slug, { slug: page.slug, title: page.title, icon: page.icon, nav: page.nav });
       }
     }
@@ -242,10 +244,12 @@ export const workspacePage = query({
     if (!caller) return null;
     const found = (await enabledFor(ctx, caller.user.orgId, "workspace.pages")).find((e) => e.contribution.key === slug);
     if (!found) {
-      for (const layer of await ownLayers(ctx, caller.user)) {
+      const layers = await ownLayers(ctx, caller.user);
+      const direct = layers.find((layer) => layer.target.point === "workspace.pages" && layer.target.key === slug);
+      for (const layer of direct ? [direct, ...layers.filter((layer) => layer !== direct)] : layers) {
         const personal = await personalPage(ctx, caller.user, layer.target, layer.recipeId);
         const page = personal?.recipe.workspacePages?.find((p) => p.slug === slug);
-        if (page && !personal!.basePages.includes(slug)) return { ...page, recipeId: layer.recipeId, recipeTitle: personal!.recipe.title, layoutTree: personal!.recipe.layouts?.[slug], canEdit: true };
+        if (personal && page && (layer === direct || !personal.basePages.includes(slug))) return { ...page, recipeId: layer.recipeId, recipeTitle: personal.recipe.title, layoutTree: personal.recipe.layouts?.[slug], canEdit: true };
       }
       return null;
     }

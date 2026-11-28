@@ -8,6 +8,12 @@ import { enabledFor, orgRecipe } from "./recipes";
 import { merge3 } from "../../recipes/merge.ts";
 
 export type PageTarget = { point: string; key: string };
+export function workspacePagesInLayer(layer: Pick<Doc<"pageLayers">, "target" | "markdown" | "baseMarkdown">) {
+  const base = new Set(parseRecipe(layer.baseMarkdown).recipe.workspacePages?.map((p) => p.slug));
+  return (parseRecipe(layer.markdown).recipe.workspacePages ?? []).filter((p) =>
+    (layer.target.point === "workspace.pages" && layer.target.key === p.slug) || !base.has(p.slug));
+}
+
 export const targetFor = (object: string): PageTarget => ["account", "contact", "deal"].includes(object)
   ? { point: `${object}.page`, key: "page" } : { point: "workspace.pages", key: object };
 export const ownLayers = (ctx: Pick<QueryCtx, "db">, user: Doc<"users">) => ctx.db.query("pageLayers")

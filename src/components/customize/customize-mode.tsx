@@ -14,6 +14,7 @@ import { IntegrationGate } from "@/components/integration-gate";
  * a comment is kept as a request.
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Check, CornerDownLeft, Loader2, Pencil, RotateCcw, Save, Undo2, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { trayLauncherClassName } from "@/components/floating-tray-dock";
@@ -64,6 +65,18 @@ export function CustomizeProvider({ children }: { children: ReactNode }) {
   const [customizing, setCustomizing] = useState(false);
   const [workflow, setWorkflow] = useState<(WorkflowProposal & { model: string; ms: number }) | null>(null);
   const [adapter, setAdapter] = useState<CustomizeAdapter | null>(null);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("customize") !== "1") return;
+    const frame = requestAnimationFrame(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("customize");
+      window.history.replaceState(null, "", url);
+      setCustomizing(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pathname, searchParams]);
   return (
     <CustomizeContext.Provider value={{ workflow, setWorkflow, customizing, setCustomizing, adapter, setAdapter }}>
       {children}
@@ -82,6 +95,7 @@ const CURSOR = `url("data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="h
  */
 function CustomizeTrayEnabled() {
   const ctx = useCustomizeMode();
+  const pathname = usePathname();
   const [hovered, setHovered] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancel = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; };
@@ -108,7 +122,9 @@ function CustomizeTrayEnabled() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold">{customizing ? "Customizing" : "Customize this page"}{adapter && <span className="font-normal text-stone-400"> · {adapter.label}{adapter.detail ? `, ${adapter.detail}` : ""}</span>}</p>
             <p className="mt-0.5 text-xs text-stone-400">
-              {!adapter ? "Describe your workflow to create personal pages."
+              {!adapter && customizing && ["/dashboard/accounts", "/dashboard/contacts", "/dashboard/deals"].includes(pathname)
+                ? "Open a record to edit its page."
+                : !adapter ? "Describe your workflow to create personal pages."
                 : customizing ? "Point at an outlined part and start typing. Each change lands on the page as it's done."
                 : "Click the pencil, point at an outlined part of the page, and type how it should work. The page redraws so you can judge it."}
             </p>
@@ -199,11 +215,12 @@ function CustomizeOverlay() {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const target = pinned ?? hover;
-  const selecting = true;
+  const selecting = adapter !== null;
 
   // Keep the spotlight on its element, and the outlines on every editable section, as the page scrolls or redraws.
   const [editable, setEditable] = useState<DOMRect[]>([]);
   useEffect(() => {
+    if (!selecting) return;
     let raf = 0;
     const tick = () => {
       setRect(target?.isConnected ? target.getBoundingClientRect() : null);
@@ -213,7 +230,7 @@ function CustomizeOverlay() {
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [target]);
+  }, [selecting, target]);
 
   const close = useCallback(() => { setPinned(null); setText(""); }, []);
   useEffect(() => {

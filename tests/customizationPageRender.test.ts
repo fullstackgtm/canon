@@ -6,7 +6,7 @@ import { runInNewContext } from "node:vm";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
-import { pageRows } from "../src/app/dashboard/customization/page-map.ts";
+import { pageRows, personalPageRows, standaloneHref } from "../src/app/dashboard/customization/page-map.ts";
 
 const require = createRequire(import.meta.url);
 const empty = () => null;
@@ -26,24 +26,26 @@ test("a page is changed when something other than a new workspace's default runs
   assert.equal(pages.find((p) => p.id === "deals")?.offered, 1);
 });
 
-test("Applied lists changed pages first and folds the ones Canon ships as is", () => {
-  const view = { canEdit: true, available: [], points: POINTS };
+test("Applied lists changed pages and lets a rep open, edit and delete their personal pages", () => {
+  const view = { canEdit: false, available: [], points: [...POINTS, { id: "workspace.pages", contributions: [on("team", "Team views", "renewals"), on("team", "Team views", "hidden", false)] }] };
+  const versions = [{ _id: "layer", isOwn: true, target: { point: "workspace.pages", key: "open-deals" }, pages: [{ slug: "open-deals", title: "Open deals" }] }];
   const stubs: Record<string, unknown> = {
-    "next/link": { default: ({ children }: { children: ReactNode }) => createElement("a", null, children) },
+    "next/link": { default: ({ children, href }: { children: ReactNode; href: string }) => createElement("a", { href }, children) },
     "next/navigation": { useRouter: () => ({ push: empty }) },
-    "convex/react": { useQuery: (q: string) => (q === "recipes.forOrg" ? view : q === "modules.installed" ? { canEdit: true, modules: [{ moduleId: "@canon/work", enabled: true, nav: null, pages: 0 }, { moduleId: "@fixture/visits", enabled: false, nav: { href: "/dashboard/m/visits", label: "Visits" }, pages: 1 }] } : undefined), useMutation: () => empty, useAction: () => empty },
-    "../../../../convex/_generated/api": { api: { recipes: { forOrg: "recipes.forOrg" }, modules: { installed: "modules.installed" }, workspaceRecipes: {}, pipelines: {}, dataModel: {} } },
+    "convex/react": { useQuery: (q: string, args?: { all: boolean }) => q === "recipes.forOrg" ? view : q === "versions" && args?.all === false ? versions : q === "modules.installed" ? { canEdit: true, modules: [{ moduleId: "@canon/work", enabled: true, nav: null, pages: 0 }, { moduleId: "@fixture/visits", enabled: false, nav: { href: "/dashboard/m/visits", label: "Visits" }, pages: 1 }] } : undefined, useMutation: () => empty, useAction: () => empty },
+    "../../../../convex/_generated/api": { api: { recipes: { forOrg: "recipes.forOrg" }, modules: { installed: "modules.installed" }, workspaceRecipes: { personalVersions: "versions" }, pipelines: {}, dataModel: {} } },
     "@/components/dashboard": { ViewFrame: ({ title, children }: { title: string; children: ReactNode }) => createElement("div", null, createElement("h1", null, title), children), LoadingRows: empty },
     "@/components/ui/dropdown-menu": { DropdownMenu: empty, DropdownMenuContent: empty, DropdownMenuItem: empty, DropdownMenuTrigger: empty },
+    "@/components/ui/confirm-dialog": { ConfirmDialog: empty },
     "@/components/ui/sheet": { Sheet: empty, SheetContent: empty, SheetDescription: empty, SheetTitle: empty },
     "@/lib/toast": { toast: {} },
     "@/lib/utils": { cn: (...values: unknown[]) => values.filter(Boolean).join(" "), getErrorMessage: String },
-    "./page-map": { pageRows },
+    "./page-map": { pageRows, personalPageRows, standaloneHref },
     "./point-row": { PointRow: empty },
     "./recipe-github": { GithubConnections: empty },
     "./recipe-modules": { CanonModules: empty, InstallModuleSheet: empty, InstalledModules: empty },
     "./recipe-packages": { InstallSheet: empty, UpgradeSheet: empty, permissionLines: () => [] },
-    "./personal-versions": { PersonalVersions: empty },
+    "./personal-versions": { VersionPromotion: empty },
     "./recipe-settings": { RecipeSettingsSheet: empty },
   };
   const { outputText } = ts.transpileModule(readFileSync(new URL("../src/app/dashboard/customization/page.tsx", import.meta.url), "utf8"), {
@@ -54,10 +56,15 @@ test("Applied lists changed pages first and folds the ones Canon ships as is", (
   const html = renderToStaticMarkup(createElement(exports.default!));
   assert.match(html, /<h1>Customization<\/h1>/);
   assert.match(html, /role="tab" aria-selected="true"[^>]*>Applied</);
-  assert.match(html, /<a>Opportunities<\/a><span[^>]*><span[^>]*>Deal page: Enterprise multi-touch deal<\/span>/);
+  assert.match(html, /<a href="\/dashboard\/deals">Opportunities<\/a><span[^>]*><span[^>]*>Deal page: Enterprise multi-touch deal<\/span>/);
   assert.match(html, /11 pages as Canon ships them/);
   assert.match(html, /Modules on<\/dt><dd[^>]*>1 of 2</);
-  assert.match(html, /Pages changed<\/dt><dd[^>]*>2 of 13</);
+  assert.match(html, /Pages changed<\/dt><dd[^>]*>4 of 15</);
+  assert.match(html, /href="\/dashboard\/p\/open-deals"[^>]*>Open deals/);
+  assert.match(html, /href="\/dashboard\/p\/open-deals\?customize=1"[^>]*>Edit/);
+  assert.match(html, />Delete<\/button>/);
+  assert.match(html, /Workspace · Team views/);
+  assert.doesNotMatch(html, /\/dashboard\/p\/hidden|>Remove<\/button>/);
 });
 
 test("module rows and install previews render responses from before Canon imports shipped", () => {

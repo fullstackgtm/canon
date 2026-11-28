@@ -20,10 +20,11 @@ import { codeNames, markdownBundle, runnable } from "../recipes/compose.ts";
 import { contributionsOf, planEnable, pointOf, isFirstParty, parseOverrides } from "../recipes/index.ts";
 import { RECIPE_MAX_BYTES, fromManifest, parseManifest, toManifest, type Manifest } from "../recipes/manifest.ts";
 import { parseRecipe, type Runnable } from "../recipes/md/parse.ts";
+import { apply } from "../recipes/md/edit.ts";
 import { copySlug, copyTitle, forkMarkdown, isWorkspaceId, lineDiff, orgSlug, workspaceId, workspaceProblems, type WorkspaceSource } from "../recipes/workspace.ts";
 import { bundleHash } from "../services/recipe-runtime/src/protocol.ts";
 
-import { ownLayer, ownLayers, pageBase, personalPage, rebaseLayer, targetFor } from "./lib/pageLayers";
+import { ownLayer, ownLayers, pageBase, personalPage, rebaseLayer, targetFor, workspacePagesInLayer } from "./lib/pageLayers";
 
 const REVISIONS_SHOWN = 20;
 const NOTE_MAX = 300;
@@ -547,7 +548,26 @@ export const resetPersonal = mutation({
     const caller = await callerOf(ctx);
     if (!caller || caller.agent) throw new ConvexError("Sign in to reset your page.");
     const layer = args.layerId ? await ctx.db.get(args.layerId) : await ownLayer(ctx, caller.user, targetFor(args.object));
-    if (layer && layer.orgId === caller.user.orgId && layer.userId === caller.user._id) await ctx.db.delete(layer._id);
+    if (!layer || layer.orgId !== caller.user.orgId || layer.userId !== caller.user._id) return null;
+    const target = targetFor(args.object);
+    if (target.point === "workspace.pages") {
+      if ((layer.target.point !== target.point || layer.target.key !== target.key) &&
+          !workspacePagesInLayer(layer).some((p) => p.slug === target.key)) return null;
+      // A pencil edit on a record can create a standalone page in that record's layer.
+      // An edit from the standalone page can then save a second copy under its slug.
+      for (const source of await ownLayers(ctx, caller.user)) {
+        if (source.target.point === target.point && source.target.key === target.key) {
+          await ctx.db.delete(source._id);
+        } else if (workspacePagesInLayer(source).some((p) => p.slug === target.key)) {
+          const edit = apply(source.markdown, { op: "removePage", slug: target.key });
+          if ("error" in edit) throw new ConvexError(edit.error);
+          if (edit.markdown.trimEnd() === source.baseMarkdown.trimEnd()) await ctx.db.delete(source._id);
+          else await ctx.db.patch(source._id, { markdown: edit.markdown, revision: source.revision + 1, updatedAt: Date.now() });
+        }
+      }
+    } else if (target.point === layer.target.point && target.key === layer.target.key) {
+      await ctx.db.delete(layer._id);
+    }
     return null;
   },
 });
@@ -557,12 +577,14 @@ export const personalVersions = query({
   handler: async (ctx, args) => {
     const caller = await callerOf(ctx);
     if (!caller) return [];
+    const own = await ownLayers(ctx, caller.user);
     const rows = mayDecide(caller) && args.all
-      ? await ctx.db.query("pageLayers").withIndex("by_orgId_and_target_point_and_target_key", (q) => q.eq("orgId", caller.user.orgId)).take(100)
+      ? [...own, ...(await ctx.db.query("pageLayers").withIndex("by_orgId_and_target_point_and_target_key", (q) => q.eq("orgId", caller.user.orgId)).take(100)).filter((layer) => layer.userId !== caller.user._id)]
       : mayDecide(caller) && args.target
       ? await ctx.db.query("pageLayers").withIndex("by_orgId_and_target_point_and_target_key", (q) => q.eq("orgId", caller.user.orgId).eq("target.point", args.target!.point).eq("target.key", args.target!.key)).take(100)
-      : await ownLayers(ctx, caller.user);
+      : own;
     return Promise.all(rows.map(async (layer) => ({ ...layer, name: (await ctx.db.get(layer.userId))?.name ?? "Someone",
+      isOwn: layer.userId === caller.user._id, pages: workspacePagesInLayer(layer).map(({ slug, title }) => ({ slug, title })),
       diff: lineDiff((await pageBase(ctx, caller.user.orgId, layer.recipeId, layer.target)).markdown, layer.markdown) })));
   },
 });

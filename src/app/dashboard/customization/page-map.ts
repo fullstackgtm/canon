@@ -85,3 +85,35 @@ export function pageRows(points: readonly PointState[]): { pages: PageRow[]; wor
   };
   return { pages: CANON_PAGES.map((p) => row(p.id, p.label, p.href)), workspace: row("workspace", "Every page", "/dashboard") };
 }
+
+const RECORD_PAGES = {
+  "account.page": { object: "account", title: "Account page", href: "/dashboard/accounts" },
+  "contact.page": { object: "contact", title: "Contact page", href: "/dashboard/contacts" },
+  "deal.page": { object: "deal", title: "Deal page", href: "/dashboard/deals" },
+} as const;
+
+export const standaloneHref = (slug: string) => `/dashboard/p/${encodeURIComponent(slug)}`;
+
+type Version = { target: { point: string; key: string }; pages: ReadonlyArray<{ slug: string; title: string }>; isOwn: boolean };
+
+export function personalPageRows<V extends Version>(versions: readonly V[]) {
+  const recordRows = [];
+  const standaloneRows = new Map<string, { version: V; object: string; title: string; href: string; standalone: true }>();
+  const reviewRows = [];
+  for (const version of versions) {
+    const { point, key } = version.target;
+    const record = RECORD_PAGES[point as keyof typeof RECORD_PAGES];
+    if (!version.isOwn) {
+      const title = record?.title ?? version.pages.find((p) => p.slug === key)?.title ?? key;
+      reviewRows.push({ version, title });
+      continue;
+    }
+    if (record) recordRows.push({ version, ...record, standalone: false as const });
+    for (const { slug, title } of version.pages) {
+      if (!standaloneRows.has(slug) || (point === "workspace.pages" && key === slug)) {
+        standaloneRows.set(slug, { version, object: slug, title, href: standaloneHref(slug), standalone: true });
+      }
+    }
+  }
+  return { own: [...recordRows, ...standaloneRows.values()], review: reviewRows };
+}
