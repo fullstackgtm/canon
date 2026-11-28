@@ -41,7 +41,11 @@ function products(currency: string, editing = false) {
 }
 
 test("Products uses Canon hundredths for JPY and KWD display and edits", () => {
-  assert.match(products("JPY").html, /¥1,000/);
+  const jpy = products("JPY").html;
+  assert.match(jpy, /<section class="record-panel record-panel-pad"[^>]*>/);
+  assert.match(jpy, /<h2 class="record-block-heading record-section-title">Products<\/h2>/);
+  assert.match(jpy, /Edit products/);
+  assert.match(jpy, /¥1,000/);
   assert.doesNotMatch(products("JPY").html, /100,000/);
   assert.match(products("KWD").html, /1,000\.000/);
   for (const currency of ["USD", "JPY", "KWD"]) {

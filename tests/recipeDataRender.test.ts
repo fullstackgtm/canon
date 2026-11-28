@@ -12,6 +12,7 @@ const require = createRequire(import.meta.url);
 const tag = (name: string) => function Tag({ children, ...props }: { children?: ReactNode }) { return createElement(name, props, children); };
 const exports: { DataResult?: ComponentType<Record<string, unknown>> } = {};
 const stubs: Record<string, unknown> = {
+  "@/lib/utils": { cn: (...classes: unknown[]) => classes.filter(Boolean).join(" ") },
   "../../../convex/lib/objects/views": {}, "./data-write-section": {}, "convex/react": {}, "../../../convex/_generated/api": {}, "../../../recipes/data": {}, "../../../recipes/relationData": {}, "../../../convex/lib/objects/registry": {},
   "@/components/ui/table": Object.fromEntries(Object.entries({ Table: "table", TableHeader: "thead", TableHead: "th", TableBody: "tbody", TableRow: "tr", TableCell: "td" }).map(([k, v]) => [k, tag(v)])),
   "./record-context": { RecordLink: ({ id, children }: { id: string; children: ReactNode }) => createElement("a", { href: `/record/${id}` }, children), RecordQuickView: () => null },
@@ -21,7 +22,7 @@ runInNewContext(ts.transpileModule(readFileSync("src/components/records/data-sec
 test("table and metric render viewer results, including empty values and zero counts", () => {
   const q = validateDataQuery("table", { object: "deal", columns: ["recordTitle", "amount"] }, "account");
   const html = renderToStaticMarkup(createElement(exports.DataResult!, { kind: "table", query: q, answer: { fields: [{ fieldId: "amount", apiName: "amount", label: "Amount", type: "currency" }], rows: { rows: [{ id: "deal1", title: "First deal", values: { amount: 12500 } }] } } }));
-  assert.match(html, /<table/); assert.match(html, /First deal/); assert.match(html, /href="\/record\/deal1"/); assert.match(html, /125.00/); assert.match(html, /overflow-x-auto/);
+  assert.match(html, /<th class="record-label">Amount<\/th>/); assert.match(html, /<td class="record-value">/); assert.match(html, /First deal/); assert.match(html, /href="\/record\/deal1"/); assert.match(html, /125.00/); assert.match(html, /overflow-x-auto/);
   const metric = validateDataQuery("metric", { object: "deal", aggregate: { fn: "count" } }, "account");
   const number = renderToStaticMarkup(createElement(exports.DataResult!, { kind: "metric", query: metric, answer: { fields: [], aggregate: { groups: [], subtotals: [], total: [0], rows: 0, truncated: false } } }));
   assert.match(number, />0<\/p>/);

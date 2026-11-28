@@ -1,4 +1,6 @@
 "use client";
+
+import { cn } from "@/lib/utils";
 import { companyDealsData } from "../../../recipes/relationData";
 import type { PageKind } from "../../../recipes/blocks";
 import { useEffect, useState } from "react";
@@ -77,9 +79,9 @@ export function DataSection({ section, record, fields, pageObject = "deal", cont
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, key]);
   const current = state?.key === key ? state : undefined;
-  return <section aria-label={section.title} className="min-w-0 overflow-hidden border border-border bg-card p-4">
-    <h2 className="mb-3 text-sm font-medium">{section.title}</h2>
-    {current?.error ? <p role="alert" className="text-sm text-muted-foreground">{current.error}</p> : current?.answer ? "desc" in current.answer && (section.component === "form" || section.component === "board" || section.component === "detail") ? <DataWriteResult externalSaves={saved} section={section} query={current.answer.query} desc={current.answer.desc} rows={current.answer.rows} pageObject={pageObject} context={context} record={record} pageFields={fields} reload={() => setGeneration((g) => g + 1)} /> : <DataResult kind={section.component} query={section.query} answer={current.answer} /> : <p role="status" className="text-sm text-muted-foreground">Loading records…</p>}
+  return <section aria-label={section.title} className="record-panel record-panel-pad overflow-hidden">
+    <h2 className="record-block-heading record-section-title mb-3">{section.title}</h2>
+    {current?.error ? <p role="alert" className="record-value text-muted-foreground">{current.error}</p> : current?.answer ? "desc" in current.answer && (section.component === "form" || section.component === "board" || section.component === "detail") ? <DataWriteResult externalSaves={saved} section={section} query={current.answer.query} desc={current.answer.desc} rows={current.answer.rows} pageObject={pageObject} context={context} record={record} pageFields={fields} reload={() => setGeneration((g) => g + 1)} /> : <DataResult kind={section.component} query={section.query} answer={current.answer} /> : <p role="status" className="record-value text-muted-foreground">Loading records…</p>}
   </section>;
 }
 export function DataResult({ kind, query: q, answer, compact = false }: { kind: DataComponent; query: DataQuery; answer: Answer; compact?: boolean }) {
@@ -87,12 +89,12 @@ export function DataResult({ kind, query: q, answer, compact = false }: { kind: 
     const fieldOf = (name: string): FieldInfo | undefined => { const f = answer.fields.find((f) => f.apiName === name); return f ? { label: f.label ?? name, type: f.type ?? "text" } : undefined; };
     const groupBy = "groupBy" in q ? [q.groupBy] : [];
     const p = present({ groupBy, measures: [q.aggregate] }, answer.aggregate, groupBy.map((g) => fieldOf(g.field)), [q.aggregate.fn === "count" ? undefined : fieldOf(q.aggregate.field)]);
-    if (kind === "metric") return <p className="text-3xl font-semibold tabular-nums">{p.format(0, p.total[0])}</p>;
-    if (!answer.aggregate.rows) return <p className="text-sm text-muted-foreground">No matching records.</p>;
+    if (kind === "metric") return <p className="record-metric tabular-nums">{p.format(0, p.total[0])}</p>;
+    if (!answer.aggregate.rows) return <p className="record-value text-muted-foreground">No matching records.</p>;
     return <ReportChart p={{ ...p, groups: p.groups.slice(0, q.limit) }} kind="bar" />;
   }
   if (!("rows" in answer) || !answer.rows || !("columns" in q)) return null;
-  if (!answer.rows.rows.length) return <p className="text-sm text-muted-foreground">No matching records.</p>;
+  if (!answer.rows.rows.length) return <p className="record-value text-muted-foreground">No matching records.</p>;
   const label = (name: string) => answer.fields.find((f) => f.apiName === name || f.fieldId === name)?.label ?? (name === "recordTitle" ? "Name" : name);
   const cell = (row: ListResponse["rows"][number], name: string) => {
     if (name === "recordTitle") return row.title;
@@ -106,8 +108,23 @@ export function DataResult({ kind, query: q, answer, compact = false }: { kind: 
     return Array.isArray(value) ? value.join(", ") : String(value);
   };
   const link = (row: ListResponse["rows"][number]) => "unlinked" in answer && answer.unlinked?.includes(row.id) ? <span>{row.title}</span> : <span className="inline-flex items-center gap-1"><RecordLink object={q.object} id={row.id} className={compact ? "whitespace-normal [overflow-wrap:anywhere] hover:underline" : "hover:underline"}>{row.title}</RecordLink>{!compact && <RecordQuickView object={q.object} id={row.id} label={row.title} />}</span>;
-  if (kind === "list") return <ul className="divide-y divide-border">{answer.rows.rows.map((row) => <li key={row.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 py-2 text-sm">{link(row)}<span className="break-words text-muted-foreground">{q.columns.filter((c) => c !== "recordTitle").map((c) => cell(row, c)).join(" · ")}</span></li>)}</ul>;
-  return <div className="min-w-0 max-w-full overflow-x-auto"><Table><TableHeader><TableRow><TableHead className={compact ? "px-1.5" : undefined}>Record</TableHead>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableHead className={compact ? "px-1.5" : undefined} key={c}>{label(c)}</TableHead>)}</TableRow></TableHeader><TableBody>{answer.rows.rows.map((row) => <TableRow key={row.id}><TableCell className={compact ? "px-1.5" : undefined}>{link(row)}</TableCell>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableCell className={compact ? "px-1.5 text-xs" : undefined} key={c}>{cell(row, c)}</TableCell>)}</TableRow>)}</TableBody></Table></div>;
+  if (kind === "list") return <ul className="divide-y divide-border">{answer.rows.rows.map((row) => <li key={row.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 py-2 record-value">{link(row)}<span className="break-words text-muted-foreground">{q.columns.filter((c) => c !== "recordTitle").map((c) => cell(row, c)).join(" · ")}</span></li>)}</ul>;
+  const columns = q.columns.filter((column) => column !== "recordTitle");
+  const labelClass = cn("record-label", compact && "px-1.5");
+  const valueClass = cn("record-value", compact && "px-1.5");
+  return <div className="record-table min-w-0 max-w-full overflow-x-auto">
+    <Table>
+      <TableHeader>
+        <TableRow><TableHead className={labelClass}>Record</TableHead>{columns.map((column) => <TableHead key={column} className={labelClass}>{label(column)}</TableHead>)}</TableRow>
+      </TableHeader>
+      <TableBody>
+        {answer.rows.rows.map((row) => <TableRow key={row.id}>
+          <TableCell className={valueClass}>{link(row)}</TableCell>
+          {columns.map((column) => <TableCell key={column} className={valueClass}>{cell(row, column)}</TableCell>)}
+        </TableRow>)}
+      </TableBody>
+    </Table>
+  </div>;
 }
 export function dataRenderers(record: DataRecord, fields: Fields, pageObject: PageKind = "deal", context: Context = {}) {
   const render = (section: Extract<PageSection, { component: DataComponent }>) => <DataSection section={section} record={record} fields={fields} pageObject={pageObject} context={context} />;
