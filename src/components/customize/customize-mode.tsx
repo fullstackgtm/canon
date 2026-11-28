@@ -311,7 +311,7 @@ function CustomizeOverlay() {
             </div>
           )}
           <SuggestedPrompt ref={focusComment} rows={2} value={text} onValueChange={setText} onSubmit={submit}
-            suggestions={suggestions} aria-label="What should this section do?" placeholder="What should this section do?" />
+            {...suggestions} aria-label="What should this section do?" />
           <div className="mt-1.5 flex items-center justify-between text-[11px] text-stone-500">
             <span><CornerDownLeft className="inline size-3" /> to do it · keep pointing and typing to queue more</span>
             <button type="button" onClick={submit} disabled={!text.trim()} className="rounded-md bg-violet-600 px-2.5 py-1 font-medium text-white disabled:opacity-40">Do it</button>

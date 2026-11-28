@@ -14,7 +14,7 @@
 import { CANON_LAYOUT_SKILL } from "../recipes/skills/canon-layout/skill.generated.ts";
 import { turnMeter } from "./lib/agents/webhook";
 import { NO_PLAN, PROPOSAL_BUDGET, REQUEST_MAX } from "./lib/recipeAgent";
-import { proposeWorkflow, WORKFLOW_TOOL, WORKFLOW_SCHEMA, type WorkflowProposal } from "./lib/workflowAgent";
+import { proposeWorkflow, WORKFLOW_TOOL, WORKFLOW_SCHEMA, type WorkflowPage, type WorkflowProposal } from "./lib/workflowAgent";
 import { customizationSuggestionContext, readSuggestions, standInSuggestions, suggestionPrompt, SUGGESTION_SCHEMA, SUGGESTION_TOOL } from "./lib/customizeSuggestions";
 import type { ObjectDef } from "./lib/objects/registry";
 import { integrationEnabled } from "./lib/integrationsAvailable.ts";
@@ -438,22 +438,36 @@ async function visibleWorkflowObjects(ctx: ActionCtx): Promise<ObjectDef[]> {
   return defs.flatMap((def) => def?.readable ? [def as unknown as ObjectDef] : []);
 }
 
+async function workflowPagesForRecord(ctx: ActionCtx, pages: WorkflowPage[], dealId?: Id<"canonEntities">): Promise<WorkflowPage[]> {
+  const deal = pages.find((page) => page.target === "deal");
+  if (!dealId || !deal?.dealPlay?.available) return pages;
+  const record = await ctx.runQuery(api.objects.get, { streamId: dealId });
+  const active = record?.object === "deal" && record.lifecycle.status === "active";
+  const stage = active ? (await ctx.runAction(api.dealPlays.get, { streamId: dealId }).catch(() => null))?.stage : undefined;
+  return pages.map((page) => page === deal ? { ...page, dealPlay: stage ? { available: true, stage } :
+    { available: false, reason: "The deal play is unavailable on this record." } } : page);
+}
+
 export const suggest = action({
   args: {
     scope: v.union(
       v.object({ target: v.union(v.string(), v.null()) }),
       v.object({ target: v.string(), sectionId: v.string() }),
     ),
+    dealId: v.optional(v.id("canonEntities")),
   },
   returns: v.object({ suggestions: v.array(v.string()) }),
-  handler: async (ctx, { scope }): Promise<{ suggestions: string[] }> => {
+  handler: async (ctx, { scope, dealId }): Promise<{ suggestions: string[] }> => {
     const { userId, pages } = await ctx.runQuery(internal.workspaceRecipes.workflowBases, {});
     const standIn = recipeAgentStandIn();
     const llm = standIn ? null : await resolveLlm(ctx, userId, { refresh: false });
     if (!standIn && !llm) throw new ConvexError(NO_PLAN);
     if (scope.target !== null && !pages.some((page) => page.target === scope.target)) return { suggestions: [] };
 
-    const input = customizationSuggestionContext({ pages, objects: await visibleWorkflowObjects(ctx) }, scope);
+    const [availablePages, objects] = await Promise.all([
+      workflowPagesForRecord(ctx, pages, scope.target === "deal" ? dealId : undefined), visibleWorkflowObjects(ctx),
+    ]);
+    const input = customizationSuggestionContext({ pages: availablePages, objects }, scope);
     if (!input.pages.length || ("sectionId" in scope && !input.selected)) return { suggestions: [] };
     if (!llm) return { suggestions: standInSuggestions(input) };
 
@@ -467,7 +481,7 @@ export const suggest = action({
 });
 
 export const workflow = action({
-  args: { request: v.string() },
+  args: { request: v.string(), dealId: v.optional(v.id("canonEntities")) },
   handler: async (ctx, args): Promise<WorkflowProposal & { model: string; ms: number }> => {
     const start = Date.now();
     const bases = await ctx.runQuery(internal.workspaceRecipes.workflowBases, {});
@@ -476,7 +490,8 @@ export const workflow = action({
     const standIn = recipeAgentStandIn();
     const llm = standIn ? null : await resolveLlm(ctx, bases.userId);
     if (!standIn && !llm) throw new ConvexError(NO_PLAN);
-    const input = { pages: bases.pages, objects: await visibleWorkflowObjects(ctx), request };
+    const [pages, objects] = await Promise.all([workflowPagesForRecord(ctx, bases.pages, args.dealId), visibleWorkflowObjects(ctx)]);
+    const input = { pages, objects, request };
     const meter = turnMeter(PROPOSAL_BUDGET, start);
     const proposal = await proposeWorkflow(input, {
       skill: CANON_LAYOUT_SKILL, charge: (prompt) => meter.charge(prompt),

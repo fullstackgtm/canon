@@ -85,7 +85,7 @@ export type WorkspacePage = { slug: string; title: string; icon?: string; nav: "
 export const pageOf = (recipe: Partial<Pick<RecipeDefinition, (typeof PAGE_KEYS)[PageObject] | "workspacePages">>, object: string): PageSpec => pageKind(object) === "workspace" ? recipe.workspacePages?.find((p) => p.slug === object)?.sections ?? [] : recipe[PAGE_KEYS[object as PageObject]] ?? [];
 
 /** Whether a section shows at `stage`. Before the stage is known (or with no plays), only `stage` lists hide it. */
-export function shows(section: PageSection, stage: DealStage | null): boolean {
+export function shows(section: Pick<PageSection, "when">, stage: DealStage | null): boolean {
   const w = section.when;
   if (!w) return true;
   if (w.stage && !(stage !== null && w.stage.includes(stage))) return false;
