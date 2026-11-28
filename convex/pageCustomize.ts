@@ -23,7 +23,8 @@ import { ConvexError, v } from "convex/values";
 import { action, type ActionCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { DEFAULT_MODELS, forcedToolCall } from "../engine/src/llm.ts";
+import { DEFAULT_MODELS, forcedToolCall, type LlmCallOptions } from "../engine/src/llm.ts";
+import { DEFAULT_IMAGE_REQUEST, IMAGE_REFERENCE_INSTRUCTIONS, referenceImageError } from "../recipes/imageReferences.ts";
 import { DEAL_STAGES, type DealStage } from "./lib/plays/model";
 import { KERNEL_ACTIONS, type ActionId } from "../recipes/actions.ts";
 import { pageKind, componentsOf } from "../recipes/blocks.ts";
@@ -36,12 +37,27 @@ import { DRAWN, drawnText, refuseSectionRename } from "../recipes/md/pointed.ts"
 import { isWorkspaceId, lineDiff } from "../recipes/workspace.ts";
 import { jevSystemOne, type SystemOneQuestion } from "./lib/segments/jev";
 import { resolveLlm } from "./lib/llmResolver";
-import { recipeAgentStandIn, standInWorkflow, standInColumns, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
+import { recipeAgentStandIn, standInWorkflow, standInColumns, standInImageNote, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
 import type { ActionCaller } from "./records";
 
 const STAGE_NAMES: Record<DealStage, string> = { in: "Get in (first stage, finding the way in)", case: "Build the case (middle stage)", close: "Close (final stage)" };
 const JEV_CONFIDENCE = 0.7;
 const pageObject = v.optional(v.string());
+const imageReferences = v.optional(v.array(v.string()));
+
+function checkedImages(images: string[] = []) {
+  const error = referenceImageError(images);
+  if (error) throw new ConvexError(error);
+  return images;
+}
+
+async function callCustomizeModel(prompt: string, tool: string, schema: object, llm: LlmCallOptions, images: string[]) {
+  const reply = await forcedToolCall(prompt, tool, schema, customizeModel(llm, DEFAULT_MODELS), { ...llm, imageUrls: images });
+  if (images.length && /data:image\/[^;,]+;base64,/i.test(JSON.stringify(reply))) {
+    throw new ConvexError("The model included image data in the proposed changes. Try the request again.");
+  }
+  return reply;
+}
 
 type Result = { markdown: string; summary: string; by: string; ms: number; route: string; diff: string; kind: "layout" | "behavior"; refusedBy?: string };
 
@@ -265,6 +281,7 @@ export const edit = action({
     recipeId: v.string(),
     markdown: v.string(),
     request: v.string(),
+    images: imageReferences,
     target: v.optional(v.object({ component: v.string(), nth: v.optional(v.number()) })),
     pointed: v.optional(v.string()),
   },
@@ -272,8 +289,12 @@ export const edit = action({
     const started = Date.now();
     const caller: ActionCaller | null = await ctx.runQuery(internal.records.callerContext, {});
     if (!caller) throw new ConvexError("Not authenticated");
-    const request = args.request.trim().slice(0, 1_000);
+    const { images: attachedImages, ...editArgs } = args;
+    const images = checkedImages(attachedImages);
+    const request = args.request.trim().slice(0, 1_000) || (images.length ? DEFAULT_IMAGE_REQUEST : "");
     const trace = { route: "", by: "" };
+    // The model can echo image inputs in the result or error. Image turns bypass the edit audit.
+    if (images.length) return runEdit(ctx, caller, editArgs, request, started, trace, images);
     const log = (outcome: "changed" | "unchanged" | "refused" | "error", summary: string, refusedBy?: string) =>
       ctx.runMutation(internal.pageEditAttempts.record, {
         orgId: caller.orgId as Id<"organizations">, userId: caller.userId as Id<"users">, recipeId: args.recipeId, request,
@@ -281,7 +302,7 @@ export const edit = action({
         outcome, ...(refusedBy ? { refusedBy } : {}), by: trace.by, route: trace.route, summary, ms: Date.now() - started,
       }).catch((e) => console.error("pageEditAttempts.record failed", e));
     try {
-      const r = await runEdit(ctx, caller, args, request, started, trace);
+      const r = await runEdit(ctx, caller, editArgs, request, started, trace, images);
       await log(r.refusedBy ? "refused" : r.markdown === args.markdown ? "unchanged" : "changed", r.summary, r.refusedBy);
       if (r.refusedBy) console.warn(`pageCustomize.edit refused (${r.refusedBy}): ${JSON.stringify(request)} | ${trace.route}`);
       return r;
@@ -297,7 +318,7 @@ export const edit = action({
 async function runEdit(
   ctx: ActionCtx, caller: ActionCaller,
   args: { object?: string; recipeId: string; markdown: string; target?: { component: string; nth?: number }; pointed?: string },
-  request: string, started: number, trace: { route: string; by: string },
+  request: string, started: number, trace: { route: string; by: string }, images: string[],
 ): Promise<Result> {
   const object = args.object ?? "deal";
   const layout = describeLayout(args.markdown, object);
@@ -314,12 +335,12 @@ async function runEdit(
     else if (section && /^move (?:this|it) to the top[.!]?$/i.test(request)) ops = [{ op: "moveSection", object, section: section.ref, before: layout.sections[0]?.ref ?? null }];
     const checked = check(args.markdown, ops);
     trace.route = "local stand-in; ";
-    return done(checked.errors.length ? args.markdown : checked.text,
-      checked.errors.length ? checked.errors.join("; ") : ops.length ? view?.summary ?? "Updated the section. (Local stand-in model.)" : "Local stand-in supports folding a section or moving it to the top.", STAND_IN_MODEL, "layout");
+    const summary = checked.errors.length ? checked.errors.join("; ") : ops.length ? view?.summary ?? "Updated the section. (Local stand-in model.)" : "Local stand-in supports folding a section or moving it to the top.";
+    return done(checked.errors.length ? args.markdown : checked.text, summary + standInImageNote(images.length), STAND_IN_MODEL, "layout");
   }
 
   const key = integrationEnabled("jev") ? process.env.JEV_API_KEY : undefined;
-  if (key && target) {
+  if (key && target && !images.length) {
     const t = Date.now();
     const routed = await jevRoute(key, layout, target, request, args.pointed ?? "").catch((e) => { trace.route += `jev failed (${e instanceof Error ? e.message.slice(0, 80) : e}); `; return null; });
     trace.route += `jev ${Date.now() - t}ms${routed ? "" : " → model"}; `;
@@ -336,10 +357,11 @@ async function runEdit(
   const model = customizeModel(llm, DEFAULT_MODELS);
   const kept = await keptBundle(ctx, args.recipeId);
   let prompt = lunaPrompt(layout, target ?? null, request, args.markdown, kept, args.pointed?.slice(0, 300) ?? null);
+  if (images.length) prompt += `\n\n${IMAGE_REFERENCE_INSTRUCTIONS}`;
   let last = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const t = Date.now();
-    const raw = await forcedToolCall(prompt, OPS_TOOL, opsSchema(object), model, llm);
+    const raw = await callCustomizeModel(prompt, OPS_TOOL, opsSchema(object), llm, images);
     trace.route += `${model} ${Date.now() - t}ms; `;
     const summary = String((raw as { summary?: unknown })?.summary ?? "");
     const laid = check(args.markdown, asOps(raw, object));
@@ -481,22 +503,25 @@ export const suggest = action({
 });
 
 export const workflow = action({
-  args: { request: v.string(), dealId: v.optional(v.id("canonEntities")) },
+  args: { request: v.string(), dealId: v.optional(v.id("canonEntities")), images: imageReferences, currentTarget: v.optional(v.string()) },
   handler: async (ctx, args): Promise<WorkflowProposal & { model: string; ms: number }> => {
     const start = Date.now();
     const bases = await ctx.runQuery(internal.workspaceRecipes.workflowBases, {});
-    const request = args.request.trim();
+    const images = checkedImages(args.images);
+    const request = args.request.trim() || (images.length ? DEFAULT_IMAGE_REQUEST : "");
     if (!request || request.length > REQUEST_MAX) throw new ConvexError(`Describe your workflow in 1–${REQUEST_MAX} characters.`);
     const standIn = recipeAgentStandIn();
     const llm = standIn ? null : await resolveLlm(ctx, bases.userId);
     if (!standIn && !llm) throw new ConvexError(NO_PLAN);
     const [pages, objects] = await Promise.all([workflowPagesForRecord(ctx, bases.pages, args.dealId), visibleWorkflowObjects(ctx)]);
-    const input = { pages, objects, request };
+    const currentTarget = pages.find((page) => page.target === args.currentTarget)?.target;
+    const input = { pages, objects, request, ...(images.length ? { imageReference: { currentTarget } } : {}) };
     const meter = turnMeter(PROPOSAL_BUDGET, start);
     const proposal = await proposeWorkflow(input, {
       skill: CANON_LAYOUT_SKILL, charge: (prompt) => meter.charge(prompt),
-      call: (prompt) => llm ? forcedToolCall(prompt, WORKFLOW_TOOL, { ...WORKFLOW_SCHEMA, properties: { ...WORKFLOW_SCHEMA.properties, ops: { type: "object", additionalProperties: opsSchema("deal").properties.ops } } }, customizeModel(llm, DEFAULT_MODELS), llm) : Promise.resolve(standInWorkflow(input)),
+      call: (prompt) => llm ? callCustomizeModel(prompt, WORKFLOW_TOOL, { ...WORKFLOW_SCHEMA, properties: { ...WORKFLOW_SCHEMA.properties, ops: { type: "object", additionalProperties: opsSchema("deal").properties.ops } } }, llm, images) : Promise.resolve(standInWorkflow(input)),
     });
-    return { ...proposal, model: llm ? `${llm.provider}:${customizeModel(llm, DEFAULT_MODELS)}` : STAND_IN_MODEL, ms: Date.now() - start };
+    const summary = proposal.summary + (standIn ? standInImageNote(images.length) : "");
+    return { ...proposal, summary, model: llm ? `${llm.provider}:${customizeModel(llm, DEFAULT_MODELS)}` : STAND_IN_MODEL, ms: Date.now() - start };
   },
 });

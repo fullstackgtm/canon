@@ -4,6 +4,8 @@ import type { WorkflowProposal } from "../../../convex/lib/workflowAgent";
 import { WorkflowTray } from "./workflow-tray";
 import { SuggestedPrompt, usePromptSuggestions, type SuggestionCache } from "./suggested-prompt";
 import { IntegrationGate } from "@/components/integration-gate";
+import { DEFAULT_IMAGE_REQUEST } from "../../../recipes/imageReferences";
+import { useReferenceImages } from "./use-reference-images";
 
 /**
  * Customize mode (prototype): the pencil in the lower-right dock. Hover it for what this page can change; click it and the
@@ -36,7 +38,7 @@ export type CustomizeAdapter = {
   describe: (el: HTMLElement) => CustomizeTarget | null;
   /** Queue an instruction about `el`; it applies to the page as soon as it is worked out, without asking. */
   /** `pointed` says in words what was under the pointer: the exact element and the area around it. */
-  submit: (text: string, el: HTMLElement | null, pointed: string) => void;
+  submit: (text: string, el: HTMLElement | null, pointed: string, images?: string[]) => void;
   jobs: CustomizeJob[];
   undo: () => void;
   reset: () => void;
@@ -46,7 +48,6 @@ export type CustomizeAdapter = {
   /** Save the edits as the workspace's recipe. */
   save: (acceptFailingEvals?: boolean) => void;
   saved: { state: "saving" | "saved" | "blocked" | "failed"; message?: string } | null;
-  stages?: { options: { value: string | null; label: string }[]; value: string | null; set: (v: string | null) => void };
 };
 
 type Ctx = { suggestionCache: SuggestionCache | null; workflow: (WorkflowProposal & { model: string; ms: number }) | null; setWorkflow: (value: (WorkflowProposal & { model: string; ms: number }) | null) => void; customizing: boolean; setCustomizing: (on: boolean) => void; adapter: CustomizeAdapter | null; setAdapter: (a: CustomizeAdapter | null) => void };
@@ -146,23 +147,10 @@ function CustomizeTrayEnabled() {
           {adapter.promote && <button type="button" onClick={adapter.promote} className="block underline">Promote to workspace</button>}
         </div>}
         {customizing && <WorkflowTray />}
-        {adapter?.stages && <div className="border-b border-white/10 px-4 py-2"><StagePicker stages={adapter.stages} /></div>}
         {jobs.length > 0 && <div className="max-h-[50vh] overflow-y-auto px-2 py-2 text-xs"><JobList jobs={jobs} /></div>}
         {adapter && (adapter.kept > 0 || adapter.saved) && <div className="border-t border-white/10 px-3 py-2 text-xs"><SaveBar adapter={adapter} /></div>}
       </PopoverContent>
     </Popover>
-  );
-}
-
-function StagePicker({ stages }: { stages: NonNullable<CustomizeAdapter["stages"]> }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1 text-[11px]">
-      <span className="text-stone-500">See it in</span>
-      {stages.options.map((o) => (
-        <button key={o.value ?? "now"} type="button" onClick={() => stages.set(o.value)}
-          className={cn("rounded-full border px-2 py-0.5", stages.value === o.value ? "border-violet-500 bg-violet-500/20 text-white" : "border-white/15 text-stone-300 hover:border-white/40")}>{o.label}</button>
-      ))}
-    </div>
   );
 }
 
@@ -221,6 +209,8 @@ function CustomizeOverlay() {
   const [pointed, setPointed] = useState("");
   const [text, setText] = useState("");
   const [rect, setRect] = useState<DOMRect | null>(null);
+  const attachments = useReferenceImages();
+  const { clear: clearAttachments } = attachments;
   const focusComment = useCallback((input: HTMLTextAreaElement | null) => {
     if (!input) return;
     input.focus();
@@ -244,7 +234,7 @@ function CustomizeOverlay() {
     return () => cancelAnimationFrame(raf);
   }, [selecting, target]);
 
-  const close = useCallback(() => { setPinned(null); setText(""); }, []);
+  const close = useCallback(() => { setPinned(null); setText(""); clearAttachments(); }, [clearAttachments]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { if (pinned) close(); else setCustomizing(false); return; }
@@ -261,17 +251,20 @@ function CustomizeOverlay() {
     return () => window.removeEventListener("keydown", onKey);
   }, [selecting, pinned, hover, close, setCustomizing]);
 
+  const hasComment = Boolean(text.trim() || attachments.images.length);
+  const canSubmit = hasComment && !attachments.pending && !ctx.workflow?.targets.length;
   function submit() {
-    const request = text.trim();
-    if (!request || !pinned) return;
-    adapter?.submit(request, pinned, pointed);
+    if (!canSubmit || !pinned) return;
+    const images = attachments.images.map((image) => image.url);
+    adapter?.submit(text.trim() || DEFAULT_IMAGE_REQUEST, pinned, pointed, images.length ? images : undefined);
     close();
   }
 
   const info = pinned ? adapter?.describe(pinned) ?? null : null;
   const suggestions = usePromptSuggestions(ctx.suggestionCache, adapter && info ? { target: adapter.object, sectionId: info.sectionId } : null);
   const hoverInfo = !pinned && hover ? adapter?.describe(hover) ?? null : null;
-  const bubbleTop = rect ? (rect.bottom + 260 < window.innerHeight ? rect.bottom + 10 : Math.max(12, rect.top - 270)) : 0;
+  const bubbleHeight = attachments.images.length || attachments.pending || attachments.error ? 340 : 275;
+  const bubbleTop = rect ? (rect.bottom + bubbleHeight < window.innerHeight ? rect.bottom + 10 : Math.max(12, rect.top - bubbleHeight)) : 0;
   const bubbleLeft = rect ? Math.min(Math.max(12, rect.left), window.innerWidth - 432) : 0;
 
   return (
@@ -280,7 +273,7 @@ function CustomizeOverlay() {
         // The page under the selector: dimmed, inert, and the pointed-at area cut out bright.
         <div data-customize-chrome className="fixed inset-0 z-[45]" style={{ cursor: pinned ? "default" : hover ? CURSOR : "not-allowed" }}
           onMouseMove={(e) => { if (!pinned) { setHover(areaAt(e.clientX, e.clientY)); leaf.current = leafAt(e.clientX, e.clientY); } }}
-          onMouseDown={(e) => { e.preventDefault(); if (pinned) { if (!text.trim()) close(); return; } const a = areaAt(e.clientX, e.clientY); if (a) { setPinned(a); setPointed(pointedAt(leafAt(e.clientX, e.clientY), a)); } }}
+          onMouseDown={(e) => { e.preventDefault(); if (pinned) { if (!hasComment && !attachments.pending) close(); return; } const a = areaAt(e.clientX, e.clientY); if (a) { setPinned(a); setPointed(pointedAt(leafAt(e.clientX, e.clientY), a)); } }}
           onWheel={(e) => { window.scrollBy(0, e.deltaY); document.querySelector("main")?.scrollBy(0, e.deltaY); }}>
           {rect ? (
             <div className="pointer-events-none fixed rounded-md outline outline-2 outline-violet-500 transition-all duration-100"
@@ -311,10 +304,10 @@ function CustomizeOverlay() {
             </div>
           )}
           <SuggestedPrompt ref={focusComment} rows={2} value={text} onValueChange={setText} onSubmit={submit}
-            {...suggestions} aria-label="What should this section do?" />
+            attachments={attachments} {...suggestions} aria-label="What should this section do?" />
           <div className="mt-1.5 flex items-center justify-between text-[11px] text-stone-500">
             <span><CornerDownLeft className="inline size-3" /> to do it · keep pointing and typing to queue more</span>
-            <button type="button" onClick={submit} disabled={!text.trim()} className="rounded-md bg-violet-600 px-2.5 py-1 font-medium text-white disabled:opacity-40">Do it</button>
+            <button type="button" onClick={submit} disabled={!canSubmit} className="rounded-md bg-violet-600 px-2.5 py-1 font-medium text-white disabled:opacity-40">Do it</button>
           </div>
         </div>
       )}

@@ -29,13 +29,15 @@ test("deal suggestions expose play blocks only when the deal play is available",
   const fixture = fixtureInput("");
   const scope = { target: "deal" };
   const unavailable = customizationSuggestionContext(fixture, scope);
-  assert.ok(!Object.hasOwn(unavailable.context.blocks, "stageRail"));
-  assert.ok(!unavailable.pages[0].addable.includes("stageRail"));
+  assert.ok(Object.hasOwn(unavailable.context.blocks, "stageRail"));
+  assert.ok(unavailable.pages[0].addable.includes("stageRail"));
+  assert.ok(!Object.hasOwn(unavailable.context.blocks, "prep"));
+  assert.ok(!unavailable.pages[0].addable.includes("prep"));
 
   fixture.pages.find((p) => p.target === "deal")!.dealPlay = { available: true, stage: "in" };
   const available = customizationSuggestionContext(fixture, scope);
-  assert.ok(Object.hasOwn(available.context.blocks, "stageRail"));
-  assert.ok(available.pages[0].addable.includes("stageRail"));
+  assert.ok(Object.hasOwn(available.context.blocks, "prep"));
+  assert.ok(available.pages[0].addable.includes("prep"));
 });
 
 test("suggest refuses a missing plan before reading the object catalog or calling a model", async () => {

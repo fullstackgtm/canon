@@ -11,6 +11,10 @@ import { isDevAuthBypassEnabled } from "../lib";
 
 export const STAND_IN_MODEL = "local:stand-in";
 
+export function standInImageNote(count: number): string {
+  return count ? ` (${count} ${count === 1 ? "image" : "images"} attached; the local stand-in ignores images.)` : "";
+}
+
 export function recipeAgentStandIn(): boolean {
   let host = "";
   try {

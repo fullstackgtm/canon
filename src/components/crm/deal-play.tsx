@@ -128,7 +128,7 @@ function EditText({ value, placeholder, multiline, disabled, onSave, className }
   return multiline ? <textarea rows={3} {...props} /> : <input {...props} />;
 }
 
-/** The record's own sections, which the record page draws: its header, fields, timeline, history, related records, products, splits and apps. */
+/** The sections drawn by the record page, including the pipeline stage rail. */
 export type RecordRenderers = Pick<Renderers, RecordComponent | import("../../../recipes/data").DataComponent | "header">;
 
 /** `page` is the workspace recipe's `deal.page` slot. Every section, the play's and the record's, shows in its order. */
@@ -177,12 +177,12 @@ type PlaySection<K extends PlayComponent> = SectionProps & { section: SectionOf<
 
 /** The play's sections, drawn only once the play loads: none of them can show without it. */
 export const NO_PLAY: Pick<Renderers, PlayComponent> = {
-  queue: () => null, summary: () => null, stageRail: () => null, fanOut: () => null, prep: () => null,
+  queue: () => null, summary: () => null, fanOut: () => null, prep: () => null,
   plan: () => null, keeper: () => null, brief: () => null, accountMap: () => null, touches: () => null,
 };
 
 /** Each play component by kind, given the play. */
-const playRenderers = (p: SectionProps): Pick<Renderers, PlayComponent> => ({
+const playRenderers = (p: SectionProps): Pick<Renderers, PlayComponent | "stageRail"> => ({
   queue: (section) => <DealQueue streamId={p.data.streamId} actions={sectionActions(section)} ctx={pageContext(p.data)} />,
   summary: (section) => <><DealStateSection data={p.data} busy={p.busy} run={p.run} /><Summary {...p} section={section} /></>,
   stageRail: () => <StageRail data={p.data} />,
@@ -199,7 +199,7 @@ function Plane({ data, busy, run, team, page, record }: { data: ControlPlane; bu
   const saveStep = useAction(api.dealPlays.saveStep);
   const { streamId } = data;
   const propose = (p: Proposal) => run(() => saveStep({ streamId, title: p.title, channel: p.channel, ...(p.contactId ? { contactId: p.contactId } : {}), ...(p.role ? { role: p.role } : {}) }), "Added to the plan");
-  return <div className="mb-6"><PageSections object="deal" page={page} stage={data.stage} renderers={{ ...playRenderers({ data, busy, run, team, page, propose }), ...record }} /><DealChat key={streamId} streamId={streamId} team={team} /></div>;
+  return <div className="mb-6"><PageSections object="deal" page={page} stage={data.stage} renderers={{ ...record, ...playRenderers({ data, busy, run, team, page, propose }) }} /><DealChat key={streamId} streamId={streamId} team={team} /></div>;
 }
 
 const STATE_DOT = { established: "bg-emerald-600", partial: "bg-yellow-500", missing: "bg-red-500", unknown: "bg-muted-foreground/50" };

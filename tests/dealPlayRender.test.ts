@@ -16,6 +16,7 @@ import * as icpGates from "../convex/lib/icpGates.ts";
 import * as peopleResearch from "../convex/lib/plays/peopleResearch.ts";
 import * as drafts from "../convex/lib/plays/drafts.ts";
 import * as runs from "../convex/lib/plays/runs.ts";
+import * as pipelines from "../convex/lib/pipelines.ts";
 
 const savedIcps = [
   { key: "revenue", name: "Revenue leaders", active: true, spec: { ...icps.emptySpec(), persona: { levels: [], departments: [], titles: ["VP Revenue"] } } },
@@ -43,6 +44,43 @@ const transpile = (path: string) => ts.transpileModule(readFileSync(new URL(path
 const outputText = transpile("../src/components/crm/deal-play.tsx");
 const sectionsText = transpile("../src/components/records/page-sections.tsx");
 const record = Object.fromEntries(recipes.RECORD_COMPONENTS.map((c) => [c, () => createElement("section", { "data-record": c })]));
+
+test("the record's stage rail shows the deal's pipeline in order and marks open and closed stages", () => {
+  const options = [
+    { value: "prospecting", label: "Prospecting", active: true },
+    { value: "renewal_proposal", label: "Renewal proposal", active: true },
+    { value: "renewal_won", label: "Renewed", active: true },
+    { value: "renewal_lost", label: "Churned", active: true },
+    { value: "renewal_review", label: "Renewal review", active: true },
+  ];
+  const configured = pipelines.resolvePipelines(options, [
+    { id: "sales", name: "Sales", createdAt: 1, stages: [{ value: "prospecting", probability: 10, forecastCategory: "pipeline" }] },
+    { id: "renewals", name: "Renewals", createdAt: 2, stages: [
+      { value: "renewal_review", probability: 20, forecastCategory: "pipeline" },
+      { value: "renewal_proposal", probability: 60, forecastCategory: "commit" },
+      { value: "renewal_won", probability: 100, forecastCategory: "closed_won" },
+      { value: "renewal_lost", probability: 0, forecastCategory: "closed_lost" },
+    ] },
+  ]);
+  type Props = { stage: string; title: string };
+  const exports = {} as { DealPipelineRail: (props: Props) => ReactElement };
+  const stubs: Record<string, unknown> = {
+    "convex/react": { useQuery: () => configured },
+    "../../../convex/_generated/api": { api: { pipelines: { list: "pipelines:list" } } },
+    "../../../convex/lib/pipelines": pipelines,
+    "@/lib/utils": { cn: (...classes: string[]) => classes.join(" ") },
+  };
+  runInNewContext(transpile("../src/components/records/deal-pipeline-rail.tsx"), {
+    exports, require: (id: string) => stubs[id] ?? require(id),
+  });
+  for (const [stage, label] of [["renewal_proposal", "Renewal proposal"], ["renewal_won", "Renewed"], ["renewal_lost", "Churned"]]) {
+    const html = renderToStaticMarkup(createElement(exports.DealPipelineRail, { stage, title: "Stage rail" }));
+    assert.match(html, /aria-label="Renewals".*Renewal review.*Renewal proposal.*Renewed.*Churned/);
+    assert.match(html, new RegExp(`aria-current="step"[^>]*><span[^>]*></span>${label}</li>`));
+    assert.equal((html.match(/aria-current="step"/g) ?? []).length, 1);
+    assert.doesNotMatch(html, /Prospecting|<button|<a /);
+  }
+});
 
 function harness(plan = steps, canEdit = true, extra: Record<string, unknown> = {}, page: recipes.PageSpec = recipes.RECIPES["fsgtm-enterprise-deal"].dealPage) {
   const data = {
@@ -353,11 +391,11 @@ test("the page draws its sections, the play's and the record's, in the recipe's 
   const fsgtm = recipes.RECIPES["fsgtm-enterprise-deal"].dealPage;
   const pick = (c: string) => fsgtm.find((s) => s.component === c)!;
   const page: recipes.PageSpec = [
-    { ...pick("fieldGrid"), when: undefined, collapsed: false }, pick("touches"), pick("plan"), { ...pick("brief"), collapsed: false }, pick("summary"),
+    { ...pick("fieldGrid"), when: undefined, collapsed: false }, pick("stageRail"), pick("touches"), pick("plan"), { ...pick("brief"), collapsed: false }, pick("summary"),
   ];
   const html = harness(steps, true, {}, page).render();
   const at = (needle: string) => { const i = html.indexOf(needle); assert.ok(i >= 0, needle); return i; };
-  const order = [at('data-record="fieldGrid"'), at("Activity · 0"), at("Next action"), at("Brief &amp; evidence"), at("Research account")];
+  const order = [at('data-record="fieldGrid"'), at("Leave this stage when:"), at("Activity · 0"), at("Next action"), at("Brief &amp; evidence"), at("Research account")];
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
   assert.match(html, /<details[^>]*><summary[^>]*>Activity · 0/);
   assert.match(html, /<section[^>]*><div[^>]*><h2[^>]*>Brief &amp; evidence/);

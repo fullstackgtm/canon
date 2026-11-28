@@ -12,7 +12,7 @@ import { sectionKey, type LayoutTree } from "../../../../recipes/layout";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
-import { DEAL_STAGES, type DealStage } from "../../../../convex/lib/plays/model";
+import type { DealStage } from "../../../../convex/lib/plays/model";
 import type { PageSection, PageSpec } from "../../../../recipes";
 import { pageOf } from "../../../../recipes/kernel";
 import type { SectionRef } from "../../../../recipes/md/edit";
@@ -43,7 +43,7 @@ function whenText(s: PageSection) {
   return "shows in every stage";
 }
 
-type Job = CustomizeJob & { target: { component: string; title: string; nth: number } | null; pointed: string };
+type Job = CustomizeJob & { target: { component: string; title: string; nth: number } | null; pointed: string; images?: string[] };
 
 /** The page the record draws, customize mode's adapter for it, and the provider its sections read. */
 export function useShapeMode({ object = "deal", base, markdown, recipeId, revision, recipeTitle, layoutTree }: { object?: string; base: PageSpec; layoutTree?: LayoutTree; markdown: string | null; recipeId: string | null; revision: number | null; recipeTitle?: string }) {
@@ -55,7 +55,6 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
   const effectiveMarkdown = scope === "workspace" ? personal?.workspaceMarkdown ?? markdown : personal?.markdown ?? markdown;
   const [drafts, setDrafts] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [stage, setStage] = useState<DealStage | null>(null);
   const run = useAction(api.pageCustomize.edit);
   const saveDraft = useAction(api.pageCustomize.save);
   const [saved, setSaved] = useState<CustomizeAdapter["saved"]>(null);
@@ -111,11 +110,11 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
   useEffect(() => {
     if (working || !next || !draft || saved?.state === "saving") return;
     const started = Date.now();
-    setJobs((js) => js.map((j) => (j.id === next.id ? { ...j, status: "working" } : j)));
+    setJobs((js) => js.map((j) => (j.id === next.id ? { ...j, images: undefined, status: "working" } : j)));
     // The section may have moved since the comment: find it again by its title.
     const i = next.target ? page.findIndex((s, k) => s.component === next.target!.component && (s.title ?? lens[k]?.title ?? s.component) === next.target!.title) : -1;
     const target = i >= 0 ? refOf(page, i) : next.target ? { component: next.target.component as SectionRef["component"], nth: next.target.nth } : undefined;
-    void run({ object, recipeId: recipeId!, markdown: draft, request: next.request, pointed: next.pointed, ...(target ? { target } : {}) }).then((r) => {
+    void run({ object, recipeId: recipeId!, markdown: draft, request: next.request, pointed: next.pointed, ...(next.images ? { images: next.images } : {}), ...(target ? { target } : {}) }).then((r) => {
       if (r.markdown !== draft) {
         const before = new Set(pageOf(parseRecipe(draft).recipe, object).map((s) => JSON.stringify(s)));
         lastFresh.current = new Set(pageOf(parseRecipe(r.markdown).recipe, object).map((s) => JSON.stringify(s)).filter((k) => !before.has(k)));
@@ -160,13 +159,13 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
       };
       return t;
     },
-    submit: (text, el, pointed) => {
+    submit: (text, el, pointed, images) => {
       if (customize?.workflow?.targets.length) return;
       const i = sectionOf(el);
       const s = i === null ? null : page[i];
       const target = s ? { component: s.component, title: s.title ?? lens[i!]?.title ?? s.component, nth: refOf(page, i!).nth ?? 0 } : null;
       const where = target?.title ?? (/"([^"]+)"/.exec(pointed.split("in the area headed")[1] ?? pointed)?.[1] ?? "Page");
-      setJobs((js) => [...js, { id: `${Date.now()}-${js.length}`, request: text, where, pointed, status: "queued", target }]);
+      setJobs((js) => [...js, { id: `${Date.now()}-${js.length}`, request: text, where, pointed, status: "queued", target, images }]);
     },
     jobs,
     undo: () => setDrafts((d) => d.slice(0, -1)),
@@ -175,9 +174,8 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     pending: jobs.some((j) => j.status === "queued" || j.status === "working"),
     saved,
     save: (accept) => void save(accept),
-    stages: object === "deal" ? { options: [{ value: null, label: "this deal's stage" }, ...DEAL_STAGES.map((s) => ({ value: s, label: STAGE_NAMES[s] }))], value: stage, set: (v) => setStage(v as DealStage | null) } : undefined,
   } : null;
-  useCustomizeAdapter(adapter, [active, jobs, drafts, stage, markdown, base, recipeTitle, saved, object, personal, scope, customize?.workflow]);
+  useCustomizeAdapter(adapter, [active, jobs, drafts, markdown, base, recipeTitle, saved, object, personal, scope, customize?.workflow]);
 
   // Compare like with like: the recipe in force as the browser parses it, not as the server sent it.
   const baseKeys = useMemo(() => new Set((markdown ? pageOf(parseRecipe(markdown).recipe, object) : base).map((s) => JSON.stringify(s))), [markdown, base, object]);
@@ -185,7 +183,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     indexOf: (s) => page.indexOf(s),
     changed: (s) => drafts.length > 0 && !baseKeys.has(JSON.stringify(s)),
     fresh: (s) => lastFresh.current.has(JSON.stringify(s)),
-    stage: customize.customizing ? stage : null,
+    stage: null,
   } : null;
   const tree = draft ? parseRecipe(draft).recipe.layouts?.[object] : layoutTree;
   const provider = (children: ReactNode) => <LayoutTreeContext.Provider value={tree}><ShapeContext.Provider value={shape}>{children}</ShapeContext.Provider></LayoutTreeContext.Provider>;

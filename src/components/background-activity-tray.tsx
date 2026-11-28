@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Component, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Component, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { CheckCircle2, CircleAlert, Clock3, History, Loader2, LoaderCircle, RefreshCw } from "lucide-react";
 import { api } from "../../convex/_generated/api";
@@ -16,7 +16,7 @@ import {
 } from "@/lib/background-activity";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CustomizeTray } from "@/components/customize/customize-mode";
-import { FloatingTrayDock, trayLauncherClassName } from "@/components/floating-tray-dock";
+import { FloatingTrayDock, trayLauncherClassName, useHoverTray } from "@/components/floating-tray-dock";
 import { BugDropTray } from "@/components/bugdrop-tray";
 import { JobPhaseBars } from "@/components/job-phase-bars";
 
@@ -82,28 +82,10 @@ function ActivityRow({ entry }: { entry: BackgroundActivityEntry }) {
 
 /** A quiet, global home for long-running work and its recent history (from QuotaQueue). */
 function BackgroundActivityTray() {
-  const [open, setOpen] = useState(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { open, setOpen, triggerProps, contentProps } = useHoverTray();
   const activity = useQuery(api.activity.background, {});
   const { active, recent } = partitionBackgroundActivity(activity ?? []);
   const activeCount = active.length;
-
-  const cancelClose = useCallback(() => {
-    if (closeTimer.current) {
-      clearTimeout(closeTimer.current);
-      closeTimer.current = null;
-    }
-  }, []);
-  const openTray = useCallback(() => {
-    cancelClose();
-    setOpen(true);
-  }, [cancelClose]);
-  const scheduleClose = useCallback(() => {
-    cancelClose();
-    // Time to cross the gap between the launcher and the portalled panel.
-    closeTimer.current = setTimeout(() => setOpen(false), 150);
-  }, [cancelClose]);
-  useEffect(() => cancelClose, [cancelClose]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -111,9 +93,7 @@ function BackgroundActivityTray() {
         <button
           type="button"
           aria-label={backgroundActivityLabel(activeCount)}
-          onMouseEnter={openTray}
-          onMouseLeave={scheduleClose}
-          onFocus={openTray}
+          {...triggerProps}
           title={activeCount > 0 ? "Background work in progress" : "Background activity"}
           className={cn(trayLauncherClassName, activeCount > 0 && "border-primary/40 bg-primary/10 text-primary")}
         >
@@ -129,10 +109,7 @@ function BackgroundActivityTray() {
         side="top"
         align="end"
         sideOffset={12}
-        onMouseEnter={cancelClose}
-        onMouseLeave={scheduleClose}
-        // Returning focus to the trigger would reopen the tray the pointer just left.
-        onCloseAutoFocus={(event) => event.preventDefault()}
+        {...contentProps}
         className="w-[380px] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
       >
         <div className="border-b border-border px-4 py-3">

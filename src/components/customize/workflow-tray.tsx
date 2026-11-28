@@ -7,24 +7,31 @@ import { api } from "../../../convex/_generated/api";
 import { SuggestedPrompt, useDealRecordId, usePromptSuggestions } from "./suggested-prompt";
 import { useCustomizeMode } from "./customize-mode";
 import { getErrorMessage } from "@/lib/utils";
+import { useReferenceImages } from "./use-reference-images";
 
 export function WorkflowTray() {
   const ctx = useCustomizeMode()!;
   const inputId = useId();
   const pathname = usePathname();
   const dealId = useDealRecordId();
-  const suggestions = usePromptSuggestions(ctx.suggestionCache, { target: ctx.adapter?.object ?? routeTarget(pathname) });
+  const target = ctx.adapter?.object ?? routeTarget(pathname);
+  const suggestions = usePromptSuggestions(ctx.suggestionCache, { target });
   const run = useAction(api.pageCustomize.workflow);
   const save = useMutation(api.workspaceRecipes.saveWorkflow);
   const [request, setRequest] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const attachments = useReferenceImages();
   const proposal = ctx.workflow;
-  const canSubmit = !busy && !!request.trim() && !proposal?.targets.length && !ctx.adapter?.pending && !ctx.adapter?.kept;
+  const canSubmit = !busy && !attachments.pending && (!!request.trim() || attachments.images.length > 0) && !proposal?.targets.length && !ctx.adapter?.pending && !ctx.adapter?.kept;
   async function submit() {
     if (!canSubmit) return;
     setBusy(true); setMessage("");
-    try { ctx.setWorkflow(await run({ request, ...(dealId ? { dealId } : {}) })); } catch (e) { setMessage(getErrorMessage(e)); }
+    try {
+      const images = attachments.images.map((image) => image.url);
+      ctx.setWorkflow(await run({ request, ...(dealId ? { dealId } : {}), ...(images.length ? { images, ...(target ? { currentTarget: target } : {}) } : {}) }));
+      attachments.clear();
+    } catch (e) { setMessage(getErrorMessage(e)); }
     finally { setBusy(false); }
   }
   async function persist() {
@@ -39,7 +46,7 @@ export function WorkflowTray() {
   return <div className="space-y-2 border-t border-white/10 px-4 py-3 text-xs">
     <label htmlFor={inputId} className="block font-semibold">Describe how you work</label>
     <SuggestedPrompt id={inputId} rows={3} maxLength={2000} value={request} onValueChange={setRequest}
-      onSubmit={() => void submit()} {...suggestions} disabled={busy || Boolean(proposal?.targets.length)} />
+      onSubmit={() => void submit()} attachments={attachments} {...suggestions} disabled={busy || Boolean(proposal?.targets.length)} />
     <button type="button" disabled={!canSubmit} onClick={() => void submit()} className="rounded-md bg-violet-600 px-3 py-1.5 disabled:opacity-50">{busy ? "Working…" : "Shape my pages"}</button>
     {proposal && <div className="max-h-[35vh] space-y-2 overflow-y-auto" role="status">
       <p>{proposal.summary}</p>
