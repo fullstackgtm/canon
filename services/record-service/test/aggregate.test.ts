@@ -3,7 +3,7 @@
 // including a key on a related company and a date bucket.
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { aggregateRowsInMemory, compileAggregateRequest, type AggregateRequest } from "../src/core/objects/reportSpec.ts";
+import { aggregateRowsInMemory, compileAggregateRequest, GROUPS_MAX, type AggregateRequest } from "../src/core/objects/reportSpec.ts";
 import { indexObjectDef, resolveObjectDef, STANDARD_OBJECTS } from "../src/core/objects/registry.ts";
 import { registerListDef, type ListRow } from "../src/core/objects/listSpec.ts";
 import { FakeLedger } from "./ledgerFake.ts";
@@ -78,6 +78,14 @@ describe("report aggregates", () => {
     ], "a deal whose company is unknown, or has no company, groups as empty");
     assert.deepEqual(got.groups.map((g: { keys: unknown[] }) => g.keys), [["Retail", "2026-01-01"], ["Software", "2026-01-01"], ["Software", "2026-02-01"], [null, "2026-04-01"]]);
 
+    const byAmount: AggregateRequest = {
+      ...byIndustryMonth, groupOrder: "firstMeasureDesc", measures: [{ fn: "min", field: "probability" }, { fn: "count" }],
+    };
+    const ranked = await run(byAmount);
+    assert.deepEqual(ranked, expected(byAmount));
+    assert.deepEqual(ranked.groups.map((g: { keys: unknown[] }) => g.keys), [["Software", "2026-02-01"], ["Software", "2026-01-01"], ["Retail", "2026-01-01"], [null, "2026-04-01"]]);
+    assert.deepEqual(ranked.subtotals.map((g: { keys: unknown[] }) => g.keys), [["Retail"], ["Software"], [null]]);
+
     const threeKeys: AggregateRequest = {
       groupBy: [{ field: "stage" }, { field: "industry", via: "companyId" }, { field: "closeDate", bucket: "month" }],
       measures: [{ fn: "count" }, { fn: "sum", field: "amount", weight: "probability" }],
@@ -95,6 +103,27 @@ describe("report aggregates", () => {
     const daily: AggregateRequest = { groupBy: [{ field: "closeDate", bucket: "day" }], measures: [{ fn: "sum", field: "amount" }] };
     assert.deepEqual(await run(daily), expected(daily));
     assert.equal((await ctx.client.ws(w).post("p/deal/aggregate", { groupBy: [{ field: "amount" }], measures: [{ fn: "count" }] })).status, 400, "a plain number is not a group key");
+  });
+
+  it("keeps the largest contact title groups even past the cutoff in key order", async () => {
+    const accountDomain = "group-rank.example";
+    await post("accounts/upsert", { records: [{ domain: accountDomain, name: "Group rank" }], source: "pdl", idempotencyKey: "group-rank-account" });
+    const titles = [...Array.from({ length: GROUPS_MAX }, (_, i) => `Job ${String(i).padStart(4, "0")}`), "VP Sales", "VP Sales", undefined, undefined];
+    await post("contacts/upsert", {
+      records: titles.map((title, i) => ({ accountDomain, fullName: `Person ${i}`, email: `person-${i}@${accountDomain}`, title })),
+      source: "pdl", idempotencyKey: "group-rank-contacts",
+    });
+    const request = { groupBy: [{ field: "title" }], measures: [{ fn: "count" }] };
+    const byKey = await post("register/contact/aggregate", request);
+    assert.equal(byKey.groups.at(-1).keys[0], "Job 0499");
+    const ranked = await post("register/contact/aggregate", { ...request, groupOrder: "firstMeasureDesc" });
+    assert.deepEqual(ranked.groups.slice(0, 3), [
+      { keys: ["VP Sales"], values: [2] }, { keys: [null], values: [2] }, { keys: ["Job 0000"], values: [1] },
+    ]);
+    assert.equal(ranked.groups.length, GROUPS_MAX);
+    assert.equal(ranked.truncated, true);
+    assert.equal(ranked.rows, titles.length);
+    assert.deepEqual(ranked.total, [titles.length]);
   });
 
   it("counts notes, tasks, calls and meetings together as activities, by owner and type", async () => {

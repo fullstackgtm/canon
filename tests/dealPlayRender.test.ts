@@ -1,4 +1,4 @@
-import { tabs } from "./helpers/layout-tabs.ts";
+import { recordSummary, tabs } from "./helpers/layout-tabs.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -70,6 +70,7 @@ test("the record's stage rail shows the deal's pipeline in order and marks open 
     "convex/react": { useQuery: () => configured },
     "../../../convex/_generated/api": { api: { pipelines: { list: "pipelines:list" } } },
     "../../../convex/lib/pipelines": pipelines,
+    "./record-summary": recordSummary,
     "@/lib/utils": { cn: (...classes: string[]) => classes.join(" ") },
   };
   runInNewContext(transpile("../src/components/records/deal-pipeline-rail.tsx"), {
@@ -185,6 +186,7 @@ function harness(plan = steps, canEdit = true, extra: Record<string, unknown> = 
     "./shape/shape-mode": { LayoutTreeContext: createContext(undefined), useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children },
   };
   const pageSections: Record<string, unknown> = {};
+  stubs["./record-summary"] = recordSummary;
   runInNewContext(sectionsText, { exports: pageSections, require: (id: string) => stubs[id] });
   stubs["@/components/records/page-sections"] = pageSections;
   const exports: { DealPlay?: (props: { streamId: string; amount: number | null; currency: string; team: never[]; page: recipes.PageSpec; record: typeof record }) => ReactNode } = {};

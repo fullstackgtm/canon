@@ -209,7 +209,7 @@ export function aggregateModuleDocs(w: Workspace | null, module: string, body: M
   const def = moduleReportDef(body.collection, body.fields);
   let q;
   try {
-    q = compileAggregateRequest(body.collection, def, { filter: body.filter, groupBy: body.groupBy, measures: body.measures }, () => undefined);
+    q = compileAggregateRequest(body.collection, def, { filter: body.filter, groupBy: body.groupBy, groupOrder: body.groupOrder, measures: body.measures }, () => undefined);
   } catch (e) {
     if (e instanceof ListRequestError) throw new HttpError(400, e.message);
     throw e;

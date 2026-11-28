@@ -19,7 +19,7 @@ import { ACTIVITY_OBJECT, MEASURE_FNS, REPORT_BUCKETS, type MeasureFn, type Repo
 
 export const GROUP_BY_MAX = 3;
 export const MEASURES_MAX = 5;
-/** Groups (and subtotals) a response carries, in key order; past it the response is `truncated`. Totals always count every row. */
+/** Maximum groups and subtotals returned per level. Past it the response is `truncated`; totals still count every row. */
 export const GROUPS_MAX = 500;
 
 /** A group key: `field` of the object, or with `via`, of the record its lookup `via` points at. A date groups by `bucket` (month by default). */
@@ -27,14 +27,16 @@ export type ReportGroup = { field: string; via?: string; bucket?: ReportBucket }
 /** `weight` (1.35.0): a field each value is multiplied by, as a weighted pipeline sums amount × probability (a fraction). */
 export type ReportMeasure = { fn: MeasureFn; field?: string; weight?: string };
 /** `scope` (CP14, 1.29.0) narrows the counted records to what the caller sees, as a list's scope does. */
-export type AggregateRequest = { company?: CompanyPredicate; filter?: readonly ListFilter[]; groupBy?: readonly ReportGroup[]; measures: readonly ReportMeasure[]; scope?: OwnerScope };
+export type AggregateRequest = { company?: CompanyPredicate; filter?: readonly ListFilter[]; groupBy?: readonly ReportGroup[]; groupOrder?: "firstMeasureDesc"; measures: readonly ReportMeasure[]; scope?: OwnerScope };
 
 /** One group: its key values (a date bucket is the `YYYY-MM-DD` it starts on) and one value per measure. */
 export type AggregateGroup = { keys: (Scalar | null)[]; values: (number | null)[] };
 /**
  * `groups` holds every key combination, `subtotals` (two or three group keys)
  * one per combination of every key but the last (a matrix's rows), `total` the
- * measures over every matching row. Groups are in key order, empty keys last.
+ * measures over every matching row. Groups and subtotals default to key order
+ * with empty keys last. `firstMeasureDesc` ranks leaf groups before the cap,
+ * with null measures last and key order breaking ties.
  */
 export type AggregateResponse = { groups: AggregateGroup[]; subtotals: AggregateGroup[]; total: (number | null)[]; rows: number; truncated: boolean; projectedThrough: ProjectedThrough };
 
@@ -106,7 +108,7 @@ export type CompiledGroup = {
   via: { name: string; col: ListColumn | typeof CONTACT_COMPANY_VIA } | null;
 };
 export type CompiledMeasure = { fn: MeasureFn; col: ListColumn | null; weight: ListColumn | null };
-export type CompiledAggregate = { object: string; filters: CompiledFilter[]; scope: CompiledScope | null; groups: CompiledGroup[]; measures: CompiledMeasure[] };
+export type CompiledAggregate = { object: string; filters: CompiledFilter[]; scope: CompiledScope | null; groups: CompiledGroup[]; groupOrder: AggregateRequest["groupOrder"]; measures: CompiledMeasure[] };
 
 /**
  * Validate an aggregate request against the object's list definition. `defOf`
@@ -121,6 +123,7 @@ export function compileAggregateRequest(
   const columns = listColumns(def);
   const groupBy = req.groupBy ?? [];
   if (groupBy.length > GROUP_BY_MAX) throw new ListRequestError(`at most ${GROUP_BY_MAX} group keys`);
+  if (req.groupOrder !== undefined && req.groupOrder !== "firstMeasureDesc") throw new ListRequestError("unknown group order");
   const relations = new Map(relationsOf(object, def).map((r) => [r.via, r]));
   const groups = groupBy.map((g): CompiledGroup => {
     let target = def;
@@ -156,7 +159,7 @@ export function compileAggregateRequest(
     if (weight === undefined || (weight && !measurableField(def, m.weight!))) throw new ListRequestError(`${m.fn} is weighted by a number field`);
     return { fn: m.fn, col, weight };
   });
-  return { object, filters, scope, groups, measures };
+  return { object, filters, scope, groups, groupOrder: req.groupOrder, measures };
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -208,17 +211,15 @@ type Acc = { keys: (Scalar | null)[]; n: number; m: { sum: number; count: number
 const newAcc = (keys: (Scalar | null)[], measures: number): Acc =>
   ({ keys, n: 0, m: Array.from({ length: measures }, () => ({ sum: 0, count: 0, min: null, max: null })) });
 
-function valuesOf(acc: Acc, measures: readonly CompiledMeasure[]): (number | null)[] {
-  return measures.map((m, i) => {
-    const s = acc.m[i];
-    switch (m.fn) {
-      case "count": return acc.n;
-      case "sum": return s.count ? s.sum : null;
-      case "avg": return s.count ? s.sum / s.count : null;
-      case "min": return s.min;
-      case "max": return s.max;
-    }
-  });
+function valueOf(acc: Acc, fn: MeasureFn, index: number): number | null {
+  const s = acc.m[index];
+  switch (fn) {
+    case "count": return acc.n;
+    case "sum": return s.count ? s.sum : null;
+    case "avg": return s.count ? s.sum / s.count : null;
+    case "min": return s.min;
+    case "max": return s.max;
+  }
 }
 
 /**
@@ -266,13 +267,22 @@ export function aggregateRowsInMemory(
     add(at(leaves, keys), row);
     if (keys.length > 1) add(at(subtotals, keys.slice(0, -1)), row);
   }
-  const ordered = (map: Map<string, Acc>) => [...map.values()].sort((a, b) => compareKeys(a.keys, b.keys));
-  const leafList = ordered(leaves);
-  const subList = ordered(subtotals);
+  const valuesOf = (acc: Acc) => q.measures.map((m, i) => valueOf(acc, m.fn, i));
+  const byKey = (a: Acc, b: Acc) => compareKeys(a.keys, b.keys);
+  const byFirstMeasure = (a: Acc, b: Acc) => {
+    const x = valueOf(a, q.measures[0].fn, 0);
+    const y = valueOf(b, q.measures[0].fn, 0);
+    if (x === y) return byKey(a, b);
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return y - x;
+  };
+  const leafList = [...leaves.values()].sort(q.groupOrder === "firstMeasureDesc" ? byFirstMeasure : byKey);
+  const subList = [...subtotals.values()].sort(byKey);
   return {
-    groups: leafList.slice(0, GROUPS_MAX).map((a) => ({ keys: a.keys, values: valuesOf(a, q.measures) })),
-    subtotals: subList.slice(0, GROUPS_MAX).map((a) => ({ keys: a.keys, values: valuesOf(a, q.measures) })),
-    total: valuesOf(total, q.measures),
+    groups: leafList.slice(0, GROUPS_MAX).map((a) => ({ keys: a.keys, values: valuesOf(a) })),
+    subtotals: subList.slice(0, GROUPS_MAX).map((a) => ({ keys: a.keys, values: valuesOf(a) })),
+    total: valuesOf(total),
     rows: matched.length,
     truncated: leafList.length > GROUPS_MAX || subList.length > GROUPS_MAX,
     projectedThrough,

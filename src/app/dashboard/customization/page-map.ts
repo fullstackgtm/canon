@@ -5,6 +5,8 @@
  */
 import { isCustomObjectName } from "../../../../modules/kernel/reportLanguage.ts";
 import { isPointId, pointOf, type PointId } from "../../../../recipes/points.ts";
+import { pageMarkdown } from "../../../../recipes/md/edit.ts";
+import { lineDiff } from "../../../../recipes/workspace.ts";
 
 export const CANON_PAGES = [
   { id: "deals", label: "Opportunities", href: "/dashboard/deals" },
@@ -95,26 +97,56 @@ const RECORD_PAGES = {
 
 export const standaloneHref = (slug: string) => `/dashboard/${isCustomObjectName(slug) ? "records" : "p"}/${encodeURIComponent(slug)}`;
 
-type Version = { target: { point: string; key: string }; pages: ReadonlyArray<{ slug: string; title: string }>; isOwn: boolean };
+type Version = {
+  userId: string;
+  name: string;
+  isOwn: boolean;
+  updatedAt: number;
+  target: { point: string; key: string };
+  pages: ReadonlyArray<{ slug: string; title: string }>;
+  markdown: string;
+  baseMarkdown: string;
+};
 
-export function personalPageRows<V extends Version>(versions: readonly V[]) {
+function pagesForPerson<V extends Version>(versions: readonly V[]) {
   const recordRows = [];
-  const standaloneRows = new Map<string, { version: V; object: string; title: string; href: string; standalone: true }>();
-  const reviewRows = [];
+  const standaloneRows = new Map<string, { version: V; object: string; title: string; href: string; standalone: true; primary: boolean }>();
   for (const version of versions) {
     const { point, key } = version.target;
     const record = RECORD_PAGES[point as keyof typeof RECORD_PAGES];
-    if (!version.isOwn) {
-      const title = record?.title ?? version.pages.find((p) => p.slug === key)?.title ?? key;
-      reviewRows.push({ version, title });
-      continue;
+    if (record) recordRows.push({ version, ...record, standalone: false as const, primary: true });
+    if (point === "workspace.pages" && !version.pages.some((p) => p.slug === key)) {
+      standaloneRows.set(key, { version, object: key, title: key, href: standaloneHref(key), standalone: true, primary: true });
     }
-    if (record) recordRows.push({ version, ...record, standalone: false as const });
     for (const { slug, title } of version.pages) {
-      if (!standaloneRows.has(slug) || (point === "workspace.pages" && key === slug)) {
-        standaloneRows.set(slug, { version, object: slug, title, href: standaloneHref(slug), standalone: true });
+      const primary = point === "workspace.pages" && key === slug;
+      if (!standaloneRows.has(slug) || primary) {
+        standaloneRows.set(slug, { version, object: slug, title, href: standaloneHref(slug), standalone: true, primary });
       }
     }
   }
-  return { own: [...recordRows, ...standaloneRows.values()], review: reviewRows };
+  return [...recordRows, ...standaloneRows.values()].map((page) => {
+    const before = pageMarkdown(page.version.baseMarkdown, page.object);
+    const after = pageMarkdown(page.version.markdown, page.object);
+    if (!before || !after) {
+      const text = before || after;
+      return { ...page, changedLines: text ? text.split("\n").length : 0 };
+    }
+    const { added, removed } = lineDiff(before, after);
+    return { ...page, changedLines: added + removed };
+  });
+}
+
+export function personalPageRows<V extends Version>(versions: readonly V[]) {
+  const byPerson = new Map<string, V[]>();
+  for (const version of versions) {
+    const rows = byPerson.get(version.userId);
+    if (rows) rows.push(version);
+    else byPerson.set(version.userId, [version]);
+  }
+  const people = [...byPerson.values()].map((rows) => {
+    const { userId, name, isOwn } = rows[0];
+    return { userId, name, isOwn, updatedAt: Math.max(...rows.map((row) => row.updatedAt)), pages: pagesForPerson(rows) };
+  });
+  return { people, own: people.find((person) => person.isOwn)?.pages ?? [], review: people.filter((person) => !person.isOwn).flatMap((person) => person.pages) };
 }

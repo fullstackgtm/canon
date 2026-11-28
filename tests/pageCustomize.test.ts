@@ -27,9 +27,10 @@ for (const object of ["deal", "account", "contact"] as const) {
         }
       },
       runMutation: async (ref: unknown, args: { point: string }) => { if (String(ref) === "api.recipes.enableContribution") enabled.push(args.point); },
-      runAction: async (ref: unknown, args: { markdown: string }) => {
+      runAction: async (ref: unknown, args: { markdown: string; note: string }) => {
         if (String(ref) === "api.workspaceRecipes.customize") return { recipeId: "@workspace/base" };
         assert.equal(String(ref), "api.workspaceRecipes.save");
+        assert.equal(args.note, "Pencil: Fold history");
         saved = args.markdown;
         return { revision: 2, blocked: false, evals: [], evalsNotRun: null };
       },
@@ -44,7 +45,7 @@ for (const object of ["deal", "account", "contact"] as const) {
     assert.equal(after[PAGE_KEYS[object]][0].component, "history");
     for (const other of ["deal", "account", "contact"] as const) if (other !== object) assert.deepEqual(after[PAGE_KEYS[other]], before[PAGE_KEYS[other]]);
     assert.ok(readLens(BASE, object).length > 0);
-    const out = await actions.save.handler(ctx, { ...args, scope: "workspace", markdown: moved.markdown });
+    const out = await actions.save.handler(ctx, { ...args, scope: "workspace", markdown: moved.markdown, note: "Fold history" });
     assert.equal(out.revision, 2);
     assert.deepEqual(enabled, [`${object}.page`]);
     assert.equal(parseRecipe(saved).recipe.meta.id, "@workspace/base");

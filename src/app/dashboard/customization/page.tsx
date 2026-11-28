@@ -25,6 +25,7 @@ type View = NonNullable<FunctionReturnType<typeof api.recipes.forOrg>>;
 type Recipe = View["available"][number];
 type PointView = View["points"][number];
 type Version = FunctionReturnType<typeof api.workspaceRecipes.personalVersions>[number];
+type PersonalPage = ReturnType<typeof personalPageRows<Version>>["own"][number];
 type Tab = "applied" | "browse";
 
 const btn = "inline-flex items-center gap-1 border border-border px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50";
@@ -56,7 +57,7 @@ function useTab(): [Tab, (t: Tab) => void] {
  * managers change them; agents read all of it over /mcp.
  */
 export default function CustomizationPage() {
-  const view = useQuery(api.recipes.forOrg);
+  const view = useQuery(api.recipes.forOrg, { includePencilAttribution: true });
   const modules = useQuery(api.modules.installed);
   const personalVersions = useQuery(api.workspaceRecipes.personalVersions, view ? { all: view.canEdit } : "skip");
   const enable = useMutation(api.recipes.enableContribution);
@@ -100,6 +101,7 @@ export default function CustomizationPage() {
   const modulePages = (modules?.modules ?? []).flatMap((m) => (m.enabled && m.nav ? [{ ...m, nav: m.nav }] : []));
   const point = (id: string) => view.points.find((p) => p.id === id);
   const personal = personalPageRows<Version>(personalVersions ?? []);
+  const customizationCount = view.available.length + personal.people.length;
   const workspacePages = point("workspace.pages")?.contributions.filter((c) => c.enabled) ?? [];
   const customHrefs = [...personal.own.map((p) => p.href), ...workspacePages.map((p) => standaloneHref(p.key))];
   const changedCount = new Set([...changed.map((p) => p.href), ...customHrefs]).size;
@@ -109,6 +111,18 @@ export default function CustomizationPage() {
   const offered = pages.filter((p) => p.offered > 0);
   const onCustomize = (r: { id: string; title: string }) =>
     void run(async () => router.push(editHref((await customize({ recipeId: r.id })).recipeId)), `Made a copy of ${r.title} for this workspace`);
+
+  function resetButton(p: PersonalPage) {
+    const label = p.standalone ? "Delete" : "Reset to workspace";
+    const otherPages = p.primary ? p.version.pages.filter((page) => page.slug !== p.object) : [];
+    const description = p.standalone ? "This deletes your personal page." : "This discards your personal changes to this page.";
+    return <button type="button" className={btn} onClick={() => setConfirm({
+      title: p.standalone ? `Delete ${p.title}?` : `Reset your version of the ${p.title}?`,
+      description: otherPages.length ? `${description} It also deletes ${otherPages.map((page) => page.title).join(", ")}.` : description,
+      label, done: p.standalone ? "Personal page deleted" : "Personal page reset",
+      change: () => resetPersonal({ object: p.object, layerId: p.version._id }),
+    })}>{label}</button>;
+  }
 
   return (
     <ViewFrame {...frame}>
@@ -125,14 +139,15 @@ export default function CustomizationPage() {
             <Stat label="Modules on" value={modules ? `${modules.modules.filter((m) => m.enabled).length} of ${modules.modules.length}` : "…"} />
             <Stat label="Pages changed" value={`${changedCount} of ${pageCount}`} />
             <Stat label="Theme" value={inForce("workspace.theme")} />
-            <Stat label="Customizations" value={String(view.available.length)} />
+            <Stat label="Customizations" value={personalVersions === undefined ? "…" : String(customizationCount)} />
           </dl>
 
           <Section title="Modules" count={modules?.modules.length} action={view.canEdit && <button type="button" className={btn} onClick={() => setTab("browse")}>Add a module</button>}>
             <InstalledModules onInstall={setInstallingModule} onBrowse={() => setTab("browse")} />
           </Section>
 
-          <Section title="Pages" count={changedCount + modulePages.length} note={changedCount || modulePages.length || personal.review.length ? undefined : "Every page runs as Canon ships it."}>
+          <Section id="pages" title="Pages" count={changedCount + modulePages.length} note={changedCount || modulePages.length || personal.review.length ? undefined : "Every page runs as Canon ships it."}
+            action={personal.people.length > 0 && <a href="#customizations" className={btn}>See pencil changes</a>}>
             {(changed.length > 0 || modulePages.length > 0) && (
               <ul className={list}>
                 {changed.map((p) => <PageLine key={p.id} page={p} onCustomize={() => setPage({ label: p.label, ids: p.points.map((x) => x.id) })} />)}
@@ -149,20 +164,11 @@ export default function CustomizationPage() {
               <h3 className="mb-1.5 mt-3 text-xs font-medium text-muted-foreground">Your pages</h3>
               <ul className={list}>
                 {personal.own.map((p) => {
-                  const label = p.standalone ? "Delete" : "Reset to workspace";
-                  const resetsLayer = !p.standalone || p.version.target.key === p.object;
-                  const otherPages = resetsLayer ? p.version.pages.filter((page) => page.slug !== p.object) : [];
-                  const description = p.standalone ? "This deletes your personal page." : "This discards your personal changes to this page.";
                   const actions = <>
                     <PageLinks href={p.href} />
-                    <button type="button" className={btn} onClick={() => setConfirm({
-                      title: p.standalone ? `Delete ${p.title}?` : `Reset your version of the ${p.title}?`,
-                      description: otherPages.length ? `${description} It also deletes ${otherPages.map((page) => page.title).join(", ")}.` : description,
-                      label, done: p.standalone ? "Personal page deleted" : "Personal page reset",
-                      change: () => resetPersonal({ object: p.object, layerId: p.version._id }),
-                    })}>{label}</button>
+                    {resetButton(p)}
                   </>;
-                  const canPromote = view.canEdit && resetsLayer;
+                  const canPromote = view.canEdit && p.primary;
                   return (
                     <li key={p.href} className={catalogLine}>
                       <div>
@@ -200,11 +206,11 @@ export default function CustomizationPage() {
             </>}
             {view.canEdit && personal.review.length > 0 && (
               <ul className={cn(list, "mt-3")}>
-                {personal.review.map(({ version, title }) => (
-                  <li key={version._id} className={catalogLine}>
+                {personal.review.map(({ version, title, href, primary: canPromote }) => (
+                  <li key={`${version.userId}:${href}`} className={catalogLine}>
                     <span className="break-words text-sm font-medium">{title}</span>
                     <div><span className={tag}>{version.name}&apos;s version</span></div>
-                    <VersionPromotion id={version._id} diff={version.diff.text} buttonClass={btn} />
+                    {canPromote && <VersionPromotion id={version._id} diff={version.diff.text} buttonClass={btn} />}
                   </li>
                 ))}
               </ul>
@@ -229,8 +235,33 @@ export default function CustomizationPage() {
             ]} />
           </Section>
 
-          <Section title="Customizations" count={view.available.length} note="Sets of page changes: layouts, a model's numbers, the theme.">
+          <Section id="customizations" title="Customizations" count={personalVersions === undefined ? undefined : customizationCount} note="Sets of page changes: layouts, a model's numbers, the theme.">
             <ul className={list}>
+              {personal.people.map((person) => (
+                <li key={person.userId}>
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                    <div>
+                      <h3 className="text-sm font-medium">{person.isOwn ? "Your pencil changes" : `${person.name}'s pencil changes`}</h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Personal · only {person.isOwn ? "you see it" : `${person.name} sees it`} · Updated <Timestamp at={person.updatedAt} />
+                      </p>
+                    </div>
+                    <a href="#pages" className={btn}>Also listed under Pages</a>
+                  </div>
+                  <ul className="divide-y divide-border border-t border-border bg-muted/30">
+                    {person.pages.map((p) => (
+                      <li key={p.href} className={catalogLine}>
+                        <Link href={p.href} className="break-words text-sm font-medium hover:underline">{p.title}</Link>
+                        <span className="text-xs text-muted-foreground">{p.changedLines} {p.changedLines === 1 ? "changed line" : "changed lines"}</span>
+                        {view.canEdit && p.primary
+                          ? <VersionPromotion id={p.version._id} diff={p.version.diff.text} buttonClass={btn} actions={person.isOwn && resetButton(p)} />
+                          : person.isOwn && <div className="sm:text-right">{resetButton(p)}</div>}
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+              {personalVersions?.length === 0 && <li className="px-4 py-3 text-xs text-muted-foreground">Changes made with the pencil appear here.</li>}
               {view.available.map((r) => (
                 <PackageRow key={r.id} r={r} usedAt={usedAt(r)} canEdit={view.canEdit} busy={busy}
                   onSettings={() => setEditing({ id: r.id, title: r.title })}
@@ -312,9 +343,14 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Section({ title, count, note, action, children }: { title: string; count?: number; note?: string; action?: ReactNode; children: ReactNode }) {
+function Timestamp({ at }: { at: number }) {
+  const date = new Date(at);
+  return <time dateTime={date.toISOString()}>{date.toLocaleString()}</time>;
+}
+
+function Section({ id, title, count, note, action, children }: { id?: string; title: string; count?: number; note?: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <section className="mb-8">
+    <section id={id} className="mb-8 scroll-mt-4">
       <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">{title}{count !== undefined && <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">{count}</span>}</h2>
@@ -431,6 +467,11 @@ function PackageRow({ r, usedAt, canEdit, busy, onSettings, onUpdates, onUninsta
           )}
         </span>
       </div>
+      {r.pencilAttribution && (
+        <p className="px-4 pb-3 text-xs text-muted-foreground sm:pl-9">
+          {r.pencilAttribution.kind === "promotion" ? `Promoted from ${r.pencilAttribution.from}` : `Last changed with the pencil by ${r.pencilAttribution.by}`}, <Timestamp at={r.pencilAttribution.at} />
+        </p>
+      )}
       {open && (
         <div className="space-y-2 border-t border-border px-4 py-3 sm:pl-9">
           <p className="max-w-[72ch] text-sm text-muted-foreground">{r.description}</p>

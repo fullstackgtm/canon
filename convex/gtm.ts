@@ -1016,7 +1016,7 @@ function fieldOrActionFromOperation(operation: string) {
 
 function rollbackForOperation(operation: string) {
   if (operation === "backfill.stripe") {
-    return "Archive the created deals — each was net-new and carries its Stripe invoice id, so they are individually identifiable.";
+    return "Archive the created deals — each was net-new and carries its Stripe subscription id, so they are individually identifiable.";
   }
   if (operation === "deal.next_step") {
     return "Restore the previous deal next step in Salesforce/HubSpot or the local deal record.";

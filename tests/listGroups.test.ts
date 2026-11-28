@@ -13,7 +13,7 @@ import { createFakeRecordClient, createMemoryRecordStore, type RecordClient } fr
 import type { AccountRow } from "../convex/lib/recordContract.ts";
 import { plainObjectDef, resolveObjectDef, STANDARD_OBJECTS } from "../convex/lib/objects/registry.ts";
 import { listViewDef, type ListRow } from "../convex/lib/objects/listSpec.ts";
-import { groupFilter, viewGroupOf, viewSpecProblem, type ViewGroup } from "../convex/lib/objects/views.ts";
+import { groupFilter, listGroupOrder, viewGroupOf, viewSpecProblem, type ViewGroup } from "../convex/lib/objects/views.ts";
 import { daysFilter } from "../convex/lib/objects/calendar.ts";
 import { groupRecords } from "../src/app/api/v1/_records.ts";
 import type { V1Client } from "../src/app/api/v1/_lib.ts";
@@ -66,7 +66,8 @@ const defOf = (object: "account" | "deal" | "lead") => listViewDef(object, resol
 
 /** Each group's count against the list of its records under the same filters, and every group's against the whole list. */
 async function assertGroupsMatchList(object: "account" | "deal" | "lead", filter: unknown[], group: ViewGroup) {
-  const res = await call("objects.ts", "groups", { object, filter, group });
+  const groupOrder = listGroupOrder(defOf(object), group.field);
+  const res = await call("objects.ts", "groups", { object, filter, group, groupOrder });
   const listed = await call("objects.ts", "list", { object, filter });
   assert.equal(res.rows, listed.total);
   assert.equal(res.groups.reduce((n: number, g: { count: number }) => n + g.count, 0), listed.total);
@@ -80,15 +81,17 @@ async function assertGroupsMatchList(object: "account" | "deal" | "lead", filter
 test("grouped counts match the list under the same filters, for companies in the register and deals on the ledger", async () => {
   await workspace();
   caller = { orgId: ORG, userId: ADMIN._id, access: accessOf({ userId: ADMIN._id, role: "admin" }) };
-  const companies = await assertGroupsMatchList("account", [{ field: "employees", op: "lt", value: 600 }], { field: "industry" });
-  assert.deepEqual(companies.groups.map((g: { key: unknown; count: number }) => [g.key, g.count]), [["fintech", 2], ["software", 2]]);
+  const companies = await assertGroupsMatchList("account", [{ field: "employees", op: "gt", value: 30 }], { field: "industry" });
+  assert.deepEqual(companies.groups.map((g: { key: unknown; count: number }) => [g.key, g.count]), [["software", 2], ["fintech", 1], [null, 1]]);
   const owners = await assertGroupsMatchList("account", [], { field: "ownerId" });
   assert.equal(owners.summed, null);
-  // Close dates by month: Oct 31 and Nov 1 land in different groups, and a deal without one in the last.
+  assert.deepEqual(owners.groups.map((g: { key: unknown; count: number }) => [g.key, g.count]), [[REP, 3], ["users:jordan", 2]]);
+  // Month buckets stay chronological even when the later month has more records.
   const deals = await assertGroupsMatchList("deal", [], { field: "closeDate", bucket: "month" });
   assert.deepEqual(deals.groups.map((g: { key: unknown; count: number; sum: number }) => [g.key, g.count, g.sum]), [["2026-10-01", 1, 1000], ["2026-11-01", 2, 6500], [null, 1, 700]]);
   assert.equal(deals.sum, 8200);
-  await assertGroupsMatchList("deal", [{ field: "amount", op: "gte", value: 1000 }], { field: "stage" });
+  const pipeline = await assertGroupsMatchList("deal", [{ field: "amount", op: "gte", value: 1000 }], { field: "stage" });
+  assert.deepEqual(pipeline.groups.map((g: { key: unknown; count: number }) => [g.key, g.count]), [["negotiation", 1], ["prospecting", 2]]);
 });
 
 test("a grouped list counts only the records the caller sees, refuses a hidden field and leaves out a hidden amount", async () => {

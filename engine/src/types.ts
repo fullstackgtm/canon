@@ -51,7 +51,7 @@ export type PatchOperationType =
   // snapshot can be stale) and creates only on a confirmed miss, so apply is
   // resolve-first and never double-creates a record a concurrent writer added.
   // Emitted by `enrich acquire` (metered against the acquire budget) and by
-  // `backfill stripe` (closed-won deals from paid invoices, unmetered).
+  // `backfill stripe` (closed-won deals from Stripe subscriptions, unmetered).
   | "create_record"
   // Merge a duplicate group into a survivor. beforeValue is the group's
   // record ids; afterValue is the survivor id (requires_human_survivor_selection
@@ -63,7 +63,7 @@ export type PatchOperationType =
  * `matchKey`/`matchValue` at apply time and creates only on a confirmed miss.
  * `estCostUsd` is the acquire meter's per-record charge, recorded against the
  * budget on a successful create. Emitted by `enrich acquire` (metered) and
- * `backfill stripe` (closed-won deals from paid invoices, unmetered).
+ * `backfill stripe` (closed-won deals from Stripe subscriptions, unmetered).
  */
 export type CreateRecordPayload = {
   properties: Record<string, string>;

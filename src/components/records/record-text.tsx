@@ -39,5 +39,5 @@ export function RecordText({ markdown }: { markdown: string }) {
     while (lines[i] && !heading.test(lines[i]) && !listItem.test(lines[i])) paragraph.push(lines[i++]);
     blocks.push(<p key={start}>{inline(paragraph.join(" "))}</p>);
   }
-  return <div className="space-y-2 break-words text-sm">{blocks}</div>;
+  return <div className="space-y-2 break-words record-value">{blocks}</div>;
 }

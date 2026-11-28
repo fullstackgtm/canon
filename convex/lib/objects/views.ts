@@ -7,7 +7,7 @@
  */
 import { shardOf } from "./write.ts";
 import { compileListRequest, ListRequestError, listColumns, type ListFilter, type ListSort, type ProjectedThrough, type Scalar } from "./listSpec.ts";
-import { bucketEnd, groupKeyKind, type AggregateResponse } from "./reportSpec.ts";
+import { bucketEnd, groupKeyKind, type AggregateRequest, type AggregateResponse } from "./reportSpec.ts";
 import { REPORT_BUCKETS, type ReportBucket } from "../../../modules/kernel/reportLanguage.ts";
 import type { ResolvedObjectDef } from "./registry.ts";
 import { calendarKind, daysFilter } from "./calendar.ts";
@@ -83,7 +83,13 @@ export const GROUP_SUM_FIELD: Readonly<Record<string, string>> = { deal: "amount
 /** Groups a grouped list shows, of the GROUPS_MAX an aggregate returns; past them it asks for a narrower filter. */
 export const VIEW_GROUPS_MAX = 100;
 
-/** A grouped list's groups: each key's count (and sum, in cents), in key order with the empty key last. */
+export function listGroupOrder(def: ResolvedObjectDef, field: string): AggregateRequest["groupOrder"] {
+  const key = def.byApiName.get(field);
+  if (key?.type === "picklist" && key.options?.length) return undefined;
+  return groupKeyKind(def, field) === "value" ? "firstMeasureDesc" : undefined;
+}
+
+/** A grouped list's groups in aggregate order. Sums are in cents. */
 export type GroupsResponse = {
   groups: Array<{ key: Scalar | null; count: number; sum: number | null }>;
   /** Records in every group, and their sum. */

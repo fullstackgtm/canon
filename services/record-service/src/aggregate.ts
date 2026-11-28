@@ -125,7 +125,10 @@ export async function aggregateCompiled(
   const values = q.measures.map((m, i) => `${m.fn === "count" ? "count(*)" : `${m.fn}(${ident(`m${i}`)})`} AS ${ident(`v${i}`)}`);
   const sets = keys.length > 1 ? `GROUPING SETS ((${keys.join(", ")}), (${keys.slice(0, -1).join(", ")}), ())` : keys.length === 1 ? `GROUPING SETS ((${keys[0]}), ())` : "GROUPING SETS (())";
   const level = keys.length ? `GROUPING(${keys.join(", ")})` : "0";
-  const order = keys.length ? keys.map((k) => `${k} NULLS LAST`).join(", ") : "1";
+  const order = [
+    ...(keys.length && q.groupOrder === "firstMeasureDesc" ? [`CASE WHEN ${level} = 0 THEN ${ident("v0")} END DESC NULLS LAST`] : []),
+    ...keys.map((k) => `${k} NULLS LAST`),
+  ].join(", ") || "1";
   const out = await all(c,
     `SELECT ${[...keys, ...values, `${level} AS lvl`, "count(*) AS n"].join(", ")} FROM (${rowsSql}) t GROUP BY ${sets}`
     + ` QUALIFY row_number() OVER (PARTITION BY ${level} ORDER BY ${order}) <= ${GROUPS_MAX + 1} ORDER BY ${order}`,

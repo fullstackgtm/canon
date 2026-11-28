@@ -1024,8 +1024,8 @@ export const list = action({
  * grouped on. A group's rows are `list` with `groupFilter` added.
  */
 export const groups = action({
-  args: { object: listedObject, filter: v.optional(v.array(listFilter)), group: objectValidators.viewGroup },
-  handler: async (ctx, { object, filter, group }): Promise<GroupsResponse> => {
+  args: { object: listedObject, filter: v.optional(v.array(listFilter)), group: objectValidators.viewGroup, groupOrder: v.optional(v.literal("firstMeasureDesc")) },
+  handler: async (ctx, { object, filter, group, groupOrder }): Promise<GroupsResponse> => {
     const caller = await requireCaller(ctx, { read: true });
     requireListed(object);
     if (isCustomObjectName(object) && (await ctx.runQuery(internal.objects.archivedObjects, { orgId: caller.orgId as Id<"organizations"> })).includes(object)) throw new ConvexError(`Unknown object ${object}`);
@@ -1033,7 +1033,7 @@ export const groups = action({
     const field = GROUP_SUM_FIELD[object];
     const summed = field && !hiddenFields(caller.access, object).includes(field) ? field : null;
     const res = await asListError(() => callerClient(ctx, caller).aggregate(caller.orgId, object, {
-      filter: filter ?? [], groupBy: [group], measures: [{ fn: "count" }, ...(summed ? [{ fn: "sum" as const, field: summed }] : [])],
+      filter: filter ?? [], groupBy: [group], groupOrder, measures: [{ fn: "count" }, ...(summed ? [{ fn: "sum" as const, field: summed }] : [])],
     }));
     return groupsOf(res, summed);
   },

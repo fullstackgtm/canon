@@ -21,6 +21,7 @@ import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { contactLinks, FieldInput, formatValue, isEditable, isLongText, optionChips, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
 import { FilterBar, isComplete } from "./filter-bar";
+import { RelatedPeopleFilters } from "./related-people-filters";
 import { BoardView, type BoardSaves } from "./board-view";
 import { CalendarView } from "./calendar-view";
 import { calendarKind, calendarZone } from "../../../convex/lib/objects/calendar";
@@ -703,6 +704,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
         {context.kind === "filter" && handoffProblem && !contextProblem && <p role="alert" className="mb-2 text-sm text-destructive">{handoffProblem}</p>}
         {!!activeView?.omittedClauses && <p role="status" className="mb-2 text-sm text-muted-foreground">Some saved filters or sorting were left out because your role does not see those fields. Saving this view keeps these omissions.</p>}
         <FilterBar filters={spec.filter} columns={columns} dayColumns={dayColumns} canAdd={filterRoom >= 2} resetKey={specLoads} fields={desc.fields} team={team} onChange={(next) => edit({ filter: next })} />
+        {object === "contact" && !bin && context.kind === "core" && !url.audience && <RelatedPeopleFilters />}
       </div></div>}
     >
 

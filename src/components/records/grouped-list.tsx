@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ListRow, ListSort, Scalar } from "../../../convex/lib/objects/listSpec";
 import type { ResolvedObjectDef } from "../../../convex/lib/objects/registry";
 import { groupKeyKind } from "../../../convex/lib/objects/reportSpec";
-import { groupFilter, type ViewGroup } from "../../../convex/lib/objects/views";
+import { groupFilter, listGroupOrder, type ViewGroup } from "../../../convex/lib/objects/views";
 import { LoadingRows, ReadFailure } from "@/components/dashboard";
 import { bucketLabel } from "@/components/reports/present";
 import { useContactAnswers, type AiField } from "@/components/research/ai-cell";
@@ -112,7 +112,7 @@ export function GroupedRows({
   aiFields: readonly AiField[];
   renderRow: (row: ListRow, at: RowContext) => ReactNode;
 }) {
-  const { res, error, reload } = useGroups({ object, filter, group }, saves);
+  const { res, error, reload } = useGroups({ object, filter, group, groupOrder: listGroupOrder(def, group.field) }, saves);
   // Which groups are open, by key; the first few open whenever the grouping or filters change.
   const queryKey = JSON.stringify([object, filter, group]);
   const [toggledFor, setToggled] = useState<{ key: string; open: Map<string, boolean> }>({ key: queryKey, open: new Map() });

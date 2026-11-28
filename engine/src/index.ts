@@ -158,10 +158,19 @@ export {
 } from "./connectors/salesforceAuth.ts";
 export {
   createStripeConnector,
-  fetchStripePaidInvoices,
+  fetchStripeRevenue,
   type StripeConnectorOptions,
-  type StripePaidInvoice,
 } from "./connectors/stripe.ts";
+export {
+  bookableContracts,
+  buildRevenueContracts,
+  monthlyAmount,
+  type RevenueContract,
+  type RevenueImport,
+  type StripeRevenueInvoice,
+  type StripeRevenueLine,
+  type StripeRevenueSubscription,
+} from "./revenueContracts.ts";
 export {
   buildStripeBackfillPlan,
   DEFAULT_BACKFILL_MATCH_PROPERTY,

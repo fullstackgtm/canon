@@ -163,7 +163,26 @@ export const updateSettings = mutation({
     }
 
     await ctx.db.patch(org._id, updates);
+    // Clerk holds the workspace name too (switcher, invites, and its webhooks write it back here), so push renames to it.
+    if (typeof updates.name === "string" && updates.name !== org.name && org.clerkOrgId.startsWith("org_")) {
+      await ctx.scheduler.runAfter(0, internal.organizations.pushNameToClerk, { clerkOrgId: org.clerkOrgId, name: updates.name });
+    }
     return org._id;
+  },
+});
+
+/** Rename the Clerk organization to match Canon's. Skipped where Clerk isn't configured (local and self-host). */
+export const pushNameToClerk = internalAction({
+  args: { clerkOrgId: v.string(), name: v.string() },
+  handler: async (_ctx, args) => {
+    const key = process.env.CLERK_SECRET_KEY;
+    if (!key) return;
+    const res = await fetch(`https://api.clerk.com/v1/organizations/${encodeURIComponent(args.clerkOrgId)}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: args.name }),
+    });
+    if (!res.ok) throw new Error(`Clerk organization rename failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
   },
 });
 
