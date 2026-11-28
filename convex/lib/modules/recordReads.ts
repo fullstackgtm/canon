@@ -1,4 +1,4 @@
-import { applyRelated, relatedPorts } from "../outbound/related.ts";
+import { applyRelated, relatedPorts, type CrmDealsPort } from "../outbound/related.ts";
 import type { RelatedCondition } from "../objects/validators.ts";
 /**
  * The Canon reads a read plan names that the record service serves (docs/modules.md, "Server code"): companies,
@@ -57,6 +57,7 @@ export class ProjectionBehind extends Error {}
 export type Edge = { fromId: string; toId: string };
 /** What the action gives the reads besides the record client: edges, and the deals of ledger streams. */
 export type RecordReadPorts = {
+  crmDeals?: CrmDealsPort;
   conversationsOf?(dealIds: string[], domains: Record<string, string>, fields: string[], limit: number): Promise<Array<Record<string, unknown>>>;
   /** Only on caller-scoped reads with the explicit derived grant. Missing support refuses, never returns a permissive verdict. */
   suppressionCheck?(identifiers: SuppressionIdentifiers[], purpose: SuppressionPurpose): Promise<ChannelSuppressions[]>;
@@ -108,16 +109,16 @@ const text = (v: unknown) => (typeof v === "string" && v !== "" ? v : null);
 const num = (v: unknown) => (typeof v === "number" ? v : null);
 const pick = (all: Record<string, unknown>, fields: readonly string[]) => Object.fromEntries(fields.map((f) => [f, all[f] ?? null]));
 
-export async function resolvePeopleRows(client: RecordClient, ws: string, addedTo: RecordReadPorts["addedTo"], query: { filter: ListFilter[]; related?: RelatedCondition[]; added?: AddedSource }, legacyAudience?: string): Promise<ListRow[]> {
+export async function resolvePeopleRows(client: RecordClient, ws: string, addedTo: RecordReadPorts["addedTo"], query: { filter: ListFilter[]; related?: RelatedCondition[]; added?: AddedSource }, legacyAudience?: string, crm?: CrmDealsPort): Promise<ListRow[]> {
   const over = () => refuse(`This audience has more than ${AUDIENCE_MAX.toLocaleString("en-US")} people. Narrow its filter.`);
-  await relatedPorts(client, ws).check(query.related ?? []);
+  await relatedPorts(client, ws, crm).check(query.related ?? []);
   const rows = await listAll((req) => client.listRegister(ws, "contact", req), query.filter, AUDIENCE_MAX, over);
   const matched = new Set(rows.map((r) => r.id));
   const additions = query.added ? await addedTo(query.added) : legacyAudience ? await addedTo(legacyAudience) : [];
   const added = [...new Set(additions)].filter((id) => !matched.has(id));
   const seen = added.length ? await registerByIds(client, ws, "contact", added, AUDIENCE_MAX, over) : [];
   if (rows.length + seen.length > AUDIENCE_MAX) over();
-  return applyRelated([...new Map([...rows, ...seen].map((row) => [row.id, row])).values()], query.related ?? [], relatedPorts(client, ws));
+  return applyRelated([...new Map([...rows, ...seen].map((row) => [row.id, row])).values()], query.related ?? [], relatedPorts(client, ws, crm));
 }
 
 /**
@@ -127,7 +128,7 @@ export async function resolvePeopleRows(client: RecordClient, ws: string, addedT
  */
 async function snapshotOf(client: RecordClient, ws: string, ports: RecordReadPorts, spec: RecordReadSpec) {
   const a = spec.audience!;
-  const rows = await resolvePeopleRows(client, ws, ports.addedTo, a, spec.read === "audiences.snapshot" ? spec.ids[0] : undefined);
+  const rows = await resolvePeopleRows(client, ws, ports.addedTo, a, spec.read === "audiences.snapshot" ? spec.ids[0] : undefined, ports.crmDeals);
   const ids = rows.map((r) => r.id);
   const withEmail = rows.filter((r) => text(r.values.email) !== null).length;
   if (spec.read === "people.count") return { source: spec.ids[0], count: ids.length, withEmail, customVariables: customVariablesOf(rows), computedAt: Date.now() };

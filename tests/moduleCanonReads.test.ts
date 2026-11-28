@@ -97,5 +97,5 @@ test("module audience sizes hide system summaries from narrowed readers", async 
   await db.patch("aud", { related: [{ path: "company.deals", has: "none", filter: [] }] });
   const full = accessOf({ userId: ADMIN._id, role: "rep" });
   const rows = await reads.canonRead({ db }, ADMIN.orgId, full, { reads: { audiences: ["name", "size"] } }, "audiences.all", {}, 10);
-  assert.equal(rows[0].size, null);
+  assert.equal(rows[0].size, 23);
 });

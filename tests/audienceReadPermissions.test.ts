@@ -36,7 +36,7 @@ const ctx = { db, runQuery: async (ref: unknown, args: unknown): Promise<unknown
 }, runMutation: async (_ref: unknown, args: unknown) => { writes.push(args); return { inserted: 1, raced: [] }; } };
 
 test("audience list hides system summaries from visibility and field restricted viewers", async () => {
-  for (const rules of [[{ object: "contact", visibility: "own" as const, unowned: false }], [{ object: "contact", fields: [{ apiName: "custom.secret", level: "hidden" as const }] }], []]) {
+  for (const rules of [[{ object: "deal", visibility: "own" as const, unowned: false }], [{ object: "account", visibility: "own" as const, unowned: false }], [{ object: "contact", visibility: "own" as const, unowned: false }], [{ object: "contact", fields: [{ apiName: "custom.secret", level: "hidden" as const }] }], []]) {
     access = accessOf({ ...user, userId: "u", rules });
     const rows = await files["audiences.ts"].list.handler(ctx, {});
     assert.equal(rows.length, 1);
@@ -104,12 +104,12 @@ test("audience filter edits preserve related conditions and saving checks editor
   access = accessOf({ userId: "u", role: "rep" });
   await assert.rejects(() => handlers.update.handler(ctx, { audienceId: "aud", related: Array.from({ length: 4 }, () => ({ path: "company", filter: [] })) }));
   await handlers.update.handler(ctx, { audienceId: "aud", related: [{ path: "company.deals", has: "some", filter: [{ field: "isClosed", op: "eq", value: false }] }] });
-  await assert.rejects(() => handlers.update.handler(ctx, { audienceId: "aud", related: [{ path: "company.deals", has: "none", filter: [] }] }), { name: "ConvexError" });
-  await assert.rejects(() => handlers.create.handler(ctx, { name: "Unsafe absence", filter: [], related: [{ path: "company.deals", has: "none", filter: [] }] }), { name: "ConvexError" });
+  await handlers.update.handler(ctx, { audienceId: "aud", related: [{ path: "company.deals", has: "none", filter: [] }] });
+  await handlers.create.handler(ctx, { name: "No deals", filter: [], related: [{ path: "company.deals", has: "none", filter: [] }] });
   await handlers.update.handler(ctx, { audienceId: "aud", related });
-  for (const apiName of ["companyId", "isClosed"]) {
+  for (const apiName of ["companyId", "isClosed"]) for (const has of ["some", "none"]) {
     access = accessOf({ userId: "u", role: "rep", rules: [{ object: "deal", fields: [{ apiName, level: "hidden" }] }] });
-    await assert.rejects(() => handlers.update.handler(ctx, { audienceId: "aud", related: [{ path: "company.deals", has: "some", filter: [{ field: "isClosed", op: "eq", value: false }] }] }));
+    await assert.rejects(() => handlers.update.handler(ctx, { audienceId: "aud", related: [{ path: "company.deals", has, filter: [{ field: "isClosed", op: "eq", value: false }] }] }));
   }
   for (const [object, apiName] of [["contact", "title"], ["contact", "accountId"], ["account", "industry"]]) {
     access = accessOf({ userId: "u", role: "rep", rules: [{ object, fields: [{ apiName, level: "hidden" }] }] });
@@ -117,13 +117,13 @@ test("audience filter edits preserve related conditions and saving checks editor
   }
 });
 
-test("cached negative-deal summaries are withheld after negative deal conditions become unavailable", async () => {
+test("cached negative-deal summaries are available to unrestricted viewers", async () => {
   access = accessOf({ userId: "u", role: "rep" });
   await db.patch("aud", { related: [{ path: "company.deals", has: "none", filter: [] }] });
   try {
     const rows = await files["audiences.ts"].list.handler(ctx, {});
-    assert.equal(rows[0].summary, undefined);
-    await assert.rejects(() => files["audienceActions.ts"].preview.handler(ctx, { audienceId: "aud" }), { name: "ConvexError" });
+    assert.deepEqual(JSON.parse(JSON.stringify(rows[0].summary)), summary);
+    assert.equal((await files["audienceActions.ts"].preview.handler(ctx, { audienceId: "aud" })).total, 2);
   } finally {
     await db.patch("aud", { related: [] });
   }
