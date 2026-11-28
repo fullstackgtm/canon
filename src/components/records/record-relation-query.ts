@@ -7,14 +7,14 @@ import { indexObjectDef, type ObjectDef } from "../../../convex/lib/objects/regi
 import { IN_VALUES_MAX, listRowsInMemory, type ListResponse, type RegisterListRow } from "../../../convex/lib/objects/listSpec";
 import { companyDealsData } from "../../../recipes/relationData";
 import { validateQueryFields } from "../../../recipes/data";
-import { recordRelations, relatedListQuery, type RecordRelation } from "../../../recipes/recordRelations";
+import { relatedListQuery, type ParentRecordRelation, type RecordRelation } from "../../../recipes/recordRelations";
 import type { RecordProps } from "../../../recipes/blocks";
 import type { ObjectDescription } from "./fields";
 
 export type RelationSource = { object: string; id: string; companyId?: string; version?: number };
 type Client = Pick<ConvexReactClient, "action" | "query">;
 
-export function useRecordRelations(object: string, enabled: boolean) {
+export function useReadableRecordObjects(enabled: boolean) {
   const client = useConvex();
   const catalog = useQuery(api.dataModel.objects, enabled ? {} : "skip");
   const [state, setState] = useState<{ key: string; defs: ObjectDescription[] }>();
@@ -29,7 +29,7 @@ export function useRecordRelations(object: string, enabled: boolean) {
     });
     return () => { live = false; };
   }, [client, catalog, key]);
-  return state?.key === key ? recordRelations(object, state.defs as unknown as ObjectDef[]) : undefined;
+  return enabled && state?.key === key ? state.defs : undefined;
 }
 
 const emptyRows = (): ListResponse => ({ rows: [], total: 0, nextCursor: null, projectedThrough: {} });
@@ -94,6 +94,18 @@ export async function loadRecordRelation(client: Client, source: RelationSource,
     ...base,
     rows: await client.action(api.objects.list, { object: query.object, filter: query.filter, sort: query.sort, limit: query.limit, cursor }),
   };
+}
+
+export async function loadParentRecord(client: Client, source: RelationSource, relation: ParentRecordRelation, value: unknown) {
+  let id: string | undefined;
+  if (relation.kind === "field") id = typeof value === "string" ? value : undefined;
+  else {
+    const result = await client.action(api.associations.related, { object: relation.edge === "parent" ? "account" : "contact", id: source.id });
+    id = result?.object === "account" ? result.parent?.id : result?.companies.find((row) => row.primary)?.id;
+  }
+  if (!id) return null;
+  const { rows: [row] } = await client.action(api.objects.list, { object: relation.object, filter: [{ field: "id", op: "eq", value: id }], limit: 1 });
+  return row ?? null;
 }
 
 export const relatedListHref = (source: RelationSource, relation: RecordRelation) =>

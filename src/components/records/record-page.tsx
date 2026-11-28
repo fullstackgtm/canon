@@ -1,7 +1,8 @@
 "use client";
 
-import { RecordBlocks, highlightsActions } from "./record-blocks";
+import { RecordBlocks } from "./record-blocks";
 import { pageKind } from "../../../recipes/blocks";
+import { RecordActionControl } from "@/components/ui/record-action-control";
 import { dataRenderers } from "./data-section";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -228,8 +229,8 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const related = object === "deal" ? <DealRelations streamId={streamId} /> : null;
   // A merged record is neither archived nor restored; it lives on in the one it merged into.
   const canArchive = Boolean(desc.canDelete && desc.writable && record.complete && record.lifecycle.status !== "merged");
-  const archiveButton = (label: string, disabled?: boolean) => <button key="archive" type="button" disabled={busy || disabled} onClick={() => void lifecycle("delete")} className={btn}><Archive className="h-3 w-3" /> {label}</button>;
-  const restoreButton = (label: string, disabled?: boolean) => <button key="restore" type="button" disabled={busy || disabled} onClick={() => void lifecycle("restore")} className={btn}><Undo2 className="h-3 w-3" /> {label}</button>;
+  const archiveButton = (label: string, disabled?: boolean, menu?: boolean, key = "archive") => <RecordActionControl key={key} menu={menu} disabled={busy || disabled} onClick={() => void lifecycle("delete")} className={btn}><Archive className="h-3 w-3" /> {label}</RecordActionControl>;
+  const restoreButton = (label: string, disabled?: boolean, menu?: boolean, key = "restore") => <RecordActionControl key={key} menu={menu} disabled={busy || disabled} onClick={() => void lifecycle("restore")} className={btn}><Undo2 className="h-3 w-3" /> {label}</RecordActionControl>;
   function header(actions: ReactNode) {
     return (
       <div className="record-header">
@@ -319,11 +320,11 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
         <ConvertLeadDialog leadId={id} open={converting} onClose={() => setConverting(false)} onConverted={() => inDialog?.onSaved([])} />
       )}
       {shape.provider(<RecordBlocks
-        data={{ object, id, title: record.title, values: { ...record.values, ...computed }, desc, version: record.version, team,
+        data={{ object, id, title: record.title, values: { ...record.values, ...computed }, desc, version: record.version, team, splitTeam,
           ...(object === "deal" && typeof record.values.companyId === "string" ? { companyId: record.values.companyId } : {}) }}
         page={page} context={context} save={saveField}
-        actions={(section) => offered(highlightsActions(section), "highlights", ["kernel.archive", "kernel.restore"], context, {}, pageKind(object))
-          .map(({ action, label, disabled }) => action.runs === "kernel.restore" ? restoreButton(label, disabled) : archiveButton(label, disabled))}
+        actions={(actions, host, control) => offered(actions, host, ["kernel.archive", "kernel.restore"], context, {}, pageKind(object))
+          .map(({ action, label, disabled }) => action.runs === "kernel.restore" ? restoreButton(label, disabled, control?.menu, action.id) : archiveButton(label, disabled, control?.menu, action.id))}
       >{(blocks) => {
         const renderers = { ...recordSections, ...blocks };
         return playMounted

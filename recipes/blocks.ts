@@ -3,6 +3,7 @@ import { DATA_QUERIES, type DataQuery } from "./data.ts";
 import { z } from "zod";
 import { DEAL_STAGES, type DealStage } from "../convex/lib/plays/model.ts";
 import { isCustomObjectName } from "../modules/kernel/reportLanguage.ts";
+import { RECORD_MARKDOWN_MAX, safeRecordMarkdown } from "./recordText.ts";
 import type { KernelAction } from "./actions.ts";
 import type { PageSection } from "./kernel.ts";
 
@@ -77,22 +78,22 @@ const ACTION_CATALOG = {
     gate: "a field the workspace made read-only stays so; an edit to a row nobody has worked puts it on the ledger first",
   },
   "kernel.findEmail": {
-    hosts: { contact: { header: { on: "record", requires: "canEdit && contact.company && !contact.email" }, highlights: { on: "record", requires: "canEdit && contact.company && !contact.email" } }, account: { related: { on: "personRow", requires: "row.primary && !row.email" } } },
+    hosts: { contact: { header: { on: "record", requires: "canEdit && contact.company && !contact.email" }, highlights: { on: "record", requires: "canEdit && contact.company && !contact.email" }, actionBar: { on: "record", requires: "canEdit && contact.company && !contact.email" } }, account: { related: { on: "personRow", requires: "row.primary && !row.email" } } },
     calls: "records.findEmail", writes: true, gate: "reads the person's company domain; within the workspace's lookup limit, and it writes only what it finds",
   },
   "kernel.findPhone": {
-    hosts: { contact: { header: { on: "record", requires: "canEdit && contact.company && !contact.phone" }, highlights: { on: "record", requires: "canEdit && contact.company && !contact.phone" } }, account: { related: { on: "personRow", requires: "row.primary && !row.phone" } } },
+    hosts: { contact: { header: { on: "record", requires: "canEdit && contact.company && !contact.phone" }, highlights: { on: "record", requires: "canEdit && contact.company && !contact.phone" }, actionBar: { on: "record", requires: "canEdit && contact.company && !contact.phone" } }, account: { related: { on: "personRow", requires: "row.primary && !row.phone" } } },
     calls: "records.findPhone", writes: true, gate: "reads the person's company domain; within the workspace's lookup limit, and it writes only what it finds",
   },
   "kernel.merge": {
-    hosts: { account: { header: "record", highlights: "record" }, contact: { header: "record", highlights: "record" } }, calls: "recordMerges.merge", writes: true, requires: "canDelete && !deleted",
+    hosts: { account: { header: "record", highlights: "record", actionBar: "record" }, contact: { header: "record", highlights: "record", actionBar: "record" } }, calls: "recordMerges.merge", writes: true, requires: "canDelete && !deleted",
     gate: "a person compares the records and picks each value; the merge is undone from the kept record's history",
   },
   "kernel.archive": {
-    hosts: { deal: { header: "record", highlights: "record" }, account: { header: "record", highlights: "record" }, contact: { header: "record", highlights: "record" }, custom: { highlights: "record" } }, calls: "records.bulkRegister, objects.remove", writes: true, requires: "canDelete && !deleted",
+    hosts: { deal: { header: "record", highlights: "record", actionBar: "record" }, account: { header: "record", highlights: "record", actionBar: "record" }, contact: { header: "record", highlights: "record", actionBar: "record" }, custom: { highlights: "record", actionBar: "record" } }, calls: "records.bulkRegister, objects.remove", writes: true, requires: "canDelete && !deleted",
     gate: "the record leaves lists, search, reports and agents; nothing is erased, and Restore or the toast's Undo brings it back",
   },
-  "kernel.restore": { hosts: { deal: { header: "record", highlights: "record" }, account: { header: "record", highlights: "record" }, contact: { header: "record", highlights: "record" }, custom: { highlights: "record" } }, calls: "records.bulkRegister, objects.restore", writes: true, requires: "canDelete && deleted", gate: "brings an archived record back" },
+  "kernel.restore": { hosts: { deal: { header: "record", highlights: "record", actionBar: "record" }, account: { header: "record", highlights: "record", actionBar: "record" }, contact: { header: "record", highlights: "record", actionBar: "record" }, custom: { highlights: "record", actionBar: "record" } }, calls: "records.bulkRegister, objects.restore", writes: true, requires: "canDelete && deleted", gate: "brings an archived record back" },
   "kernel.createRecord": {
     hosts: { workspace: { form: "record" }, deal: { form: "record", relatedList: "record" }, account: { form: "record", relatedList: "record" }, contact: { form: "record", relatedList: "record" }, custom: { relatedList: "record" } },
     calls: "deals.createScoped, records.upsert, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
@@ -174,6 +175,8 @@ export const RECORD_PROPS = /* @__PURE__ */ (() => {
   const fieldName = z.string().min(1).max(80);
   const relationshipName = z.string().regex(/^[a-zA-Z][\w.:-]{0,159}$/);
   const highlightAction = z.enum(["kernel.archive", "kernel.restore", "kernel.merge", "kernel.findEmail", "kernel.findPhone"]);
+  const fields = z.array(fieldName).min(1).max(30);
+  const title = z.string().trim().min(1).max(80);
   return {
     highlights: z.strictObject({ fields: z.array(fieldName).max(7).optional(), actions: z.array(highlightAction).max(5).optional() }),
     path: z.strictObject({ field: fieldName.optional(), change: z.boolean().optional() }),
@@ -184,6 +187,12 @@ export const RECORD_PROPS = /* @__PURE__ */ (() => {
       limit: z.number().int().min(1).max(100).optional(),
       sort: z.strictObject({ field: fieldName, dir: z.enum(["asc", "desc"]) }).optional(),
       create: z.boolean().optional(),
+    }),
+    fieldSection: z.strictObject({ title, fields, columns: z.union([z.literal(1), z.literal(2)]), collapsible: z.boolean().optional(), collapsed: z.boolean().optional() }),
+    relatedRecord: z.strictObject({ relationship: relationshipName, fields, title: title.optional() }),
+    actionBar: z.strictObject({ actions: z.array(highlightAction).max(30) }),
+    richText: z.strictObject({
+      markdown: z.string().min(1).max(RECORD_MARKDOWN_MAX).refine(safeRecordMarkdown, { message: "Use only http(s) links" }),
     }),
   };
 })();
@@ -201,6 +210,10 @@ export const BLOCKS = {
   path: /* @__PURE__ */ recordBlock("path", 41, "Path", "Ordered picklist steps and an optional Change stage control."),
   quickLinks: /* @__PURE__ */ recordBlock("quickLinks", 42, "Related links", "Jump to related lists, with viewer-scoped counts."),
   relatedList: /* @__PURE__ */ recordBlock("relatedList", 43, "Related list", "A compact table of related records with View all and optional New."),
+  fieldSection: /* @__PURE__ */ recordBlock("fieldSection", 44, "Field section", "Selected record fields in one or two columns, with versioned inline editing where available."),
+  relatedRecord: /* @__PURE__ */ recordBlock("relatedRecord", 45, "Related record", "Read-only fields and a link to one parent record."),
+  actionBar: /* @__PURE__ */ recordBlock("actionBar", 46, "Action bar", "Record actions in the configured order, with an overflow menu."),
+  richText: /* @__PURE__ */ recordBlock("richText", 47, "Rich text", "Markdown headings, paragraphs, lists, emphasis and http(s) links."),
   form: /* @__PURE__ */ dataBlock("form", "Form", /* @__PURE__ */ dataObjects(34)),
   board: /* @__PURE__ */ dataBlock("board", "Board", /* @__PURE__ */ dataObjects(35)),
   detail: /* @__PURE__ */ dataBlock("detail", "Detail", { deal: 36, account: 36, contact: 36 }),
@@ -264,8 +277,8 @@ export const PARTS: Partial<Record<PageComponent, readonly string[]>> = /* @__PU
 export function parseRecordProps<K extends RecordBlock>(component: K, input: unknown, object: PageKind): RecordProps<K> {
   const result = RECORD_PROPS[component].parse(input === undefined ? {} : input) as RecordProps<K>;
   if ("actions" in result && result.actions) {
-    const allowed = BLOCKS.highlights.actions.filter((action) => action.object === object);
-    for (const id of result.actions) if (!allowed.some((action) => action.id === id)) throw new Error(`${id} cannot run in highlights on ${object}`);
+    const allowed = BLOCKS[component].actions.filter((action) => action.object === object);
+    for (const id of result.actions) if (!allowed.some((action) => action.id === id)) throw new Error(`${id} cannot run in ${component} on ${object}`);
   }
   return result;
 }

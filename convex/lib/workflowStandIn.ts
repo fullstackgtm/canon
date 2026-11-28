@@ -1,32 +1,62 @@
 import { describeLayout as describeLayoutForStandIn, type Layout, type LayoutOp } from "../../recipes/md/edit.ts";
 import type { PageStyle } from "../../recipes/layout.ts";
+import type { ObjectDef } from "./objects/registry.ts";
+import type { RecordProps } from "../../recipes/blocks.ts";
+import { visibleRecordFields } from "../../recipes/recordFields.ts";
+import { parentRecordRelations } from "../../recipes/recordRelations.ts";
 
 const SALESFORCE_STYLE = { density: "compact", surface: "bordered", headerBand: "tinted", accent: "#0176d3" } satisfies PageStyle;
 
-export function standInReferenceLayout(layout: Layout, request: string): LayoutOp[] | null {
+export function standInReferenceLayout(layout: Layout, request: string, objects?: ObjectDef[]): LayoutOp[] | null {
   if (layout.object !== "deal" || !/\bsalesforce\b/i.test(request)) return null;
   const object = "deal";
   const style: LayoutOp = { op: "setPageStyle", object, style: { ...layout.style, ...SALESFORCE_STYLE } };
-  if (layout.sections.some((section) => section.component === "highlights")) {
-    return Object.entries(SALESFORCE_STYLE).every(([key, value]) => layout.style?.[key as keyof PageStyle] === value) ? [] : [style];
+  const hasStyle = Object.entries(SALESFORCE_STYLE).every(([key, value]) => layout.style?.[key as keyof PageStyle] === value);
+  if (layout.sections.some((section) => section.component === "fieldSection" && (section.props as RecordProps<"fieldSection">).title === "Opportunity information")) {
+    return hasStyle ? [] : [style];
   }
-  const before = layout.sections[0]?.ref ?? null;
-  const fields = layout.sections.filter((section) => section.component === "fields").map((section) => section.ref);
-  const related = { component: "relatedList" } as const;
+  const highlightIndex = layout.sections.findIndex((section) => section.component === "highlights");
+  const highlights = layout.sections[highlightIndex];
+  const before = layout.sections[highlightIndex + 1]?.ref ?? null;
+  const names = (object: string, defaults: string[]) => objects
+    ? visibleRecordFields(objects.find((def) => def.apiName === object)?.fields ?? [], defaults).map((field) => field.apiName)
+    : defaults;
+  const infoFields = names("deal", ["name", "ownerId", "companyId", "stage", "amount", "closeDate"]);
+  const accountFields = names("account", ["name", "domain", "industry", "status", "ownerId"]);
+  const showParent = accountFields.length > 0 && (!objects || parentRecordRelations(object, objects).some((p) => p.id === "dealCompany"));
+  const hasHighlightsActions = (highlights?.props as RecordProps<"highlights"> | undefined)?.actions?.length || highlights?.actions.length;
+  const next = (component: "fieldSection" | "relatedRecord" | "relatedList") => ({ component, nth: layout.sections.slice(0, highlightIndex + 1).filter((s) => s.component === component).length });
+  const info = next("fieldSection");
+  const parent = next("relatedRecord");
+  const related = next("relatedList");
   const ops: LayoutOp[] = [
-    { op: "addSection", object, before, component: "highlights", title: "Highlights", props: { actions: ["kernel.archive", "kernel.restore"] } },
-    { op: "addSection", object, before, component: "path", title: "Pipeline path", props: { change: true } },
-    { op: "addSection", object, before, component: "quickLinks", title: "Related links", props: { relationships: ["companyDeals", "companyPeople", "dealPeople"] } },
-    ...(!fields.length ? [{ op: "addSection", object, before, component: "fields", title: "Details", fields: ["rest"] } as const] : []),
+    ...(!highlights ? [{ op: "addSection", object, before, component: "highlights", title: "Highlights", props: {} } as const] : []),
+    ...(!hasHighlightsActions && !layout.sections.some((s) => s.component === "actionBar")
+      ? [{ op: "addSection", object, before, component: "actionBar", title: "Record actions", props: { actions: ["kernel.archive", "kernel.restore"] } } satisfies LayoutOp] : []),
+    ...(!layout.sections.some((s) => s.component === "path")
+      ? [{ op: "addSection", object, before, component: "path", title: "Pipeline path", props: { change: true } } as const] : []),
+    ...(!layout.sections.some((s) => s.component === "quickLinks")
+      ? [{ op: "addSection", object, before, component: "quickLinks", title: "Related links", props: { relationships: ["companyDeals", "companyPeople", "dealPeople"] } } satisfies LayoutOp] : []),
+    ...(infoFields.length ? [{ op: "addSection", object, before, component: "fieldSection", title: "Opportunity information",
+      props: { title: "Opportunity information", fields: infoFields, columns: 2 } } satisfies LayoutOp] : []),
+    ...(showParent ? [{ op: "addSection", object, before, component: "relatedRecord", title: "Account details",
+      props: { relationship: "dealCompany", fields: accountFields } } satisfies LayoutOp] : []),
     { op: "addSection", object, before, component: "relatedList", title: "Opportunities at this account",
-      props: { relationship: "companyDeals", columns: ["stage", "amount"], create: true } },
+      props: { relationship: "companyDeals", columns: ["recordTitle", ...names("deal", ["stage", "amount"])], create: true } },
   ];
-  if (before?.component === "header") ops.push({ op: "removeSection", object, section: before });
-  const [first = { component: "fields" }, ...rest] = fields;
-  ops.push({ op: "wrapSections", object, sections: [first, related], kind: "columns", id: "recordColumns", props: { widths: [2, 1], gap: "tight" } });
-  if (rest.length) {
-    ops.push({ op: "wrapSections", object, sections: [first], kind: "stack", id: "recordFields" });
-    for (const section of rest) ops.push({ op: "moveIntoContainer", object, section, container: "recordFields", before: null });
+  const fields = layout.sections.filter((section) => section.component === "fields").map((section) => section.ref);
+  if (!highlights && before?.component === "header") ops.push({ op: "removeSection", object, section: before });
+  if (infoFields.length) {
+    const right = showParent ? parent : related;
+    ops.push({ op: "wrapSections", object, sections: [info, right], kind: "columns", id: "recordColumns", props: { widths: [2, 1], gap: "tight" } });
+    if (fields.length) {
+      ops.push({ op: "wrapSections", object, sections: [info], kind: "stack", id: "recordFields" });
+      for (const section of fields) ops.push({ op: "moveIntoContainer", object, section, container: "recordFields", before: null });
+    }
+    if (showParent) ops.push(
+      { op: "wrapSections", object, sections: [parent], kind: "stack", id: "recordRelated" },
+      { op: "moveIntoContainer", object, section: related, container: "recordRelated", before: null },
+    );
   }
   return [...ops, style];
 }
@@ -35,9 +65,12 @@ export function standInWorkflow(input: import("./workflowAgent.ts").WorkflowInpu
   const dealPage = input.pages.find((p) => p.target === "deal");
   if (dealPage && (!input.imageReference?.currentTarget || input.imageReference.currentTarget === "deal") && /\bsalesforce\b/i.test(input.request)) {
     const layout = describeLayoutForStandIn(dealPage.markdown, "deal");
-    const ops = !("error" in layout) ? standInReferenceLayout(layout, input.request) : null;
+    const ops = !("error" in layout) ? standInReferenceLayout(layout, input.request, input.objects) : null;
+    if (ops?.length === 0) return { plan: [], ops: {}, summary: "The deal page already has the Salesforce layout and style." };
     if (ops?.length) return { plan: [{ target: "deal", why: "Bring pipeline progress and related records together." }],
-      ops: { deal: ops }, summary: ops.length === 1 ? "Applied a compact, bordered style with blue highlights." : "Added highlights, the pipeline path and related records, with compact spacing, borders and a blue accent." };
+      ops: { deal: ops }, summary: ops.length === 1
+        ? "Applied compact spacing, bordered cards, a tinted header and a blue accent."
+        : "Organized opportunity fields, pipeline progress, actions and related records with compact spacing, bordered cards, a tinted header and a blue accent." };
   }
   if (/\badd\b.*\bstage rail\b/i.test(input.request)) {
     const deal = input.pages.find((p) => p.target === "deal");

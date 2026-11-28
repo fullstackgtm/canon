@@ -591,7 +591,7 @@ export function describeLayout(markdown: string, object: string): Layout | { err
           .map((p) => ({ runs: p.id, ...(hosts.get(p.host) ? { panel: hosts.get(p.host) } : {}) })),
       };
     }),
-    addable: componentsOf(pageKind(object)).filter((c) => c === "fields" || c === "relatedList" || !present.has(c)),
+    addable: componentsOf(pageKind(object)).filter((c) => c === "fields" || c === "relatedList" || c === "fieldSection" || c === "relatedRecord" || c === "richText" || !present.has(c)),
   };
 }
 

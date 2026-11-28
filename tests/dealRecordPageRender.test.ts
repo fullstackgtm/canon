@@ -47,6 +47,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     "../../../recipes": recipes,
     "../../../recipes/blocks": { pageKind },
     "./record-blocks": { RecordBlocks: ({ children }: { children: (renderers: object) => ReactNode }) => children({}) },
+    "./dropdown-menu": {},
     "@/components/dashboard": {}, "@/components/ui/dialog": {}, "@/lib/toast": {},
     "@/lib/utils": { cn: (...v: unknown[]) => v.filter(Boolean).join(" ") },
     "./fields": {}, "@/components/research/ai-cell": {},
@@ -84,6 +85,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     return exports;
   };
   stubs["./record-parts"] = load(recordParts);
+  stubs["@/components/ui/record-action-control"] = load(transpile("../src/components/ui/record-action-control.tsx"));
   const exports = load(outputText) as { RecordPage?: ComponentType<Record<string, unknown>> };
   return renderToStaticMarkup(createElement(exports.RecordPage!, { object, id: "record", ...(inDialog ? { inDialog: { onSaved: empty } } : {}) }));
 }

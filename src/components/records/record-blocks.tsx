@@ -5,24 +5,29 @@ import { useConvex, useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "../../../convex/_generated/api";
 import { stageOf, stageOutcome } from "../../../convex/lib/pipelines";
-import { offered } from "../../../recipes/actions";
+import { offered, type PageAction } from "../../../recipes/actions";
 import type { Context } from "../../../recipes/conditions";
 import { pageKind } from "../../../recipes/blocks";
 import { projectedPast } from "../../../convex/lib/objects/views";
 import type { BoardSaves } from "./board-view";
 import { DATA_QUERIES } from "../../../recipes/data";
-import { relatedCount, type RecordRelation } from "../../../recipes/recordRelations";
+import { parentRecordRelations, recordRelations, relatedCount, type ParentRecordRelation, type RecordRelation } from "../../../recipes/recordRelations";
 import { cn, getErrorMessage } from "@/lib/utils";
+import { canEditRecordField, visibleRecordFields } from "../../../recipes/recordFields";
+import { splitRecordActions } from "../../../recipes/recordActionBar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { RecordText } from "./record-text";
+import { recordHref } from "./record-target";
 import { SelectField } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { formatValue, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
-import { LookupLink } from "./lookup-field";
+import { InlineField, isEditable, formatValue, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
+import { LookupField, LookupLink } from "./lookup-field";
 import { useWorkspaceMoney } from "./money";
 import { DataResult } from "./data-section";
 import { DataForm } from "./data-write-section";
 import { createDataRecord, dataCreateFields } from "./data-create";
 import { RECORDS_SAVED, useRecordsSaved } from "./record-context";
-import { loadRecordRelation, relatedListHref, useRecordRelations, type RelationSource } from "./record-relation-query";
+import { loadParentRecord, loadRecordRelation, relatedListHref, useReadableRecordObjects, type RelationSource } from "./record-relation-query";
 import { objectIcon } from "./object-icons";
 import { btn } from "./record-parts";
 import type { SectionOf } from "./page-sections";
@@ -35,6 +40,7 @@ type RecordBlockData = RelationSource & {
   version: number;
   desc: ObjectDescription;
   team?: readonly TeamMember[];
+  splitTeam?: readonly TeamMember[];
 };
 
 const card = "min-w-0 border border-border bg-card";
@@ -53,8 +59,10 @@ const actionLabels = {
   "kernel.findEmail": "Find email", "kernel.findPhone": "Find phone",
 } as const;
 
-export function highlightsActions(section: SectionOf<"highlights">) {
-  const fromProps = [...new Set(section.props.actions)].map((runs, index) => ({ id: `highlight${index}`, label: actionLabels[runs], runs }));
+export type RecordActionHost = "highlights" | "actionBar";
+
+function placedRecordActions(section: SectionOf<RecordActionHost>): PageAction[] {
+  const fromProps = [...new Set(section.props.actions)].map((runs, index) => ({ id: `${section.component}:${index}`, label: actionLabels[runs], runs }));
   const explicit = new Set(section.actions?.map((action) => action.runs));
   return [...fromProps.filter((action) => !explicit.has(action.runs)), ...(section.actions ?? [])];
 }
@@ -104,6 +112,84 @@ function Highlights({ data, section, actions }: { data: RecordBlockData; section
 }
 
 type SaveField = (field: FieldDescription, value: CellValue, version: number) => Promise<boolean>;
+
+function RecordFieldSection({ data, section, context, save }: { data: RecordBlockData; section: SectionOf<"fieldSection">; context: Context; save?: SaveField }) {
+  const { title, fields, columns, collapsible, collapsed } = section.props;
+  const money = useWorkspaceMoney();
+  const recordMoney = typeof data.values.currency === "string" ? { ...money, currency: data.values.currency } : money;
+  const body = <dl className={cn("grid gap-3 px-4 py-3", columns === 2 && "sm:grid-cols-2")}>
+    {visibleRecordFields(data.desc.fields, fields).map((field) => {
+      const value = data.values[field.fieldId] as CellValue | undefined;
+      const readOnly = !canEditRecordField(context.canEdit === true, Boolean(save) && !data.desc.register, field, data.desc.readOnlyFields) || !isEditable(field);
+      const onSave = (next: CellValue, version: number) => !readOnly && save ? save(field, next, version) : Promise.resolve(false);
+      return <div key={field.fieldId} className="min-w-0">
+        <dt className="px-2 text-xs text-muted-foreground">{field.label}</dt>
+        <dd>{field.type === "lookup"
+          ? <LookupField field={field} value={value} version={data.version} readOnly={readOnly} onSave={onSave} />
+          : <InlineField field={field} value={value} version={data.version} team={field.type === "splits" ? data.splitTeam : data.team} money={recordMoney} readOnly={readOnly} onSave={onSave} />}</dd>
+      </div>;
+    })}
+  </dl>;
+  const startsClosed = collapsed ?? section.collapsed;
+  const heading = "border-b border-border px-4 py-2.5 text-sm font-medium";
+  return (collapsible ?? Boolean(startsClosed))
+    ? <details className={card} open={!startsClosed}><summary className={cn(heading, "cursor-pointer")}>{title}</summary>{body}</details>
+    : <section className={card} aria-label={title}><h2 className={heading}>{title}</h2>{body}</section>;
+}
+
+function RelatedRecord({ data, relation, section }: { data: RecordBlockData; relation: ParentRecordRelation; section: SectionOf<"relatedRecord"> }) {
+  const client = useConvex();
+  const desc = useQuery(api.objects.describe, { object: relation.object });
+  const [refresh, setRefresh] = useState(0);
+  const [state, setState] = useState<{ key: string; result: Awaited<ReturnType<typeof loadParentRecord>> }>();
+  useRecordsSaved(() => setRefresh((n) => n + 1));
+  const fields = desc?.readable ? visibleRecordFields(desc.fields, section.props.fields) : [];
+  const key = desc?.readable ? JSON.stringify([data.object, data.id, data.version, relation, relation.kind === "field" ? data.values[relation.field] : null, fields.map((field) => field.fieldId), refresh]) : null;
+  useEffect(() => {
+    if (key === null) return;
+    const [object, id, , parent, value] = JSON.parse(key) as [string, string, number, ParentRecordRelation, unknown];
+    let live = true;
+    void loadParentRecord(client, { object, id }, parent, value).then(
+      (result) => { if (live) setState({ key, result }); },
+      () => { if (live) setState({ key, result: null }); },
+    );
+    return () => { live = false; };
+  }, [client, key]);
+  const result = desc === null || desc?.readable === false ? null : state?.key === key ? state.result : undefined;
+  const workspaceMoney = useWorkspaceMoney();
+  const currency = result?.values.currency;
+  const money = typeof currency === "string" ? { ...workspaceMoney, currency } : workspaceMoney;
+  const title = section.props.title ?? section.title;
+  return <section className={card} aria-label={title}>
+    <h2 className="border-b border-border px-4 py-2.5 text-sm font-medium">{result
+      ? <Link href={recordHref(relation.object, result.id)} className="text-primary hover:underline">{title}</Link> : title}</h2>
+    {result ? <dl className="space-y-2 px-4 py-3">
+      {fields.map((field) => <div key={field.fieldId}>
+        <dt className="text-xs text-muted-foreground">{field.label}</dt>
+        <dd className="break-words text-sm">{formatValue(field, result.values[field.fieldId] as CellValue | undefined, data.team, money) || "—"}</dd>
+      </div>)}
+    </dl> : <p className="px-4 py-3 text-sm text-muted-foreground">{result === undefined ? "Loading record…" : "Related record unavailable."}</p>}
+  </section>;
+}
+
+type RecordAction = { menu?: boolean };
+type RenderActions = (actions: readonly PageAction[], host: RecordActionHost, control?: RecordAction) => ReactNode[];
+
+function RecordActionBar({ section, actions }: { section: SectionOf<"actionBar">; actions: RenderActions }) {
+  const placed = placedRecordActions(section);
+  const controls = actions(placed, "actionBar");
+  const { buttons, overflow } = splitRecordActions(controls);
+  if (!buttons.length) return null;
+  return <section aria-label={section.title} className={cn(card, "flex flex-wrap items-center gap-2 px-4 py-2.5")}>
+    {buttons}
+    {overflow.length > 0 && <DropdownMenu>
+      <DropdownMenuTrigger className={btn} aria-label="More record actions">⋯</DropdownMenuTrigger>
+      <DropdownMenuContent keepMounted align="end">
+        {actions(placed, "actionBar", { menu: true }).slice(buttons.length)}
+      </DropdownMenuContent>
+    </DropdownMenu>}
+  </section>;
+}
 
 function RecordPath({ section, data, context, save }: { section: SectionOf<"path">; data: RecordBlockData; context: Context; save?: SaveField }) {
   const [saving, setSaving] = useState(false);
@@ -247,12 +333,15 @@ function RelatedList({ source, section, relation, context }: { source: RelationS
 
 export function useRecordBlockRenderers({ data, page, context, save, actions }: {
   data: RecordBlockData | null; page: PageSpec; context: Context; save?: SaveField;
-  actions: (section: SectionOf<"highlights">) => ReactNode;
+  actions: RenderActions;
 }) {
   const anchor = useId();
   const object = data?.object ?? "";
-  const relevant = page.some((s) => s.component === "relatedList" || s.component === "quickLinks");
-  const relations = useRecordRelations(object, Boolean(data) && relevant);
+  const relatedLists = page.some((s) => s.component === "relatedList" || s.component === "quickLinks");
+  const relatedRecords = page.some((s) => s.component === "relatedRecord");
+  const objects = useReadableRecordObjects(Boolean(data) && (relatedLists || relatedRecords));
+  const relations = objects && relatedLists ? recordRelations(object, objects) : undefined;
+  const parents = objects && relatedRecords ? parentRecordRelations(object, objects) : undefined;
   const idOf = (section: SectionOf<"relatedList">) => `${anchor}-${page.indexOf(section)}`;
   const jump: NavigateRelation = (event, relation) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -293,9 +382,21 @@ export function useRecordBlockRenderers({ data, page, context, save, actions }: 
     reveal();
   };
   return {
-    highlights: (section: SectionOf<"highlights">) => data && fold(section.title, section.collapsed, <Highlights data={data} section={section} actions={actions(section)} />),
+    highlights: (section: SectionOf<"highlights">) => data && fold(section.title, section.collapsed, <Highlights data={data} section={section} actions={actions(placedRecordActions(section), "highlights")} />),
     path: (section: SectionOf<"path">) => data && <RecordPath data={data} section={section} context={context} save={save} />,
     quickLinks: (section: SectionOf<"quickLinks">) => data && fold(section.title, section.collapsed, <QuickLinks source={data} section={section} relations={relations} jump={jump} />),
+    fieldSection: (section: SectionOf<"fieldSection">) => data && <RecordFieldSection data={data} section={section} context={context} save={save} />,
+    relatedRecord: (section: SectionOf<"relatedRecord">) => {
+      if (!data) return null;
+      const relation = parents?.find((r) => r.id === section.props.relationship);
+      const title = section.props.title ?? section.title;
+      return fold(title, section.collapsed, relation ? <RelatedRecord data={data} relation={relation} section={section} /> :
+        <section className={cn(card, "p-4")}><h2 className="text-sm font-medium">{title}</h2><p className="text-sm text-muted-foreground">{parents ? "Relationship unavailable." : "Loading relationship…"}</p></section>);
+    },
+    actionBar: (section: SectionOf<"actionBar">) => data && fold(section.title, section.collapsed, <RecordActionBar section={section} actions={actions} />),
+    richText: (section: SectionOf<"richText">) => data && fold(section.title, section.collapsed, <section aria-label={section.title} className={cn(card, "space-y-2 p-4")}>
+      <h2 className="text-sm font-medium">{section.title}</h2><RecordText markdown={section.props.markdown} />
+    </section>),
     relatedList: (section: SectionOf<"relatedList">) => {
       if (!data) return null;
       const relation = relations?.find((r) => r.id === section.props.relationship);
@@ -315,7 +416,8 @@ export function RecordBlocks({ children, ...options }: Parameters<typeof useReco
 
 export function RelatedRecordsPage({ sourceObject, sourceId, object, relationship }: { sourceObject: string; sourceId: string; object: string; relationship: string }) {
   const client = useConvex();
-  const relations = useRecordRelations(sourceObject, true);
+  const objects = useReadableRecordObjects(true);
+  const relations = objects && recordRelations(sourceObject, objects);
   const relation = relations?.find((r) => r.id === relationship && r.object === object);
   const [source, setSource] = useState<RelationSource | null>();
   useEffect(() => {
