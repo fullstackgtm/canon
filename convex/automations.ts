@@ -57,7 +57,7 @@ import { coerce, type FieldValue, type ResolvedObjectDef } from "./lib/objects/r
 import { isCustomObjectName } from "../modules/kernel/reportLanguage";
 import { archivedObjectNames } from "./lib/objects/orgDefs";
 import { ID, normalizeDomain, normalizeEmail } from "./lib/canon/identity";
-import { ASK_AGENT } from "./lib/automationAgent";
+import { ASK_AGENT, ROUTINE_IMPORT_AGENT } from "./lib/automationAgent";
 import { recipeAgentStandIn } from "./lib/recipeAgentStandIn";
 import { uniqueClaimKeys, uniqueClaimProvider } from "./lib/objects/write";
 import { encryptForStorage, decryptFromStorage } from "./lib/tokenHelpers";
@@ -422,10 +422,10 @@ export const propose = mutation({
  * "ask-canon", with its replay: it waits for an admin to approve it like any agent's, even the one who asked.
  */
 export const proposeAsked = internalMutation({
-  args: { ruleId: v.optional(v.id("automationRules")), doc: v.object(ruleArgs), note: v.string() },
+  args: { ruleId: v.optional(v.id("automationRules")), doc: v.object(ruleArgs), note: v.string(), agent: v.optional(v.literal(ROUTINE_IMPORT_AGENT)) },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
-    const row = await proposeVersion(ctx, admin, args.doc, { ruleId: args.ruleId, note: args.note, agent: ASK_AGENT, notes: [] });
+    const row = await proposeVersion(ctx, admin, args.doc, { ruleId: args.ruleId, note: args.note, agent: args.agent ?? ASK_AGENT, notes: [] });
     if (row.spec.trigger.kind !== "schedule" && !isOnDemand(row.spec.trigger)) await ctx.scheduler.runAfter(0, internal.automations.replayVersion, { versionId: row._id });
     return { versionId: row._id, sentence: describe(row.spec, await namesFor(ctx, admin.orgId, row.spec.object)) };
   },

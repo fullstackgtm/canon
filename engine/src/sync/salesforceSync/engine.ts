@@ -65,6 +65,8 @@ export class SfWriteError extends Error {
   }
 }
 
+export class RecordWriteRejected extends Error {}
+
 export function emptyStats(): TickStats {
   return { inboundEvents: 0, inboundEdits: 0, outboundChanges: 0, outboundPatches: 0, skippedEcho: 0, conflicts: 0, parentLinks: 0, parentsSkipped: 0, errors: [] };
 }
@@ -116,7 +118,12 @@ export async function runInbound(ports: EnginePorts, policy: SyncPolicy, state: 
       for (const sfId of ev.sfIds) {
         const local = await ports.records.findBySfId(rule.local, sfId);
         if (!local) continue; // unmatched: creates are the import's job
-        await applyInboundToRecord(ports, rule, local, ev.changedFields, ev.values, ev.commitTimestamp, stats);
+        try {
+          await applyInboundToRecord(ports, rule, local, ev.changedFields, ev.values, ev.commitTimestamp, stats);
+        } catch (error) {
+          if (!(error instanceof RecordWriteRejected)) throw error;
+          stats.errors.push(`ledger refused ${rule.local} ${local.id} (Salesforce ${sfId}): ${error.message}`);
+        }
       }
     }
     for (let i = 0; ports.parents && i < parents.length; i += 200) {

@@ -6087,6 +6087,7 @@ export default defineSchema({
     }))),
     error: v.optional(v.string()),
     startedAt: v.number(),
+    heartbeatAt: v.optional(v.number()),
     finishedAt: v.optional(v.number()),
   }).index("by_orgId_and_startedAt", ["orgId", "startedAt"]),
 

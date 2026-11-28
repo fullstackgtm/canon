@@ -76,16 +76,31 @@ export async function createBulkQueryJob(c: SfConn, q: string): Promise<string> 
   return ((await res.json()) as { id: string }).id;
 }
 
-export async function waitBulkQueryJob(c: SfConn, jobId: string, opts: { pollMs?: number; timeoutMs?: number } = {}): Promise<number> {
-  const deadline = Date.now() + (opts.timeoutMs ?? 10 * 60_000);
+export class BulkQuerySliceExpired extends Error {}
+
+export async function waitBulkQueryJob(c: SfConn, jobId: string, opts: { pollMs?: number; timeoutMs?: number; deadlineAt?: number; now?: () => number; heartbeat?: () => Promise<void> } = {}): Promise<number> {
+  const now = opts.now ?? Date.now;
+  const deadline = now() + (opts.timeoutMs ?? 10 * 60_000);
   let delay = opts.pollMs ?? 500;
   for (;;) {
-    const res = await sfFetch(c, `${base(c)}/jobs/query/${jobId}`);
-    const job = (await res.json()) as { state: string; numberRecordsProcessed?: number; errorMessage?: string };
+    if (opts.deadlineAt !== undefined && now() >= opts.deadlineAt) throw new BulkQuerySliceExpired();
+    await opts.heartbeat?.();
+    const sliceEndsFirst = opts.deadlineAt !== undefined && opts.deadlineAt <= deadline;
+    // An injected clock owns logical time; wall-clock timers cannot measure its deadline.
+    const signal = now === Date.now ? AbortSignal.timeout(Math.max(1, Math.min(deadline, opts.deadlineAt ?? Infinity) - now())) : undefined;
+    let job: { state: string; numberRecordsProcessed?: number; errorMessage?: string };
+    try {
+      const res = await sfFetch(c, `${base(c)}/jobs/query/${jobId}`, { signal });
+      job = await res.json() as typeof job;
+    } catch (error) {
+      if (signal?.aborted && sliceEndsFirst) throw new BulkQuerySliceExpired();
+      throw error;
+    }
     if (job.state === "JobComplete") return job.numberRecordsProcessed ?? 0;
     if (job.state === "Failed" || job.state === "Aborted") throw new Error(`Bulk query job ${jobId} ${job.state}: ${job.errorMessage ?? ""}`);
-    if (Date.now() > deadline) throw new Error(`Bulk query job ${jobId} timed out`);
-    await new Promise((r) => setTimeout(r, delay));
+    if (opts.deadlineAt !== undefined && now() >= opts.deadlineAt) throw new BulkQuerySliceExpired();
+    if (now() > deadline) throw new Error(`Bulk query job ${jobId} timed out`);
+    await new Promise((r) => setTimeout(r, Math.min(delay, Math.max(0, (opts.deadlineAt ?? Infinity) - now()))));
     delay = Math.min(delay * 2, 5000);
   }
 }

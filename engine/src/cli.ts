@@ -170,6 +170,10 @@ export async function runCli(argv: string[]) {
     await (await import("./cli/fix.ts")).suggest(args);
     return;
   }
+  if (command === "routines") {
+    await (await import("./cli/routines.ts")).routinesCommand(args);
+    return;
+  }
   if (command === "call") {
     await (await import("./cli/call.ts")).callCommand(args);
     return;

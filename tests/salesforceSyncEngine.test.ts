@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_POLICY,
+  RecordWriteRejected,
   guardSfPort,
   pollingSource,
   runTick,
@@ -237,5 +238,37 @@ test("latency harness at 10k accounts / 50k contacts: 20 edits each direction, p
     assert.ok(p95(outLat) < 60_000);
     assert.equal(audit.length, 20);
     assert.ok(audit.every((a) => a.patchPlanId.startsWith("pp_")));
+  } finally { await h.sim.stop(); }
+});
+
+test("inbound skips a deterministic record rejection, records its identity and advances past the batch", async () => {
+  const h = await setup({ accounts: 2, readOnly: true });
+  try {
+    h.clock.t += 1000;
+    h.sim.edit("Account", accId(0), { Industry: "Rejected" });
+    h.sim.edit("Account", accId(1), { Industry: "Accepted" });
+    const edit = h.ports.records.edit.bind(h.ports.records);
+    h.ports.records.edit = async (object, id, fields, opts) => {
+      if (id === "a0") throw new RecordWriteRejected("deleted stream");
+      return edit(object, id, fields, opts);
+    };
+    const stats = await h.tick();
+    assert.equal(stats.inboundEdits, 1);
+    assert.ok(stats.errors.some(e => e.includes("a0") && e.includes(accId(0))));
+    assert.equal((await h.store.get("account", "a1"))!.fields.industry, "Accepted");
+    assert.equal((await h.tick()).inboundEvents, 0);
+  } finally { await h.sim.stop(); }
+});
+
+test("inbound transport failures stop the batch before saving the cursor", async () => {
+  const h = await setup({ accounts: 1, readOnly: true });
+  try {
+    h.clock.t += 1000;
+    h.sim.edit("Account", accId(0), { Industry: "Retry" });
+    const before = structuredClone(h.state.inboundCursor);
+    h.ports.records.edit = async () => { throw new Error("503 transport failure"); };
+    await assert.rejects(h.tick());
+    assert.deepEqual(h.state.inboundCursor, before);
+    assert.equal(h.saved.length, 0);
   } finally { await h.sim.stop(); }
 });

@@ -241,7 +241,11 @@ export const createJob = internalMutation({
   args: { orgId: v.id("organizations"), objects: v.optional(v.array(v.string())) },
   handler: async (ctx, args) => {
     const prev = await ctx.db.query("sfImportJobs").withIndex("by_orgId_and_startedAt", (q) => q.eq("orgId", args.orgId)).order("desc").first();
-    if (prev && (prev.status === "queued" || prev.status === "running")) throw new ConvexError("A Salesforce import is already running");
+    const now = Date.now();
+    if (prev && (prev.status === "queued" || prev.status === "running")) {
+      if (now - (prev.heartbeatAt ?? prev.startedAt) < 15 * 60_000) throw new ConvexError("A Salesforce import is already running");
+      await ctx.db.patch(prev._id, { status: "failed", finishedAt: now, error: "Import stopped reporting progress; start a new import to retry" });
+    }
     return ctx.db.insert("sfImportJobs", {
       orgId: args.orgId,
       status: "queued",
@@ -249,7 +253,8 @@ export const createJob = internalMutation({
       requestedObjects: args.objects,
       rejectedSample: [],
       rejectedCount: 0,
-      startedAt: Date.now(),
+      startedAt: now,
+      heartbeatAt: now,
     });
   },
 });
@@ -270,7 +275,7 @@ export const checkpoint = internalMutation({
   },
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
-    if (!job) return;
+    if (!job || job.status === "failed" || job.status === "done") return;
     const room = Math.max(0, REJECTED_SAMPLE_CAP - job.rejectedSample.length);
     const owners = args.owners?.map(({ memberId, ...o }) => {
       const id = memberId ? ctx.db.normalizeId("users", memberId) : null;
@@ -278,6 +283,7 @@ export const checkpoint = internalMutation({
     });
     await ctx.db.patch(args.jobId, {
       objects: args.objects,
+      heartbeatAt: Date.now(),
       ...(owners?.length ? { owners: mergeOwners(job.owners ?? [], owners, OWNERS_CAP) } : {}),
       rejectedSample: room ? [...job.rejectedSample, ...args.rejected.slice(0, room).map((r) => ({ ...r, reason: r.reason.slice(0, 300) }))] : job.rejectedSample,
       rejectedCount: (job.rejectedCount ?? 0) + args.rejected.length,
@@ -304,11 +310,12 @@ export const run = internalAction({
         ...extra,
         ...(extra.owners ? { owners: extra.owners.map((o) => compact(o)) } : {}),
       });
+    let objects = job.objects as ObjectImportState[];
     try {
+      await save(objects, [], { status: "running" });
       const conn = await connFor(ctx, job.orgId);
       const sink = sinkFor(ctx, job.orgId);
       const canon = canonSinkFor(ctx, job.orgId, conn.instanceUrl);
-      let objects = job.objects as ObjectImportState[];
       if (!objects.length) {
         objects = await planObjects(conn, job.requestedObjects ?? undefined);
         await save(objects, [], { status: "running" });
@@ -331,7 +338,7 @@ export const run = internalAction({
     } catch (error) {
       await ctx.runMutation(internal.salesforceImport.checkpoint, {
         jobId: args.jobId,
-        objects: job.objects,
+        objects: objects.map((o) => compact(o)),
         rejected: [],
         status: "failed",
         error: error instanceof Error ? error.message : "Import failed",
