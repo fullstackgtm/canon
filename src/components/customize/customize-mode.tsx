@@ -20,6 +20,10 @@ import { cn } from "@/lib/utils";
 export type CustomizeTarget = { title: string; purpose?: string; when?: string; reads: string[]; does: string[]; writes: string[] };
 export type CustomizeJob = { id: string; request: string; where: string; status: "queued" | "working" | "done" | "failed"; summary?: string; by?: string; ms?: number; route?: string; diff?: string; kind?: "layout" | "behavior" };
 export type CustomizeAdapter = {
+  scope?: { value: "personal" | "workspace"; set: (v: "personal" | "workspace") => void };
+  conflict?: boolean;
+  useWorkspace?: () => void;
+  promote?: () => void;
   label: string;
   detail?: string;
   describe: (el: HTMLElement) => CustomizeTarget | null;
@@ -108,6 +112,12 @@ function CustomizeTrayEnabled() {
           </div>
           {customizing && <button type="button" onClick={() => setCustomizing(false)} className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] text-stone-400 ring-1 ring-white/15 hover:text-white">Esc · Done</button>}
         </div>
+        {adapter && <div className="space-y-2 px-4 py-2 text-xs">
+          {adapter.scope && <select aria-label="Save destination" value={adapter.scope.value} onChange={(e) => adapter.scope!.set(e.target.value as "personal" | "workspace")} className="bg-stone-900"><option value="personal">Personal</option><option value="workspace">Workspace</option></select>}
+          {adapter.conflict && <p>The workspace page changed; your version kept. Review.</p>}
+          {adapter.useWorkspace && <button type="button" onClick={adapter.useWorkspace} className="block underline">Use the workspace page</button>}
+          {adapter.promote && <button type="button" onClick={adapter.promote} className="block underline">Promote to workspace</button>}
+        </div>}
         {adapter?.stages && <div className="border-b border-white/10 px-4 py-2"><StagePicker stages={adapter.stages} /></div>}
         {jobs.length > 0 && <div className="max-h-[50vh] overflow-y-auto px-2 py-2 text-xs"><JobList jobs={jobs} /></div>}
         {adapter && (adapter.kept > 0 || adapter.saved) && <div className="border-t border-white/10 px-3 py-2 text-xs"><SaveBar adapter={adapter} /></div>}
@@ -293,7 +303,7 @@ function SaveBar({ adapter }: { adapter: CustomizeAdapter }) {
           <button type="button" onClick={adapter.undo} className="inline-flex items-center gap-1 hover:text-white"><Undo2 className="size-3" /> Undo</button>
           <button type="button" onClick={adapter.reset} className="inline-flex items-center gap-1 hover:text-white"><RotateCcw className="size-3" /> Reset</button>
           <button type="button" disabled={s?.state === "saving" || adapter.pending} title={adapter.pending ? "Wait for the changes still being worked on" : undefined} onClick={() => adapter.save()} className="ml-auto inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1 font-medium text-white disabled:opacity-50">
-            {s?.state === "saving" ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />} Save for everyone
+            {s?.state === "saving" ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />} Save {adapter.scope?.value === "workspace" ? "for everyone" : "just for me"}
           </button>
         </div>
       )}

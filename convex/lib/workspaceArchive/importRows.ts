@@ -311,6 +311,7 @@ export const DEFERRED: Readonly<Record<string, { group: "C" | "code" | "rebuilt"
   headcountReqs: { group: "C", why: "a requisition names its territory" },
   recipePackages: { group: "code", why: "an installed recipe runs its bundle, and code is never installed from an archive" },
   recipeMarkdownRevisions: { group: "code", why: "a workspace recipe's revisions run with its package's bundle, and code is never installed from an archive" },
+  pageLayers: { group: "code", why: "a personal page version is based on a workspace recipe revision, and those arrive only with the recipe's code, which is never installed from an archive" },
   icpScores: { group: "rebuilt", why: "scores of CRM mirror accounts, which archives never carry; the rescore after import scores the register" },
   accountEnrichments: { group: "rebuilt", why: "enrichment of CRM mirror accounts, which archives never carry" },
   leadScores: { group: "rebuilt", why: "scores of CRM mirror contacts, which archives never carry" },

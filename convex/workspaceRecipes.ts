@@ -8,7 +8,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { invalidateFit } from "./lib/fitInvalidation";
-import { action, internalMutation, internalQuery, query, type ActionCtx, type QueryCtx } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query, type ActionCtx, type QueryCtx } from "./_generated/server";
 import { callerOf, mayDecide, requireDecider, setEnabled } from "./recipes";
 import { enabledFor, currentRevision, modelSettings, upstreamChange, orgConnections, packageRow, recipeIn, requireRecipe, storedOverrides } from "./lib/recipes";
 import { proposalEvals } from "./lib/recipeAgent";
@@ -22,6 +22,8 @@ import { RECIPE_MAX_BYTES, fromManifest, parseManifest, toManifest, type Manifes
 import { parseRecipe, type Runnable } from "../recipes/md/parse.ts";
 import { copySlug, copyTitle, forkMarkdown, isWorkspaceId, lineDiff, orgSlug, workspaceId, workspaceProblems, type WorkspaceSource } from "../recipes/workspace.ts";
 import { bundleHash } from "../services/recipe-runtime/src/protocol.ts";
+
+import { ownLayer, ownLayers, pageBase, personalPage, rebaseLayer, targetFor } from "./lib/pageLayers";
 
 const REVISIONS_SHOWN = 20;
 const NOTE_MAX = 300;
@@ -453,5 +455,98 @@ export const revisions = query({
     if (!caller) return null;
     await requireWorkspace(ctx, caller.user.orgId, args.recipeId);
     return { recipeId: args.recipeId, revisions: await revisionViews(ctx, await latestRevisions(ctx, caller.user.orgId, args.recipeId)) };
+  },
+});
+
+
+export const personal = query({
+  args: { object: v.string(), recipeId: v.string() },
+  handler: async (ctx, args) => {
+    const caller = await callerOf(ctx);
+    if (!caller) return null;
+    const base = await pageBase(ctx, caller.user.orgId, args.recipeId, targetFor(args.object));
+    let layer = await personalPage(ctx, caller.user, targetFor(args.object), args.recipeId);
+    if (!layer && targetFor(args.object).point === "workspace.pages") {
+      for (const source of await ownLayers(ctx, caller.user)) {
+        const candidate = await personalPage(ctx, caller.user, source.target, source.recipeId);
+        if (candidate?.recipe.workspacePages?.some((p) => p.slug === args.object) && !candidate.basePages.includes(args.object)) {
+          layer = { ...candidate, revision: 0 };
+          break;
+        }
+      }
+    }
+    return { userId: caller.user._id, markdown: layer?.markdown ?? base.markdown, revision: base.revision, layerRevision: layer?.revision ?? 0,
+      layerId: layer?.layerId ?? null, conflict: layer?.conflict ?? false, canDecide: mayDecide(caller), workspaceMarkdown: base.markdown };
+  },
+});
+
+export const savePersonal = mutation({
+  args: { object: v.string(), recipeId: v.string(), markdown: v.string(), layerRevision: v.number(), baseMarkdown: v.string() },
+  handler: async (ctx, args) => {
+    const caller = await callerOf(ctx);
+    if (!caller || caller.agent) throw new ConvexError("Sign in to customize your page.");
+    const user = caller.user, target = targetFor(args.object);
+    const base = await pageBase(ctx, user.orgId, args.recipeId, target);
+    const existing = await ownLayer(ctx, user, target);
+    if ((existing?.revision ?? 0) !== args.layerRevision) throw new ConvexError("Your page changed. Reload before saving.");
+    if (!existing && (await ownLayers(ctx, user)).length >= 20) throw new ConvexError("You can keep at most 20 personal pages. Use the workspace page for one before saving another.");
+    const merged = rebaseLayer({ baseMarkdown: args.baseMarkdown, markdown: args.markdown }, base.markdown);
+    if (merged.conflict) throw new ConvexError("The workspace page changed; your version kept. Review before saving.");
+    if (parseRecipe(merged.markdown).recipe.meta.id !== args.recipeId) throw new ConvexError("The page recipe id cannot change.");
+    const validationId = isFirstParty(args.recipeId) ? "@workspace/personal-validation" : args.recipeId;
+    const validationText = isFirstParty(args.recipeId) ? forkMarkdown(merged.markdown, { id: validationId, title: parseRecipe(merged.markdown).recipe.meta.title, org: "personal" }) : merged.markdown;
+    checked(validationText, { id: validationId, frozen: runnable(parseRecipe(base.markdown).recipe) });
+    const fields = { orgId: user.orgId, userId: user._id, target, recipeId: args.recipeId, markdown: merged.markdown,
+      baseMarkdown: base.markdown, baseRevision: base.revision, revision: (existing?.revision ?? 0) + 1, updatedAt: Date.now() };
+    if (existing) await ctx.db.patch(existing._id, fields); else await ctx.db.insert("pageLayers", fields);
+    return { revision: fields.revision };
+  },
+});
+
+export const resetPersonal = mutation({
+  args: { object: v.string(), layerId: v.optional(v.id("pageLayers")) },
+  handler: async (ctx, args) => {
+    const caller = await callerOf(ctx);
+    if (!caller || caller.agent) throw new ConvexError("Sign in to reset your page.");
+    const layer = args.layerId ? await ctx.db.get(args.layerId) : await ownLayer(ctx, caller.user, targetFor(args.object));
+    if (layer && layer.orgId === caller.user.orgId && layer.userId === caller.user._id) await ctx.db.delete(layer._id);
+    return null;
+  },
+});
+
+export const personalVersions = query({
+  args: { target: v.optional(v.object({ point: v.string(), key: v.string() })), all: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const caller = await callerOf(ctx);
+    if (!caller) return [];
+    const rows = mayDecide(caller) && args.all
+      ? await ctx.db.query("pageLayers").withIndex("by_orgId_and_target_point_and_target_key", (q) => q.eq("orgId", caller.user.orgId)).take(100)
+      : mayDecide(caller) && args.target
+      ? await ctx.db.query("pageLayers").withIndex("by_orgId_and_target_point_and_target_key", (q) => q.eq("orgId", caller.user.orgId).eq("target.point", args.target!.point).eq("target.key", args.target!.key)).take(100)
+      : await ownLayers(ctx, caller.user);
+    return Promise.all(rows.map(async (layer) => ({ ...layer, name: (await ctx.db.get(layer.userId))?.name ?? "Someone",
+      diff: lineDiff((await pageBase(ctx, caller.user.orgId, layer.recipeId, layer.target)).markdown, layer.markdown) })));
+  },
+});
+
+export const promotionBase = internalQuery({
+  args: { layerId: v.id("pageLayers") },
+  handler: async (ctx, args) => {
+    const caller = await callerOf(ctx);
+    if (!caller || !mayDecide(caller)) throw new ConvexError(REFUSED);
+    const layer = await ctx.db.get(args.layerId);
+    if (!layer || layer.orgId !== caller.user.orgId) throw new ConvexError("No personal version in this workspace.");
+    const current = await pageBase(ctx, caller.user.orgId, layer.recipeId, layer.target);
+    return { ...layer, recipeId: current.recipeId, ...rebaseLayer(layer, current.markdown), name: (await ctx.db.get(layer.userId))?.name ?? "Someone", baseRevision: current.revision };
+  },
+});
+
+export const removePromoted = internalMutation({
+  args: { layerId: v.id("pageLayers"), revision: v.number() },
+  handler: async (ctx, args) => {
+    const user = await requireDecider(ctx);
+    const layer = await ctx.db.get(args.layerId);
+    if (layer?.orgId === user.orgId && layer.revision === args.revision) await ctx.db.delete(layer._id);
+    return null;
   },
 });

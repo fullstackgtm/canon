@@ -294,8 +294,6 @@ async function runEdit(
   request: string, started: number, trace: { route: string; by: string },
 ): Promise<Result> {
   const object = args.object ?? "deal";
-  const permission = await ctx.runQuery(api.recipes.contributions, {});
-  if (!permission?.canEdit) throw new ConvexError("Only an admin or manager can customize a page.");
   const layout = describeLayout(args.markdown, object);
   if ("error" in layout) throw new ConvexError(layout.error);
   const target = args.target as SectionRef | undefined;
@@ -364,7 +362,8 @@ async function runEdit(
 }
 
 /**
- * Save the draft as the workspace's record page. A workspace recipe saves a new revision on the revision the draft was
+ * Save the draft to the viewer's personal layer by default. An explicit workspace save uses the decider and eval
+ * gates below. A workspace recipe saves a new revision on the revision the draft was
  * made from (`baseRevision`), so a teammate's save in between is refused, never overwritten. A first-party recipe
  * can't be edited in place: it is customized into a workspace copy (or the copy a blocked save already made, `into`),
  * the draft goes into the copy with the copy's id, title and author, and the copy is switched on for the selected page
@@ -373,12 +372,18 @@ async function runEdit(
 export const save = action({
   args: {
     object: pageObject,
+    scope: v.optional(v.union(v.literal("personal"), v.literal("workspace"))), layerRevision: v.optional(v.number()), baseMarkdown: v.optional(v.string()),
     recipeId: v.string(), markdown: v.string(), baseRevision: v.optional(v.number()), into: v.optional(v.string()),
     note: v.optional(v.string()), acceptFailingEvals: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<{ recipeId: string; revision: number; copied: boolean; blocked: boolean; failing: string[]; evalsNotRun: string | null }> => {
     const object = args.object ?? "deal";
     const note = args.note ?? `Customized on the ${object} page`;
+    if (args.scope !== "workspace") {
+      const out = await ctx.runMutation(api.workspaceRecipes.savePersonal, { object, recipeId: args.recipeId, markdown: args.markdown,
+        layerRevision: args.layerRevision ?? 0, baseMarkdown: args.baseMarkdown ?? (await ctx.runQuery(api.workspaceRecipes.markdown, { recipeId: args.recipeId }))!.markdown });
+      return { recipeId: args.recipeId, revision: out.revision, copied: false, blocked: false, failing: [], evalsNotRun: null };
+    }
     if (isWorkspaceId(args.recipeId)) {
       if (args.baseRevision === undefined) throw new ConvexError("Saving a workspace customization needs the revision the draft was made from.");
       const out = await ctx.runAction(api.workspaceRecipes.save, { recipeId: args.recipeId, markdown: args.markdown, baseRevision: args.baseRevision, note, acceptFailingEvals: args.acceptFailingEvals });
@@ -401,5 +406,21 @@ export const save = action({
       else await ctx.runMutation(api.recipes.enableContribution, { point: `${object}.page`, recipeId, key: "page" });
     }
     return { recipeId, revision: out.revision, copied: true, blocked: out.blocked, failing: out.evals.filter((e) => !e.ok).map((e) => e.name), evalsNotRun: out.evalsNotRun };
+  },
+});
+
+
+export const promote = action({
+  args: { layerId: v.id("pageLayers"), markdown: v.optional(v.string()), baseRevision: v.optional(v.union(v.number(), v.null())), layerRevision: v.optional(v.number()), acceptFailingEvals: v.optional(v.boolean()) },
+  handler: async (ctx, args): Promise<{ conflict: boolean; markdown: string; blocked: boolean; baseRevision: number | null; layerRevision: number }> => {
+    const layer = await ctx.runQuery(internal.workspaceRecipes.promotionBase, { layerId: args.layerId });
+    if (args.markdown !== undefined && (args.baseRevision !== layer.baseRevision || args.layerRevision !== layer.revision)) throw new ConvexError("The workspace or personal page changed during review. Open promotion again.");
+    const revisions = { baseRevision: layer.baseRevision, layerRevision: layer.revision };
+    if (layer.conflict && args.markdown === undefined) return { ...revisions, conflict: true, markdown: layer.merge, blocked: false };
+    const object = layer.target.point === "workspace.pages" ? layer.target.key : layer.target.point.split(".")[0];
+    const result = await ctx.runAction(api.pageCustomize.save, { object, recipeId: layer.recipeId, markdown: args.markdown ?? layer.markdown,
+      scope: "workspace", baseRevision: layer.baseRevision ?? undefined, note: `Promoted from ${layer.name}`, acceptFailingEvals: args.acceptFailingEvals });
+    if (!result.blocked) await ctx.runMutation(internal.workspaceRecipes.removePromoted, { layerId: args.layerId, revision: layer.revision });
+    return { ...revisions, conflict: false, markdown: args.markdown ?? layer.markdown, blocked: result.blocked };
   },
 });

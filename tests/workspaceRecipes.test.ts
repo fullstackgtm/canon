@@ -233,3 +233,64 @@ test("a kept-bundle copy reverts across an upstream merge to the revision's own 
   assert.deepEqual(plain((await w.lib.orgRecipe(w.ctx, "org")).ref.bundle), old, "runPlays and evals load the old bundle");
   assert.deepEqual([...w.stored].sort(), ["blob:1", "blob:2"], "no bundle a revision records is deleted");
 });
+
+test("personal page layers isolate viewers and tenants, allow members and enforce revision and count limits", async () => {
+  const w = workspace();
+  const base = FIRST_PARTY_MARKDOWN["canon-base"];
+  const { apply } = await import("../recipes/md/edit.ts");
+  const edit = apply(base, { op: "setCollapsed", object: "account", section: { component: "history" }, collapsed: true });
+  assert.ok("markdown" in edit);
+  const copy = await w.fn.customize.handler(w.ctx, { recipeId: "canon-base" });
+  user.role = "member";
+  try {
+    await assert.rejects(w.fn.save.handler(w.ctx, { recipeId: copy.recipeId, markdown: base, baseRevision: 1 }));
+    await w.fn.savePersonal.handler(w.ctx, { object: "account", recipeId: "canon-base", markdown: edit.markdown, baseMarkdown: base, layerRevision: 0 });
+    const owner = await w.recipes.recordPage.handler(w.ctx, { object: "account" });
+    assert.equal(owner.sections.find((s: { component: string }) => s.component === "history").collapsed, true);
+    await assert.rejects(w.fn.savePersonal.handler(w.ctx, { object: "account", recipeId: "canon-base", markdown: base, baseMarkdown: base, layerRevision: 0 }));
+    const added = apply(edit.markdown, { op: "addPage", slug: "my-pipeline", title: "My pipeline", icon: "chart" });
+    assert.ok("markdown" in added);
+    await w.fn.savePersonal.handler(w.ctx, { object: "account", recipeId: "canon-base", markdown: added.markdown, baseMarkdown: base, layerRevision: 1 });
+    assert.ok((await w.recipes.workspacePages.handler(w.ctx, {})).some((p: { slug: string }) => p.slug === "my-pipeline"));
+    assert.equal((await w.recipes.workspacePage.handler(w.ctx, { slug: "my-pipeline" })).title, "My pipeline");
+    user._id = "other";
+    assert.ok(!(await w.recipes.workspacePages.handler(w.ctx, {})).some((p: { slug: string }) => p.slug === "my-pipeline"));
+    assert.equal(await w.recipes.workspacePage.handler(w.ctx, { slug: "my-pipeline" }), null);
+    assert.notEqual((await w.recipes.recordPage.handler(w.ctx, { object: "account" })).sections.find((s: { component: string }) => s.component === "history").collapsed, true);
+    user._id = "user"; user.orgId = "elsewhere";
+    assert.notEqual((await w.recipes.recordPage.handler(w.ctx, { object: "account" })).sections.find((s: { component: string }) => s.component === "history").collapsed, true);
+    user.orgId = "org";
+    await assert.rejects(w.fn.promotionBase.handler(w.ctx, { layerId: w.db.rows("pageLayers")[0]._id }));
+    for (let i = 0; i < 19; i++) await w.db.insert("pageLayers", { orgId: "org", userId: "user", target: { point: "workspace.pages", key: `p${i}` } });
+    await assert.rejects(w.fn.savePersonal.handler(w.ctx, { object: "contact", recipeId: "canon-base", markdown: base, baseMarkdown: base, layerRevision: 0 }), /20/);
+    await w.fn.resetPersonal.handler(w.ctx, { object: "account" });
+    assert.equal(w.db.rows("pageLayers").length, 19);
+  } finally { user.role = "admin"; user._id = "user"; user.orgId = "org"; }
+});
+
+test("personal layers rebase clean changes and retain their version on conflict; promotion records its author and removes the layer", async () => {
+  const w = workspace();
+  const { recipeId } = await w.fn.customize.handler(w.ctx, { recipeId: "canon-base" });
+  await w.recipes.enableContribution.handler(w.ctx, { point: "account.page", recipeId, key: "page" });
+  const base = (await w.fn.markdown.handler(w.ctx, { recipeId })).markdown;
+  const ours = base.replace("## History {section=history}", "## My history {section=history}");
+  assert.notEqual(ours, base);
+  await w.fn.savePersonal.handler(w.ctx, { object: "account", recipeId, markdown: ours, baseMarkdown: base, layerRevision: 0 });
+  const theirs = base.replace("## Contact {section=header}", "## Workspace contact {section=header}");
+  assert.notEqual(theirs, base);
+  await w.fn.save.handler(w.ctx, { recipeId, markdown: theirs, baseRevision: 1 });
+  const rebased = await w.fn.personal.handler(w.ctx, { object: "account", recipeId });
+  assert.equal(rebased.conflict, false);
+  assert.ok(rebased.markdown.includes("My history"));
+  assert.ok(rebased.markdown.includes("Workspace contact"));
+  const id = w.db.rows("pageLayers")[0]._id;
+  const promoted = await w.fn.promotionBase.handler(w.ctx, { layerId: id });
+  await w.fn.save.handler(w.ctx, { recipeId, markdown: promoted.markdown, baseRevision: promoted.baseRevision, note: `Promoted from ${promoted.name}` });
+  await w.fn.removePromoted.handler(w.ctx, { layerId: id, revision: promoted.revision });
+  assert.equal(w.db.rows("pageLayers").length, 0);
+  assert.equal(w.db.rows("recipeMarkdownRevisions").at(-1)?.note, "Promoted from Riley");
+  const { rebaseLayer } = loadConvex(["lib/pageLayers.ts"])["lib/pageLayers.ts"] as unknown as { rebaseLayer: (layer: { markdown: string; baseMarkdown: string }, current: string) => { markdown: string; conflict: boolean } };
+  const conflict = rebaseLayer({ baseMarkdown: "a\nb\nc", markdown: "a\nmine\nc" }, "a\ntheirs\nc");
+  assert.equal(conflict.conflict, true);
+  assert.equal(conflict.markdown, "a\nmine\nc");
+});

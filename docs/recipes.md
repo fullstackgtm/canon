@@ -203,7 +203,7 @@ What's on is stored in `recipeEnablements`: `{ orgId, point, recipeId, contribut
 
 Uninstalling a package refuses while any of its contributions is on. Turning a template off first leaves the rows it made.
 
-**Layers.** Each point resolves Canon's default, then the installed package, then the workspace's settings revisions for that recipe (R2). A rep layer isn't built. It would sit in `enabledFor`, after the workspace's row, keyed by user, and only for points that mark themselves rep-overridable.
+**Layers.** Each point resolves Canon's default, then the installed package, then the workspace's settings revisions for that recipe (R2). Page reads apply the viewer's personal layer after the workspace page. Other recipe contributions still resolve at workspace scope.
 
 **Narrowing `dealPageRecipe`.** The schema change shipped as a widen. `organizations.dealPageRecipe` is still in the schema and still read as the fallback, but nothing writes it. A human-run migration then:
 
@@ -1188,6 +1188,26 @@ is how the tests run. The local stack runs the Worker, so it exercises the
 same path as production (`runtime=` on the `READY` line).
 
 ## Layers, settings and forks
+
+The pencil saves a personal page by default, including for members. A current
+`pageLayers` row holds the full markdown, target, original workspace text and
+revision, personal revision counter and update time. Only its owner sees the
+page; personal standalone pages appear in their sidebar and palette. The limit
+is 20 layers per person. There is no separate personal revision history.
+
+Page resolution rebases against current workspace markdown with `merge3`.
+Clean merges are served immediately and persisted on the next save. Conflicts
+keep the person's version and show a warning in the pencil tray. "Use the
+workspace page" removes the personal layer. Data access remains viewer scoped.
+
+Admins and managers can select Personal or Workspace in the pencil. Workspace
+saves retain the existing eval gate. They can promote their own layer from the
+tray, or inspect Personal versions and diffs per page on Customization. A
+promotion merges with the workspace, presents conflicts for review, writes a
+workspace revision noted "Promoted from <name>", then removes the unchanged
+personal layer. Promotion is human-only. `canon_customization list_personal`
+and `get_personal` read the caller's layers; promotion has no MCP operation.
+Sharing a personal page before promotion is out of scope.
 
 An install resolves through four layers. A lower layer overrides a higher one
 by contribution id:

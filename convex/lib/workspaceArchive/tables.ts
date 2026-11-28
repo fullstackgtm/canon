@@ -54,6 +54,7 @@ export const ARCHIVE_TABLES = {
   },
   recipeRevisions: data("by_orgId_and_recipeId_and_revision"),
   recipeMarkdownRevisions: withCode("by_orgId_and_recipeId_and_revision"),
+  pageLayers: data("by_orgId_and_target_point_and_target_key"),
   recipePackages: withCode("by_orgId_and_recipeId"),
   recipeEnablements: data("by_orgId_and_point_and_enabled"),
   pageEditAttempts: local("a log of how the page editor routed each request"),
