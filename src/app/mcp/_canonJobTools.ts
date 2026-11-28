@@ -200,7 +200,8 @@ export const canonJobTools: CanonTool[] = [
     "Buying signals (job-board hiring) and the heat score for top accounts, and signal watches: a yes-or-no question asked of each account weekly (an account AI field) with a rule that tasks the account's owner when the answer turns yes. watch_catalog lists the starters and what the workspace watches; watch makes one from a starter key or your own label and question (admins). A watch answers nothing until you run its field on the accounts to watch with canon_ai_fields \"run\", and its rule stays paused until a person resumes it on the Automations page.",
     {
       watch_catalog: q(api.signalWatches.catalog, "{} -> { templates: [{ key, label, question, task, group, watching: { slug, attribute, refresh } | null }], custom: [...], canInstall }"),
-      watch: m(api.signalWatches.watch, "{ key } | { label, question (yes or no, about one company), task? (the owner's task when it turns yes) } -> { slug, attribute, ruleId, next }"),
+      watch: m(api.signalWatches.watch, "{ key } | { label, question (yes or no, about one company), task? (the owner's task when it turns yes) }, filter? (the accounts to watch, as canon_list_records filters accounts, e.g. { icpId } or { minFit: 70 }; with it the watch asks them within the hour and any new ones weekly) -> { slug, attribute, ruleId, next }"),
+      set_scope: m(api.signalWatches.setScope, "{ slug, filter | null } (give an account AI field a lasting scope, asked from the next hourly check and then on its cadence; null clears it)"),
       status: q(api.signals.status),
       set_enabled: m(api.signals.setEnabled, "{ enabled: boolean }"),
       check_now: m(api.signals.checkNow),

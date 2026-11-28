@@ -4,6 +4,7 @@
  * - an account AI field asking a yes-or-no question, refreshed weekly on its owner's ChatGPT plan; and
  * - an automation rule that, when an accepted answer turns yes, gives the account's owner a task.
  *
+ * With a `filter`, the field keeps that scope: every weekly refresh asks the accounts it matches, new ones included.
  * The rule installs paused, like a recipe's template: only a person resumes it (automations.setStatus). An unchanged
  * answer adds no fact, so the rule fires once per change, not once per refresh.
  */
@@ -14,6 +15,7 @@ import { can, refusal } from "./lib/capabilities";
 import { attributeFor } from "./lib/research/agentLoop";
 import { insertField } from "./researchAgents";
 import { insertRule, requireAdmin } from "./automations";
+import { filterValidator } from "./lib/scopeValidators";
 import { SIGNAL_PREFIX, SIGNAL_TEMPLATES, signalFieldLabel, signalTemplate } from "./lib/signals/catalog";
 
 const QUESTION_MAX = 500;
@@ -49,6 +51,8 @@ export const watch = mutation({
     label: v.optional(v.string()),
     question: v.optional(v.string()),
     task: v.optional(v.string()),
+    /** The accounts to watch, as the Accounts list filters them (an ICP's members: { icpId }). Asked from the next due check, then weekly. */
+    filter: v.optional(filterValidator),
   },
   handler: async (ctx, args) => {
     const user = await requireAdmin(ctx);
@@ -65,6 +69,7 @@ export const watch = mutation({
 
     const field = await insertField(ctx, user, {
       label: fieldLabel, kind: "qa", answerType: "boolean", judgment: true, entityType: "account", refresh: "weekly",
+      ...(args.filter ? { watchFilter: args.filter } : {}),
       question: `${question} Answer yes only with a dated source from the period asked about.`,
     });
     const attribute = attributeFor(field.slug);
@@ -76,7 +81,23 @@ export const watch = mutation({
     }, { paused: "A new signal waits until you resume it" });
     return {
       slug: field.slug, attribute, ruleId,
-      next: `Run "${fieldLabel}" on the accounts to watch (AI fields, or canon_ai_fields "run" with slug ${field.slug}); it then re-asks weekly. Resume its rule on the Automations page to start the tasks.`,
+      next: args.filter
+        ? `"${fieldLabel}" starts on its accounts within the hour, then asks them and any new ones weekly on the field owner's ChatGPT plan. Resume its rule on the Automations page to start the tasks.`
+        : `Run "${fieldLabel}" on the accounts to watch (AI fields, or canon_ai_fields "run" with slug ${field.slug}); it then re-asks weekly. Resume its rule on the Automations page to start the tasks.`,
     };
+  },
+});
+
+/** Give a watch (or any account AI field) a lasting scope, or clear it with null. A new scope is asked from the next due check. */
+export const setScope = mutation({
+  args: { slug: v.string(), filter: v.union(filterValidator, v.null()) },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    if (!user || !can(user, "strategy.edit")) throw new ConvexError(refusal("strategy.edit"));
+    const field = await ctx.db.query("researchAgents").withIndex("by_orgId_and_slug", (q) => q.eq("orgId", user.orgId).eq("slug", args.slug)).unique();
+    if (!field) throw new ConvexError(`No AI field "${args.slug}".`);
+    if (field.entityType !== "account") throw new ConvexError("Only an account field can watch a list of accounts.");
+    if (!args.filter) return void (await ctx.db.patch(field._id, { watchFilter: undefined, watchCursor: undefined, updatedAt: Date.now() }));
+    await ctx.db.patch(field._id, { watchFilter: args.filter, watchCursor: undefined, refreshCadence: field.refreshCadence ?? "weekly", refreshNextAt: Date.now(), updatedAt: Date.now() });
   },
 });
