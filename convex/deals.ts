@@ -1,4 +1,4 @@
-import { action, internalMutation, query, mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { action, internalMutation, internalQuery, query, mutation, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { can, refusal } from "./lib/capabilities";
 import { internal } from "./_generated/api";
 import { callerClient, requireCaller } from "./records";
@@ -7,7 +7,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { accessFor, dealForCaller, dealVisible, requireWriteAccess, visibleDeals } from "./permissions";
 import { admitRegisterIds, referenceErrors } from "./lib/recordReferences";
-import { may, refuseLockedWrite, type Access } from "./lib/access";
+import { CRM_COMPANIES_PER_CALL, CRM_IDS_PER_CALL } from "./lib/outbound/related";
+import { may, refuseHiddenUse, refuseLockedWrite, type Access } from "./lib/access";
 
 /** Refuse an edit of a deal the caller's role may not edit or see, or of a field they may not change (CP14); a hidden deal reads as missing. */
 function requireDealEdit(access: Access, deal: Doc<"deals">, fields: string[]) {
@@ -37,33 +38,77 @@ const CRM_PROVIDERS = ["hubspot", "salesforce"] as const;
  * holds its record id or its domain (a CRM sync identifies an account by its
  * domain too), or of the stream the register row is linked to.
  */
-async function crmAccountsOfCompany(ctx: QueryCtx, orgId: Id<"organizations">, a: { companyId: string; domain?: string; stream?: string }): Promise<Id<"crmAccounts">[]> {
-  const byId = (provider: string, externalId: string) => ctx.db.query("canonExternalIds")
+async function crmAccountsOfCompany(ctx: QueryCtx, orgId: Id<"organizations">, a: { companyId: string; domain?: string; stream?: string }, reserve: (rows: number) => void = () => {}): Promise<Id<"crmAccounts">[]> {
+  const byId = (provider: string, externalId: string) => { reserve(1); return ctx.db.query("canonExternalIds")
     .withIndex("by_orgId_provider_externalId", (q) => q.eq("orgId", orgId).eq("provider", provider).eq("externalId", externalId))
-    .first();
+    .first(); };
   const found = await Promise.all([byId(ID.recordAccount, a.companyId), a.domain ? byId(ID.domain, normalizeDomain(a.domain)) : null]);
   const streamId = a.stream ? ctx.db.normalizeId("canonEntities", a.stream) : null;
   const entityIds = new Set([...found.flatMap((x) => (x ? [x.entityId] : [])), ...(streamId ? [streamId] : [])]);
   // The companies merged into this one (CP15a): their CRM accounts' deals are this company's now.
   for (const entityId of [...entityIds]) {
+    reserve(50);
     const merges = await ctx.db.query("recordMerges").withIndex("by_orgId_and_survivorStream", (q) => q.eq("orgId", orgId).eq("survivorStream", entityId)).take(50);
     for (const m of merges) if (!m.undoneAt) for (const l of m.losers) entityIds.add(l.stream);
   }
   const out = new Set<Id<"crmAccounts">>();
   for (const entityId of entityIds) {
+    reserve(1);
     const entity = await ctx.db.get(entityId);
     if (!entity || entity.orgId !== orgId || entity.entityType !== "account") continue;
     const own = entity.projectionTable === "crmAccounts" ? ctx.db.normalizeId("crmAccounts", entity.projectionId) : null;
     if (own) out.add(own);
+    reserve(20);
     for (const ext of await ctx.db.query("canonExternalIds").withIndex("by_entityId", (q) => q.eq("entityId", entityId)).take(20)) {
       const provider = CRM_PROVIDERS.find((p) => ext.provider === ID.crmAccount(p));
       if (!provider) continue;
+      reserve(1);
       const row = await ctx.db.query("crmAccounts").withIndex("by_orgId_crmId", (q) => q.eq("orgId", orgId).eq("crmId", ext.externalId)).first();
       if (row && row.provider === provider) out.add(row._id);
     }
   }
   return [...out];
 }
+
+/** CRM-only deals as the generic list names them: canonical stream ids, inside this caller's access. */
+export const crmDealIdsOfCompanies = internalQuery({
+  args: { orgId: v.id("organizations"), access: v.union(v.any(), v.null()), companies: v.array(v.object({ id: v.string(), domain: v.optional(v.string()), stream: v.optional(v.string()) })) },
+  handler: async (ctx, args): Promise<{ ids: Record<string, string[]>; over: boolean }> => {
+    const ids: Record<string, string[]> = {};
+    if (args.companies.length > CRM_COMPANIES_PER_CALL) return { ids, over: true };
+    const access = args.access as Access | null;
+    if (access) refuseHiddenUse(access, "deal", ["companyId"]);
+    let scanned = 0;
+    let mappingReads = 0;
+    let mappingQueries = 0;
+    const limit = {};
+    const reserve = (rows: number) => { mappingReads += rows; mappingQueries++; if (mappingReads > 5000 || mappingQueries > 1800) throw limit; };
+    try {
+      for (const company of args.companies) {
+        const found = new Set<string>();
+        const accounts = await crmAccountsOfCompany(ctx, args.orgId, { companyId: company.id, domain: company.domain, stream: company.stream }, reserve);
+        for (const id of accounts) {
+          reserve(1);
+          const account = await ctx.db.get(id);
+          if (!account || account.orgId !== args.orgId || !readableCrmAccount(access, account)) continue;
+          const deals = await ctx.db.query("deals").withIndex("by_accountId", (q) => q.eq("accountId", id)).take(Math.min(501, CRM_IDS_PER_CALL - scanned + 1));
+          scanned += deals.length;
+          if (deals.length > 500 || scanned > CRM_IDS_PER_CALL) return { ids: {}, over: true };
+          for (const d of deals) {
+            if (d.orgId !== args.orgId || d.archivedAt !== undefined || d.companyId || (access && !dealVisible(access, d))) continue;
+            const entity = await ctx.db.query("canonEntities").withIndex("by_orgId_projectionId", (q) => q.eq("orgId", args.orgId).eq("projectionId", d._id)).first();
+            if (entity?.orgId === args.orgId && entity.entityType === "opportunity" && entity.projectionTable === "deals") found.add(entity._id);
+          }
+        }
+        ids[company.id] = [...found];
+      }
+      return { ids, over: false };
+    } catch (error) {
+      if (error === limit) return { ids: {}, over: true };
+      throw error;
+    }
+  },
+});
 
 /** A company's deals: those linked to it and those synced from its CRM accounts, at most COMPANY_DEALS_MAX. */
 export async function dealsOfCompany(ctx: QueryCtx, orgId: Id<"organizations">, a: { companyId: string; domain?: string; stream?: string }) {

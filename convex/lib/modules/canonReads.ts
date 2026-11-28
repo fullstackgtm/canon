@@ -1,5 +1,4 @@
 import { readableCrmAccount } from "../dealCompany";
-import { hasNegativeDealCondition } from "../outbound/related.ts";
 import { orgRecipe, termsFor } from "../recipes";
 import { sourceStatus } from "../../moduleMe";
 import { accountIdFor } from "../recordClient";
@@ -253,7 +252,7 @@ export async function canonRead(ctx: QueryCtx, orgId: Id<"organizations">, acces
     const sees = await audienceViewer(ctx, orgId, access);
     const list = (await ctx.db.query("audiences").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).take(AUDIENCES_SCANNED_MAX)).filter(sees);
     if (list.length > limit) over("audiences you can see");
-    return list.map((a) => ({ id: a._id as string, createdAt: a.createdAt, ...Object.fromEntries(fields.map((f) => [f, f === "size" && (hasNegativeDealCondition(a.related) || (access && access.userId !== "system" && narrowsReads(access))) ? null : AUDIENCE_FIELDS[f](a)])) }));
+    return list.map((a) => ({ id: a._id as string, createdAt: a.createdAt, ...Object.fromEntries(fields.map((f) => [f, f === "size" && (access && access.userId !== "system" && narrowsReads(access)) ? null : AUDIENCE_FIELDS[f](a)])) }));
   }
 
   if (!permissionOf(access, "deal").read) return [];

@@ -19,7 +19,7 @@ import { internalMutation, internalQuery, mutation, query, type MutationCtx, typ
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { accessFor } from "./permissions";
-import { assertSupportedRelated, hasNegativeDealCondition } from "./lib/outbound/related";
+import { assertSupportedRelated } from "./lib/outbound/related";
 import { relatedCondition, type RelatedCondition } from "./lib/objects/validators";
 import { refuseHiddenUse } from "./lib/access";
 import { narrowsReads } from "./lib/access";
@@ -88,7 +88,7 @@ export const list = query({
     for (const id of new Set(rows.map((a) => a.createdBy))) owners.set(id, (await ctx.db.get(id))?.name ?? "Former member");
     return rows
       .map((a) => ({
-        _id: a._id, name: a.name, filterCount: a.filter.length, related: a.related, createdAt: a.createdAt, lastSentAt: a.lastSentAt, summary: showSummary && !hasNegativeDealCondition(a.related) ? a.summary : undefined,
+        _id: a._id, name: a.name, filterCount: a.filter.length, related: a.related, createdAt: a.createdAt, lastSentAt: a.lastSentAt, summary: showSummary ? a.summary : undefined,
         shared: isShared(a), mine: a.createdBy === user._id, ownerName: owners.get(a.createdBy) ?? "Former member", canEdit: canChange(user, a),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
