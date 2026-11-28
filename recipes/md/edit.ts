@@ -8,6 +8,7 @@
  */
 import { DEAL_STAGES, type DealStage } from "../../convex/lib/plays/model.ts";
 import { PANELS, placements, type ActionId, type PageAction, type Panel } from "../actions.ts";
+import { BLOCKS, componentsOf } from "../blocks.ts";
 import { COMPONENTS, PAGE_KEYS, PAGE_OBJECTS, isComponentOf, type PageComponent, type PageObject, type PageSection, type PageSpec } from "../kernel.ts";
 import { hasErrors, parseRecipe, readBlock, type CompiledRecipe, type Problem } from "./parse.ts";
 
@@ -471,10 +472,10 @@ export function describeLayout(markdown: string, object: PageObject): Layout | {
         ref: refOf(page, i), component: s.component, title: s.title ?? s.component, collapsed: Boolean(s.collapsed), when: (s.when as When | undefined) ?? null,
         ...(s.component === "fields" ? { fields: s.fields } : {}),
         actions: actions.map((a) => ({ id: a.id, runs: a.runs, label: a.label, ...(a.labelAfter !== undefined ? { labelAfter: a.labelAfter } : {}), ...(a.panel ? { panel: a.panel } : {}), ...(a.shows !== undefined ? { shows: a.shows } : {}), ...(a.enabled !== undefined ? { enabled: a.enabled } : {}) })),
-        addable: placements().filter((p) => p.object === object && hosts.has(p.host) && !actions.some((a) => a.runs === p.id && a.panel === hosts.get(p.host)))
+        addable: BLOCKS[s.component].actions.filter((p) => p.object === object && hosts.has(p.host) && !actions.some((a) => a.runs === p.id && a.panel === hosts.get(p.host)))
           .map((p) => ({ runs: p.id, ...(hosts.get(p.host) ? { panel: hosts.get(p.host) } : {}) })),
       };
     }),
-    addable: COMPONENTS[object].filter((c) => c === "fields" || !present.has(c)),
+    addable: componentsOf(object).filter((c) => c === "fields" || !present.has(c)),
   };
 }

@@ -39,7 +39,7 @@ async function evaluate(db: ReturnType<typeof fixture>, access: Access | null, h
   }
   const fake = createFakeRecordClient({ store: createMemoryRecordStore(), objects: { rows: async () => ({ rows: projected, defs: [plainObjectDef(resolveObjectDef(STANDARD_OBJECTS.deal))], heads: {} }) } });
   const scoped = access ? scopedRecordClient(fake, [access], async () => dealScope({ db }, "ws", access)) : fake;
-  const port = async (companies: import("../convex/lib/outbound/related.ts").CrmCompany[]) => handlers.crmDealIdsOfCompanies.handler({ db }, { orgId: "ws", access, companies });
+  const port: import("../convex/lib/outbound/related.ts").CrmDealsPort = async (companies, continuation) => handlers.crmDealIdsOfCompanies.handler({ db }, { orgId: "ws", access, companies, continuation });
   return applyRelated(people, [{ path: "company.deals", has, filter: [] }], relatedPorts(scoped, "ws", port));
 }
 test("P1 peer CRM account and deal are not attributed to own-only rep", async () => {
@@ -157,12 +157,12 @@ test("one CRM account reached from two companies counts for both", async () => {
   const result = await handlers.crmDealIdsOfCompanies.handler({ db }, { orgId: "ws", access: full, companies: [{ id: "a" }, { id: "second", stream: "stream" }] });
   assert.deepEqual(JSON.parse(JSON.stringify(result.ids)), { a: ["deal-stream"], second: ["deal-stream"] });
 });
-test("B9 query refuses company, account-deal, aggregate-read and identity-fanout bounds", async () => {
+test("B9 query resumes single companies and refuses batch and identity-fanout bounds", async () => {
   const db = fixture();
   const query = (companies = [{ id: "a" }]) => handlers.crmDealIdsOfCompanies.handler({ db }, { orgId: "ws", access: full, companies });
   assert.equal((await query(Array.from({ length: 51 }, (_, i) => ({ id: String(i) })))).over, true);
   for (let i = 0; i < 500; i++) await db.insert("deals", { orgId: "ws", accountId: "crm" });
-  assert.equal((await query()).over, true);
+  assert.ok((await query()).continuation);
   const aggregate = fixture();
   for (let i = 0; i < 99; i++) await aggregate.insert("deals", { orgId: "ws", accountId: "crm" });
   assert.equal((await handlers.crmDealIdsOfCompanies.handler({ db: aggregate }, { orgId: "ws", access: full, companies: [{ id: "a" }, { id: "b", stream: "stream" }, { id: "c", stream: "stream" }] })).over, true);
@@ -180,7 +180,7 @@ test("B9 evaluation refuses every port/id/list overflow without partial membersh
   await assert.rejects(() => applyRelated(many, condition, relatedPorts(empty, "ws", async (companies) => ({ ids: { [companies[0].id]: Array.from({ length: 250 }, (_, i) => `${companies[0].id}-${i}`) }, over: false }))), { message: CRM_DEAL_LIMIT_MESSAGE });
   let calls = 0;
   const endless = { ...client, listObjects: async () => { calls++; return { rows: [], total: 0, projectedThrough: {}, nextCursor: "more" }; } };
-  await assert.rejects(() => applyRelated(people, condition, relatedPorts(endless, "ws", crm)), { message: CRM_DEAL_LIMIT_MESSAGE });
+  await assert.rejects(() => applyRelated(people, condition, relatedPorts(endless, "ws", crm)), { name: "ConvexError" });
   assert.equal(calls, DEAL_LIST_CALLS_MAX);
 });
 test("P8 both audience evaluators pass previewed access to CRM queries", async () => {
@@ -243,4 +243,71 @@ test("dense company batches split until each CRM query fits without partial resu
 
 test("deal conditions refuse when a consumer omits CRM resolution", async () => {
   await assert.rejects(() => applyRelated(people, [{ path: "company.deals", has: "none", filter: [] }], relatedPorts(client, "ws")), { name: "ConvexError" });
+});
+
+test("600 CRM rows complete with late-page matches across one or multiple accounts", async () => {
+  for (const firstAccountRows of [600, 100, 250]) {
+    const db = fixture();
+    await db.patch("hubspot", { archivedAt: 1 });
+    if (firstAccountRows !== 600) {
+      await db.insert("canonExternalIds", { orgId: "ws", provider: "hubspot:account", externalId: "second", entityId: "stream" });
+      await db.insert("crmAccounts", { _id: "crm2", orgId: "ws", provider: "hubspot", crmId: "second" });
+    }
+    for (let i = 1; i < 600; i++) {
+      const deal = await db.insert("deals", { orgId: "ws", accountId: i < firstAccountRows ? "crm" : "crm2", ...(i < 599 ? { archivedAt: 1 } : {}) });
+      if (i === 599) await db.insert("canonEntities", { orgId: "ws", entityType: "opportunity", projectionTable: "deals", projectionId: deal });
+    }
+    assert.deepEqual(await evaluate(db, full), [people[0]]);
+    assert.deepEqual(await evaluate(db, full, "none"), [people[1]]);
+  }
+});
+
+test("500 companies share CRM deal list batches across resolver sub-chunks", async () => {
+  const candidates = Array.from({ length: 500 }, (_, i) => ({ accountId: String(i) }));
+  let calls = 0;
+  const empty = { ...client, listObjects: async () => { calls++; return { rows: [], total: 0, projectedThrough: {}, nextCursor: null }; } };
+  await applyRelated(candidates, [{ path: "company.deals", has: "none", filter: [] }], relatedPorts(empty, "ws", async (companies) => ({ ids: Object.fromEntries(companies.map((c) => [c.id, [c.id]])), over: false })));
+  assert.equal(calls, 2);
+});
+
+test("continuations reject mismatched companies/accounts and recheck account admission", async () => {
+  const db = fixture();
+  for (let i = 0; i < 300; i++) await db.insert("deals", { orgId: "ws", accountId: "crm" });
+  const query = (continuation?: unknown, companies = [{ id: "a" }]) => handlers.crmDealIdsOfCompanies.handler({ db }, { orgId: "ws", access: own, companies, continuation });
+  const first = await query();
+  assert.ok(first.continuation);
+  assert.equal((await query(first.continuation, [{ id: "other" }])).over, true);
+  assert.equal((await query({ ...first.continuation, accountId: "unrelated" })).over, true);
+  await db.patch("crm", { ownerId: "peer" });
+  assert.equal((await query(first.continuation)).over, true);
+});
+
+test("a company over 5000 scanned rows refuses instead of satisfying none", async () => {
+  const db = fixture();
+  for (let i = 0; i < 4999; i++) await db.insert("deals", { orgId: "ws", accountId: "crm", archivedAt: 1 });
+  assert.deepEqual(await evaluate(db, full), people.slice(0, 1));
+  await db.insert("deals", { orgId: "ws", accountId: "crm", archivedAt: 1 });
+  await assert.rejects(() => evaluate(db, full, "none"), { name: "ConvexError" });
+});
+
+test("a CRM port that repeats a continuation refuses instead of looping", async () => {
+  await assert.rejects(() => applyRelated(people, [{ path: "company.deals", has: "none", filter: [] }], relatedPorts(client, "ws", async () => ({ ids: {}, over: false, continuation: { company: { id: "a" }, accountId: "crm", cursor: "same", scanned: 250 } }))), { name: "ConvexError" });
+});
+
+test("CRM query budget covers splits and continuations across conditions and resets per evaluation", async () => {
+  const { CRM_QUERY_CALLS_MAX, CRM_DEAL_LIMIT_MESSAGE } = await import("../convex/lib/outbound/related.ts");
+  const candidates = Array.from({ length: 50 }, (_, i) => ({ accountId: String(i) }));
+  const condition = { path: "company.deals" as const, has: "none" as const, filter: [] };
+  let calls = 0;
+  const ports = relatedPorts(client, "ws", async (companies, continuation) => {
+    calls++;
+    if (companies.length > 1) return { ids: {}, over: true };
+    const scanned = (continuation?.scanned ?? 0) + 250;
+    return { ids: {}, over: false, ...(scanned <= 5000 ? { continuation: { company: companies[0], accountId: "crm", cursor: String(scanned), scanned } } : {}) };
+  });
+  for (let evaluation = 0; evaluation < 2; evaluation++) {
+    calls = 0;
+    await assert.rejects(() => applyRelated(candidates, [condition, condition], ports), { message: CRM_DEAL_LIMIT_MESSAGE });
+    assert.equal(calls, CRM_QUERY_CALLS_MAX);
+  }
 });

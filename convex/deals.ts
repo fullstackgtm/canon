@@ -7,7 +7,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { accessFor, dealForCaller, dealVisible, requireWriteAccess, visibleDeals } from "./permissions";
 import { admitRegisterIds, referenceErrors } from "./lib/recordReferences";
-import { CRM_COMPANIES_PER_CALL, CRM_IDS_PER_CALL } from "./lib/outbound/related";
+import { CRM_COMPANIES_PER_CALL, CRM_IDS_PER_CALL, CRM_ROWS_PER_COMPANY, type CrmContinuation } from "./lib/outbound/related";
 import { may, refuseHiddenUse, refuseLockedWrite, type Access } from "./lib/access";
 
 /** Refuse an edit of a deal the caller's role may not edit or see, or of a field they may not change (CP14); a hidden deal reads as missing. */
@@ -72,10 +72,14 @@ async function crmAccountsOfCompany(ctx: QueryCtx, orgId: Id<"organizations">, a
 
 /** CRM-only deals as the generic list names them: canonical stream ids, inside this caller's access. */
 export const crmDealIdsOfCompanies = internalQuery({
-  args: { orgId: v.id("organizations"), access: v.union(v.any(), v.null()), companies: v.array(v.object({ id: v.string(), domain: v.optional(v.string()), stream: v.optional(v.string()) })) },
-  handler: async (ctx, args): Promise<{ ids: Record<string, string[]>; over: boolean }> => {
+  args: { orgId: v.id("organizations"), access: v.union(v.any(), v.null()), companies: v.array(v.object({ id: v.string(), domain: v.optional(v.string()), stream: v.optional(v.string()) })),
+    continuation: v.optional(v.object({ company: v.object({ id: v.string(), domain: v.optional(v.string()), stream: v.optional(v.string()) }), accountId: v.string(), cursor: v.union(v.string(), v.null()), scanned: v.number() })) },
+  handler: async (ctx, args): Promise<{ ids: Record<string, string[]>; over: boolean; continuation?: CrmContinuation }> => {
     const ids: Record<string, string[]> = {};
     if (args.companies.length > CRM_COMPANIES_PER_CALL) return { ids, over: true };
+    const resume = args.continuation;
+    const company = args.companies[0];
+    if (resume && (args.companies.length !== 1 || !company || resume.company.id !== company.id || resume.company.domain !== company.domain || resume.company.stream !== company.stream || !Number.isInteger(resume.scanned) || resume.scanned < 0 || resume.scanned > CRM_ROWS_PER_COMPANY)) return { ids: {}, over: true };
     const access = args.access as Access | null;
     if (access) refuseHiddenUse(access, "deal", ["companyId"]);
     let scanned = 0;
@@ -87,17 +91,34 @@ export const crmDealIdsOfCompanies = internalQuery({
       for (const company of args.companies) {
         const found = new Set<string>();
         const accounts = await crmAccountsOfCompany(ctx, args.orgId, { companyId: company.id, domain: company.domain, stream: company.stream }, reserve);
+        const admitted: Id<"crmAccounts">[] = [];
         for (const id of accounts) {
           reserve(1);
           const account = await ctx.db.get(id);
-          if (!account || account.orgId !== args.orgId || !readableCrmAccount(access, account)) continue;
-          const deals = await ctx.db.query("deals").withIndex("by_accountId", (q) => q.eq("accountId", id)).take(Math.min(501, CRM_IDS_PER_CALL - scanned + 1));
+          if (account && account.orgId === args.orgId && readableCrmAccount(access, account)) admitted.push(id);
+        }
+        if (resume && !admitted.some((id) => id === resume.accountId)) return { ids: {}, over: true };
+        let paginated = false;
+        for (const id of admitted.slice(resume ? admitted.findIndex((id) => id === resume.accountId) : 0)) {
+          const query = ctx.db.query("deals").withIndex("by_accountId", (q) => q.eq("accountId", id));
+          // At most one pagination per invocation; later full accounts restart next call.
+          const page = args.companies.length === 1 && !paginated ? await query.paginate({ numItems: Math.min(CRM_IDS_PER_CALL, CRM_ROWS_PER_COMPANY - (resume?.scanned ?? 0) + 1), cursor: resume?.cursor ?? null, maximumRowsRead: CRM_IDS_PER_CALL }) : null;
+          const deals = page ? page.page : await query.take(CRM_IDS_PER_CALL - scanned);
+          if (scanned + deals.length + (resume?.scanned ?? 0) > CRM_ROWS_PER_COMPANY) return { ids: {}, over: true };
+          if (!page && args.companies.length === 1 && deals.length === CRM_IDS_PER_CALL - scanned) {
+            return { ids: { [company.id]: [...found] }, over: false, continuation: { company, accountId: id, cursor: null, scanned: scanned + deals.length + (resume?.scanned ?? 0) } };
+          }
+          if (page) paginated = true;
           scanned += deals.length;
-          if (deals.length > 500 || scanned > CRM_IDS_PER_CALL) return { ids: {}, over: true };
+          if (!page && scanned === CRM_IDS_PER_CALL) return { ids: {}, over: true };
           for (const d of deals) {
             if (d.orgId !== args.orgId || d.archivedAt !== undefined || d.companyId || (access && !dealVisible(access, d))) continue;
             const entity = await ctx.db.query("canonEntities").withIndex("by_orgId_projectionId", (q) => q.eq("orgId", args.orgId).eq("projectionId", d._id)).first();
             if (entity?.orgId === args.orgId && entity.entityType === "opportunity" && entity.projectionTable === "deals") found.add(entity._id);
+          }
+          if (page && (!page.isDone || scanned === CRM_IDS_PER_CALL)) {
+            const nextAccount = page.isDone ? admitted[admitted.indexOf(id) + 1] : id;
+            return { ids: { [company.id]: [...found] }, over: false, ...(nextAccount ? { continuation: { company, accountId: nextAccount, cursor: page.isDone ? null : page.continueCursor, scanned: scanned + (resume?.scanned ?? 0) } } : {}) };
           }
         }
         ids[company.id] = [...found];

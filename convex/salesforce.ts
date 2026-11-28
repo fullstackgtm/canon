@@ -445,6 +445,7 @@ const syncDealRow = v.object({
   crmId: v.string(),
   name: v.string(),
   amount: v.optional(v.number()),
+  currency: v.optional(v.string()),
   closeDate: v.string(),
   dealType: v.union(
     v.literal("new_business"),
@@ -543,6 +544,7 @@ function dealSyncValues(deal: Infer<typeof syncDealRow>) {
   return {
     name: deal.name,
     amount: deal.amount,
+    ...(deal.currency !== undefined ? { currency: deal.currency } : {}),
     closeDate: deal.closeDate,
     dealType: deal.dealType,
     crmOwnerId: deal.crmOwnerId,
@@ -838,7 +840,7 @@ export const prepareDeals = internalMutation({
         .withIndex("by_orgId_crmId", (q) => q.eq("orgId", args.orgId).eq("crmId", deal.crmId))
         .first();
       const row = existing ?? (await ctx.db.get(await ctx.db.insert("deals", {
-        orgId: args.orgId, crmId: deal.crmId, ...dealSyncValue(deal, deal.accountId ?? (await accountOf(deal.accountCrmId)), args.instanceUrl, now), ...dealSyncValues(deal), currency: "USD",
+        orgId: args.orgId, crmId: deal.crmId, ...dealSyncValue(deal, deal.accountId ?? (await accountOf(deal.accountCrmId)), args.instanceUrl, now), ...dealSyncValues(deal), currency: deal.currency ?? "USD",
         lastSyncAt: NOT_WRITTEN, archivedAt: now, createdAt: now,
       })));
       const entityId = row && (await dealEntity(ctx, row, { kind: "salesforce", crmId: deal.crmId }));
@@ -893,12 +895,12 @@ export const upsertDeals = internalMutation({
       // leaves those a person set as they are (lib/canon/personHold.ts), and the sync's own columns ride along. A deal
       // prepareDeals made goes live with its first write.
       const prepared = existing?.lastSyncAt === NOT_WRITTEN;
-      const row = existing ?? (await ctx.db.get(await ctx.db.insert("deals", { orgId: args.orgId, crmId: deal.crmId, ...value, ...dealSyncValues(deal), currency: "USD", createdAt: now, syncHash })));
+      const row = existing ?? (await ctx.db.get(await ctx.db.insert("deals", { orgId: args.orgId, crmId: deal.crmId, ...value, ...dealSyncValues(deal), currency: deal.currency ?? "USD", createdAt: now, syncHash })));
       if (!existing || prepared) results.created++;
       else results.updated++;
       // The `facts` mirror follows from its queue, off this transaction (convex/canon.ts queuePartyMirror).
       if (row) {
-        await saveDealValues(ctx, row, { kind: "salesforce", crmId: deal.crmId, rawData: deal.rawData }, { ...crmDealValues(dealSyncValues(deal)), ...(!existing || prepared ? { currency: "USD" } : {}), ownerId: deal.primaryRepId ?? null }, {
+        await saveDealValues(ctx, row, { kind: "salesforce", crmId: deal.crmId, rawData: deal.rawData }, { ...crmDealValues(dealSyncValues(deal)), ...(!existing || prepared ? { currency: deal.currency ?? "USD" } : {}), ownerId: deal.primaryRepId ?? null }, {
           now, deferMirror: true, ...(existing ? { columns: { ...value, syncHash, ...(prepared ? { archivedAt: undefined } : {}) } } : {}),
         });
       }

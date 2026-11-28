@@ -89,3 +89,38 @@ test("a bulk status request that hangs yields when its slice timeout aborts it",
     assert.equal(objects[0].state, "running");
   } finally { clearTimeout(keepAlive); }
 });
+
+test("a bulk wait budget survives slices and fails only the expired object", async () => {
+  let time = 100, polls = 0;
+  let objects: ObjectImportState[] = [{ apiName: "Account", sfTotal: 0, upserted: 0, merged: 0, rejected: 0, state: "running", bulkJobId: "old" }];
+  let saved = structuredClone(objects);
+  const conn = { instanceUrl: "https://fake.test", apiVersion: "60.0", getToken: async () => "fake",
+    fetchImpl: async (input: string | URL | Request) => {
+      if (String(input).includes("/results")) return new Response("Id,Name\n", { headers: { "Sforce-Locator": "null" } });
+      polls++;
+      if (!String(input).endsWith("/next")) time += 100;
+      return Response.json({ state: String(input).endsWith("/next") ? "JobComplete" : "InProgress" });
+    },
+  };
+  const opts = { conn, orgId: "org", sink: memorySink(), now: () => time, checkpoint: async (o: ObjectImportState[]) => { saved = structuredClone(o); } };
+  assert.equal((await runImport({ ...opts, objects, deadlineAt: 150 })).done, false);
+  objects = structuredClone(saved);
+  time = 60 * 60_000 + 101;
+  objects.push({ apiName: "Contact", sfTotal: 0, upserted: 0, merged: 0, rejected: 0, state: "running", bulkJobId: "next" });
+  assert.equal((await runImport({ ...opts, objects, deadlineAt: time + 50 })).done, true);
+  assert.equal(objects[0].state, "failed");
+  assert.match(objects[0].error!, /timed out/i);
+  assert.equal(objects[1].state, "done");
+  assert.equal(polls, 2, "expired job should not be polled again");
+});
+
+test("a bulk wait expires inside its final slice before accepting a late completion", async () => {
+  let time = 60 * 60_000 - 10;
+  const objects: ObjectImportState[] = [{ apiName: "Account", sfTotal: 0, upserted: 0, merged: 0, rejected: 0, state: "running", bulkJobId: "old", bulkWaitStartedAt: 0 }];
+  const conn = { instanceUrl: "https://fake.test", apiVersion: "60.0", getToken: async () => "fake",
+    fetchImpl: async () => { time += 20; return Response.json({ state: "JobComplete" }); },
+  };
+  assert.equal((await runImport({ conn, objects, orgId: "org", sink: memorySink(), now: () => time, deadlineAt: time + 1000, checkpoint: async () => {} })).done, true);
+  assert.equal(objects[0].state, "failed");
+  assert.match(objects[0].error!, /timed out/i);
+});

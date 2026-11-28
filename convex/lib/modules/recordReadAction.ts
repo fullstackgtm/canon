@@ -68,7 +68,7 @@ export async function readRecordsOf(ctx: ActionCtx, snap: Pick<Snapshot, "record
   const client = caller ? callerClient(ctx, caller) : clientFor(ctx);
   const principal: ModuleActivityPrincipal | undefined = system ? { orgId: system, system: true } : person;
   const ports = {
-    crmDeals: (companies: import("../outbound/related").CrmCompany[]) => ctx.runQuery(internal.deals.crmDealIdsOfCompanies, { orgId, access: caller?.access ?? null, companies }),
+    crmDeals: (companies: import("../outbound/related").CrmCompany[], continuation?: import("../outbound/related").CrmContinuation) => ctx.runQuery(internal.deals.crmDealIdsOfCompanies, { orgId, access: caller?.access ?? null, companies, ...(continuation ? { continuation } : {}) }),
     conversationsOf: (dealIds: string[], domains: Record<string, string>, fields: string[], limit: number) => {
       if (!caller || caller.access.userId === "system") throw new ConvexError("deals.conversations requires a member.");
       return ctx.runQuery(internal.moduleActivityContent.dealConversations, { orgId, userId: caller.access.userId as Id<"users">, dealIds, domains, fields, limit });

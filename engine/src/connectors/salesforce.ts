@@ -277,6 +277,21 @@ export function createSalesforceConnector(
     return fields.join(", ");
   }
 
+  let dealCurrency: Promise<{ multi: boolean; defaultCurrency?: string }> | undefined;
+  function readDealCurrency() {
+    return dealCurrency ??= (async () => {
+      try {
+        const describe = await request(`/services/data/${apiVersion}/sobjects/Opportunity/describe`);
+        if (describe.fields?.some((f: { name: string }) => f.name === "CurrencyIsoCode")) return { multi: true };
+        const org = (await query("SELECT DefaultCurrencyIsoCode FROM Organization"))[0];
+        const code = org?.DefaultCurrencyIsoCode;
+        return { multi: false, defaultCurrency: typeof code === "string" && /^[A-Za-z]{3}$/.test(code) ? code.toUpperCase() : undefined };
+      } catch {
+        return { multi: false };
+      }
+    })();
+  }
+
   // One Salesforce row as a canonical record: the snapshot and the sync's page reads (readPage) map rows alike.
   function mapUser(user: any): CanonicalUser {
     const id = String(readMapped(user, "owners", "id", "Id"));
@@ -364,6 +379,7 @@ export function createSalesforceConnector(
       ownerId: stringOrUndefined(readMapped(opportunity, "deals", "ownerId", "OwnerId")),
       name: stringOrFallback(readMapped(opportunity, "deals", "name", "Name"), "Untitled Opportunity"),
       amount: numberOrUndefined(readMapped(opportunity, "deals", "amount", "Amount")),
+      currency: typeof opportunity.CurrencyIsoCode === "string" && /^[A-Za-z]{3}$/.test(opportunity.CurrencyIsoCode) ? opportunity.CurrencyIsoCode.toUpperCase() : undefined,
       stage: stringOrUndefined(readMapped(opportunity, "deals", "stage", "StageName")),
       closeDate: stringOrUndefined(
         readMapped(opportunity, "deals", "closeDate", "CloseDate"),
@@ -459,14 +475,16 @@ export function createSalesforceConnector(
    */
   async function readPage<O extends SalesforceSyncObject>(object: O, after: string | null, window?: SalesforceSyncWindow): Promise<SalesforceSyncPage<O>> {
     if (after !== null && !/^[A-Za-z0-9]{15,18}$/.test(after)) throw new Error(`Invalid Salesforce Id cursor: ${after}`);
+    const currency = object === "deals" ? await readDealCurrency() : undefined;
     const fields = selectFields(object).split(", ");
+    if (currency?.multi && !fields.includes("CurrencyIsoCode")) fields.push("CurrencyIsoCode");
     if (!fields.includes("Id")) fields.unshift("Id");
     const where = [...(after !== null ? [`Id > '${after}'`] : []), ...windowConditions(window)];
     const records = await query(
       `SELECT ${fields.join(", ")} FROM ${SYNC_SOBJECT[object]}${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY Id LIMIT ${SALESFORCE_SYNC_PAGE_SIZE}`,
     );
     const map: (row: any) => CanonicalAccount | CanonicalContact | CanonicalDeal =
-      object === "accounts" ? mapAccount : object === "contacts" ? mapContact : mapDeal;
+      object === "accounts" ? mapAccount : object === "contacts" ? mapContact : (row) => ({ ...mapDeal(row), ...(!currency?.multi ? { currency: currency?.defaultCurrency } : {}) });
     const last = records.at(-1)?.Id;
     return {
       rows: records.map((row) => map(row)) as SalesforceSyncPage<O>["rows"],

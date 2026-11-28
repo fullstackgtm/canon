@@ -41,6 +41,7 @@ export const syncDealRow = v.object({
   crmId: v.string(),
   name: v.string(),
   amount: v.optional(v.number()),
+  currency: v.optional(v.string()),
   closeDate: v.string(),
   dealType: v.union(
     v.literal("new_business"),

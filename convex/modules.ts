@@ -2449,7 +2449,7 @@ async function exportPeopleCsv(ctx: ActionCtx, a: { module: string; export: stri
   if (caller.orgId !== source.orgId || caller.access.userId !== source.userId) throw new ConvexError("The export's caller changed. Try again.");
   if (source.recorded && caller.access.preview) throw new ConvexError("Recorded exports are off while viewing as another member.");
   const client = callerClient(ctx, caller);
-  const rows = await resolvePeopleRows(client, caller.orgId, (added) => addedTo(ctx, caller.orgId as Id<"organizations">, added), source.people, undefined, (companies) => ctx.runQuery(internal.deals.crmDealIdsOfCompanies, { orgId: caller.orgId as Id<"organizations">, access: caller.access, companies }));
+  const rows = await resolvePeopleRows(client, caller.orgId, (added) => addedTo(ctx, caller.orgId as Id<"organizations">, added), source.people, undefined, (companies, continuation) => ctx.runQuery(internal.deals.crmDealIdsOfCompanies, { orgId: caller.orgId as Id<"organizations">, access: caller.access, companies, ...(continuation ? { continuation } : {}) }));
   const csv = csvOf(await peopleContacts(client, caller.orgId, rows));
   if (source.recorded) await ctx.runMutation(internal.moduleExports.recordRun, { module: a.module, export: a.export, args: a.args ?? {}, epoch: source.epoch, orgId: caller.orgId as Id<"organizations">, actor: caller.userId as Id<"users">, count: rows.length });
   return { filename: `${source.filename}.csv`, csv, rows: rows.length };

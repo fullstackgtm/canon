@@ -40,34 +40,9 @@ export const RECIPE_IDS = ["canon-base", "fsgtm-enterprise-deal", "canon-ledger"
 /** A first-party recipe, in this repo. An installed package's id is namespaced instead: `@fsgtm/velocity-deal`. */
 export type RecipeId = (typeof RECIPE_IDS)[number];
 
-/** The records whose page a recipe lays out, each its own point (`deal.page`, `account.page`, `contact.page`). */
-export const PAGE_OBJECTS = ["deal", "account", "contact"] as const;
-export type PageObject = (typeof PAGE_OBJECTS)[number];
-
-/** The deal play's sections, drawn by `DealPlay` (src/components/crm/deal-play.tsx). */
-export const PLAY_COMPONENTS = ["queue", "summary", "stageRail", "fanOut", "prep", "plan", "keeper", "brief", "accountMap", "touches"] as const;
-export type PlayComponent = (typeof PLAY_COMPONENTS)[number];
-/**
- * The record's own pieces, drawn by the record page. `fieldGrid` is all of them in one block (its fields grouped as the
- * default page groups them); a page can instead place `fields` groups, `timeline`, `history` and `related` itself.
- * Each draws what its object has: an account's timeline holds its signals and deals, a contact's its LinkedIn events.
- * A deal also has its products, its credit splits and the panels its workspace's apps add (`apps`).
- */
-export const RECORD_COMPONENTS = ["fieldGrid", "fields", "timeline", "history", "related", "products", "splits", "apps"] as const;
-export type RecordComponent = (typeof RECORD_COMPONENTS)[number];
-/** The pieces of an account's or a contact's page past its fields, drawn by the record page. */
-export const PARTY_COMPONENTS = ["header", "fitBar", "whyFit", "scoreHistory", "topSignals", "companyDeals", "peopleAcrossDeals", "aiFields", "callPanel", "composeEmail"] as const;
-export type PartyComponent = (typeof PARTY_COMPONENTS)[number];
-export const PAGE_COMPONENTS = [...PLAY_COMPONENTS, ...RECORD_COMPONENTS, ...PARTY_COMPONENTS] as const;
-/** The kernel components a page is built from. */
-export type PageComponent = (typeof PAGE_COMPONENTS)[number];
-/** The components each object's page can place. */
-export const COMPONENTS = {
-  deal: ["header", ...PLAY_COMPONENTS, ...RECORD_COMPONENTS],
-  account: ["header", "fitBar", "fields", "whyFit", "scoreHistory", "timeline", "topSignals", "companyDeals", "peopleAcrossDeals", "related", "history"],
-  contact: ["header", "fields", "aiFields", "related", "callPanel", "composeEmail", "timeline", "history"],
-} as const satisfies Record<PageObject, readonly PageComponent[]>;
-export type ComponentOf<O extends PageObject> = (typeof COMPONENTS)[O][number];
+export { PAGE_OBJECTS, PLAY_COMPONENTS, RECORD_COMPONENTS, PARTY_COMPONENTS, PAGE_COMPONENTS, COMPONENTS, PARTS } from "./blocks.ts";
+export type { PageObject, PlayComponent, RecordComponent, PartyComponent, PageComponent, ComponentOf } from "./blocks.ts";
+import { COMPONENTS, type PageObject, type PageComponent } from "./blocks.ts";
 export const isComponentOf = (object: PageObject, component: string): component is PageComponent => (COMPONENTS[object] as readonly string[]).includes(component);
 /**
  * A section that draws inside the one before it when it follows it: the score history sits in the fit's panel, and
@@ -81,11 +56,6 @@ export const BESIDE: Readonly<Record<PageObject, readonly PageComponent[]>> = {
   contact: ["timeline", "history", "aiFields", "related", "callPanel", "composeEmail"],
 };
 
-/**
- * The parts a component draws that a section's `show=` can pick, in the order they draw. A section without `show=`
- * draws them all; with it, only those it names.
- */
-export const PARTS: Partial<Record<PageComponent, readonly string[]>> = { summary: ["health", "amount", "closeDate", "owner", "research"] };
 /** Whether `section` draws `part`. */
 export const showsPart = (section: PageSection, part: string): boolean => !section.show || section.show.includes(part);
 

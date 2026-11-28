@@ -478,6 +478,8 @@ test("salesforce connector reads a sync's pages in Id order from a resumable cur
   const fetchImpl = (async (input: string | URL | Request) => {
     const url = new URL(String(input));
     const q = url.searchParams.get("q") ?? "";
+    if (url.pathname.endsWith("/describe")) return Response.json({ fields: [] });
+    if (q.includes("FROM Organization")) return Response.json({ records: [] });
     soql.push(q);
     if (q.startsWith("SELECT COUNT()")) return new Response(JSON.stringify({ totalSize: 2001, records: [] }));
     const records = q.includes("Id > '") ? [{ Id: "001000000000002000", Name: "Last" }] : ids.map((Id) => ({ Id, Name: `Account ${Id}` }));
@@ -605,4 +607,30 @@ test("late Salesforce pages can retry, with a timeout only on retry attempts", a
   now += 120_000;
   await assert.rejects(connector.fetchUsers());
   assert.equal(calls, 2);
+});
+
+test("deal pages read per-opportunity currency or the single-currency org default", async () => {
+  for (const multi of [true, false, undefined]) {
+    let describes = 0;
+    const connector = createSalesforceConnector({
+      getConnection: () => ({ accessToken: "fake", instanceUrl: "https://fake.salesforce.com" }),
+      fetchImpl: async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/describe")) {
+          describes++;
+          return multi === undefined ? new Response(null, { status: 403 }) : Response.json({ fields: multi ? [{ name: "CurrencyIsoCode" }] : [] });
+        }
+        const q = url.searchParams.get("q") ?? "";
+        if (q.includes("FROM Organization")) return Response.json({ records: [{ DefaultCurrencyIsoCode: "GBP" }] });
+        assert.equal(q.includes("CurrencyIsoCode"), multi === true, "absent fields must never be selected");
+        return Response.json({ records: [{ Id: "006A", Name: "Deal", ...(multi ? { CurrencyIsoCode: "EUR" } : {}) }] });
+      },
+    });
+    for (const after of [null, "006000000000001"]) {
+      const row = (await connector.readPage("deals", after, { since: 0, until: 1000 })).rows[0];
+      assert.equal(row.currency, multi === undefined ? undefined : multi ? "EUR" : "GBP");
+      assert.equal((row.raw as Record<string, unknown>).CurrencyIsoCode, multi ? "EUR" : undefined);
+    }
+    assert.equal(describes, 1);
+  }
 });

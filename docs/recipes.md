@@ -546,8 +546,9 @@ The first-party recipes are written this way:
 `scripts/build-recipes.ts` builds them into `recipes/_recipes.generated.ts`
 (each recipe compiled, importing its `.ts` files) and
 `recipes/_bundles.generated.ts`, since Convex and the app can't read markdown.
-`recipes/md/parse.ts` reads `recipe.md`. It is pure and has no dependencies,
-so the same parser runs in a Convex action at install time.
+`recipes/md/parse.ts` reads `recipe.md`. It uses the pure block registry in
+`recipes/blocks.ts`, including its Zod heading schemas, so the same parser
+runs in a Convex action at install time.
 
 ### recipe.md
 
