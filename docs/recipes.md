@@ -965,9 +965,35 @@ alter behaviour.
 
 ### Format changelog
 
+**Format 4.** Optional fenced `layout` blocks arrange existing sections in
+stacks, columns, tabs and titled cards. Format-3 recipes still parse and render
+unchanged. Each page has at most one layout block, scoped by its enclosing
+`{page=account}` or `{page=contact}` heading, otherwise the deal page.
+Leaves use the existing component plus zero-based occurrence, such as
+`fields#1`. Unmentioned sections follow the tree in heading order.
+
+```layout
+stack root
+  columns overview {"widths":[2,1]}
+    section summary#0
+    section brief#0
+  tabs details {"labels":["Activity","People"]}
+    section touches#0
+    section accountMap#0
+```
+
+Use two spaces per level. Containers have unique ids. A card line is
+`card context {"title":"Context"}` with children indented beneath it.
+Columns require two or three children and, when specified, one positive width
+per child. Tabs require one label per child. Section headings remain the content.
+The Visual outline offers grouping and unwrapping; the pencil understands
+"put this next to Brief". Tree edits rewrite only the layout block and are
+refused if parsing or the exact resulting recipe differs from the operation.
+
+
 `engines: { canon: "<n>" }` in the frontmatter is the recipe format a
-`recipe.md` is written in. Canon reads one format, `RECIPE_FORMAT` in
-`recipes/kernel.ts`. A recipe written for any other gets one error, at its
+`recipe.md` is written in. Canon reads the current format, `RECIPE_FORMAT` in
+`recipes/kernel.ts`, and accepts format 3 for compatibility. Other formats get one error, at its
 `engines` line: "written for recipe format 1; this Canon reads format 2". It
 gets no error for each grammar difference. A package already installed keeps
 running: Canon stores it parsed, and never reads its markdown again until an

@@ -1,9 +1,10 @@
+import { tabs } from "./helpers/layout-tabs.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { createElement, type ReactElement, type ReactNode } from "react";
+import { createContext, createElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as model from "../convex/lib/plays/model.ts";
@@ -138,7 +139,8 @@ function harness(plan = steps, canEdit = true, extra: Record<string, unknown> = 
     // Deal chat has its own test (tests/dealChat.test.ts); here it draws nothing.
     "./deal-chat": { DealChat: () => null, DealChatButton: () => null },
     // Customize mode is off: no shape context, so sections draw unwrapped.
-    "./shape/shape-mode": { useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children },
+    "@/components/ui/tabs": tabs,
+    "./shape/shape-mode": { LayoutTreeContext: createContext(undefined), useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children },
   };
   const pageSections: Record<string, unknown> = {};
   runInNewContext(sectionsText, { exports: pageSections, require: (id: string) => stubs[id] });

@@ -98,7 +98,7 @@ export function recipeOf(r: CompiledRecipe, extensions: readonly Extension[]): R
   const code = r.data ? playCode(runnable(r), extensions) : null;
   return Object.freeze({
     id: r.meta.id, version: r.meta.version, title: r.meta.title, description: r.meta.description, author: r.meta.author, permissions: r.meta.permissions,
-    settings: r.defaults, settingsSchema: r.settingsSchema, dealPage: r.dealPage, theme: r.theme ?? null, accountPage: r.accountPage, contactPage: r.contactPage, models: r.models, templates: r.templates, fields: r.fields, data: r.data, code, evals: r.evals,
+    settings: r.defaults, settingsSchema: r.settingsSchema, dealPage: r.dealPage, ...(r.layouts ? { layouts: r.layouts } : {}), theme: r.theme ?? null, accountPage: r.accountPage, contactPage: r.contactPage, models: r.models, templates: r.templates, fields: r.fields, data: r.data, code, evals: r.evals,
   });
 }
 

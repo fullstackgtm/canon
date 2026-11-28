@@ -11,6 +11,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { getCurrentUser, requireUser } from "./lib";
 import { accessFor, entitySight, recordVisible, requireWriteAccess, roleIn, sightJudge, workspaceMembers } from "./permissions";
+import { metadataFields } from "./lib/metadataFields";
 import { admitThenRead } from "./lib/scopedRecordClient";
 import { canSeeRecord, hiddenFields, may, refuseLockedWrite, withoutHidden, type Access, type RecordOp } from "./lib/access";
 import { orgObjectDefs, scheduleNudge, shardHeads } from "./ledgerFeed";
@@ -737,7 +738,7 @@ export const describe = query({
     const def = register ? await loadDef(ctx, user.orgId, object) : await loadOrgObject(ctx, user.orgId, object);
     if (!def || def.archivedAt !== undefined) return null;
     return toStored(describeObject({
-      object, def, access, dealsWrite: can(user, "deals.write"),
+      object, def, access, withheld: access ? (await metadataFields(ctx, user.orgId, access)).get(object) : undefined, dealsWrite: can(user, "deals.write"),
       // The ICP columns pick from the workspace's saved ICPs, by name.
       icpOptions: register ? (await readIcps(ctx, user.orgId)).map((i) => ({ value: i.key, label: i.name, active: true })) : [],
       aiSlugs: register ? await aiFieldSlugs(ctx, user.orgId) : new Set(),

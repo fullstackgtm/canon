@@ -15,6 +15,7 @@ const stubs: Record<string, unknown> = {
   "./_generated/server": { query: register, mutation: register, internalQuery: register, internalMutation: register },
   "./_generated/api": { internal },
   "./lib/capabilities": capabilities,
+  "./lib/metadataFields": loadConvex(["lib/metadataFields.ts"])["lib/metadataFields.ts"],
   "./lib/outbound/related": loadConvex(["lib/outbound/related.ts"])["lib/outbound/related.ts"],
   "./lib/objects/validators": { relatedCondition: require("convex/values").v.any() },
   "./lib/access": { narrowsReads: () => false, refuseHiddenUse: () => {} },

@@ -3,6 +3,8 @@
  * object. A view is its creator's until shared; a shared view shows for the
  * whole org, and only its creator or an admin can change or delete it.
  */
+import { accessFor } from "./permissions";
+import { metadataFields } from "./lib/metadataFields";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v, type Infer } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
@@ -71,11 +73,19 @@ export const list = query({
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
     if (!user) return [];
+    const withheld = (await metadataFields(ctx, user.orgId, await accessFor(ctx, user))).get(args.object) ?? new Set<string>();
     const own = await ownViews(ctx, user, args.object).take(VIEWS_MAX);
     const shared = await sharedViews(ctx, user.orgId, args.object).take(VIEWS_MAX);
     const byId = new Map([...own, ...shared].map((view) => [view._id, view]));
     return [...byId.values()]
-      .map((view) => ({ _id: view._id, name: view.name, shared: view.shared, spec: view.spec, mine: view.createdBy === user._id, updatedAt: view.updatedAt }))
+      .map((view) => {
+        const filter = view.spec.filter.filter((f) => !withheld.has(f.field));
+        const omitSort = !!view.spec.sort && withheld.has(view.spec.sort.field);
+        const omittedClauses = view.spec.filter.length - filter.length + Number(omitSort);
+        const spec = { ...view.spec, filter };
+        if (omitSort) delete spec.sort;
+        return { ...(omittedClauses ? { omittedClauses } : {}), _id: view._id, name: view.name, shared: view.shared, spec, mine: view.createdBy === user._id, updatedAt: view.updatedAt };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
   },
 });

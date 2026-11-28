@@ -76,7 +76,7 @@ export function RecipePreview({ recipe, stale, focus }: { recipe: CompiledRecipe
         {choices === undefined ? <p className="p-4 text-sm text-muted-foreground">Finding a record…</p>
           : !current ? <p className="p-4 text-sm text-muted-foreground">This workspace has no {names(object)!.label.toLowerCase()} records to preview.</p>
           : <div inert className="pointer-events-none select-none">
-              <RecordPage key={`${object}:${current}`} object={object} id={current} layout={{ page: pageOf(recipe, object), hasPlays: object === "deal" && recipe.data !== null }} />
+              <RecordPage key={`${object}:${current}`} object={object} id={current} layout={{ layoutTree: recipe.layouts?.[object], page: pageOf(recipe, object), hasPlays: object === "deal" && recipe.data !== null }} />
             </div>}
       </div>
     </section>

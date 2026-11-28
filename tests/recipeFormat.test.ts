@@ -13,8 +13,8 @@ const stable = (x: unknown): string =>
 
 test("a recipe for another format gets one line naming both formats, and the grammar can't change without the format's record of it", () => {
   const velocity = readFileSync("recipes/fsgtm-velocity-deal/recipe.md", "utf8");
-  for (const other of ["2", "4"]) {
-    const { problems } = parseRecipe(velocity.replace(`engines: { canon: "${RECIPE_FORMAT}" }`, `engines: { canon: "${other}" }`));
+  for (const other of ["2", "5"]) {
+    const { problems } = parseRecipe(velocity.replace(`engines: { canon: "3" }`, `engines: { canon: "${other}" }`));
     assert.deepEqual(problems.map((p) => [p.line, p.level, p.message.startsWith(`written for customization format ${other}; this Canon reads format ${RECIPE_FORMAT}`)]), [[7, "error", true]]);
   }
 

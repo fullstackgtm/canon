@@ -28,7 +28,7 @@ import { DRAWN, drawnText, refuseSectionRename } from "../recipes/md/pointed.ts"
 import { isWorkspaceId, lineDiff } from "../recipes/workspace.ts";
 import { jevSystemOne, type SystemOneQuestion } from "./lib/segments/jev";
 import { resolveLlm } from "./lib/llmResolver";
-import { recipeAgentStandIn, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
+import { recipeAgentStandIn, standInColumns, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
 import type { ActionCaller } from "./records";
 
 const STAGE_NAMES: Record<DealStage, string> = { in: "Get in (first stage, finding the way in)", case: "Build the case (middle stage)", close: "Close (final stage)" };
@@ -185,9 +185,14 @@ const opsSchema = (object: PageObject) => ({
       items: {
         type: "object",
         properties: {
-          op: { type: "string", enum: ["moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition"] },
+          op: { type: "string", enum: ["moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition", "wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"] },
           section: { type: "object", properties: { component: { type: "string" }, nth: { type: "number" } }, description: "The section the op is about, as its ref in the layout." },
           before: { description: "moveSection/addSection: the ref of the section it goes before, or null for the end. moveAction: the action id it goes before, or null." },
+          sections: { type: "array", items: { type: "object", properties: { component: { type: "string" }, nth: { type: "number" } }, required: ["component"] } },
+          kind: { type: "string", enum: ["columns", "tabs", "card"] },
+          id: { type: "string" },
+          container: { type: "string" },
+          props: { type: "object", properties: { widths: { type: "array", items: { type: "integer" } }, labels: { type: "array", items: { type: "string" } }, title: { type: "string" } } },
           collapsed: { type: "boolean" },
           ...(object === "deal" ? { when: { description: "setWhen: {stage:[...]} to show only in those stages, {notStage:[...]} to hide in them, or null for every stage. Stages: in, case, close." } } : {}),
           title: { type: "string", description: "renameSection/addSection: the section's title." },
@@ -220,13 +225,14 @@ function lunaPrompt(layout: Layout, target: SectionRef | null, request: string, 
     `You change a CRM ${layout.object} page by editing its customization.md, the file that defines what the page shows and how it works. Two kinds of change:`,
     `1. Layout \`ops\`, for where things sit: sections (by ref {component, nth}), their titles,${layout.object === "deal" ? " the stages they show in (`when`)," : ""} whether they start folded, their buttons (by action id).`,
     "2. Text `edits`, for what a section draws and how things work: a section heading's show= parts; else prefer changing a setting's Default in the `## Settings` table (respect its Limits); else a table row, a check's rule, or a button's `shows:`/`enabled:` condition." + (kept ? " This customization's prompts and ```logic lines run from its own TypeScript bundle, so never edit prompt prose or logic lines: express the change through settings and tables." : " You may also edit a prompt's prose."),
+    "Tree ops: wrapSections {sections:[refs], kind:columns|tabs|card, id:uniqueName, props:{widths?:[2,1], labels?:[one label per tab], title?:card title}} groups siblings; unwrap {container:id} removes a container; moveIntoContainer {section,container,before:ref|null} moves a leaf; setContainerProps {container,props} changes props. Columns need 2–3 children. Tabs need labels. Cards need a title. Existing moveSection moves within its container.",
     "Return the fewest changes that do what the person asked. Never invent settings, components, actions or data the customization doesn't have. If the request can't be done in this customization, return nothing and say why in the summary.",
     layout.object === "deal" ? FIXED : "The layout lists the sections and actions this page can customize. Controls drawn inside a component are not recipe actions.",
     pointed ? `The person pointed at ${pointed}.` : "",
     target ? `That is inside the section with ref ${JSON.stringify(target)}. "this", "it" or an unnamed subject means what they pointed at: a button is that action; the section's title means the section, so a request that only gives new words ("change to X", "call it X") renames it; "title", "heading" or "section" in the request always means the section's title, even when they pointed at a field or control inside it, so "change title to X" renames the section; a part is that part of the section's show=. Pointing is only a hint at where: judge by what the request asks for. A request about how the section works (how many, how long, which, when) is a customization change wherever they pointed. Only when the request changes the wording, look or presence of "a control or text the section's component draws" itself, return nothing and say plainly that Canon draws it and it can't change here yet; never rename or change the section in its place.` : "What they pointed at is outside every customization section, so it's one of the parts the customization doesn't control unless the request names a section. Never apply the request to some other section as a guess: if it is about what they pointed at, return nothing and say plainly that Canon draws that part and it can't change here yet.",
     ...(layout.object === "deal" ? ["Stages: in = Get in, case = Build the case, close = Close."] : []),
     `Instruction: ${request}`,
-    `Layout: ${JSON.stringify({ sections: layout.sections.map((s, i) => ({ ref: s.ref, title: s.title, when: s.when, collapsed: s.collapsed, ...(PARTS[s.component] ? { parts: PARTS[s.component], show: page[i]?.show ?? PARTS[s.component] } : {}), actions: s.actions.map((a) => ({ id: a.id, label: a.label, ...(a.panel ? { panel: a.panel } : {}) })), addableActions: s.addable })), addableComponents: layout.addable })}`,
+    `Layout: ${JSON.stringify({ tree: layout.tree, sections: layout.sections.map((s, i) => ({ ref: s.ref, title: s.title, when: s.when, collapsed: s.collapsed, ...(PARTS[s.component] ? { parts: PARTS[s.component], show: page[i]?.show ?? PARTS[s.component] } : {}), actions: s.actions.map((a) => ({ id: a.id, label: a.label, ...(a.panel ? { panel: a.panel } : {}) })), addableActions: s.addable })), addableComponents: layout.addable })}`,
     `customization.md:\n<<<\n${markdown}\n>>>`,
   ].join("\n\n");
 }
@@ -289,7 +295,7 @@ async function runEdit(
 
   if (recipeAgentStandIn()) {
     const section = target && layout.sections.find((s) => sameRef(s.ref, target));
-    let ops: LayoutOp[] = [];
+    let ops: LayoutOp[] = standInColumns(layout, target, request);
     if (section && /^(?:fold|collapse)\b/i.test(request)) ops = [{ op: "setCollapsed", object, section: section.ref, collapsed: true }];
     else if (section && /^move (?:this|it) to the top[.!]?$/i.test(request)) ops = [{ op: "moveSection", object, section: section.ref, before: layout.sections[0]?.ref ?? null }];
     const checked = check(args.markdown, ops);

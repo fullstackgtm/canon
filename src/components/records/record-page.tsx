@@ -49,11 +49,11 @@ type WritableObject = "lead" | "task" | "note" | "call" | "meeting" | "product";
 type EditableObject = WritableObject | "deal";
 
 /** A page laid out by a recipe draft instead of the workspace's recipe in force: the recipe editor's preview. */
-export type PreviewLayout = { page: PageSpec; hasPlays: boolean };
+export type PreviewLayout = { layoutTree?: import("../../../recipes/layout").LayoutTree; page: PageSpec; hasPlays: boolean };
 
 export function RecordPage({ object, id, inDialog, layout }: { object: string; id: string; inDialog?: InDialog; layout?: PreviewLayout }) {
   // Accounts and contacts are register rows, named by their record-service id rather than a stream id.
-  if (object === "account" || object === "contact") return <RegisterRecordPage object={object} id={id} inDialog={inDialog} layout={layout?.page} />;
+  if (object === "account" || object === "contact") return <RegisterRecordPage object={object} id={id} inDialog={inDialog} layout={layout?.page} layoutTree={layout?.layoutTree} />;
   return <LedgerRecordPage object={object} id={id} inDialog={inDialog} layout={layout} />;
 }
 
@@ -126,7 +126,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   // Shape mode (prototype): an admin reshapes the deal page in words and judges it on this page.
   const shapeRecipeId = object === "deal" && !layout && !inDialog && recipe?.canEdit ? recipe.dealPage.id : null;
   const recipeMarkdown = useQuery(api.workspaceRecipes.markdown, shapeRecipeId ? { recipeId: shapeRecipeId } : "skip");
-  const shape = useShapeMode({ base: recipe?.dealPage.sections ?? [], markdown: shapeRecipeId ? recipeMarkdown?.markdown ?? null : null, recipeId: shapeRecipeId, revision: recipeMarkdown?.revision ?? null, recipeTitle: recipe?.dealPage.title });
+  const shape = useShapeMode({ layoutTree: layout?.layoutTree ?? recipe?.dealPage.layoutTree, base: recipe?.dealPage.sections ?? [], markdown: shapeRecipeId ? recipeMarkdown?.markdown ?? null : null, recipeId: shapeRecipeId, revision: recipeMarkdown?.revision ?? null, recipeTitle: recipe?.dealPage.title });
 
   if (desc === undefined || record === undefined || (object === "deal" && !layout && recipe === undefined)) return <div className="p-4 sm:p-8"><LoadingCards /></div>;
   if (desc === null || record === null || record.object !== object) {

@@ -1,7 +1,8 @@
-import { Fragment, type ReactNode } from "react";
-import { BESIDE, HOLDS, shows, type ComponentOf, type PageComponent, type PageObject, type PageSection, type PageSpec } from "../../../recipes";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Fragment, useContext, type ReactNode } from "react";
+import { completeTree, pageKeys, type LayoutNode, BESIDE, HOLDS, shows, type ComponentOf, type PageComponent, type PageObject, type PageSection, type PageSpec } from "../../../recipes";
 import type { DealStage } from "../../../convex/lib/plays/model";
-import { ShapeSection, useShape } from "./shape/shape-mode";
+import { LayoutTreeContext, ShapeSection, useShape } from "./shape/shape-mode";
 
 export type SectionOf<K extends PageComponent> = Extract<PageSection, { component: K }>;
 /**
@@ -43,11 +44,27 @@ function rowsOf(entries: readonly Entry[], beside: readonly PageComponent[]): Ro
 export function PageSections<O extends PageObject>({ object, page, stage, renderers }: { object: O; page: PageSpec; stage: DealStage | null; renderers: Renderers<ComponentOf<O>> }) {
   const render = renderers as unknown as Record<PageComponent, (s: PageSection, inner: Inner) => ReactNode>;
   const shape = useShape();
+  const tree = useContext(LayoutTreeContext);
   const shownAt = shape?.stage ?? stage;
   // The types make every page supply each of its components; a caller drawing part of a page (a test, a preview) may not.
   const drawn = ({ section, held }: Entry) => render[section.component]?.(section, { held: held ? render[held.component]?.(held, { within: section.component, stage: shownAt }) : undefined, stage: shownAt }) ?? null;
   // Shape mode (prototype) says what each section does above it; otherwise a section draws as it is.
   const draw = (entry: Entry) => (shape ? <ShapeSection section={entry.section}>{drawn(entry)}</ShapeSection> : drawn(entry));
+  if (tree) {
+    const keys = pageKeys(page);
+    const drawNode = (node: LayoutNode): ReactNode => {
+      if ("section" in node) {
+        const section = page[keys.indexOf(node.section)];
+        return section && shows(section, shownAt) ? draw({ section, held: null }) : null;
+      }
+      const children = node.children.map((child, i) => <div className="min-w-0" key={i}>{drawNode(child)}</div>);
+      if (node.kind === "columns") return <div data-layout="columns" className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-[var(--layout-columns)]" style={{ "--layout-columns": (node.widths ?? node.children.map(() => 1)).map((w) => `minmax(0,${w}fr)`).join(" ") } as import("react").CSSProperties}>{children}</div>;
+      if (node.kind === "tabs") return <Tabs defaultValue="0" className="min-w-0"><TabsList className="h-auto max-w-full flex-wrap">{node.labels!.map((label, i) => <TabsTrigger key={i} value={String(i)}>{label}</TabsTrigger>)}</TabsList>{children.map((child, i) => <TabsContent key={i} value={String(i)} className="min-w-0">{child}</TabsContent>)}</Tabs>;
+      if (node.kind === "card") return <section className="min-w-0 bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm"><h2 className="px-6 font-semibold leading-none">{node.title}</h2><div className="space-y-4 px-6">{children}</div></section>;
+      return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">{children}</div>;
+    };
+    return <div data-shape-page={shape ? "" : undefined} className="min-w-0">{drawNode(completeTree(tree, keys))}</div>;
+  }
   const rows = rowsOf(entriesOf(page.filter((s) => shows(s, shownAt))), BESIDE[object]).flatMap((row) => ("left" in row && !row.right.length ? row.left : [row]));
   return (
     <div data-shape-page={shape ? "" : undefined} className="grid grid-cols-[minmax(0,1fr)] gap-4">

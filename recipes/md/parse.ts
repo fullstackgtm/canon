@@ -1,3 +1,4 @@
+import { parseLayout, pageKeys, LAYOUT_GRAMMAR, type LayoutTree } from "../layout.ts";
 /**
  * A recipe's `recipe.md` read into the data Canon stores and runs (docs/recipes.md, "Writing a recipe"): the
  * frontmatter, the `## Settings` table, the page's sections, its actions, its prompts, which logic runs each play
@@ -35,7 +36,7 @@ export type RecipeMeta = {
   title: string;
   description: string;
   author: { org: string; kind: "canon" | "agency" };
-  engines: { canon: typeof RECIPE_FORMAT };
+  engines: { canon: typeof RECIPE_FORMAT | "3" };
   /** The points it contributes to, each found in the body by convention (recipes/points.ts). */
   contributes: PointId[];
   permissions: Permissions;
@@ -50,6 +51,7 @@ export type CompiledRecipe = {
   meta: RecipeMeta;
   settingsSchema: AnyDescriptor[];
   defaults: Settings;
+  layouts?: Partial<Record<PageObject, LayoutTree>>;
   dealPage: PageSpec;
   /** The ```theme block (recipes/theme.ts), its values bound to settings; null for a recipe without one. */
   theme: ThemeDecl | null;
@@ -299,7 +301,7 @@ function frontmatter(lines: readonly string[], at: (line: number, message: strin
     title: str("title", (s) => s.length > 0 && s.length <= 80, "text of 1 to 80 characters"),
     description: str("description", (s) => s.length > 0 && s.length <= 600, "text of 1 to 600 characters"),
     author: { org: raw.author ? orgOf(author.org) : "", kind: raw.author ? oneOf("author", author.kind, ["canon", "agency"] as const) : "agency" },
-    engines: { canon: raw.engines ? oneOf("engines", engines.canon, [RECIPE_FORMAT] as const) : RECIPE_FORMAT },
+    engines: { canon: raw.engines ? oneOf("engines", engines.canon, [RECIPE_FORMAT, "3"] as const) : RECIPE_FORMAT },
     contributes,
     permissions: withImplied({
       read: raw.permissions ? subset("permissions", perms.read, RECIPE_OBJECTS) : [],
@@ -442,7 +444,7 @@ const EVAL_KEYS = ["name", "description", "call", "expect"];
 const ACTION_KEYS = ["id", "label", "label_after", "runs", "prompt", "prompts", "review", "input", "writes", "fields", "shows", "enabled", "llm", "gate", "done", "note"];
 const ACTION_ID = /^[a-z][A-Za-z0-9]{0,39}$/;
 const PLAYS_FENCES = ["stages", "data", "people"];
-const KNOWN_FENCES = ["fields", "action", "logic", "evals", "ts", "choices", "schema", "output", "theme", "template", "ai-fields", ...PLAYS_FENCES];
+const KNOWN_FENCES = ["layout", "fields", "action", "logic", "evals", "ts", "choices", "schema", "output", "theme", "template", "ai-fields", ...PLAYS_FENCES];
 const TEMPLATE_ATTRS = ["kind", "key"];
 /** Questions Jev answers rather than prompts a model is sent: the remit (people.center) and the buyer fit (people.fit). */
 const JEV_PROMPTS = ["people.center", "people.fit"];
@@ -457,7 +459,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
   const at = (line: number, message: string, level: Problem["level"] = "error") => { problems.push({ line, level, message }); };
   // Another format's grammar differs, so its recipe gets this one line rather than an error for every difference.
   const format = formatOf(lines);
-  if (format && format.canon !== RECIPE_FORMAT) {
+  if (format && format.canon !== RECIPE_FORMAT && format.canon !== "3") {
     const message = `written for customization format ${format.canon}; this Canon reads format ${RECIPE_FORMAT} (what changed: "Format changelog" in Canon's docs/recipes.md)`;
     const recipe: CompiledRecipe = { meta: frontmatter(lines, () => {}).meta, settingsSchema: [], defaults: {}, dealPage: [], theme: null, accountPage: [], contactPage: [], models: {}, templates: [], fields: [], data: null, prompts: {}, logic: {}, evals: [], code: [] };
     return { recipe, problems: [{ line: format.line, level: "error", message }] };
@@ -895,6 +897,14 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
   }
   const opened = (object: PageObject) => sections.filter((s) => s.object === object);
   const [dealPage, accountPage, contactPage] = PAGE_OBJECTS.map((o) => opened(o).map((s) => s.section));
+  const layouts: Partial<Record<PageObject, LayoutTree>> = {};
+  for (const f of fences.filter((f) => f.lang === "layout")) {
+    const object = (enclosing(f.heading, "page")?.attrs.page ?? "deal") as PageObject;
+    if (layouts[object]) { at(f.line, `only one layout block per ${object} page`); continue; }
+    try { layouts[object] = parseLayout(f.lines.map((l) => l.text).join("\n"), pageKeys(opened(object).map((s) => s.section))); }
+    catch (e) { at(f.line, `layout: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
   if (!hasErrors(problems)) {
     for (const object of PAGE_OBJECTS) {
       const own = opened(object);
@@ -974,7 +984,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
 
   const code = fences.filter((f) => f.lang === "ts").map((f) => ({ line: f.line, source: f.lines.map((l) => l.text).join("\n") }));
   problems.sort((a, b) => a.line - b.line);
-  return { recipe: { meta, settingsSchema, defaults, dealPage, theme, accountPage, contactPage, models, templates, fields: aiFields, data, prompts, logic, evals, code }, problems };
+  return { recipe: { meta, settingsSchema, defaults, dealPage, theme, accountPage, contactPage, ...(Object.keys(layouts).length ? { layouts } : {}), models, templates, fields: aiFields, data, prompts, logic, evals, code }, problems };
 }
 
 /**
@@ -982,6 +992,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
  * RECIPE_GRAMMAR_SHA256, so the grammar can't change without the format's record of it (recipes/kernel.ts).
  */
 export const RECIPE_GRAMMAR = {
+  layout: LAYOUT_GRAMMAR,
   frontmatter: { keys: FRONT_KEYS, objects: RECIPE_OBJECTS, sources: RECIPE_SOURCES, permissions: ["read", "llm", "sources"] },
   points: Object.fromEntries(POINT_IDS.map((id) => [id, { kind: POINTS[id].kind, cardinality: POINTS[id].cardinality, binds: POINTS[id].binds }])),
   models: Object.fromEntries(MODEL_POINT_IDS.map((id) => [id, { settings: MODEL_POINTS[id].settings, tables: Object.fromEntries(Object.entries(MODEL_POINTS[id].tables).map(([n, t]) => [n, t.columns])), prose: MODEL_POINTS[id].prose }])),

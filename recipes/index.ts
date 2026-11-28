@@ -93,3 +93,5 @@ export function defaultModel<P extends ModelPointId>(point: P): ModelValues<P> {
   const recipe = RECIPES[MODEL_POINTS[point].defaults.unset];
   return modelValues(recipe, point, recipe.settings);
 }
+
+export { completeTree, pageKeys, type LayoutNode } from "./layout.ts";

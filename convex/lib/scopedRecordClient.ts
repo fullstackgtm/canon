@@ -20,9 +20,9 @@ import {
   canSeeRecord, hasOwnerField, hiddenFields, intersectScopes, isRestricted, narrowsReads, ownerScope, refuseHiddenUse, scopeFor,
   type Access,
 } from "./access.ts";
-import { FormulaError, parseFormula, type Expr } from "./objects/formula.ts";
-import { indexObjectDef, type ObjectDef } from "./objects/registry.ts";
-import { LIST_LIMIT_MAX, listViewDef, type CompanyPredicate, type ListRequest, type OwnerScope } from "./objects/listSpec.ts";
+import { withheldFields } from "./withheldFields.ts";
+import type { ObjectDef } from "./objects/registry.ts";
+import { LIST_LIMIT_MAX, type CompanyPredicate, type ListRequest, type OwnerScope } from "./objects/listSpec.ts";
 import { accountCriterionFields, personCriterionFields } from "./icpCriteria.ts";
 import type { AccountsFilter } from "./recordContract.ts";
 import { atLeastVersion, type RecordClient } from "./recordClient.ts";
@@ -120,58 +120,10 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
     dealIds ??= accesses.some((a) => ownerScope(a, "deal", true)) ? dealScope() : Promise.resolve(null);
     return dealIds;
   };
-  const computedHidden = new Map<string, Set<string>>();
+  let computedHidden = new Map<string, Set<string>>();
   let loaded: Promise<void> | undefined;
   const loadHidden = () => loaded ??= (async () => {
-    const formulaRefs: { object: string; name: string; refs: string[] }[] = [];
-    const defs = new Map((await definitions()).map((d) => [d.apiName, indexObjectDef(d)]));
-    const references = (e: Expr): string[] => {
-      switch (e.k) {
-        case "field": return [e.name];
-        case "neg": case "not": return references(e.arg);
-        case "bin": return [...references(e.left), ...references(e.right)];
-        case "call": return e.args.flatMap(references);
-        default: return [];
-      }
-    };
-    for (const [object, def] of defs) {
-      const h = hidden(object);
-      if (object === "contact") {
-        if (hidden("account").has("fit")) h.add("accountFit");
-        if (hidden("account").has("icpIds")) h.add("accountIcpIds");
-      }
-      computedHidden.set(object, h);
-      for (const f of def.fields) {
-        if (f.type !== "formula" || f.archivedAt !== undefined) continue;
-        const source = f.rollup ? defs.get(f.rollup.object) : listViewDef(object, def);
-        if (!source) continue;
-        let refs: string[];
-        try {
-          refs = f.formula.trim() ? references(parseFormula(source, f.formula, { rollups: !f.rollup })) : [];
-        } catch (e) {
-          // The evaluator returns empty for stale definitions; permission checks must not throw instead.
-          if (!(e instanceof FormulaError)) throw e;
-          continue;
-        }
-        if (f.rollup) {
-          const via = source.byFieldId.get(f.rollup.via as never);
-          const field = source.byFieldId.get(f.rollup.field as never);
-          refs.push(...[via, field].flatMap((x) => x ? [x.apiName] : []));
-          if (await scopeOf(source.apiName) || accesses.some((a) => refs.some((r) => hiddenFields(a, source.apiName).includes(r)))) h.add(f.apiName);
-        } else {
-          // Formulas can read rollups; propagate after all direct dependencies have been classified.
-          formulaRefs.push({ object, name: f.apiName, refs });
-        }
-      }
-    }
-    let changed: boolean;
-    do {
-      changed = false;
-      for (const { object, name, refs } of formulaRefs) {
-        const h = computedHidden.get(object)!;
-        if (!h.has(name) && refs.some((r) => h.has(r))) { h.add(name); changed = true; }
-      }
-    } while (changed);
+    computedHidden = await withheldFields(accesses, await definitions(), scopeOf);
   })();
   const scoped = async <T extends object>(object: string, req: T): Promise<T> => {
     const scope = await scopeOf(object);

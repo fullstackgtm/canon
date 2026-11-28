@@ -12,6 +12,7 @@
  * `integrations` row, read only by internal functions, never returned to the
  * client. EmailBison's host goes in the row's `instanceUrl`.
  */
+import { metadataFields } from "./lib/metadataFields";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -140,12 +141,18 @@ async function checkFilter(ctx: QueryCtx, orgId: Id<"organizations">, filter: Vi
 async function checkDefinition(ctx: QueryCtx, user: Parameters<typeof accessFor>[1], filter: ViewFilter[], related: RelatedCondition[] = []) {
   assertSupportedRelated(related);
   const access = await accessFor(ctx, user);
-  refuseHiddenUse(access, "contact", filter.map((f) => f.field));
+  const withheld = await metadataFields(ctx, user.orgId, access);
+  const refuse = (object: string, fields: string[]) => {
+    const hidden = fields.find((f) => withheld.get(object)?.has(f));
+    if (hidden) throw new ConvexError(`${hidden} is hidden for your role`);
+    refuseHiddenUse(access, object, fields);
+  };
+  refuse("contact", filter.map((f) => f.field));
   await checkFilter(ctx, user.orgId, filter);
-  if (related.length) refuseHiddenUse(access, "contact", ["accountId"]);
+  if (related.length) refuse("contact", ["accountId"]);
   for (const condition of related) {
     const object = condition.path === "company" ? "account" : "deal";
-    refuseHiddenUse(access, object, [...condition.filter.flatMap((f) => object === "account" && f.field === "revenue" ? [f.field, "annualRevenue"] : [f.field]), ...(object === "deal" ? ["companyId"] : [])]);
+    refuse(object, [...condition.filter.flatMap((f) => object === "account" && f.field === "revenue" ? [f.field, "annualRevenue"] : [f.field]), ...(object === "deal" ? ["companyId"] : [])]);
     await checkFilter(ctx, user.orgId, [...condition.filter, { field: object === "deal" ? "companyId" : "id", op: "in", value: ["validation"] }], object);
   }
 }

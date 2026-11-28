@@ -1,4 +1,5 @@
 "use client";
+import { sectionKey, type LayoutNode, type LayoutTree } from "../../../../recipes/layout";
 
 import { useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, EyeOff, GripVertical, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
@@ -105,6 +106,24 @@ export function SectionCard({ ctx, index, over, setOver, autoRename }: { ctx: Ct
             <span className="min-w-0 truncate text-xs text-muted-foreground">{summary}</span>
           </button>
         )}
+        {!readOnly && <DropdownMenu>
+          <DropdownMenuTrigger asChild><button type="button" className={btn} aria-label={`Arrange ${s.title}`}>Arrange</button></DropdownMenuTrigger>
+          <DropdownMenuContent>
+            {(["columns", "tabs"] as const).flatMap((kind) => layout.sections.filter((x) => sectionKey(x.ref) !== sectionKey(s.ref)).map((other) => <DropdownMenuItem key={`${kind}:${sectionKey(other.ref)}`} onSelect={() => {
+              const ids: string[] = [];
+              const visit = (n: LayoutNode) => { if (!("section" in n)) { ids.push(n.id); n.children.forEach(visit); } };
+              visit(layout.tree);
+              let id = kind as string;
+              while (ids.includes(id)) id += "2";
+              edit({ op: "wrapSections", object: layout.object, sections: [s.ref, other.ref], kind, id, ...(kind === "tabs" ? { props: { labels: [s.title, other.title] } } : {}) }, key, "Grouped sections");
+            }}>Put in {kind} with {other.title}</DropdownMenuItem>))}
+            <DropdownMenuItem onSelect={() => {
+              const parent = (n: LayoutTree): LayoutTree | undefined => n.children.some((c) => "section" in c && c.section === sectionKey(s.ref)) ? n : n.children.flatMap((c) => "section" in c ? [] : [parent(c)]).find(Boolean);
+              const container = parent(layout.tree);
+              if (container) edit({ op: "unwrap", object: layout.object, container: container.id }, key, "Unwrapped sections");
+            }}>Unwrap</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>}
         <button type="button" className={icon} aria-label={open ? `Close ${s.title}` : `Edit ${s.title}`} onClick={() => setOpen(!open)}>
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </button>
