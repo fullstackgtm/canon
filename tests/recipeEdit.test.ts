@@ -121,9 +121,9 @@ function cases(md: string, object: PageObject): Case[] {
     }
   }
   for (const component of view.addable.filter((c) => c !== "fields")) for (const before of [null, page[0]]) {
-    const added: Row = { component, title: "New", collapsed: false, when: null, actions: [] };
+    const added: Row = { component, title: "New", collapsed: false, when: null, actions: ["form", "board", "detail"].includes(component) ? [{ id: component, label: component === "form" ? "Create" : "Edit" }] : [] };
     const expect = moved([...page, added], added, before);
-    out.push({ op: { op: "addSection", object, component, title: "New", ...(isDataComponent(component) ? { query: DATA_QUERIES[component].parse({ object: "deal", ...(component === "metric" || component === "chart" ? { aggregate: { fn: "count" } } : {}), ...(component === "chart" ? { groupBy: { field: "stage" } } : {}) }) } : {}), before: before && ref(before) }, expect, span: (w) => !w.was.length, branch: "addSection", inverse: () => ({ op: "removeSection", object, section: refIn(expect, added) }) });
+    out.push({ op: { op: "addSection", object, component, title: "New", ...(isDataComponent(component) ? { query: DATA_QUERIES[component].parse({ object: "deal", ...(component === "metric" || component === "chart" ? { aggregate: { fn: "count" } } : {}), ...(component === "form" ? { fields: ["name", "closeDate", "stage"] } : {}), ...(component === "detail" ? { columns: ["name"] } : {}), ...(component === "chart" || component === "board" ? { groupBy: { field: "stage" } } : {}) }) } : {}), before: before && ref(before) }, expect, span: (w) => !w.was.length, branch: "addSection", inverse: () => ({ op: "removeSection", object, section: refIn(expect, added) }) });
   }
   return out;
 }
@@ -221,7 +221,7 @@ test("an edit that would break the recipe or leave its page is refused, and desc
     ["timeline", "Timeline", "logActivity", ""],
     ["history", "History", "", ""],
   ]);
-  assert.deepEqual(contact.addable, ["fields", "table", "list", "metric", "chart"]);
+  assert.deepEqual(contact.addable, ["fields", "table", "list", "metric", "chart", "form", "board", "detail"]);
   assert.deepEqual(layoutOf(RECIPES.velocity, "deal").sections.find((s) => s.component === "fanOut"), {
     ref: { component: "fanOut", nth: 0 }, component: "fanOut", title: "Get a reply", collapsed: false, when: { stage: ["in"] }, addable: [],
     actions: [

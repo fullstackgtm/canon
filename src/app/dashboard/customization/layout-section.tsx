@@ -456,7 +456,7 @@ export function AddSection({ ctx, onAdded }: { ctx: Ctx; onAdded: (index: number
             if (!c) return;
             e.preventDefault();
             if (c === "fields") setFields("");
-            else add({ op: "addSection", object: layout.object, component: c, title: BLOCKS[c].title, ...(isDataComponent(c) ? { query: DATA_QUERIES[c].parse({ object: "deal", ...(c === "metric" || c === "chart" ? { aggregate: { fn: "count" } } : {}), ...(c === "chart" ? { groupBy: { field: "stage" } } : {}) }) } : {}), before: null });
+            else add({ op: "addSection", object: layout.object, component: c, title: BLOCKS[c].title, ...(isDataComponent(c) ? { query: DATA_QUERIES[c].parse({ object: "deal", ...(c === "metric" || c === "chart" ? { aggregate: { fn: "count" } } : {}), ...(c === "form" ? { fields: ["name", "closeDate", "stage"], defaults: {} } : {}), ...(c === "detail" ? { columns: ["name"] } : {}), ...(c === "chart" || c === "board" ? { groupBy: { field: "stage" } } : {}) }) } : {}), before: null });
           }}>
           {layout.addable.map((c) => (
             <DropdownMenuItem key={c} className="rounded-none text-xs" onSelect={() => { pending.current = c; }}>

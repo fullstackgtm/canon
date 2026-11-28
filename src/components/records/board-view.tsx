@@ -30,8 +30,9 @@ export type BoardColumnSpec = { value: string; label: string; accepts: boolean }
 export type ColumnTotal = { count: number; amount: number };
 
 function BoardColumn({
-  object, column, field, filter, sort, watch, onStale, cardFields, team, saves, writable, total, dragging, setDragging, moving, hrefOf, moveTo, targets,
+  object, column, field, filter, sort, watch, onStale, cardFields, team, saves, writable, total, dragging, setDragging, moving, hrefOf, moveTo, targets, limit,
 }: {
+  limit?: number;
   object: ListedObject;
   column: BoardColumnOf;
   field: FieldDescription;
@@ -55,7 +56,7 @@ function BoardColumn({
 }) {
   const own: ViewFilter = column.key === null ? { field: field.apiName, op: "empty" } : { field: field.apiName, op: "eq", value: column.key };
   // The column's own predicate narrows the view's filters. An empty column reads nothing.
-  const query = total && total.count > 0 ? { object, filter: [...filter, own], ...(sort ? { sort } : {}), limit: COLUMN_CARDS } : null;
+  const query = total && total.count > 0 ? { object, filter: [...filter, own], ...(sort ? { sort } : {}), limit: limit ?? COLUMN_CARDS } : null;
   const { rows, total: listed, hasMore, loadMore, loadingMore, reload, error } = useObjectList(query, { watch, onStale });
   const [over, setOver] = useState(false);
   // A company on a card reads by name, as it does in the table.
@@ -150,7 +151,7 @@ function BoardColumn({
             </article>
           );
         })}
-        {rows !== null && hasMore && (
+        {rows !== null && hasMore && limit === undefined && (
           <button type="button" disabled={loadingMore} onClick={() => void loadMore()} className="px-1 text-left text-xs text-primary hover:underline disabled:opacity-50">
             {loadingMore ? "Loading…" : `Show more (${rows.length.toLocaleString()} of ${listed.toLocaleString()})`}
           </button>
@@ -166,8 +167,10 @@ function BoardColumn({
  * caller's scoped client. Dragging a card, or its Move to menu, sets the field through the record page's own edit.
  */
 export function BoardView({
-  object, groupBy, filter, sort, watch, onStale, cardFields, team, writable, readOnly, hrefOf, onMove, saves, columns: given, totals,
+  object, groupBy, filter, sort, watch, onStale, cardFields, team, writable, readOnly, hrefOf, onMove, saves, columns: given, totals, limit,
 }: {
+  /** A recipe query bounds each column; list boards keep their pagination. */
+  limit?: number;
   /** Columns in place of the field's own (a deal pipeline's stages). */
   columns?: readonly BoardColumnSpec[];
   /** Org-wide totals by column value, in place of the grouped counts (a deal pipeline with no filter). */
@@ -237,6 +240,7 @@ export function BoardView({
             hrefOf={hrefOf}
             moveTo={moveTo}
             targets={targets}
+            limit={limit}
           />
         ))}
       </div>

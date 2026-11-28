@@ -11,19 +11,19 @@ import * as sequencers from "../convex/lib/outbound/sequencers.ts";
 const require = createRequire(import.meta.url);
 const empty = () => null;
 
-function render(summary?: { total: number; withEmail: number; customVariables: string[]; computedAt: number }) {
+function render(summary?: { total: number; withEmail: number; customVariables: string[]; computedAt: number }, uses = { inForce: [] as { label: string }[], history: [] as { label: string }[], incomplete: false, historyTruncated: false }) {
   const effects: Array<() => void> = [];
   const actions: string[] = [];
   const stubs: Record<string, unknown> = {
     react: { ...require("react"), useEffect: (effect: () => void) => effects.push(effect) },
     "next/link": { default: empty },
     "convex/react": {
-      useQuery: (ref: string) => ref === "list" ? [{ _id: "audience-1", name: "Buyers", summary }] : ref === "history" ? [] : {},
+      useQuery: (ref: string) => ref === "list" ? [{ _id: "audience-1", name: "Buyers", summary }] : ref === "history" ? [] : ref === "uses" ? uses : {},
       useAction: (ref: string) => async () => { actions.push(ref); return { push: null }; },
       useMutation: () => empty,
     },
     "../../../../convex/_generated/api": { api: {
-      audiences: { list: "list", history: "history", sequencerStatus: "status" },
+      audiences: { list: "list", usedIn: "uses", history: "history", sequencerStatus: "status" },
       audienceActions: { preview: "preview", exportCsv: "export", campaigns: "campaigns", push: "push" },
     } },
     "../../../../convex/lib/outbound/sequencers": sequencers,
@@ -33,6 +33,7 @@ function render(summary?: { total: number; withEmail: number; customVariables: s
     "@/lib/toast": { toast: { error: empty } },
     "@/lib/url-state": { useUrlState: () => [{ audience: "" }, empty] },
     "@/lib/utils": { cn: (...values: string[]) => values.join(" "), getErrorMessage: String },
+    "@/components/ui/confirm-dialog": { ConfirmDialog: empty },
     "@/components/ui/select": { SelectField: ({ options, value, disabled, "aria-label": label }: { options: { value: string; label: ReactNode }[]; value: string; disabled?: boolean; "aria-label"?: string }) => createElement("button", { type: "button", role: "combobox", "aria-label": label, disabled }, options.find((o) => o.value === value)?.label) },
   };
   const { outputText } = ts.transpileModule(readFileSync(new URL("../src/app/dashboard/audiences/page.tsx", import.meta.url), "utf8"), {
@@ -59,4 +60,14 @@ test("an audience without a cached summary remains usable without a page-load re
   assert.match(html, /pending background refresh/);
   assert.match(html, /Export CSV/);
   assert.doesNotMatch(html, /Loading rows/);
+});
+
+test("audience usage puts blockers before preserved history", () => {
+  const { html } = render(undefined, { inForce: [{ label: "An agent route" }], history: [{ label: "CSV export" }], incomplete: false, historyTruncated: true });
+  assert.ok(html.indexOf("An agent route") < html.indexOf("CSV export"));
+  assert.match(html, /remove these uses before deleting/);
+  assert.match(html, /History:/);
+  assert.match(html, /Only the most recent uses are shown/);
+  assert.ok(html.indexOf("Rename") < html.indexOf(">Delete</button>"));
+  assert.ok(html.indexOf("Export CSV") < html.indexOf(">Delete</button>"));
 });

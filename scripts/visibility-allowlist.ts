@@ -7,6 +7,9 @@
  * of its answers names a record the caller's role could hide.
  */
 export const ALLOWLIST: Record<string, string[]> = {
+  "Audience use metadata only: canSee gates the audience, canChange gates deletion, and audienceUses withholds other members' names and CRM record identities": [
+    "audiences.usedIn", "audiences.remove",
+  ],
   "Broker-only anonymous form intake: system matching never returns a match result, record identity or eligibility; every match outcome and outage returns only the form-configured success message or redirect": [
     "inboundForms.submit",
   ],

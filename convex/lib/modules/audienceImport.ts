@@ -92,7 +92,8 @@ export const audiencesImport: ModuleImport = {
       return { docs: [], cursor: JSON.stringify(state) };
     }
     const audienceId = state.audience as Id<"audiences">;
-    if ((await ctx.db.get(audienceId))?.related?.length || !await parentCopied(scope, audienceId)) return { docs: [], cursor: advance(state) };
+    const current = await ctx.db.get(audienceId);
+    if (!current || current.related?.length || !await parentCopied(scope, audienceId)) return { docs: [], cursor: advance(state) };
     if (state.phase === "ADDITIONS") {
       const page = await ctx.db.query("audienceAdditions").withIndex("by_audienceId_and_contactId", (q) => q.eq("audienceId", audienceId)).paginate({ numItems: PAGE, cursor: state.child ?? null });
       return { docs: page.page.filter((r) => r.orgId === orgId).map((r) => ({ collection: "additions", key: importSetKey(audienceId, r.contactId), parentKey: audienceId, data: { person: r.contactId } })), cursor: page.isDone ? advance(state) : JSON.stringify({ ...state, child: page.continueCursor }) };

@@ -249,7 +249,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
     </details>
   ) : body;
   const recordSections: RecordRenderers = {
-    ...dataRenderers({ id, values: record.values }, desc.fields),
+    ...dataRenderers({ id, values: record.values }, desc.fields, "deal", { canEdit: writable, deleted, stage: typeof record.values.stage === "string" ? record.values.stage : "in" }),
     // A deal's header offers the archive and restore its recipe lists, in its order.
     header: (section, { stage }) => <>
       {header(sectionActions(section).flatMap((a) => offered([a], "header", [a.runs], { canEdit: writable, canDelete: canArchive, deleted, ...(stage ? { stage } : {}) }, {}, "deal").map((o) =>

@@ -333,8 +333,14 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
     if (before && "error" in before) return before;
     const block = [`${"#".repeat(at[0].head.level)} ${title} {section=${op.component}}`, ...(op.component === "fields" ? ["", "```fields", fields.join(", "), "```"] : [])];
     if (query) block.push("", "```query", ...JSON.stringify(query, null, 2).split("\n"), "```");
+    const runs = op.component === "form" ? "kernel.createRecord" : op.component === "board" || op.component === "detail" ? "kernel.editField" : undefined;
+    const takenActions = new Set(page.flatMap((s) => s.actions?.map((a) => a.id) ?? []));
+    let actionId: string = op.component;
+    for (let n = 2; takenActions.has(actionId); n++) actionId = `${op.component}${n}`;
+    const actions: PageAction[] | undefined = runs ? [{ id: actionId, label: op.component === "form" ? "Create" : "Edit", runs }] : undefined;
+    if (actions) for (const a of actions) block.push("", "```action", `id: ${a.id}`, `label: ${a.label}`, `runs: ${a.runs}`, "```");
     put(lines, before ? before.loc.head.at : last.head.end, block);
-    const section = { component: op.component, title, ...(op.component === "fields" ? { fields } : {}), ...(query ? { query } : {}) } as PageSection;
+    const section = { component: op.component, title, ...(op.component === "fields" ? { fields } : {}), ...(query ? { query } : {}), ...(actions ? { actions } : {}) } as PageSection;
     const i = before ? before.i : page.length;
     return { lines, page: [...page.slice(0, i), section, ...page.slice(i)] };
   }

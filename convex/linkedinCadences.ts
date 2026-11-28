@@ -287,7 +287,7 @@ const candidate = v.object({
 
 /** Insert enrollments, re-checking in the transaction that no contact is already active somewhere. */
 export const insertEnrollments = internalMutation({
-  args: { cadenceId: v.id("linkedinCadences"), userId: v.id("users"), candidates: v.array(candidate), at: v.number() },
+  args: { cadenceId: v.id("linkedinCadences"), audienceId: v.optional(v.id("audiences")), userId: v.id("users"), candidates: v.array(candidate), at: v.number(), offset: v.optional(v.number()), skipped: v.optional(v.number()) },
   handler: async (ctx, args): Promise<{ inserted: number; raced: string[] }> => {
     const cadence = await ctx.db.get(args.cadenceId);
     if (!cadence || cadence.status === "archived") throw new ConvexError("Cadence not found");
@@ -301,11 +301,19 @@ export const insertEnrollments = internalMutation({
         orgId: cadence.orgId, cadenceId: cadence._id, senderAccountId: cadence.senderAccountId,
         ...c, state: "queued", stepIndex: 0,
         // Audience order is kept: earlier contacts are invited first.
-        nextAt: args.at + i,
+        nextAt: args.at + (args.offset ?? 0) + i,
         enrolledBy: args.userId, enrolledAt: args.at, updatedAt: args.at,
       });
       await publishEnrollment(ctx, enrollmentId);
       inserted++;
+    }
+    const skipped = raced.length + (args.skipped ?? 0);
+    const audienceId = args.audienceId;
+    if (audienceId && (inserted || skipped)) {
+      const target = `linkedin:${cadence._id}`;
+      const run = await ctx.db.query("audienceRuns").withIndex("by_audienceId_at_target", (q) => q.eq("audienceId", audienceId).eq("at", args.at).eq("target", target)).unique();
+      if (run) await ctx.db.patch(run._id, { sent: run.sent + inserted, skipped: run.skipped + skipped });
+      else await ctx.db.insert("audienceRuns", { orgId: cadence.orgId, audienceId, target, at: args.at, sent: inserted, exported: 0, skipped });
     }
     if (inserted) await publishSender(ctx, cadence.senderAccountId);
     return { inserted, raced };
@@ -347,9 +355,9 @@ export const enroll = action({
     const at = Date.now();
     let enrolled = 0;
     let raced = 0;
-    for (let i = 0; i < p.enroll.length; i += CHUNK) {
+    for (let i = 0; i < Math.max(p.enroll.length, 1); i += CHUNK) {
       const out: { inserted: number; raced: string[] } = await ctx.runMutation(internal.linkedinCadences.insertEnrollments, {
-        cadenceId: args.cadenceId, userId: p.caller.userId, candidates: p.enroll.slice(i, i + CHUNK), at: at + i,
+        cadenceId: args.cadenceId, audienceId: args.audienceId, userId: p.caller.userId, candidates: p.enroll.slice(i, i + CHUNK), at, offset: i, skipped: i === 0 ? p.skipped.length : 0,
       });
       enrolled += out.inserted;
       raced += out.raced.length;

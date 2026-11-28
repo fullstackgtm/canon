@@ -99,3 +99,14 @@ test("columns follow the field's order with a No value column; empty, inactive a
   ]);
   assert.deepEqual(boardColumns({ type: "checkbox", label: "Do not call" }, []).map((c) => c.label), ["Yes", "No", "Not set"]);
 });
+
+test("a stale board card cannot overwrite a newer ledger edit", async () => {
+  user = ADMIN;
+  const { call, calls } = workspace();
+  const created = await call("objects.ts", "write", { object: "lead", values: { lastName: "Stale", status: "new" } });
+  const before = await call("objects.ts", "get", { streamId: created.streamId });
+  assert.equal((await move(calls, "status", { id: created.streamId, version: before.version }, "working")).problem, null);
+  const refused = await move(calls, "status", { id: created.streamId, version: before.version }, "new");
+  assert.match(refused.problem ?? "", /changed/);
+  assert.equal((await call("objects.ts", "get", { streamId: created.streamId })).values.status, "working");
+});

@@ -70,7 +70,7 @@ const ACTION_CATALOG = {
   "kernel.setStatus": { hosts: { account: { header: "record" } }, calls: "records.edit", writes: true, requires: "!deleted", ready: "canEdit", gate: "the edit lands on the company's ledger, with the person as its author" },
   "kernel.setOwner": { hosts: { account: { header: "record" } }, calls: "records.edit", writes: true, requires: "!deleted", ready: "canEdit", gate: "an active teammate, or nobody; the edit lands on the company's ledger" },
   "kernel.editField": {
-    hosts: { account: { fields: "record" }, contact: { fields: "record" } }, calls: "records.edit", writes: true, ready: "canEdit && !deleted",
+    hosts: { deal: { detail: "record", board: "record" }, account: { fields: "record", detail: "record", board: "record" }, contact: { fields: "record", detail: "record", board: "record" } }, calls: "records.edit, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
     gate: "a field the workspace made read-only stays so; an edit to a row nobody has worked puts it on the ledger first",
   },
   "kernel.findEmail": {
@@ -90,8 +90,13 @@ const ACTION_CATALOG = {
     gate: "the record leaves lists, search, reports and agents; nothing is erased, and Restore or the toast's Undo brings it back",
   },
   "kernel.restore": { hosts: { deal: { header: "record" }, account: { header: "record" }, contact: { header: "record" } }, calls: "records.bulkRegister, objects.restore", writes: true, requires: "canDelete && deleted", gate: "brings an archived record back" },
+  "kernel.createRecord": {
+    hosts: { deal: { form: "record" }, account: { form: "record" }, contact: { form: "record" } },
+    calls: "deals.createScoped, records.upsert, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
+    gate: "the existing create path checks the caller, tenant, create permission, visible and writable fields, references, validation and duplicates; a form cannot add a write",
+  },
   "kernel.logActivity": {
-    hosts: { account: { timeline: "activity" }, contact: { timeline: "activity" } }, calls: "activityTargets.logScoped", writes: true,
+    hosts: { deal: { form: "activity" }, account: { timeline: "activity", form: "activity" }, contact: { timeline: "activity", form: "activity" } }, calls: "activityTargets.logScoped", writes: true,
     gate: "a note, task, call or meeting about the record and the records it implies, such as a person's company",
   },
   "kernel.link": { hosts: { account: { related: "record" }, contact: { related: "record" } }, calls: "associations.link", writes: true, gate: "links a person and a company; a person's first company is their primary" },
@@ -163,6 +168,9 @@ function dataBlock<K extends keyof typeof DATA_QUERIES>(id: K, title: string, ra
 
 /** Object ranks preserve the existing add-menu and grammar order, independently of catalog order. */
 export const BLOCKS = {
+  form: /* @__PURE__ */ dataBlock("form", "Form", 34),
+  board: /* @__PURE__ */ dataBlock("board", "Board", 35),
+  detail: /* @__PURE__ */ dataBlock("detail", "Detail", 36),
   table: /* @__PURE__ */ dataBlock("table", "Table", 30),
   list: /* @__PURE__ */ dataBlock("list", "List", 31),
   metric: /* @__PURE__ */ dataBlock("metric", "Metric", 32),
