@@ -15,6 +15,7 @@ import { CANON_LAYOUT_SKILL } from "../recipes/skills/canon-layout/skill.generat
 import { turnMeter } from "./lib/agents/webhook";
 import { NO_PLAN, PROPOSAL_BUDGET, REQUEST_MAX } from "./lib/recipeAgent";
 import { proposeWorkflow, WORKFLOW_TOOL, WORKFLOW_SCHEMA, type WorkflowProposal } from "./lib/workflowAgent";
+import { customizationSuggestionContext, readSuggestions, standInSuggestions, suggestionPrompt, SUGGESTION_SCHEMA, SUGGESTION_TOOL } from "./lib/customizeSuggestions";
 import type { ObjectDef } from "./lib/objects/registry";
 import { integrationEnabled } from "./lib/integrationsAvailable.ts";
 
@@ -430,6 +431,41 @@ export const promote = action({
   },
 });
 
+async function visibleWorkflowObjects(ctx: ActionCtx): Promise<ObjectDef[]> {
+  const catalog = await ctx.runQuery(api.dataModel.objects, {});
+  const defs = await Promise.all((catalog ?? []).filter((object) => !object.archived)
+    .map((object) => ctx.runQuery(api.objects.describe, { object: object.apiName })));
+  return defs.flatMap((def) => def?.readable ? [def as unknown as ObjectDef] : []);
+}
+
+export const suggest = action({
+  args: {
+    scope: v.union(
+      v.object({ target: v.union(v.string(), v.null()) }),
+      v.object({ target: v.string(), sectionId: v.string() }),
+    ),
+  },
+  returns: v.object({ suggestions: v.array(v.string()) }),
+  handler: async (ctx, { scope }): Promise<{ suggestions: string[] }> => {
+    const { userId, pages } = await ctx.runQuery(internal.workspaceRecipes.workflowBases, {});
+    const standIn = recipeAgentStandIn();
+    const llm = standIn ? null : await resolveLlm(ctx, userId, { refresh: false });
+    if (!standIn && !llm) throw new ConvexError(NO_PLAN);
+    if (scope.target !== null && !pages.some((page) => page.target === scope.target)) return { suggestions: [] };
+
+    const input = customizationSuggestionContext({ pages, objects: await visibleWorkflowObjects(ctx) }, scope);
+    if (!input.pages.length || ("sectionId" in scope && !input.selected)) return { suggestions: [] };
+    if (!llm) return { suggestions: standInSuggestions(input) };
+
+    const raw = await forcedToolCall(suggestionPrompt(input.context, scope), SUGGESTION_TOOL, SUGGESTION_SCHEMA, llm.model ?? DEFAULT_MODELS[llm.provider], {
+      ...llm,
+      chatgptReasoningEffort: "low",
+      chatgptSignal: AbortSignal.timeout(8_000),
+    });
+    return { suggestions: readSuggestions(raw) };
+  },
+});
+
 export const workflow = action({
   args: { request: v.string() },
   handler: async (ctx, args): Promise<WorkflowProposal & { model: string; ms: number }> => {
@@ -440,14 +476,7 @@ export const workflow = action({
     const standIn = recipeAgentStandIn();
     const llm = standIn ? null : await resolveLlm(ctx, bases.userId);
     if (!standIn && !llm) throw new ConvexError(NO_PLAN);
-    const catalog = await ctx.runQuery(api.dataModel.objects, {});
-    const objects: ObjectDef[] = [];
-    for (const object of catalog ?? []) {
-      if (object.archived) continue;
-      const def = await ctx.runQuery(api.objects.describe, { object: object.apiName });
-      if (def?.readable) objects.push(def as unknown as ObjectDef);
-    }
-    const input = { pages: bases.pages, objects, request };
+    const input = { pages: bases.pages, objects: await visibleWorkflowObjects(ctx), request };
     const meter = turnMeter(PROPOSAL_BUDGET, start);
     const proposal = await proposeWorkflow(input, {
       skill: CANON_LAYOUT_SKILL, charge: (prompt) => meter.charge(prompt),

@@ -4515,6 +4515,9 @@ export default defineSchema({
     // Where the last scoped refresh stopped when it hit the run cap: the next one resumes there, and one that
     // reaches the end of the scope clears it, so a scope bigger than the cap is covered over several refreshes.
     watchCursor: v.optional(v.string()),
+    // Where answers come from. Absent: the model reads public pages. "job_boards": the open roles of the daily
+    // job-board check (convex/signals.ts), with no model (lib/signals/hiring.ts; only "Hiring sales reps" today).
+    answerSource: v.optional(v.literal("job_boards")),
     // When the question last changed (a recipe setting edit). Facts and attempts from before it answered the old
     // question: they are not shown and do not stop a run from asking again.
     questionSince: v.optional(v.number()),
@@ -4683,6 +4686,8 @@ export default defineSchema({
     sourceUrl: v.string(),
     source: v.string(),
     reposted: v.optional(v.boolean()),
+    // A job: postings with this title on the board from the last 30 days (one row per title). Absent: not counted yet (one).
+    openings: v.optional(v.number()),
     // When it happened (a role's posting date) if the source says; else when Canon first saw it.
     observedAt: v.number(),
     firstSeenAt: v.number(),

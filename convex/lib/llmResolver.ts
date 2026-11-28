@@ -22,19 +22,22 @@ const REFRESH_MARGIN_MS = 10 * 60_000;
 export async function resolveLlm(
   ctx: ActionCtx,
   userId: Id<"users"> | null | undefined,
+  options?: { refresh?: boolean },
 ): Promise<LlmCallOptions | null> {
-  return userId ? chatgptLlmForUser(ctx, userId) : null;
+  return userId ? chatgptLlmForUser(ctx, userId, options) : null;
 }
 
 /** The user's ChatGPT session as LLM options, refreshed if near expiry; null if not connected. */
-export async function chatgptLlmForUser(ctx: ActionCtx, userId: Id<"users">): Promise<LlmCallOptions | null> {
+export async function chatgptLlmForUser(ctx: ActionCtx, userId: Id<"users">, { refresh = true } = {}): Promise<LlmCallOptions | null> {
   if (!integrationEnabled("chatgpt")) return null;
   const row = await ctx.runQuery(internal.chatgptAuth.getRow, { userId });
   if (!row || row.status !== "connected" || !row.accessToken || !row.refreshToken || !row.idToken || !row.accountId) {
     return null;
   }
+  const remaining = (row.accessTokenExpiresAt ?? 0) - Date.now();
+  if (!refresh && remaining <= 0) return null;
   let accessToken = await decryptFromStorage(row.accessToken);
-  if ((row.accessTokenExpiresAt ?? 0) - REFRESH_MARGIN_MS < Date.now()) {
+  if (refresh && remaining < REFRESH_MARGIN_MS) {
     try {
       const tokens = await refreshChatgptTokens({
         accessToken,

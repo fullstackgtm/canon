@@ -1,5 +1,5 @@
 "use client";
-import { type LayoutTree } from "../../../../recipes/layout";
+import { sectionKey, type LayoutTree } from "../../../../recipes/layout";
 
 /**
  * A record page's side of customize mode (prototype; the pencil and the overlay are components/customize/customize-mode.tsx).
@@ -135,6 +135,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     return Number.isNaN(i) ? null : i;
   };
   const adapter: CustomizeAdapter | null = active ? {
+    object,
     label: `${object[0].toUpperCase()}${object.slice(1)} page`,
     detail: recipeTitle,
     scope: personal?.canDecide ? { value: scope, set: (v) => { setScope(v); setDrafts([]); setJobs([]); } } : undefined,
@@ -151,6 +152,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
       if (i === null || !page[i]) return null;
       const s = page[i], l = lens[i];
       const t: CustomizeTarget = {
+        sectionId: sectionKey(refOf(page, i)),
         title: s.title ?? l?.title ?? s.component, purpose: l?.purpose, when: `${object === "deal" ? whenText(s) : "shows on this page"}${s.collapsed ? ", starts folded" : ""}`,
         reads: [...new Set([...(l?.settings ?? []).filter((x) => !x.includes(".")), ...(l?.actions.flatMap((a) => a.prompts) ?? [])].map(human))].slice(0, 5),
         does: (s.actions ?? []).map((a) => cleanLabel(a.label)),

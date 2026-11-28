@@ -13,13 +13,25 @@ const manifest = JSON.parse(readFileSync('modules/examples/inbound/module.json',
 let agent: string | null = null;
 let demo = true;
 const currentUser = 'publisher';
-const graph = loadConvex(['inboundForms.ts','modules.ts','objects.ts'], {
+let recordReads: string[] = [];
+let recordFailure = false;
+const graph = loadConvex(['inboundForms.ts','modules.ts','objects.ts','lib/modules/intake.ts'], {
+  'records.ts': real => ({ ...real, clientFor: (ctx:any) => {
+    const read = async (table:string, ws:string, id:string) => {
+      recordReads.push(`${table}:${ws}:${id}`);
+      if (recordFailure) throw new Error('Unavailable');
+      return ctx.db.rows(table).find((r:any) => r._id === id && r.orgId === ws) ?? null;
+    };
+    return { getContact: (ws:string,id:string) => read('contacts',ws,id), get: async (ws:string,id:string) => { const account = await read('accounts',ws,id); return account ? { account, contacts: [], history: [] } : null; } };
+  } }),
   'lib.ts': real => ({...real, isDevAuthBypassEnabled:()=>demo, getCurrentUser:async (ctx:any)=>ctx.db.get(currentUser), requireUser:async (ctx:any)=>ctx.db.get(currentUser), agentClientOf:async()=>agent}),
 });
 const inbound = graph['inboundForms.ts'];
 function fixture() {
   const publicId='abcdefghijklmnopqrstuv';
   const db=memoryDb({
+    contacts:[{_id:'candidate',orgId:'org-a',ownerId:'publisher'}],
+    accounts:[{_id:'company',orgId:'org-a',ownerId:'publisher'}],
     organizations:[{_id:'org-a',name:'A'},{_id:'org-b',name:'B'}],
     users:[{_id:'publisher',orgId:'org-a',clerkUserId:'user_publisher',role:'admin',isActive:true,name:'Publisher'}],
     orgMemberships:[{_id:'membership',orgId:'org-a',userId:'publisher',role:'admin',isActive:true}],
@@ -241,8 +253,13 @@ async function reviewFixture() {
 }
 async function resolve(ctx:any,row:any,action='dismiss',candidateId?:string, handlers=graph['modules.ts']) {
   const input={module:'inbound',call:'resolve',args:{key:row.key,expect:row.version,action,...(candidateId?{candidateId}:{})}};
-  const authorization=await handlers.callDispatch.handler(ctx,input);
-  return handlers.executeCanonCall.handler(ctx,{...input,authorization});
+  ctx.runQuery = async (ref:unknown, a:unknown) => {
+    const name = String(ref).split('.').at(-1)!;
+    return handlers[name].handler(ctx,a);
+  };
+  ctx.runMutation = async (_ref:unknown, a:unknown) => handlers.executeCanonCall.handler(ctx,a);
+  ctx.runAction = async (_ref:unknown, a:unknown) => handlers.prepareCanonResolution.handler(ctx,a);
+  return handlers.call.handler(ctx,input);
 }
 async function asManager(db:any,rules:unknown[]=[]) {
   await db.patch('publisher',{role:'manager'});await db.patch('membership',{role:'manager'});
@@ -315,15 +332,17 @@ test('foreign workspace, fake and disabled packages refuse resolution',async()=>
     await assert.rejects(resolve(ctx,row));
   }
 });
-test('unknown candidate ownership refuses narrowed resolvers',async()=>{
+test('fresh unowned candidate respects narrowed resolver unowned policy',async()=>{
   const {db,ctx,row}=await reviewFixture();await asManager(db,[{object:'contact',visibility:'own',unowned:false}]);
   await db.patch(row._id,{data:{...row.data,candidates:[{object:'person',id:'candidate',reason:'email'}]}});
+  await db.patch('candidate',{ownerId:null});
   await assert.rejects(resolve(ctx,row,'link','candidate'));
 });
 test('own-only resolvers link only to their own person candidate',async()=>{
   for(const ownerId of ['someone-else','publisher']) {
     const {db,ctx,row}=await reviewFixture();await asManager(db,[{object:'contact',visibility:'own',unowned:false}]);
     await db.patch(row._id,{data:{...row.data,candidates:[{object:'person',id:'candidate',reason:'email',ownerId}]}});
+    await db.patch('candidate',{ownerId});
     if(ownerId==='publisher'){await resolve(ctx,row,'link','candidate');assert.equal(((await db.get(row._id))!.data as any).outcome,'linked');}
     else await assert.rejects(resolve(ctx,row,'link','candidate'));
   }
@@ -441,4 +460,94 @@ test('owner metadata survives the HTTP client and remains additive to legacy mat
   assert.deepEqual(result,widened);
   const {personOwner:_owner,candidates,...legacy}=result as any;
   assert.deepEqual({...legacy,candidates:candidates.map(({ownerId:_id,...c}:any)=>c)},{by:'email',personId:'person',companyId:'company',accountOwner:'account-owner',candidates:[{object:'person',id:'person',reason:'email'}]});
+});
+
+
+test('old Inbound installs close intake before writing and tell the admin how to restore it', async () => {
+  const { db, ctx, args } = fixture();
+  const old = readFileSync('tests/fixtures/modules/inbound/pre-review.module.json', 'utf8');
+  await db.patch('package', { manifest: old, manifestHash: 'pre-review' });
+  const functions = graph['lib/modules/intake.ts'] as unknown as typeof import('../convex/lib/modules/intake.ts');
+  assert.equal(await functions.formProjection(ctx, args.publicId), null);
+  assert.equal((await inbound.admit.handler(ctx, args)).status, 404);
+  assert.equal((await inbound.commit.handler(ctx, { ...args, version: 2, match: { by: 'none', candidates: [] } })).status, 404);
+  await assert.rejects(functions.resolveSubmission(ctx, { key: 'old', expect: 1, action: 'dismiss' }), /Update Inbound.*Recipes/);
+  assert.equal(db.rows('moduleRateLimits').length, 0);
+  assert.equal(db.rows('canonEntities').length, 0);
+  assert.equal(db.rows('moduleDocs').length, 1);
+});
+
+test('resolution uses current person and company owners in both visibility directions and for old submissions',async()=>{
+  for (const object of ['person','company']) for (const currentOwner of ['publisher','other',null]) for (const legacy of [false,true]) {
+    const {db,ctx,row}=await reviewFixture();
+    const id=object==='person'?'candidate':'company';
+    await asManager(db,[{object:object==='person'?'contact':'account',visibility:'own',unowned:true}]);
+    await db.patch(id,{ownerId:currentOwner});
+    await db.patch('form',{data:{...(await db.get('form'))!.data as any,routeToAccountOwner:true}});
+    await db.patch(row._id,{data:{...row.data,candidates:[{object,id,reason:'email',...(legacy?{}:{ownerId:currentOwner==='publisher'?'other':'publisher'})}]}});
+    if(currentOwner==='other') await assert.rejects(resolve(ctx,row,object==='person'?'link':'create',id),/role cannot/);
+    else {
+      await resolve(ctx,row,object==='person'?'link':'create',id);
+      const saved:any=await db.get(row._id);
+      assert.equal(saved.data.assignee??null,currentOwner);
+      if(object==='company') assert.equal((db.rows('recordRows')[0] as any).values.ownerId??null,currentOwner);
+    }
+  }
+});
+test('resolution refuses deleted, foreign and unreachable records without falling back to snapshots',async()=>{
+  for(const mode of ['deleted','foreign','outage']) {
+    const {db,ctx,row}=await reviewFixture();
+    if(mode==='deleted')await db.delete('candidate');
+    if(mode==='foreign')await db.patch('candidate',{orgId:'org-b'});
+    recordFailure=mode==='outage';
+    try { await assert.rejects(resolve(ctx,row,'link','candidate'),mode==='outage'?/current owner/:/no longer exists/); }
+    finally {recordFailure=false;}
+    assert.equal(((await db.get(row._id))!.data as any).outcome,'needs_review');
+  }
+});
+test('person resolution reads its company owner fresh and never uses a deleted company snapshot',async()=>{
+  for(const deleted of [false,true]) {
+    const {db,ctx,row}=await reviewFixture();
+    await db.patch('candidate',{ownerId:null});
+    await db.patch(row._id,{data:{...row.data,companyId:'company',accountOwner:'departed'}});
+    if(deleted)await db.delete('company');
+    recordReads=[];
+    await resolve(ctx,row,'link','candidate');
+    assert.deepEqual(recordReads,['contacts:org-a:candidate','accounts:org-a:company']);
+    assert.equal(((await db.get(row._id))!.data as any).assignee,deleted?undefined:'publisher');
+  }
+});
+test('dismiss and candidate-less create never read records',async()=>{
+  for(const action of ['dismiss','create']) {
+    const {ctx,row}=await reviewFixture();recordReads=[];
+    await resolve(ctx,row,action,action==='dismiss'?'candidate':undefined);
+    assert.deepEqual(recordReads,[]);
+  }
+});
+test('resolution refuses missing or mismatched preparation and other operations reject it',async()=>{
+  const {db,ctx,row}=await reviewFixture(),handlers=graph['modules.ts'];
+  const input={module:'inbound',call:'resolve',args:{key:row.key,expect:row.version,action:'link',candidateId:'candidate'}};
+  const authorization=await handlers.callDispatch.handler(ctx,input);
+  await assert.rejects(handlers.executeCanonCall.handler(ctx,{...input,authorization}),/preparation/);
+  const resolutionOwners={candidate:{id:'other',found:true,ownerId:'publisher'}};
+  await assert.rejects(handlers.executeCanonCall.handler(ctx,{...input,authorization,resolutionOwners}),/Unexpected Canon preparation/);
+  await db.patch('form',{data:{...form,status:'draft'}});
+  const publish={module:'inbound',call:'publish',args:{key:'contact',expect:2}};
+  const auth=await handlers.callDispatch.handler(ctx,publish);
+  await assert.rejects(handlers.executeCanonCall.handler(ctx,{...publish,authorization:auth,resolutionOwners}),/Unexpected Canon preparation/);
+});
+test('missing, archived and converted leads are unavailable at resolution',async()=>{
+  for(const lifecycle of ['missing','archived','converted']) {
+    const {db,ctx,row}=await reviewFixture();
+    let id='missing';
+    if(lifecycle!=='missing') {
+      const save=graph['objects.ts'].saveAsCaller as unknown as (...args:any[])=>Promise<any>;
+      const result=await save(ctx,await db.get('publisher'),'lead',{op:'create',values:{lastName:'Known',email:'known@example.test'}});
+      id=result.streamId;
+      const changed=await save(ctx,await db.get('publisher'),'lead',lifecycle==='archived' ? {op:'delete',streamId:id} : {op:'update',streamId:id,values:{convertedAt:Date.now()}});
+      assert.equal(changed.status,'applied');
+    }
+    await db.patch(row._id,{data:{...row.data,candidates:[{object:'lead',id,reason:'email'}]}});
+    await assert.rejects(resolve(ctx,row,'link',id),/no longer available/);
+  }
 });

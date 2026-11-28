@@ -221,3 +221,15 @@ test('Inbound candidate arrays render record links from the retained submission'
   for(const candidate of candidates)assert.ok(html.includes(`href="${candidate.url}"`));
   assert.ok(html.includes('domain'));assert.ok(html.includes('email'));
 });
+
+
+test("the Inbound link block explains a paused old install and restores the link after updating", () => {
+  const { formLink } = load<{ formLink: (node: unknown, ctx: unknown) => ReactNode }>("../src/components/modules/module-page.tsx", { "@/lib/utils": { cn: (...values: string[]) => values.join(" ") } }, "\nexports.formLink = RENDERERS.formLink;");
+  const ctx = { view: { module: { id: "@canon/inbound" }, members: [{ id: "admin", role: "admin" }], ops: { "submissions.receive": { fields: [] as Array<{ field: string }> } }, data: { form: { data: { status: "live", publishedBy: "admin", publicId: "abcdefghijklmnopqrstuv" } } } } };
+  const draw = () => renderToStaticMarkup(formLink({ from: "form" }, ctx));
+  assert.match(draw(), /Intake is paused/);
+  assert.doesNotMatch(draw(), /href=/);
+  ctx.view.ops["submissions.receive"].fields = [{ field: "assignee" }, { field: "candidates" }];
+  assert.match(draw(), /href="\/f\/abcdefghijklmnopqrstuv"/);
+  assert.doesNotMatch(draw(), /Intake is paused/);
+});

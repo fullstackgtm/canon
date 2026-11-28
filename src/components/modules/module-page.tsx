@@ -901,6 +901,7 @@ const RENDERERS: { [C in ComponentName]: (n: Of<C>, ctx: Ctx) => ReactNode } = {
   periodNav: (n, ctx) => <PeriodNav n={n} ctx={ctx} />,
   formLink: (n, ctx) => {
     const doc = ctx.view.data[n.from] as Doc | null;
+    if (doc?.data.status === "live" && ctx.view.module.id === "@canon/inbound" && !["assignee", "candidates"].every(field => ctx.view.ops["submissions.receive"]?.fields.some(f => f.field === field))) return <p role="status">Intake is paused until Inbound is updated on the Recipes page.</p>;
     const publisher = ctx.view.members.find(member => member.id === doc?.data.publishedBy);
     if (doc?.data.status === "live" && (!publisher || publisher.role !== "admin")) return <p role="status">Form paused: its publisher is no longer an active administrator.</p>;
     const id = doc?.data.publicId;

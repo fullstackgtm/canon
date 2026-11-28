@@ -1,4 +1,5 @@
 "use node";
+import { SALES_WINDOW_MS } from "./lib/signals/hiring";
 import { siteUrl } from "./lib/siteUrl";
 
 /**
@@ -116,14 +117,20 @@ function toArgs<T extends { website?: WebsiteRead }>(account: T) {
 
 /** Open roles as signals: each keeps the board's own quote of the role and links its posting. */
 function toSignals(jobs: AtsJob[], source: AtsBoardSource, domain: string, now: number) {
-  return buildSignalsFromAts(jobs.map((j) => ({ ...j, source })), { domain }, DEFAULT_SIGNALS_CONFIG, { now: new Date(now) })
+  // Recent postings per title before one row per title is kept: "Hiring sales reps" counts openings posted in its
+  // window (an undated posting counts), not titles, and not older postings that share a newer one's title.
+  const openings = new Map<string, number>();
+  const signals = buildSignalsFromAts(jobs.map((j) => ({ ...j, source })), { domain }, DEFAULT_SIGNALS_CONFIG, { now: new Date(now) })
     .filter((s) => s.sourceUrl)
     .map((s) => ({
       trigger: s.trigger, quote: s.quote, sourceUrl: s.sourceUrl, source, reposted: s.reposted,
       observedAt: s.publishedAt ? Date.parse(s.publishedAt) : undefined,
     }))
-    .sort((a, b) => (b.observedAt ?? now) - (a.observedAt ?? now))
+    .sort((a, b) => (b.observedAt ?? now) - (a.observedAt ?? now));
+  for (const s of signals) if ((s.observedAt ?? now) >= now - SALES_WINDOW_MS) openings.set(s.trigger, (openings.get(s.trigger) ?? 0) + 1);
+  return signals
     // One signal per trigger, the newest: several open roles with one title are one change at the account.
     .filter((s, i, all) => all.findIndex((o) => o.trigger === s.trigger) === i)
-    .slice(0, MAX_PER_ACCOUNT);
+    .slice(0, MAX_PER_ACCOUNT)
+    .map((s) => ({ ...s, openings: openings.get(s.trigger) ?? 0 }));
 }

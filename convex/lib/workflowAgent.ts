@@ -21,12 +21,13 @@ export type WorkflowProposal = { plan: WorkflowPlan[]; targets: WorkflowTarget[]
 export const WORKFLOW_TOOL = "workflow_edits";
 export const WORKFLOW_SCHEMA = z.toJSONSchema(answer);
 
-export function workflowContext(input: WorkflowInput) {
+export function workflowContext(input: Pick<WorkflowInput, "pages" | "objects">, { compact = false } = {}) {
+  const groupableTypes = compact ? ["picklist", "boolean"] : ["picklist", "date", "datetime", "boolean", "text"];
   return {
     pages: input.pages.map((p) => ({ target: p.target, layout: describeLayout(p.markdown, p.target) })),
-    objects: input.objects.map((def) => ({ object: def.apiName, fields: [...listColumns(indexObjectDef(def))].map(([name, col]) => ({ name, kind: col.kind, filter: OPS_OF[col.kind] })), groupable: def.fields.filter((f) => ["picklist", "date", "datetime", "boolean", "text"].includes(f.type)).map((f) => f.apiName) })),
-    blocks: Object.fromEntries(Object.entries(BLOCKS).map(([name, block]) => [name, { ...block, props: z.toJSONSchema(block.props), ...("query" in block ? { query: z.toJSONSchema(block.query) } : {}) }])),
-    containers: Object.fromEntries(Object.entries(CONTAINERS).map(([kind, schema]) => [kind, z.toJSONSchema(schema)])), actions: KERNEL_ACTIONS,
+    objects: input.objects.map((def) => ({ object: def.apiName, fields: [...listColumns(indexObjectDef(def))].map(([name, col]) => ({ name, kind: col.kind, filter: OPS_OF[col.kind] })), groupable: def.fields.filter((f) => groupableTypes.includes(f.type)).map((f) => f.apiName) })),
+    blocks: Object.fromEntries(Object.entries(BLOCKS).map(([name, block]) => [name, compact ? { title: block.title, purpose: block.purpose, objects: block.objects, parts: block.parts, actions: block.actions } : { ...block, props: z.toJSONSchema(block.props), ...("query" in block ? { query: z.toJSONSchema(block.query) } : {}) }])),
+    containers: compact ? Object.keys(CONTAINERS) : Object.fromEntries(Object.entries(CONTAINERS).map(([kind, schema]) => [kind, z.toJSONSchema(schema)])), actions: KERNEL_ACTIONS,
   };
 }
 

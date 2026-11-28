@@ -162,7 +162,7 @@ export const boardsFor = internalQuery({
 type AccountRead = {
   domain: string;
   board?: { source: Board; token: string } | null;
-  signals?: Array<{ trigger: string; quote: string; sourceUrl: string; source: Board; observedAt?: number; reposted?: boolean }>;
+  signals?: Array<{ trigger: string; quote: string; sourceUrl: string; source: Board; observedAt?: number; reposted?: boolean; openings?: number }>;
   website?: { buckets: Bucket[]; signals: Array<{ signal: Signal; occurredAt?: number }> };
 };
 
@@ -239,7 +239,7 @@ async function applyBoard(ctx: MutationCtx, orgId: Id<"organizations">, account:
   const byTrigger = new Map(existing.map((s) => [s.trigger, s]));
   for (const s of account.signals) {
     const row = byTrigger.get(s.trigger);
-    const fields = { quote: s.quote, sourceUrl: s.sourceUrl, source: s.source, reposted: s.reposted, lastSeenAt: now };
+    const fields = { quote: s.quote, sourceUrl: s.sourceUrl, source: s.source, reposted: s.reposted, openings: s.openings, lastSeenAt: now };
     if (row) await ctx.db.patch(row._id, { ...fields, observedAt: s.observedAt ?? row.observedAt });
     else {
       await ctx.db.insert("accountSignals", { orgId, domain: account.domain, bucket: "job", trigger: s.trigger, ...fields, observedAt: s.observedAt ?? now, firstSeenAt: now });
@@ -286,7 +286,7 @@ export const applySlice = internalMutation({
       // Absent when the account was not fetched this run (a cached miss).
       signals: v.optional(v.array(v.object({
         trigger: v.string(), quote: v.string(), sourceUrl: v.string(), source: boardValidator,
-        observedAt: v.optional(v.number()), reposted: v.optional(v.boolean()),
+        observedAt: v.optional(v.number()), reposted: v.optional(v.boolean()), openings: v.optional(v.number()),
       }))),
       // Absent when the website was not read. `buckets` are the ones the read vouched for.
       website: v.optional(v.object({
@@ -455,4 +455,19 @@ export const logScoped = action({
 export const forAccountScoped = action({
   args: { domain: v.string() },
   handler: async (ctx, args): Promise<Awaited<ReturnType<typeof forAccountAs>>["value"]> => (await signalScoped(ctx, "forAccount", [args.domain])) as Awaited<ReturnType<typeof forAccountAs>>["value"],
+});
+
+/** Per domain, the job board Canon last read and its open roles: what a "job_boards" AI field answers from (lib/signals/hiring.ts). */
+export const jobsFor = internalQuery({
+  args: { orgId: v.id("organizations"), domains: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const out = [];
+    for (const domain of args.domains.slice(0, 100)) {
+      const board = await ctx.db.query("signalBoards").withIndex("by_orgId_and_domain", (q) => q.eq("orgId", args.orgId).eq("domain", domain)).first();
+      const rows = (await openSignalsOf(ctx, args.orgId, domain)).filter((r) => r.bucket === "job")
+        .map((r) => ({ trigger: r.trigger, quote: r.quote, sourceUrl: r.sourceUrl, observedAt: r.observedAt, openings: r.openings ?? 1 }));
+      out.push({ domain, board: board ? { source: board.source, token: board.token, checkedAt: board.checkedAt } : null, rows });
+    }
+    return out;
+  },
 });

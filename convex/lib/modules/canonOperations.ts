@@ -1,4 +1,4 @@
-import { publishForm, resolveSubmission } from "./intake";
+import { publishForm, resolveSubmission, resolveSubmissionInput, type ResolutionOwners } from "./intake";
 import type { Sealed } from "../sealed";
 import { ConvexError } from "convex/values";
 import { z } from "zod";
@@ -17,7 +17,7 @@ import { startResearchRun, probeResearchRun, stopResearchRun, setResearchAutoAcc
 import { stopPopulation } from "../populationStop";
 import { startFreePopulation } from "../../populateActions";
 
-export type PreparedCanonOperation = { operation: "agents.rotateSecret"; encryptedSecret: Sealed };
+export type PreparedCanonOperation = { operation: "agents.rotateSecret"; encryptedSecret: Sealed } | { operation: "submissions.resolve"; owners: ResolutionOwners };
 
 const id = <T extends TableNames>(ctx: MutationCtx, table: T) => z.string().transform((raw, issue) => {
   const normalized = ctx.db.normalizeId(table, raw);
@@ -60,7 +60,7 @@ const researchStart = (ctx: MutationCtx) => z.strictObject({
 });
 
 const operations = {
-  "submissions.resolve": operation(() => z.strictObject({ key: z.string().min(1).max(200), expect: z.number().int().positive(), action: z.enum(["link", "create", "dismiss"]), candidateId: z.string().min(1).max(200).optional() }), resolveSubmission),
+  "submissions.resolve": operation(() => resolveSubmissionInput, (ctx, input, prepared) => resolveSubmission(ctx, input, prepared?.operation === "submissions.resolve" ? prepared.owners : undefined)),
   "forms.publish": operation(() => z.strictObject({ formKey: z.string().min(1).max(200) }), publishForm),
   "research.start": operation(researchStart, startResearchRun),
   "research.probe": operation(researchStart, probeResearchRun),
@@ -98,5 +98,6 @@ export async function executeCanonOperation(ctx: MutationCtx, name: CanonOperati
   await requireUser(ctx);
   if (await agentClientOf(ctx)) throw new ConvexError("Only a person can run this Canon operation.");
   if (!Object.hasOwn(operations, name)) throw new ConvexError("Unsupported Canon operation.");
+  if (prepared && prepared.operation !== name) throw new ConvexError("Unexpected Canon preparation.");
   return operations[name].execute(ctx, input, prepared);
 }

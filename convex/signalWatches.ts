@@ -9,18 +9,20 @@
  * answer adds no fact, so the rule fires once per change, not once per refresh.
  */
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { getCurrentUser } from "./lib";
 import { can, refusal } from "./lib/capabilities";
 import { attributeFor } from "./lib/research/agentLoop";
 import { insertField } from "./researchAgents";
 import { insertRule, requireAdmin } from "./automations";
 import { filterValidator } from "./lib/scopeValidators";
-import { SIGNAL_PREFIX, SIGNAL_TEMPLATES, signalFieldLabel, signalTemplate } from "./lib/signals/catalog";
+import { SIGNAL_PREFIX, SIGNAL_TEMPLATES, signalFieldLabel, signalTemplate, suggestedSignals } from "./lib/signals/catalog";
+import { markOnboardingStep } from "./onboarding";
+import type { Doc, Id } from "./_generated/dataModel";
 
 const QUESTION_MAX = 500;
 
-/** The starter signals, each with whether the workspace already watches it. */
+/** The starter signals (three suggested by the workspace's starting plan), and for each watch its scope and rule. */
 export const catalog = query({
   args: {},
   handler: async (ctx) => {
@@ -28,13 +30,20 @@ export const catalog = query({
     if (!user) return null;
     const fields = await ctx.db.query("researchAgents").withIndex("by_orgId_and_slug", (q) => q.eq("orgId", user.orgId)).take(200);
     const watched = new Map(fields.filter((f) => f.label.startsWith(SIGNAL_PREFIX)).map((f) => [f.label, f]));
+    const rules = watched.size ? await ctx.db.query("automationRules").withIndex("by_orgId_and_status", (q) => q.eq("orgId", user.orgId)).take(200) : [];
+    const view = (f: Doc<"researchAgents">) => {
+      const attribute = attributeFor(f.slug);
+      const rule = rules.find((r) => r.trigger.kind === "updated" && r.trigger.field === attribute);
+      return { slug: f.slug, attribute, refresh: f.refreshCadence ?? null, scope: f.watchFilter ?? null, ruleId: rule?._id ?? null };
+    };
+    const suggested = suggestedSignals((await ctx.db.get(user.orgId))?.startingPlan?.archetypes ?? []);
     return {
       templates: SIGNAL_TEMPLATES.map((t) => {
         const field = watched.get(signalFieldLabel(t.label));
-        return { ...t, watching: field ? { slug: field.slug, attribute: attributeFor(field.slug), refresh: field.refreshCadence ?? null } : null };
+        return { ...t, suggested: suggested.includes(t.key), watching: field ? view(field) : null };
       }),
       custom: [...watched.values()].filter((f) => !SIGNAL_TEMPLATES.some((t) => signalFieldLabel(t.label) === f.label))
-        .map((f) => ({ label: f.label.slice(SIGNAL_PREFIX.length), question: f.question, slug: f.slug, attribute: attributeFor(f.slug), refresh: f.refreshCadence ?? null })),
+        .map((f) => ({ label: f.label.slice(SIGNAL_PREFIX.length), question: f.question, ...view(f) })),
       canInstall: can(user, "strategy.edit") && can(user, "automations.manage"),
     };
   },
@@ -67,11 +76,16 @@ export const watch = mutation({
     const taken = await ctx.db.query("researchAgents").withIndex("by_orgId_and_slug", (q) => q.eq("orgId", user.orgId)).take(200);
     if (taken.some((f) => f.label === fieldLabel)) throw new ConvexError(`The workspace already watches "${label}".`);
 
+    const fromJobs = template?.source === "job_boards";
     const field = await insertField(ctx, user, {
-      label: fieldLabel, kind: "qa", answerType: "boolean", judgment: true, entityType: "account", refresh: "weekly",
+      label: fieldLabel, kind: "qa", answerType: "boolean", judgment: !fromJobs, entityType: "account", refresh: "weekly",
       ...(args.filter ? { watchFilter: args.filter } : {}),
       question: `${question} Answer yes only with a dated source from the period asked about.`,
     });
+    if (fromJobs) {
+      await ctx.db.patch(field._id, { answerSource: "job_boards" });
+      await ensureJobCheck(ctx, user.orgId);
+    }
     const attribute = attributeFor(field.slug);
     const task = (args.task ?? template?.task ?? `Signal: ${label}`).trim().slice(0, 200);
     const ruleId = await insertRule(ctx, user, {
@@ -79,6 +93,7 @@ export const watch = mutation({
       trigger: { kind: "updated", field: attribute, to: [true] }, conditions: [],
       actions: [{ kind: "create_task", subject: task, dueInDays: 2, owner: { kind: "record_owner" } }],
     }, { paused: "A new signal waits until you resume it" });
+    await markOnboardingStep(ctx, user.orgId, "watch_signals");
     return {
       slug: field.slug, attribute, ruleId,
       next: args.filter
@@ -87,6 +102,13 @@ export const watch = mutation({
     };
   },
 });
+
+/** Turn on the daily job-board check (convex/signals.ts) a job-board watch answers from; the next cron tick starts it. */
+async function ensureJobCheck(ctx: MutationCtx, orgId: Id<"organizations">) {
+  const check = await ctx.db.query("signalWatch").withIndex("by_orgId", (q) => q.eq("orgId", orgId)).first();
+  if (!check) await ctx.db.insert("signalWatch", { orgId, nextRunAt: Date.now() });
+  else if (check.nextRunAt === undefined) await ctx.db.patch(check._id, { nextRunAt: Date.now() });
+}
 
 /** Give a watch (or any account AI field) a lasting scope, or clear it with null. A new scope is asked from the next due check. */
 export const setScope = mutation({

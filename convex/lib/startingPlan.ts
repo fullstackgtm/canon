@@ -203,6 +203,11 @@ export function buildStartingPlan(args: {
       label: "Research the accounts you chose",
       href: landing,
     },
+    {
+      id: "watch_signals",
+      label: "Watch your accounts for signals",
+      href: "/dashboard/automations#signals",
+    },
   ];
   if (archetypes.includes("S2"))
     tasks.splice(0, 1, {

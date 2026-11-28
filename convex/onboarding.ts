@@ -47,7 +47,8 @@ export const getSteps = query({
   },
 });
 
-async function mark(ctx: MutationCtx, orgId: Id<"organizations">, stepId: string) {
+/** Mark a setup step done (idempotent). Also called where the step's work happens, e.g. a first signal watch. */
+export async function markOnboardingStep(ctx: MutationCtx, orgId: Id<"organizations">, stepId: string) {
   const existing = await ctx.db
     .query("orgOnboardingSteps")
     .withIndex("by_orgId_stepId", (q) => q.eq("orgId", orgId).eq("stepId", stepId))
@@ -61,7 +62,7 @@ export const markStep = internalMutation({
   handler: async (ctx, args) => {
     const orgId: Id<"organizations"> | null = ctx.db.normalizeId("organizations", args.orgId);
     if (!orgId) return;
-    await mark(ctx, orgId, args.stepId);
+    await markOnboardingStep(ctx, orgId, args.stepId);
   },
 });
 
@@ -72,7 +73,7 @@ export const skipStep = mutation({
     const user = await getCurrentUser(ctx);
     if (!user) throw new ConvexError("Not signed in");
     if (!SKIPPABLE_STEP_IDS.includes(args.stepId)) throw new ConvexError("This step can't be skipped");
-    await mark(ctx, user.orgId, args.stepId);
+    await markOnboardingStep(ctx, user.orgId, args.stepId);
   },
 });
 
@@ -91,6 +92,6 @@ export const completePlanTask = mutation({
     if (!user) throw new ConvexError("Not signed in");
     const org = await ctx.db.get(user.orgId);
     if (!org?.startingPlan?.tasks.some((task) => task.id === stepId)) throw new ConvexError("Unknown setup task");
-    await mark(ctx, user.orgId, stepId);
+    await markOnboardingStep(ctx, user.orgId, stepId);
   },
 });

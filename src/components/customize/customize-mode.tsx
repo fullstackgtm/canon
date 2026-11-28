@@ -2,6 +2,7 @@
 
 import type { WorkflowProposal } from "../../../convex/lib/workflowAgent";
 import { WorkflowTray } from "./workflow-tray";
+import { SuggestedPrompt, usePromptSuggestions, type SuggestionCache } from "./suggested-prompt";
 import { IntegrationGate } from "@/components/integration-gate";
 
 /**
@@ -13,16 +14,19 @@ import { IntegrationGate } from "@/components/integration-gate";
  * A page that knows how to change itself registers an adapter (the deal page does, from its recipe). On any other page
  * a comment is kept as a request.
  */
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Check, CornerDownLeft, Loader2, Pencil, RotateCcw, Save, Undo2, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { trayLauncherClassName } from "@/components/floating-tray-dock";
 import { cn } from "@/lib/utils";
 
-export type CustomizeTarget = { title: string; purpose?: string; when?: string; reads: string[]; does: string[]; writes: string[] };
+export type CustomizeTarget = { sectionId: string; title: string; purpose?: string; when?: string; reads: string[]; does: string[]; writes: string[] };
 export type CustomizeJob = { id: string; request: string; where: string; status: "queued" | "working" | "done" | "failed"; summary?: string; by?: string; ms?: number; route?: string; diff?: string; kind?: "layout" | "behavior" };
 export type CustomizeAdapter = {
+  object: string;
   scope?: { value: "personal" | "workspace"; set: (v: "personal" | "workspace") => void };
   conflict?: boolean;
   useWorkspace?: () => void;
@@ -45,7 +49,7 @@ export type CustomizeAdapter = {
   stages?: { options: { value: string | null; label: string }[]; value: string | null; set: (v: string | null) => void };
 };
 
-type Ctx = { workflow: (WorkflowProposal & { model: string; ms: number }) | null; setWorkflow: (value: (WorkflowProposal & { model: string; ms: number }) | null) => void; customizing: boolean; setCustomizing: (on: boolean) => void; adapter: CustomizeAdapter | null; setAdapter: (a: CustomizeAdapter | null) => void };
+type Ctx = { suggestionCache: SuggestionCache | null; workflow: (WorkflowProposal & { model: string; ms: number }) | null; setWorkflow: (value: (WorkflowProposal & { model: string; ms: number }) | null) => void; customizing: boolean; setCustomizing: (on: boolean) => void; adapter: CustomizeAdapter | null; setAdapter: (a: CustomizeAdapter | null) => void };
 const CustomizeContext = createContext<Ctx | null>(null);
 export const useCustomizeMode = () => useContext(CustomizeContext);
 
@@ -62,6 +66,10 @@ export function useCustomizeAdapter(adapter: CustomizeAdapter | null, deps: read
 }
 
 export function CustomizeProvider({ children }: { children: ReactNode }) {
+  const me = useQuery(api.users.me);
+  const userId = me?._id;
+  const orgId = me?.orgId;
+  const suggestionCache = useMemo<SuggestionCache | null>(() => userId && orgId ? new Map() : null, [userId, orgId]);
   const [customizing, setCustomizing] = useState(false);
   const [workflow, setWorkflow] = useState<(WorkflowProposal & { model: string; ms: number }) | null>(null);
   const [adapter, setAdapter] = useState<CustomizeAdapter | null>(null);
@@ -78,7 +86,7 @@ export function CustomizeProvider({ children }: { children: ReactNode }) {
     return () => cancelAnimationFrame(frame);
   }, [pathname, searchParams]);
   return (
-    <CustomizeContext.Provider value={{ workflow, setWorkflow, customizing, setCustomizing, adapter, setAdapter }}>
+    <CustomizeContext.Provider value={{ suggestionCache, workflow, setWorkflow, customizing, setCustomizing, adapter, setAdapter }}>
       {children}
       {customizing && <CustomizeOverlay />}
     </CustomizeContext.Provider>
@@ -213,7 +221,11 @@ function CustomizeOverlay() {
   const [pointed, setPointed] = useState("");
   const [text, setText] = useState("");
   const [rect, setRect] = useState<DOMRect | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const focusComment = useCallback((input: HTMLTextAreaElement | null) => {
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }, []);
   const target = pinned ?? hover;
   const selecting = adapter !== null;
 
@@ -243,7 +255,6 @@ function CustomizeOverlay() {
         setPinned(hover);
         setPointed(pointedAt(leaf.current, hover));
         setText(e.key);
-        requestAnimationFrame(() => { const i = inputRef.current; if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -258,6 +269,7 @@ function CustomizeOverlay() {
   }
 
   const info = pinned ? adapter?.describe(pinned) ?? null : null;
+  const suggestions = usePromptSuggestions(ctx.suggestionCache, adapter && info ? { target: adapter.object, sectionId: info.sectionId } : null);
   const hoverInfo = !pinned && hover ? adapter?.describe(hover) ?? null : null;
   const bubbleTop = rect ? (rect.bottom + 260 < window.innerHeight ? rect.bottom + 10 : Math.max(12, rect.top - 270)) : 0;
   const bubbleLeft = rect ? Math.min(Math.max(12, rect.left), window.innerWidth - 432) : 0;
@@ -268,7 +280,7 @@ function CustomizeOverlay() {
         // The page under the selector: dimmed, inert, and the pointed-at area cut out bright.
         <div data-customize-chrome className="fixed inset-0 z-[45]" style={{ cursor: pinned ? "default" : hover ? CURSOR : "not-allowed" }}
           onMouseMove={(e) => { if (!pinned) { setHover(areaAt(e.clientX, e.clientY)); leaf.current = leafAt(e.clientX, e.clientY); } }}
-          onMouseDown={(e) => { e.preventDefault(); if (pinned) { if (!text.trim()) close(); return; } const a = areaAt(e.clientX, e.clientY); if (a) { setPinned(a); setPointed(pointedAt(leafAt(e.clientX, e.clientY), a)); requestAnimationFrame(() => inputRef.current?.focus()); } }}
+          onMouseDown={(e) => { e.preventDefault(); if (pinned) { if (!text.trim()) close(); return; } const a = areaAt(e.clientX, e.clientY); if (a) { setPinned(a); setPointed(pointedAt(leafAt(e.clientX, e.clientY), a)); } }}
           onWheel={(e) => { window.scrollBy(0, e.deltaY); document.querySelector("main")?.scrollBy(0, e.deltaY); }}>
           {rect ? (
             <div className="pointer-events-none fixed rounded-md outline outline-2 outline-violet-500 transition-all duration-100"
@@ -298,10 +310,8 @@ function CustomizeOverlay() {
               {info.writes.length > 0 && <Row label="Writes" items={info.writes} tone="text-emerald-300 border-emerald-400/30" />}
             </div>
           )}
-          <textarea ref={inputRef} rows={2} value={text} onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
-            placeholder={adapter ? "What should this do instead? e.g. only show it in Close, fold it, add a button to…" : "What should this do?"}
-            className="w-full resize-none rounded-lg bg-white/5 px-2 py-1.5 text-sm text-white outline-none ring-1 ring-white/10 placeholder:text-stone-500 focus:ring-violet-500" />
+          <SuggestedPrompt ref={focusComment} rows={2} value={text} onValueChange={setText} onSubmit={submit}
+            suggestions={suggestions} aria-label="What should this section do?" placeholder="What should this section do?" />
           <div className="mt-1.5 flex items-center justify-between text-[11px] text-stone-500">
             <span><CornerDownLeft className="inline size-3" /> to do it · keep pointing and typing to queue more</span>
             <button type="button" onClick={submit} disabled={!text.trim()} className="rounded-md bg-violet-600 px-2.5 py-1 font-medium text-white disabled:opacity-40">Do it</button>
