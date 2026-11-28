@@ -3,7 +3,7 @@
 // the projector's write-back, and nothing else writes those fields.
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { all } from "../src/db.ts";
+import { all, REAPPLY_ASSOCIATIONS } from "../src/db.ts";
 import { contactIdFor } from "../src/upsert.ts";
 import { shardOf, FakeLedger } from "./ledgerFake.ts";
 import { startApp } from "./helpers.ts";
@@ -466,6 +466,21 @@ describe("one register of accounts and contacts", () => {
       assert.equal((await nudge(w)).status, 200);
       assert.deepEqual((await sql(w, `SELECT accountId, accountLedger FROM contacts WHERE id = '${contactId}'`)).map((r) => [r.accountId, r.accountLedger]), [[company, true]], mode);
     }
+  });
+
+  it("restores a company link an earlier service dropped, once the association build is marked stale", async () => {
+    const w = "edge-heal";
+    const [company] = (await upsert(w, [{ domain: "chosen.example", name: "Chosen" }, { domain: "guess.example", name: "Guess" }], "companies")).json.ids;
+    const contactId = contactIdFor("", { fullName: "Ann", email: "ann@guess.example" });
+    ledger.set(w, "contact", "person-heal", { fullName: "Ann", email: "ann@guess.example" }, 1000);
+    ledger.set(w, "association", "edge-heal", { association: "contact_account", fromId: contactId, toId: company, primary: true }, 1000);
+    assert.equal((await nudge(w)).status, 200);
+    // What a service before #1414 left behind when the edge was projected first: no ledger link on the contact.
+    const run = (q: string) => ctx.app.registry.with(w, (db) => db.write((c) => c.run(q), "exclusive"));
+    await run(`UPDATE contacts SET accountId = '', accountLedger = NULL WHERE id = '${contactId}'`);
+    await run(REAPPLY_ASSOCIATIONS);
+    assert.equal((await nudge(w)).status, 200);
+    assert.deepEqual((await sql(w, `SELECT accountId, accountLedger FROM contacts WHERE id = '${contactId}'`)).map((r) => [r.accountId, r.accountLedger]), [[company, true]]);
   });
 
   it("keeps the new primary when a contact edit projects between promotion and demotion", async () => {

@@ -42,6 +42,9 @@ export function compact<T extends Row>(r: T): T {
 // inside one transaction when a workspace is opened.
 
 /** A step is SQL, or a function returning SQL when SQL from a module that imports this one is needed (evaluated as it runs). */
+/** Marks the association build stale: the projector's next pass rebuilds it and writes every edge back. */
+export const REAPPLY_ASSOCIATIONS = `UPDATE projection_builds SET signature = 'reapply-associations' WHERE object = 'association' AND status = 'done'`;
+
 export const MIGRATIONS: Array<Array<string | (() => string)>> = [
   // 1: initial schema
   [
@@ -212,6 +215,10 @@ export const MIGRATIONS: Array<Array<string | (() => string)>> = [
     `CREATE TABLE module_doc_receipts (module VARCHAR NOT NULL, collection VARCHAR NOT NULL, key VARCHAR NOT NULL, seq BIGINT NOT NULL, job VARCHAR NOT NULL, seen VARCHAR, PRIMARY KEY(module, collection, key))`,
     `CREATE TABLE module_collection_receipts (module VARCHAR NOT NULL, collection VARCHAR NOT NULL, seq BIGINT NOT NULL, job VARCHAR NOT NULL, complete BOOLEAN NOT NULL, PRIMARY KEY(module, collection))`,
   ],
+  // 18: before #1414 a `contact_account` edge projected ahead of its contact was dropped, leaving the contact with
+  // no company or one guessed from its email domain. Marking the association build stale makes the projector rebuild
+  // it once, which writes every edge back now that the contacts exist.
+  [REAPPLY_ASSOCIATIONS],
 ];
 
 /**
