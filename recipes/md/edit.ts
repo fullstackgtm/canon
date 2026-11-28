@@ -1,6 +1,6 @@
 import { validPageSlug, PAGE_ICONS } from "../pages.ts";
 import { isDataComponent, validateDataQuery, type DataQuery } from "../data.ts";
-import { CONTAINERS, completeTree, pageKeys, printLayout, sectionKey, validateTree, type LayoutNode, type LayoutTree, type ContainerKind, type ContainerProps } from "../layout.ts";
+import { CONTAINERS, CONTAINER_PATCHES, PAGE_STYLE, completeTree, pageKeys, printLayout, sectionKey, validateTree, type LayoutNode, type LayoutTree, type ContainerKind, type ContainerProps, type ContainerPropsPatch, type PageStyle } from "../layout.ts";
 /**
  * Layout edits to a recipe.md, made in its text (docs/recipes.md, "Writing a recipe"). A visual layout editor and an
  * agent editing the file write the same recipe.md, so it stays the one source of truth: each operation rewrites only
@@ -26,10 +26,11 @@ export type When = { stage: readonly DealStage[] } | { notStage: readonly DealSt
 
 /** One layout edit. An action is known by its id, which is unique on its page; `before: null` puts a thing last. */
 export type TreeOp =
+  | { op: "setPageStyle"; object: string; style: PageStyle }
   | { op: "wrapSections"; object: string; sections: SectionRef[]; kind: ContainerKind; id: string; props?: ContainerProps }
   | { op: "unwrap"; object: string; container: string }
   | { op: "moveIntoContainer"; object: string; section: SectionRef; container: string; before: SectionRef | null }
-  | { op: "setContainerProps"; object: string; container: string; props: ContainerProps };
+  | { op: "setContainerProps"; object: string; container: string; props: ContainerPropsPatch };
 export type PageOp = { op: "addPage"; slug: string; title: string; icon?: string; record?: boolean } | { op: "removePage"; slug: string };
 export type LayoutOp = PageOp | TreeOp
   | { op: "setProps"; object: string; section: SectionRef; props: RecordProps }
@@ -64,7 +65,7 @@ export type LayoutSection = {
   actions: Array<Pick<PageAction, "id" | "runs" | "label" | "labelAfter" | "panel" | "shows" | "enabled">>;
   addable: Array<{ runs: ActionId; panel?: Panel }>;
 };
-export type Layout = { tree: LayoutTree; object: string; sections: LayoutSection[]; addable: PageComponent[] };
+export type Layout = { tree: LayoutTree; style?: PageStyle; object: string; sections: LayoutSection[]; addable: PageComponent[] };
 
 // ───────────────────────────── Reading the text's structure ─────────────────────────────
 //
@@ -305,13 +306,13 @@ export function apply(markdown: string, op: LayoutOp): EditResult {
   const page = pageOf(recipe, op.object);
   const at = locate(doc, page, op.object);
   if (!at) return { error: `can't find the ${op.object} page's sections in the text` };
-  if (["wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"].includes(op.op)) return applyTree(markdown, recipe, doc, op as TreeOp);
-  if (recipe.layouts?.[op.object] && op.op === "moveSection") return moveInTree(markdown, recipe, doc, op);
+  if (["setPageStyle", "wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"].includes(op.op)) return applyTree(markdown, recipe, doc, op as TreeOp);
+  if (recipe.layouts?.[op.object]?.children.length && op.op === "moveSection") return moveInTree(markdown, recipe, doc, op);
   const plan = planOf(doc, page, at, op as Exclude<LayoutOp, TreeOp | PageOp>);
   if ("error" in plan) return plan;
   let next = plan.lines.join(doc.eol);
   let layouts = recipe.layouts;
-  if (layouts?.[op.object] && (op.op === "removeSection" || op.op === "addSection")) {
+  if (layouts?.[op.object]?.children.length && (op.op === "removeSection" || op.op === "addSection")) {
     const oldKeys = pageKeys(page), newKeys = pageKeys(plan.page);
     const remap = (n: LayoutNode): LayoutNode[] => {
       if ("section" in n) { const section = page[oldKeys.indexOf(n.section)]; const i = plan.page.indexOf(section); return i < 0 ? [] : [{ section: newKeys[i] }]; }
@@ -321,7 +322,7 @@ export function apply(markdown: string, op: LayoutOp): EditResult {
       return [{ ...n, children, ...(n.kind === "tabs" ? { labels: n.children.flatMap((c, i) => remap(c).length ? [n.labels![i]] : []) } : {}), ...(n.kind === "columns" && n.widths ? { widths: n.children.flatMap((c, i) => remap(c).length ? [n.widths![i]] : []) } : {}) }];
     };
     const tree = remap(layouts[op.object]!)[0] as LayoutTree | undefined;
-    const root: LayoutTree = tree ?? { kind: "stack", id: "root", children: newKeys.map((section) => ({ section })) };
+    const root: LayoutTree = tree ?? { ...layouts[op.object]!, children: newKeys.map((section) => ({ section })) };
     if (op.op === "addSection") {
       const addedIndex = plan.page.findIndex((s) => !page.includes(s));
       const key = newKeys[addedIndex];
@@ -570,9 +571,11 @@ export function describeLayout(markdown: string, object: string): Layout | { err
   if (!Object.hasOwn(PAGE_KEYS, object) && !recipe.workspacePages?.some((p) => p.slug === object)) return { error: "page does not exist" };
   const page = pageOf(recipe, object);
   const present = new Set(page.map((s) => s.component));
+  const tree = completeTree(recipe.layouts?.[object], pageKeys(page));
   return {
     object,
-    tree: completeTree(recipe.layouts?.[object], pageKeys(page)),
+    tree,
+    ...(tree.style ? { style: tree.style } : {}),
     sections: page.map((s, i): LayoutSection => {
       const actions = s.actions ?? [];
       const asQuery = BLOCKS[s.component].asQuery?.[pageKind(object)];
@@ -592,24 +595,32 @@ export function describeLayout(markdown: string, object: string): Layout | { err
   };
 }
 
-function writeTree(markdown: string, doc: Doc, object: string, tree: LayoutTree): string {
+function writeTree(markdown: string, doc: Doc, object: string, tree: LayoutTree, rootOnly = false): string {
   const fence = doc.fences.find((f) => f.lang === "layout" && (f.head ? objectOf(f.head) : "deal") === object);
   const lines = [...doc.lines];
   const block = ["```layout", ...printLayout(tree).split("\n"), "```"];
-  if (fence) lines.splice(fence.at, fence.close - fence.at + 1, ...block);
+  if (fence && rootOnly) {
+    const root = lines.findIndex((line, i) => i > fence.at && i < fence.close && line.trim());
+    lines[root] = block[1];
+  } else if (fence) lines.splice(fence.at, fence.close - fence.at + 1, ...block);
   else {
     const first = doc.heads.find((h) => h.attrs.section && objectOf(h) === object);
-    if (!first) throw new Error("page has no sections");
-    put(lines, first.at, block);
+    const heading = doc.heads.find((h) => h.attrs.page === object);
+    if (!first && !(rootOnly && heading)) throw new Error("page has no sections");
+    put(lines, first?.at ?? heading!.at + 1, block);
   }
   return lines.join(doc.eol);
 }
-function treeEdit(markdown: string, recipe: CompiledRecipe, doc: Doc, object: string, change: (tree: LayoutTree) => void): EditResult {
+function treeEdit(markdown: string, recipe: CompiledRecipe, doc: Doc, object: string, change: (tree: LayoutTree) => void, rootOnly = false): EditResult {
   try {
-    const tree = structuredClone(completeTree(recipe.layouts?.[object], pageKeys(pageOf(recipe, object))));
+    const existing = recipe.layouts?.[object];
+    const keys = pageKeys(pageOf(recipe, object));
+    const source: LayoutTree = rootOnly ? existing ?? { kind: "stack", id: "root", children: [] } : completeTree(existing, keys);
+    const tree = structuredClone(source);
     change(tree);
-    validateTree(tree, pageKeys(pageOf(recipe, object)));
-    const next = writeTree(markdown, doc, object, tree);
+    if (rootOnly && same(existing?.style ?? {}, tree.style)) return { markdown };
+    validateTree(tree, keys);
+    const next = writeTree(markdown, doc, object, tree, rootOnly);
     const after = parse(next);
     const want = { ...recipe, layouts: { ...recipe.layouts, [object]: tree } };
     if (hasErrors(after.problems) || !same(after.recipe, want)) return { error: "the edit would change more than its tree" };
@@ -620,6 +631,9 @@ function containers(tree: LayoutTree): LayoutTree[] {
   return [tree, ...tree.children.flatMap((n) => "section" in n ? [] : containers(n))];
 }
 function applyTree(markdown: string, recipe: CompiledRecipe, doc: Doc, op: TreeOp): EditResult {
+  if (op.op === "setPageStyle") return treeEdit(markdown, recipe, doc, op.object, (tree) => {
+    tree.style = PAGE_STYLE.parse(op.style);
+  }, true);
   return treeEdit(markdown, recipe, doc, op.object, (tree) => {
     const all = containers(tree);
     const owner = (key: string) => all.find((c) => c.children.some((n) => "section" in n && n.section === key));
@@ -636,8 +650,13 @@ function applyTree(markdown: string, recipe: CompiledRecipe, doc: Doc, op: TreeO
     } else {
       const node = all.find((c) => c.id === op.container);
       if (!node) throw new Error("container does not exist");
-      if (op.op === "setContainerProps") Object.assign(node, CONTAINERS[node.kind].partial().strict().parse(op.props));
-      else if (op.op === "unwrap") {
+      if (op.op === "setContainerProps") {
+        const props = CONTAINER_PATCHES[node.kind].parse(op.props) as ContainerPropsPatch;
+        for (const key of Object.keys(props) as (keyof ContainerPropsPatch)[]) {
+          if (props[key] === null) delete node[key];
+          else Object.assign(node, { [key]: props[key] });
+        }
+      } else if (op.op === "unwrap") {
         const parent = all.find((c) => c.children.includes(node));
         if (!parent) throw new Error("cannot unwrap root");
         parent.children.splice(parent.children.indexOf(node), 1, ...node.children);

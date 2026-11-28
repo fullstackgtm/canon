@@ -76,7 +76,7 @@ function Highlights({ data, section, actions }: { data: RecordBlockData; section
     const field = available.find((f) => f.apiName === name || f.fieldId === name);
     return field ? [field] : [];
   }).slice(0, 7);
-  return <section aria-label={section.title} className={card}>
+  return <section data-record-highlights aria-label={section.title} className={card}>
     <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
         <span className="grid size-9 shrink-0 place-items-center bg-primary/10 text-primary">{icon}</span>
@@ -259,7 +259,16 @@ export function useRecordBlockRenderers({ data, page, context, save, actions }: 
     const root = event.currentTarget.closest("[data-record-sections]");
     if (!root) return;
     const sections = page.filter((s): s is SectionOf<"relatedList"> => s.component === "relatedList" && s.props.relationship === relation);
-    const findCard = () => sections.map((section) => document.getElementById(idOf(section))).find((el) => el && root.contains(el) && el.getClientRects().length > 0);
+    const openContainers = (el: Element) => {
+      for (let ancestor = el.parentElement; ancestor && ancestor !== root; ancestor = ancestor.parentElement) {
+        if (ancestor instanceof HTMLDetailsElement && ancestor.dataset.layout === "card") ancestor.open = true;
+      }
+    };
+    const findCard = () => sections.map((section) => document.getElementById(idOf(section))).find((el) => {
+      if (!el || !root.contains(el)) return false;
+      openContainers(el);
+      return el.getClientRects().length > 0;
+    });
     const inactiveTab = () => root.querySelector<HTMLButtonElement>(`[data-related-tab~="${CSS.escape(relation)}"][aria-selected="false"]`);
     if (!findCard() && !inactiveTab()) return;
     event.preventDefault();
@@ -276,6 +285,7 @@ export function useRecordBlockRenderers({ data, page, context, save, actions }: 
       const tab = inactiveTab();
       if (tab && !visited.has(tab)) {
         visited.add(tab);
+        openContainers(tab);
         tab.click();
         requestAnimationFrame(reveal);
       }

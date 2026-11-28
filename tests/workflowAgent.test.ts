@@ -16,6 +16,15 @@ test("workflow adds a Stage rail below the deal header on Canon defaults without
   assert.deepEqual(recipe.dealPage.slice(0, 2).map((section) => section.component), ["header", "stageRail"]);
 });
 
+test("the Salesforce stand-in applies validated page style to the deal", () => {
+  const input = fixtureInput("Make this deal page look like Salesforce Lightning");
+  const proposal = checkWorkflow(input, standIn(input));
+  assert.deepEqual(proposal.dropped, []);
+  assert.deepEqual(proposal.targets.map(({ target }) => target), ["deal"]);
+  const { recipe } = parseRecipe(proposal.targets[0].markdown);
+  assert.deepEqual(recipe.layouts?.deal?.style, { density: "compact", surface: "bordered", headerBand: "tinted", accent: "#0176d3" });
+});
+
 test("workflow treats archived deals as record-only even with plays enabled", async () => {
   const request = "Add the Prep section";
   const input = fixtureInput(request);

@@ -25,6 +25,8 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { DEFAULT_MODELS, forcedToolCall, type LlmCallOptions } from "../engine/src/llm.ts";
 import { DEFAULT_IMAGE_REQUEST, IMAGE_REFERENCE_INSTRUCTIONS, referenceImageError } from "../recipes/imageReferences.ts";
+import { PAGE_STYLE, PAGE_STYLE_GUIDE } from "../recipes/layout.ts";
+import { z } from "zod";
 import { DEAL_STAGES, type DealStage } from "./lib/plays/model";
 import { KERNEL_ACTIONS, type ActionId } from "../recipes/actions.ts";
 import { pageKind, componentsOf } from "../recipes/blocks.ts";
@@ -211,7 +213,7 @@ const opsSchema = (object: string) => ({
       items: {
         type: "object",
         properties: {
-          op: { type: "string", enum: ["addPage", "removePage", "moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "setProps", "setQuery", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition", "wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"] },
+          op: { type: "string", enum: ["addPage", "removePage", "moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "setProps", "setQuery", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition", "wrapSections", "unwrap", "moveIntoContainer", "setContainerProps", "setPageStyle"] },
           slug: { type: "string" }, icon: { type: "string" }, object: { type: "string" },
           section: { type: "object", properties: { component: { type: "string" }, nth: { type: "number" } }, description: "The section the op is about, as its ref in the layout." },
           before: { description: "moveSection/addSection: the ref of the section it goes before, or null for the end. moveAction: the action id it goes before, or null." },
@@ -223,7 +225,8 @@ const opsSchema = (object: string) => ({
           ...(object === "deal" ? { when: { description: "setWhen: {stage:[...]} to show only in those stages, {notStage:[...]} to hide in them, or null for every stage. Stages: in, case, close." } } : {}),
           title: { type: "string", description: "renameSection/addSection: the section's title." },
           component: { type: "string", description: "addSection: one of the layout's addable components." },
-          props: { type: "object", description: "addSection/setProps for highlights, path, quickLinks and relatedList. Use the settings schema and available fields and relationships." },
+          style: z.toJSONSchema(PAGE_STYLE),
+          props: { type: "object", description: "Container props for wrapSections/setContainerProps, or record block settings for addSection/setProps. Use the schema and available fields and relationships." },
           query: { type: "object", description: "addSection/setQuery: declarative data query; object, filter (ListFilter[]), sort {field,dir}, columns for table/list, limit 1–200; aggregate {fn:count} or {fn:sum|avg,field} for metric/chart; chart groupBy {field,bucket?:day|week|month|quarter|year}. Filter values may be {record:id} or {record:fieldId}." },
           action: { type: "string", description: "The action's id, for action ops." },
           label: { type: "string", description: "setActionLabel/addAction: the button's label." },
@@ -257,6 +260,7 @@ function lunaPrompt(layout: Layout, target: SectionRef | null, request: string, 
     "Standalone pages use addPage {slug,title,icon?}, then addSection with object:slug. removePage {slug} removes one. Slugs must be lowercase kebab, distinct from dashboard routes. Only table/list/metric/chart/form/board are allowed; never use record references. Declare workspace.pages. On standalone pages add a metric with object: the current slug.",
     'Built-in sections with asQuery can become table, list, metric or chart data sections. Use their asQuery, retaining from, filters and record references. from:"companyDeals" is a read-only relation allowed only on the account page with object:"deal"; it reads the same deals as the built-in Deals section, including CRM mirrors. Filters, sorting, columns, limits and aggregates then apply to those rows. Table/list keep columns; metric/chart replace columns with aggregate:{fn:"count"}; chart also needs groupBy:{field:"stage"} for deals or a suitable picklist. "Make this into X" replaces the section using removeSection and addSection at the same position (before the next section); "add/also show X" adds beside it. This is supported even though Canon draws the original component. If replacing a section with actions, explain in the summary which buttons go away, that a form block can bring record creation back, and that Undo restores the original. Without asQuery, do not invent a query or promise to change a built-in display.',
     "Tree ops: wrapSections {sections:[refs], kind:columns|tabs|card, id:uniqueName, props:{widths?:[2,1], labels?:[one label per tab], title?:card title}} groups siblings; unwrap {container:id} removes a container; moveIntoContainer {section,container,before:ref|null} moves a leaf; setContainerProps {container,props} changes props. Columns need 2–3 children. Tabs need labels. Cards need a title. Existing moveSection moves within its container.",
+    PAGE_STYLE_GUIDE,
     "Return the fewest changes that do what the person asked. Never invent settings, components, actions or data the customization doesn't have. If the request can't be done in this customization, return nothing and say why in the summary.",
     "For record-page references prefer highlights, path, quickLinks and relatedList for the matching regions. Configure them with props in addSection or setProps.",
     layout.object === "deal" ? FIXED : "The layout lists the sections and actions this page can customize. Controls drawn inside a component are not recipe actions.",
