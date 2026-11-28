@@ -17,3 +17,19 @@ test("block heading schemas and the parser accept the same folding, stages and p
     }
   }
 });
+
+test("built-in data equivalents validate on each supported page against the object registry", async () => {
+  const { validateDataQuery } = await import("../recipes/data.ts");
+  const { STANDARD_OBJECTS, resolveObjectDef } = await import("../convex/lib/objects/registry.ts");
+  const { listColumns } = await import("../convex/lib/objects/listSpec.ts");
+  const equivalents: string[] = [];
+  for (const block of Object.values(BLOCKS)) for (const [page, query] of Object.entries(block.asQuery ?? {})) {
+    assert.ok(page in block.objects);
+    const checked = validateDataQuery("table", query, page);
+    const def = resolveObjectDef(STANDARD_OBJECTS[checked.object as keyof typeof STANDARD_OBJECTS]);
+    const columns = listColumns(def);
+    for (const name of [...checked.filter.map((f) => f.field), ...("columns" in checked ? checked.columns : [])]) assert.ok(columns.has(name), name);
+    equivalents.push(`${page}.${block.id}`);
+  }
+  assert.deepEqual(equivalents, ["account.companyDeals"]);
+});

@@ -34,6 +34,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireCap, requireUser } from "./lib";
 import { filterValidator, type ContactScope, type RunScope } from "./lib/scopeValidators";
 import { proposedFactValidator, scheduleReapply, submitProposalBatch } from "./canonGate";
+import { registerCustomField } from "./canon";
 import { listedDef } from "./savedViews";
 import { ID } from "./lib/canon/identity";
 import { dayColumnsOf, expandDayFilters } from "./lib/objects/views";
@@ -388,26 +389,41 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireCap(ctx, "strategy.edit");
-    const entityType = args.entityType ?? "account";
-    let spec: AgentSpec;
-    try { spec = checkSpec(args); } catch (e) { throw new ConvexError(e instanceof Error ? e.message : String(e)); }
-    const existing = await ctx.db.query("researchAgents").withIndex("by_orgId_and_slug", (q) => q.eq("orgId", user.orgId)).take(MAX_AGENTS + 1);
-    if (existing.length >= MAX_AGENTS) throw new ConvexError(`A workspace can have up to ${MAX_AGENTS} AI fields.`);
-    const slug = await freeSlug(ctx, user.orgId, entityType, spec.label, existing);
-    // Only an admin may change the write gate, so only an admin's field starts with auto-accept on.
-    const autoAccept = can(user, "writeGate.edit") ? DEFAULT_AUTO_ACCEPT : undefined;
-    const now = Date.now();
-    const fieldId = await ctx.db.insert("researchAgents", {
-      orgId: user.orgId, slug, label: spec.label, entityType, kind: spec.kind, question: spec.question,
-      ...(spec.options ? { options: spec.options } : {}), ...(spec.answerType ? { answerType: spec.answerType } : {}),
-      ...(autoAccept !== undefined ? { autoAcceptMinConfidence: autoAccept } : {}),
-      createdBy: user._id, createdAt: now, updatedAt: now,
-    });
-    await ensureFieldAgent(ctx, (await ctx.db.get(fieldId))!);
-    if (autoAccept !== undefined) await setRule(ctx, user, attributeFor(slug), autoAccept, entityType);
-    return { slug, attribute: attributeFor(slug) };
+    const field = await insertField(ctx, user, { ...args, entityType: args.entityType ?? "account" });
+    return { slug: field.slug, attribute: attributeFor(field.slug) };
   },
 });
+
+/**
+ * Make an AI field for `user` (who must hold strategy.edit): checked, under a free slug, with auto-accept on when they
+ * may change the write gate, and its `custom.<slug>` field registered at once so a rule can name it before any answer.
+ */
+export async function insertField(
+  ctx: MutationCtx, user: Doc<"users">,
+  args: AgentSpec & { entityType: "account" | "contact"; judgment?: boolean; refresh?: RefreshCadence },
+): Promise<Doc<"researchAgents">> {
+  let spec: AgentSpec;
+  try { spec = checkSpec(args); } catch (e) { throw new ConvexError(e instanceof Error ? e.message : String(e)); }
+  const existing = await ctx.db.query("researchAgents").withIndex("by_orgId_and_slug", (q) => q.eq("orgId", user.orgId)).take(MAX_AGENTS + 1);
+  if (existing.length >= MAX_AGENTS) throw new ConvexError(`A workspace can have up to ${MAX_AGENTS} AI fields.`);
+  const slug = await freeSlug(ctx, user.orgId, args.entityType, spec.label, existing);
+  // Only an admin may change the write gate, so only an admin's field starts with auto-accept on.
+  const autoAccept = can(user, "writeGate.edit") ? DEFAULT_AUTO_ACCEPT : undefined;
+  const now = Date.now();
+  const fieldId = await ctx.db.insert("researchAgents", {
+    orgId: user.orgId, slug, label: spec.label, entityType: args.entityType, kind: spec.kind, question: spec.question,
+    ...(spec.options ? { options: spec.options } : {}), ...(spec.answerType ? { answerType: spec.answerType } : {}),
+    ...(args.judgment ? { judgment: true } : {}),
+    ...(autoAccept !== undefined ? { autoAcceptMinConfidence: autoAccept } : {}),
+    ...(args.refresh ? { refreshCadence: args.refresh, refreshNextAt: now + cadenceMs(args.refresh) } : {}),
+    createdBy: user._id, createdAt: now, updatedAt: now,
+  });
+  const field = (await ctx.db.get(fieldId))!;
+  await ensureFieldAgent(ctx, field);
+  if (autoAccept !== undefined) await setRule(ctx, user, attributeFor(slug), autoAccept, args.entityType);
+  await registerCustomField(ctx, user.orgId, args.entityType, attributeFor(slug));
+  return field;
+}
 
 /**
  * Edit a field's name, question and option wording. Its slug (the ledger attribute), what it applies to, its type and
@@ -678,6 +694,7 @@ export async function ensureField(ctx: MutationCtx, user: Doc<"users">, recipe: 
   });
   if (autoAccept !== undefined) await setRule(ctx, user, attributeFor(spec.slug), autoAccept, spec.object);
   await ensureFieldAgent(ctx, (await ctx.db.get(fieldId))!);
+  await registerCustomField(ctx, user.orgId, spec.object, attributeFor(spec.slug));
   return { ok: true, field: (await ctx.db.get(fieldId))! };
 }
 export type FieldMade = { ok: true; field: Doc<"researchAgents"> } | { ok: false; why: "deleted" | "full" | "off"; message: string };

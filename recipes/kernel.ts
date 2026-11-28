@@ -34,7 +34,7 @@ export const RECIPE_FORMAT = "4";
  * grammar fails tests/recipeFormat.test.ts until this is updated, and a change that refuses a recipe the old grammar
  * read also bumps RECIPE_FORMAT and adds a changelog entry, so a published recipe fails with one clear line.
  */
-export const RECIPE_GRAMMAR_SHA256 = "f7feb3e8dcce5eb18eef8746539da6de117236346c70c9922b22694dc152f01c";
+export const RECIPE_GRAMMAR_SHA256 = "9077014b672ef23d1d71f55961d4ed564e6ae3defafcaf330b254fb6b76febf7";
 
 export const RECIPE_IDS = ["canon-base", "fsgtm-enterprise-deal", "canon-ledger", "canon-plain-html"] as const;
 /** A first-party recipe, in this repo. An installed package's id is namespaced instead: `@fsgtm/velocity-deal`. */

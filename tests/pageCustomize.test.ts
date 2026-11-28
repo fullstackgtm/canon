@@ -58,3 +58,36 @@ test("page edits refuse non-deciders before any model call", async () => {
     runMutation: async () => null,
   }, { recipeId: "canon-base", object: "account", markdown: BASE, request: "fold this section" }));
 });
+
+test("pencil replaces Deals with a stage count chart at the same position and reports its removed action", async () => {
+  const { describeLayout } = await import("../recipes/md/edit.ts");
+  const { builtInDataView } = await import("../recipes/md/dataView.ts");
+  const layout = describeLayout(BASE, "account");
+  assert.ok(!("error" in layout));
+  const index = layout.sections.findIndex((s) => s.component === "companyDeals");
+  assert.deepEqual(layout.sections[index].asQuery, {
+    object: "deal", from: "companyDeals", filter: [],
+    columns: ["name", "amount", "stage", "closeDate"], limit: 200,
+  });
+  const ctx = { runMutation: async () => null, runQuery: async (ref: unknown) => String(ref) === "internal.records.callerContext" ? { orgId: "org", userId: "user" } : { canEdit: true } };
+  const out = await actions.edit.handler(ctx, { recipeId: "canon-base", object: "account", markdown: BASE, target: { component: "companyDeals" }, request: "make this into a graph" });
+  const parsed = parseRecipe(out.markdown);
+  assert.deepEqual(parsed.problems, []);
+  const chart = parsed.recipe.accountPage[index];
+  assert.equal(chart.component, "chart");
+  assert.deepEqual(chart.query, {
+    object: "deal", from: "companyDeals", filter: [], limit: 200,
+    aggregate: { fn: "count" }, groupBy: { field: "stage" },
+  });
+  assert.ok(!parsed.recipe.accountPage.some((s) => s.component === "companyDeals"));
+  assert.equal(parsed.recipe.accountPage[index + 1].component, layout.sections[index + 1].component);
+  assert.match(out.summary, /New deal/);
+  assert.match(out.summary, /form block/);
+  assert.match(out.summary, /Undo/);
+  for (const view of ["table", "list", "metric", "chart"]) {
+    assert.equal(builtInDataView(layout, { component: "companyDeals" }, `make this a ${view}`)?.ops.length, 2);
+    assert.equal(builtInDataView(layout, { component: "companyDeals" }, `also show a ${view}`)?.ops.length, 1);
+  }
+  assert.equal(builtInDataView(layout, { component: "related" }, "make this into a graph"), null);
+  assert.equal(builtInDataView(layout, { component: "companyDeals" }, "make this a chart of open deals"), null);
+});

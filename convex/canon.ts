@@ -606,6 +606,11 @@ async function partyDef(ctx: MutationCtx, orgId: Id<"organizations">, object: Pa
   return resolveObjectDef(STANDARD_OBJECTS[object], next);
 }
 
+/** Register one `custom.<slug>` field on the org's account or contact definition now, typed by its AI field. */
+export async function registerCustomField(ctx: MutationCtx, orgId: Id<"organizations">, object: PartyObject, attribute: string): Promise<void> {
+  await partyDef(ctx, orgId, object, { [attribute]: null });
+}
+
 /** Register enrichment's `custom.<slug>` columns on the org's account or contact definition, typed by their values. */
 export const ensureCustomFields = internalMutation({
   args: { orgId: v.id("organizations"), object: v.union(v.literal("account"), v.literal("contact")), fields: v.array(v.object({ attribute: v.string(), value: v.union(v.string(), v.number(), v.boolean()) })) },
