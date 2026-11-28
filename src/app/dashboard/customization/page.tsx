@@ -9,26 +9,29 @@ import { ChevronRight, Copy, FilePenLine, Github, MoreHorizontal, RefreshCw, Sli
 import { api } from "../../../../convex/_generated/api";
 import { LoadingRows, ViewFrame } from "@/components/dashboard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
-import { pageRows, type PageRow } from "./page-map";
+import { pageRows, personalPageRows, standaloneHref, type PageRow } from "./page-map";
 import { PointRow, type Offered } from "./point-row";
 import { GithubConnections } from "./recipe-github";
 import { CanonModules, InstallModuleSheet, InstalledModules } from "./recipe-modules";
 import { InstallSheet, UpgradeSheet, permissionLines } from "./recipe-packages";
-import { PersonalVersions } from "./personal-versions";
+import { VersionPromotion } from "./personal-versions";
 import { RecipeSettingsSheet } from "./recipe-settings";
 
 type View = NonNullable<FunctionReturnType<typeof api.recipes.forOrg>>;
 type Recipe = View["available"][number];
 type PointView = View["points"][number];
+type Version = FunctionReturnType<typeof api.workspaceRecipes.personalVersions>[number];
 type Tab = "applied" | "browse";
 
 const btn = "inline-flex items-center gap-1 border border-border px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50";
 const primary = cn(btn, "border-primary bg-primary text-primary-foreground hover:bg-primary/90");
 const tag = "inline-flex items-center border border-border px-1.5 py-0.5 text-xs font-medium text-muted-foreground";
 const list = "divide-y divide-border border border-border bg-card";
+const catalogLine = "grid gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[11rem_minmax(0,1fr)_minmax(0,auto)] sm:items-center";
 
 /** The editor's route. Every workspace recipe is @workspace/<name>, so the route carries only the name. */
 const editHref = (id: string) => `/dashboard/customization/${encodeURIComponent(id.split("/").pop()!)}/edit`;
@@ -55,9 +58,10 @@ function useTab(): [Tab, (t: Tab) => void] {
 export default function CustomizationPage() {
   const view = useQuery(api.recipes.forOrg);
   const modules = useQuery(api.modules.installed);
-  const personalVersions = useQuery(api.workspaceRecipes.personalVersions, view?.canEdit ? { all: true } : "skip");
+  const personalVersions = useQuery(api.workspaceRecipes.personalVersions, view ? { all: view.canEdit } : "skip");
   const enable = useMutation(api.recipes.enableContribution);
   const disable = useMutation(api.recipes.disableContribution);
+  const resetPersonal = useMutation(api.workspaceRecipes.resetPersonal);
   const uninstall = useMutation(api.recipes.uninstall);
   const customize = useAction(api.workspaceRecipes.customize);
   const router = useRouter();
@@ -69,6 +73,7 @@ export default function CustomizationPage() {
   const [developing, setDeveloping] = useState(false);
   const [updating, setUpdating] = useState<{ id: string; title: string } | null>(null);
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ title: string; description: string; label: string; done: string; change: () => Promise<unknown> } | null>(null);
 
   async function run(change: () => Promise<unknown>, done: string) {
     setBusy(true);
@@ -94,6 +99,11 @@ export default function CustomizationPage() {
   const unchanged = pages.filter((p) => !p.applied.length);
   const modulePages = (modules?.modules ?? []).flatMap((m) => (m.enabled && m.nav ? [{ ...m, nav: m.nav }] : []));
   const point = (id: string) => view.points.find((p) => p.id === id);
+  const personal = personalPageRows<Version>(personalVersions ?? []);
+  const workspacePages = point("workspace.pages")?.contributions.filter((c) => c.enabled) ?? [];
+  const customHrefs = [...personal.own.map((p) => p.href), ...workspacePages.map((p) => standaloneHref(p.key))];
+  const changedCount = new Set([...changed.map((p) => p.href), ...customHrefs]).size;
+  const pageCount = new Set([...pages.map((p) => p.href), ...customHrefs]).size;
   const inForce = (id: string) => point(id)?.contributions.find((c) => c.enabled)?.recipeTitle ?? "Canon's default";
   const usedAt = (r: Recipe) => view.points.flatMap((p) => (p.contributions.some((c) => c.recipeId === r.id && c.enabled) ? [p.title] : []));
   const offered = pages.filter((p) => p.offered > 0);
@@ -113,7 +123,7 @@ export default function CustomizationPage() {
         <>
           <dl className="mb-8 grid grid-cols-2 gap-px border border-border bg-border md:grid-cols-4">
             <Stat label="Modules on" value={modules ? `${modules.modules.filter((m) => m.enabled).length} of ${modules.modules.length}` : "…"} />
-            <Stat label="Pages changed" value={`${changed.length} of ${pages.length}`} />
+            <Stat label="Pages changed" value={`${changedCount} of ${pageCount}`} />
             <Stat label="Theme" value={inForce("workspace.theme")} />
             <Stat label="Customizations" value={String(view.available.length)} />
           </dl>
@@ -122,10 +132,7 @@ export default function CustomizationPage() {
             <InstalledModules onInstall={setInstallingModule} onBrowse={() => setTab("browse")} />
           </Section>
 
-          {view.canEdit && [...new Map((personalVersions ?? []).map((v) => [`${v.target.point}:${v.target.key}`, v.target])).values()].map((target) =>
-            <PersonalVersions key={`${target.point}:${target.key}`} target={target} />)}
-
-          <Section title="Pages" count={changed.length + modulePages.length} note={changed.length || modulePages.length ? undefined : "Every page runs as Canon ships it."}>
+          <Section title="Pages" count={changedCount + modulePages.length} note={changedCount || modulePages.length || personal.review.length ? undefined : "Every page runs as Canon ships it."}>
             {(changed.length > 0 || modulePages.length > 0) && (
               <ul className={list}>
                 {changed.map((p) => <PageLine key={p.id} page={p} onCustomize={() => setPage({ label: p.label, ids: p.points.map((x) => x.id) })} />)}
@@ -134,6 +141,70 @@ export default function CustomizationPage() {
                     <Link href={m.nav.href} className="text-sm font-medium hover:underline">{m.nav.label}</Link>
                     <span className="col-span-2 row-start-2 flex flex-wrap gap-1.5 sm:col-span-1 sm:row-start-auto"><span className={tag}>{m.title} module · {m.pages} {m.pages === 1 ? "page" : "pages"}</span></span>
                     <Link href={m.nav.href} className={btn}>Open</Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {personal.own.length > 0 && <>
+              <h3 className="mb-1.5 mt-3 text-xs font-medium text-muted-foreground">Your pages</h3>
+              <ul className={list}>
+                {personal.own.map((p) => {
+                  const label = p.standalone ? "Delete" : "Reset to workspace";
+                  const resetsLayer = !p.standalone || p.version.target.key === p.object;
+                  const otherPages = resetsLayer ? p.version.pages.filter((page) => page.slug !== p.object) : [];
+                  const description = p.standalone ? "This deletes your personal page." : "This discards your personal changes to this page.";
+                  const actions = <>
+                    <PageLinks href={p.href} />
+                    <button type="button" className={btn} onClick={() => setConfirm({
+                      title: p.standalone ? `Delete ${p.title}?` : `Reset your version of the ${p.title}?`,
+                      description: otherPages.length ? `${description} It also deletes ${otherPages.map((page) => page.title).join(", ")}.` : description,
+                      label, done: p.standalone ? "Personal page deleted" : "Personal page reset",
+                      change: () => resetPersonal({ object: p.object, layerId: p.version._id }),
+                    })}>{label}</button>
+                  </>;
+                  const canPromote = view.canEdit && resetsLayer;
+                  return (
+                    <li key={p.href} className={catalogLine}>
+                      <div>
+                        <Link href={p.href} className="break-words text-sm font-medium hover:underline">{p.standalone ? p.title : `Your version of the ${p.title}`}</Link>
+                        {p.standalone && <p className="break-all text-xs text-muted-foreground">{p.object}</p>}
+                      </div>
+                      <div><span className={tag}>Yours · only you see it</span></div>
+                      {canPromote
+                        ? <VersionPromotion id={p.version._id} diff={p.version.diff.text} buttonClass={btn} actions={actions} />
+                        : <div className="flex flex-wrap gap-1.5 sm:justify-end">{actions}</div>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>}
+            {workspacePages.length > 0 && <>
+              <h3 className="mb-1.5 mt-3 text-xs font-medium text-muted-foreground">Workspace pages</h3>
+              <ul className={list}>
+                {workspacePages.map((p) => (
+                  <li key={`${p.recipeId}:${p.key}`} className={catalogLine}>
+                    <Link href={standaloneHref(p.key)} className="break-words text-sm font-medium hover:underline">{p.title}</Link>
+                    <div><span className={tag}>Workspace · {p.recipeTitle}</span></div>
+                    <div className="flex flex-wrap gap-1.5 sm:justify-end">
+                      <PageLinks href={standaloneHref(p.key)} />
+                      {view.canEdit && <button type="button" className={btn} onClick={() => setConfirm({
+                        title: `Remove ${p.title} from the workspace?`,
+                        description: "You can turn it back on from Every page → Pages.",
+                        label: "Remove", done: "Workspace page turned off",
+                        change: () => disable({ point: "workspace.pages", recipeId: p.recipeId, key: p.key }),
+                      })}>Remove</button>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>}
+            {view.canEdit && personal.review.length > 0 && (
+              <ul className={cn(list, "mt-3")}>
+                {personal.review.map(({ version, title }) => (
+                  <li key={version._id} className={catalogLine}>
+                    <span className="break-words text-sm font-medium">{title}</span>
+                    <div><span className={tag}>{version.name}&apos;s version</span></div>
+                    <VersionPromotion id={version._id} diff={version.diff.text} buttonClass={btn} />
                   </li>
                 ))}
               </ul>
@@ -219,8 +290,17 @@ export default function CustomizationPage() {
       <UpgradeSheet recipe={updating} onOpenChange={(open) => { if (!open) setUpdating(null); }} canEdit={view.canEdit} />
       {installingModule !== null && <InstallModuleSheet initial={installingModule} onClose={() => setInstallingModule(null)} />}
       {developing && <InstallModuleSheet initial="" development onClose={() => setDeveloping(false)} />}
+      {confirm && <ConfirmDialog title={confirm.title} description={confirm.description} confirmLabel={confirm.label} destructive={confirm.label !== "Remove"}
+        onConfirm={async () => { await confirm.change(); toast.success(confirm.done); }} onClose={() => setConfirm(null)} />}
     </ViewFrame>
   );
+}
+
+function PageLinks({ href }: { href: string }) {
+  return <>
+    <Link href={href} className={btn}>Open</Link>
+    <Link href={`${href}?customize=1`} className={btn}>Edit</Link>
+  </>;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
