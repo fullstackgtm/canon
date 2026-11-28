@@ -69,12 +69,13 @@ test("company and person field saves refuse a stale starting version before writ
     const errors: string[] = [];
     const { RegisterRecordPage } = load("register-page", {
       react: { ...React, useCallback: (fn: unknown) => fn, useEffect: noop, useState: (initial: unknown) => [stateIndex++ === 0 ? row : initial, noop] },
-      "../../../convex/_generated/api": { api: { objects: { describe: "describe", list: "list" }, records: { edit: "edit" }, recipes: { recordPage: "page" }, users: { list: "team" }, permissions: { mine: "perms" }, fieldClaims: { forRecord: "claims" }, crmDisagreements: { follows: "follows" } } },
+      "../../../convex/_generated/api": { api: { objects: { describe: "describe", list: "list" }, records: { edit: "edit" }, recipes: { recordPage: "page" }, workspaceRecipes: { markdown: "markdown" }, users: { list: "team" }, permissions: { mine: "perms" }, fieldClaims: { forRecord: "claims" }, crmDisagreements: { follows: "follows" } } },
       "convex/react": {
         useQuery: (name: string) => ({ describe: { fields: [], writable: true }, page: { sections: [] }, team: [], perms: { objects: { [object]: { visibility: "all" } } } })[name],
         useAction: (name: string) => name === "list" ? async () => ({ rows: [{ ...row, version: freshVersion }] }) : async () => { writes++; },
       },
       "./record-parts": { Frame: "main" },
+      "./shape/shape-mode": { useShapeMode: ({ base }: { base: unknown }) => ({ page: base, provider: (children: React.ReactNode) => children }) },
       "./record-target": { recordHref, recordListOf },
       "./fields": { fieldPatch: (_: string, field: { apiName: string }, value: unknown) => ({ [field.apiName]: value }) },
       "@/lib/toast": { toast: { error: (message: string) => { errors.push(message); } } },

@@ -2,7 +2,7 @@
 
 /**
  * Customize mode's instruction step (prototype; src/components/customize/customize-mode.tsx). One instruction about one part of the
- * deal page becomes layout edits (`LayoutOp`, recipes/md/edit.ts), which the browser applies to its draft recipe.md
+ * record page becomes layout edits (`LayoutOp`, recipes/md/edit.ts), which the browser applies to its draft recipe.md
  * with the same pure `apply` the recipe editor uses. Nothing is stored.
  *
  * Two models, fastest first:
@@ -20,7 +20,7 @@ import type { Id } from "./_generated/dataModel";
 import { DEFAULT_MODELS, forcedToolCall } from "../engine/src/llm.ts";
 import { DEAL_STAGES, type DealStage } from "./lib/plays/model";
 import { KERNEL_ACTIONS, type ActionId } from "../recipes/actions.ts";
-import { COMPONENTS, PARTS, type PageComponent } from "../recipes/kernel.ts";
+import { COMPONENTS, PAGE_KEYS, PARTS, type PageObject, type PageComponent } from "../recipes/kernel.ts";
 import { RECIPE_BUNDLES } from "../recipes/_bundles.generated.ts";
 import { apply, describeLayout, type Layout, type LayoutOp, type SectionRef } from "../recipes/md/edit.ts";
 import { parseRecipe } from "../recipes/md/parse.ts";
@@ -28,10 +28,12 @@ import { DRAWN, drawnText, refuseSectionRename } from "../recipes/md/pointed.ts"
 import { isWorkspaceId, lineDiff } from "../recipes/workspace.ts";
 import { jevSystemOne, type SystemOneQuestion } from "./lib/segments/jev";
 import { resolveLlm } from "./lib/llmResolver";
+import { recipeAgentStandIn, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
 import type { ActionCaller } from "./records";
 
 const STAGE_NAMES: Record<DealStage, string> = { in: "Get in (first stage, finding the way in)", case: "Build the case (middle stage)", close: "Close (final stage)" };
 const JEV_CONFIDENCE = 0.7;
+const pageObject = v.optional(v.union(v.literal("deal"), v.literal("account"), v.literal("contact")));
 
 type Result = { markdown: string; summary: string; by: string; ms: number; route: string; diff: string; kind: "layout" | "behavior"; refusedBy?: string };
 
@@ -98,23 +100,25 @@ async function jevRoute(key: string, layout: Layout, target: SectionRef, request
   const questions: Record<string, SystemOneQuestion> = {
     kind: {
       type: "choice",
-      instructions: `A person customizing a CRM deal page pointed at the "${section.title}" section and wrote an instruction about it. Which single edit does the instruction ask for?`,
+      instructions: `A person customizing a CRM ${layout.object} page pointed at the "${section.title}" section and wrote an instruction about it. Which single edit does the instruction ask for?`,
       criteria: {
         move: "Move this section above or below another section.",
         fold: "Make this section start folded (collapsed).",
         unfold: "Make this section start open (expanded).",
-        only_stages: "Show this section only in some deal stages.",
-        hide_stages: "Hide this section in some deal stages.",
-        every_stage: "Show this section in every stage.",
+        ...(layout.object === "deal" ? {
+          only_stages: "Show this section only in some deal stages.",
+          hide_stages: "Hide this section in some deal stages.",
+          every_stage: "Show this section in every stage.",
+        } : {}),
         remove_section: "Remove this whole section from the page.",
         remove_button: "Remove one button or action from this section.",
         add_button: "Add a button or action to this section.",
         drawn: "Rename, restyle, hide or remove the very thing pointed at, when pointedAt calls it a control or text the section's component draws (a search box, filter, count, label): not a button, the section's title or a part.",
-        behavior: "Change how something works rather than where it sits: a number, a limit, a rule, a check, a prompt, a question, a stage's exit, when something runs.",
+        behavior: `Change how something works rather than where it sits: a number, a limit, a rule, a check, a prompt, a question, ${layout.object === "deal" ? "a stage's exit, " : ""}when something runs.`,
         other: "Anything else: renaming the section or a button, more than one change, or unclear.",
       },
     },
-    ...Object.fromEntries(DEAL_STAGES.map((s) => [`stage_${s}`, { type: "noul", instructions: `Does the instruction name the stage ${STAGE_NAMES[s]}?` } as SystemOneQuestion])),
+    ...Object.fromEntries((layout.object === "deal" ? DEAL_STAGES : []).map((s) => [`stage_${s}`, { type: "noul", instructions: `Does the instruction name the stage ${STAGE_NAMES[s]}?` } as SystemOneQuestion])),
   };
   if (others.length) {
     // The pointed-at section is the one that moves unless the instruction names another.
@@ -140,37 +144,39 @@ async function jevRoute(key: string, layout: Layout, target: SectionRef, request
   const name = section.title;
   switch (kind.choice) {
     case "fold": case "unfold":
-      return { ops: [{ op: "setCollapsed", object: "deal", section: target, collapsed: kind.choice === "fold" }], summary: `${name} starts ${kind.choice === "fold" ? "folded" : "open"}.` };
+      return { ops: [{ op: "setCollapsed", object: layout.object, section: target, collapsed: kind.choice === "fold" }], summary: `${name} starts ${kind.choice === "fold" ? "folded" : "open"}.` };
     case "every_stage":
-      return { ops: [{ op: "setWhen", object: "deal", section: target, when: null }], summary: `${name} shows in every stage.` };
+      if (layout.object !== "deal") return null;
+      return { ops: [{ op: "setWhen", object: layout.object, section: target, when: null }], summary: `${name} shows in every stage.` };
     case "only_stages": case "hide_stages":
+      if (layout.object !== "deal") return null;
       if (!stages.length) return null;
-      return { ops: [{ op: "setWhen", object: "deal", section: target, when: kind.choice === "only_stages" ? { stage: stages } : { notStage: stages } }], summary: `${name} ${kind.choice === "only_stages" ? "shows only" : "is hidden"} in ${stages.join(", ")}.` };
+      return { ops: [{ op: "setWhen", object: layout.object, section: target, when: kind.choice === "only_stages" ? { stage: stages } : { notStage: stages } }], summary: `${name} ${kind.choice === "only_stages" ? "shows only" : "is hidden"} in ${stages.join(", ")}.` };
     case "remove_section":
-      return { ops: [{ op: "removeSection", object: "deal", section: target }], summary: `Removed ${name}.` };
+      return { ops: [{ op: "removeSection", object: layout.object, section: target }], summary: `Removed ${name}.` };
     case "move": {
       const anchor = choice("anchor"), side = choice("side"), mover = choice("mover");
       const moving = layout.sections.find((s) => refKey(s.ref) === mover) ?? section;
       const to = anchor && anchor !== "none" ? layout.sections.findIndex((s) => refKey(s.ref) === anchor) : -1;
       if (to < 0 || !side || sameRef(layout.sections[to].ref, moving.ref)) return null;
       const before = side === "above" ? layout.sections[to].ref : layout.sections[to + 1]?.ref ?? null;
-      return { ops: [{ op: "moveSection", object: "deal", section: moving.ref, before: before && sameRef(before, moving.ref) ? layout.sections[to + 2]?.ref ?? null : before }], summary: `Moved ${moving.title} ${side} ${layout.sections[to].title}.` };
+      return { ops: [{ op: "moveSection", object: layout.object, section: moving.ref, before: before && sameRef(before, moving.ref) ? layout.sections[to + 2]?.ref ?? null : before }], summary: `Moved ${moving.title} ${side} ${layout.sections[to].title}.` };
     }
     case "remove_button": {
       const id = choice("button");
-      return id ? { ops: [{ op: "removeAction", object: "deal", section: target, action: id }], summary: `${name} no longer offers ${section.actions.find((a) => a.id === id)?.label}.` } : null;
+      return id ? { ops: [{ op: "removeAction", object: layout.object, section: target, action: id }], summary: `${name} no longer offers ${section.actions.find((a) => a.id === id)?.label}.` } : null;
     }
     case "add_button": {
       const runs = choice("addable");
       const panel = section.addable.find((a) => a.runs === runs)?.panel;
-      return runs ? { ops: [{ op: "addAction", object: "deal", section: target, runs: runs as ActionId, ...(panel ? { panel } : {}) }], summary: `${name} offers ${runs.split(".")[1]}.` } : null;
+      return runs ? { ops: [{ op: "addAction", object: layout.object, section: target, runs: runs as ActionId, ...(panel ? { panel } : {}) }], summary: `${name} offers ${runs.split(".")[1]}.` } : null;
     }
   }
   return null;
 }
 
 const OPS_TOOL = "page_edits";
-const OPS_SCHEMA = {
+const opsSchema = (object: PageObject) => ({
   type: "object",
   properties: {
     ops: {
@@ -179,11 +185,11 @@ const OPS_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          op: { type: "string", enum: ["moveSection", "setCollapsed", "setWhen", "renameSection", "removeSection", "addSection", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition"] },
+          op: { type: "string", enum: ["moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition"] },
           section: { type: "object", properties: { component: { type: "string" }, nth: { type: "number" } }, description: "The section the op is about, as its ref in the layout." },
           before: { description: "moveSection/addSection: the ref of the section it goes before, or null for the end. moveAction: the action id it goes before, or null." },
           collapsed: { type: "boolean" },
-          when: { description: "setWhen: {stage:[...]} to show only in those stages, {notStage:[...]} to hide in them, or null for every stage. Stages: in, case, close." },
+          ...(object === "deal" ? { when: { description: "setWhen: {stage:[...]} to show only in those stages, {notStage:[...]} to hide in them, or null for every stage. Stages: in, case, close." } } : {}),
           title: { type: "string", description: "renameSection/addSection: the section's title." },
           component: { type: "string", description: "addSection: one of the layout's addable components." },
           action: { type: "string", description: "The action's id, for action ops." },
@@ -197,43 +203,44 @@ const OPS_SCHEMA = {
     },
     edits: {
       type: "array",
-      description: "Text edits to customization.md for what layout ops can't do: a setting's Default in the Settings table, a table row, a stage's exit, a check's rule, a prompt's wording. `find` is exact text from the customization that occurs once (include enough of the line to be unique); `replace` is what it becomes.",
+      description: "Text edits to customization.md for what layout ops can't do: a setting's Default in the Settings table, a table row, a check's rule, a prompt's wording. `find` is exact text from the customization that occurs once (include enough of the line to be unique); `replace` is what it becomes.",
       items: { type: "object", properties: { find: { type: "string" }, replace: { type: "string" } }, required: ["find", "replace"] },
     },
     summary: { type: "string", description: "One short sentence for the person: what changed (name settings and their new values), or why nothing could." },
   },
   required: ["ops", "edits", "summary"],
-};
+});
 
 /** What Canon draws itself on a deal page, whatever the recipe says. */
 const FIXED = "Every section of the deal page is the customization's, the header (section=header: the deal's name, Archive and Restore), Products, Credit splits and the apps panel included. Some components draw parts a section's heading picks with show=\"…\": the layout lists them as a section's `parts`, and `show` is what it draws now (absent means all). To hide or bring back a part, edit that heading's show= to list the parts to keep (add show= if the heading has none); never remove a part by removing the section. Inside a section, the controls a component draws itself (search boxes, filters, select/clear buttons, counts) aren't in the customization; only its actions and parts are.";
 
 function lunaPrompt(layout: Layout, target: SectionRef | null, request: string, markdown: string, kept: boolean, pointed: string | null) {
-  const page = parseRecipe(markdown).recipe.dealPage;
+  const page = parseRecipe(markdown).recipe[PAGE_KEYS[layout.object]];
   return [
-    "You change a CRM deal page by editing its customization.md, the file that defines what the page shows and how it works. Two kinds of change:",
-    "1. Layout `ops`, for where things sit: sections (by ref {component, nth}), their titles, the stages they show in (`when`), whether they start folded, their buttons (by action id).",
-    "2. Text `edits`, for what a section draws and how things work: a section heading's show= parts; else prefer changing a setting's Default in the `## Settings` table (respect its Limits); else a table row, a stage's exit in ```stages, a check's rule, or a button's `shows:`/`enabled:` condition." + (kept ? " This customization's prompts and ```logic lines run from its own TypeScript bundle, so never edit prompt prose or logic lines: express the change through settings and tables." : " You may also edit a prompt's prose."),
+    `You change a CRM ${layout.object} page by editing its customization.md, the file that defines what the page shows and how it works. Two kinds of change:`,
+    `1. Layout \`ops\`, for where things sit: sections (by ref {component, nth}), their titles,${layout.object === "deal" ? " the stages they show in (`when`)," : ""} whether they start folded, their buttons (by action id).`,
+    "2. Text `edits`, for what a section draws and how things work: a section heading's show= parts; else prefer changing a setting's Default in the `## Settings` table (respect its Limits); else a table row, a check's rule, or a button's `shows:`/`enabled:` condition." + (kept ? " This customization's prompts and ```logic lines run from its own TypeScript bundle, so never edit prompt prose or logic lines: express the change through settings and tables." : " You may also edit a prompt's prose."),
     "Return the fewest changes that do what the person asked. Never invent settings, components, actions or data the customization doesn't have. If the request can't be done in this customization, return nothing and say why in the summary.",
-    FIXED,
+    layout.object === "deal" ? FIXED : "The layout lists the sections and actions this page can customize. Controls drawn inside a component are not recipe actions.",
     pointed ? `The person pointed at ${pointed}.` : "",
     target ? `That is inside the section with ref ${JSON.stringify(target)}. "this", "it" or an unnamed subject means what they pointed at: a button is that action; the section's title means the section, so a request that only gives new words ("change to X", "call it X") renames it; "title", "heading" or "section" in the request always means the section's title, even when they pointed at a field or control inside it, so "change title to X" renames the section; a part is that part of the section's show=. Pointing is only a hint at where: judge by what the request asks for. A request about how the section works (how many, how long, which, when) is a customization change wherever they pointed. Only when the request changes the wording, look or presence of "a control or text the section's component draws" itself, return nothing and say plainly that Canon draws it and it can't change here yet; never rename or change the section in its place.` : "What they pointed at is outside every customization section, so it's one of the parts the customization doesn't control unless the request names a section. Never apply the request to some other section as a guess: if it is about what they pointed at, return nothing and say plainly that Canon draws that part and it can't change here yet.",
-    `Stages: in = Get in, case = Build the case, close = Close.`,
+    ...(layout.object === "deal" ? ["Stages: in = Get in, case = Build the case, close = Close."] : []),
     `Instruction: ${request}`,
     `Layout: ${JSON.stringify({ sections: layout.sections.map((s, i) => ({ ref: s.ref, title: s.title, when: s.when, collapsed: s.collapsed, ...(PARTS[s.component] ? { parts: PARTS[s.component], show: page[i]?.show ?? PARTS[s.component] } : {}), actions: s.actions.map((a) => ({ id: a.id, label: a.label, ...(a.panel ? { panel: a.panel } : {}) })), addableActions: s.addable })), addableComponents: layout.addable })}`,
     `customization.md:\n<<<\n${markdown}\n>>>`,
   ].join("\n\n");
 }
 
-function asOps(raw: unknown): LayoutOp[] {
+function asOps(raw: unknown, object: PageObject): LayoutOp[] {
   const items = (raw as { ops?: unknown })?.ops;
   if (!Array.isArray(items)) return [];
-  return items.flatMap((o) => (o && typeof o === "object" && typeof (o as { op?: unknown }).op === "string" ? [{ object: "deal", ...(o as object) } as LayoutOp] : []))
-    .map((o) => ("component" in o && o.op === "addSection" && !(COMPONENTS.deal as readonly string[]).includes(o.component) ? { ...o, component: "fields" as PageComponent } : o));
+  return items.flatMap((o) => (o && typeof o === "object" && typeof (o as { op?: unknown }).op === "string" ? [{ ...(o as object), object } as LayoutOp] : []))
+    .map((o) => ("component" in o && o.op === "addSection" && !(COMPONENTS[object] as readonly string[]).includes(o.component) ? { ...o, component: "fields" as PageComponent } : o));
 }
 
 export const edit = action({
   args: {
+    object: pageObject,
     recipeId: v.string(),
     markdown: v.string(),
     request: v.string(),
@@ -268,14 +275,28 @@ export const edit = action({
 
 async function runEdit(
   ctx: ActionCtx, caller: ActionCaller,
-  args: { recipeId: string; markdown: string; target?: { component: string; nth?: number }; pointed?: string },
+  args: { object?: PageObject; recipeId: string; markdown: string; target?: { component: string; nth?: number }; pointed?: string },
   request: string, started: number, trace: { route: string; by: string },
 ): Promise<Result> {
-  const layout = describeLayout(args.markdown, "deal");
+  const object = args.object ?? "deal";
+  const permission = await ctx.runQuery(api.recipes.contributions, {});
+  if (!permission?.canEdit) throw new ConvexError("Only an admin or manager can customize a page.");
+  const layout = describeLayout(args.markdown, object);
   if ("error" in layout) throw new ConvexError(layout.error);
   const target = args.target as SectionRef | undefined;
   const done = (text: string, summary: string, by: string, kind: Result["kind"]): Result => { trace.by = by; return { markdown: text, summary, by, ms: Date.now() - started, route: trace.route, diff: short(lineDiff(args.markdown, text).text), kind }; };
   const refuse = (summary: string, by: string, refusedBy: string): Result => ({ ...done(args.markdown, `Couldn't make that change: ${summary}`, by, "layout"), refusedBy });
+
+  if (recipeAgentStandIn()) {
+    const section = target && layout.sections.find((s) => sameRef(s.ref, target));
+    let ops: LayoutOp[] = [];
+    if (section && /^(?:fold|collapse)\b/i.test(request)) ops = [{ op: "setCollapsed", object, section: section.ref, collapsed: true }];
+    else if (section && /^move (?:this|it) to the top[.!]?$/i.test(request)) ops = [{ op: "moveSection", object, section: section.ref, before: layout.sections[0]?.ref ?? null }];
+    const checked = check(args.markdown, ops);
+    trace.route = "local stand-in; ";
+    return done(checked.errors.length ? args.markdown : checked.text,
+      checked.errors.length ? checked.errors.join("; ") : ops.length ? "Updated the section. (Local stand-in model.)" : "Local stand-in supports folding a section or moving it to the top.", STAND_IN_MODEL, "layout");
+  }
 
   const key = integrationEnabled("jev") ? process.env.JEV_API_KEY : undefined;
   if (key && target) {
@@ -298,10 +319,10 @@ async function runEdit(
   let last = "";
   for (let attempt = 0; attempt < 2; attempt++) {
     const t = Date.now();
-    const raw = await forcedToolCall(prompt, OPS_TOOL, OPS_SCHEMA, model, llm);
+    const raw = await forcedToolCall(prompt, OPS_TOOL, opsSchema(object), model, llm);
     trace.route += `${model} ${Date.now() - t}ms; `;
     const summary = String((raw as { summary?: unknown })?.summary ?? "");
-    const laid = check(args.markdown, asOps(raw));
+    const laid = check(args.markdown, asOps(raw, object));
     const edits = Array.isArray((raw as { edits?: unknown })?.edits) ? ((raw as { edits: TextEdit[] }).edits).filter((e) => typeof e?.find === "string" && typeof e?.replace === "string") : [];
     const patched = patch(laid.text, edits, kept);
     const errors = [...laid.errors, ...patched.errors];
@@ -327,19 +348,21 @@ async function runEdit(
 }
 
 /**
- * Save the draft as the workspace's deal page. A workspace recipe saves a new revision on the revision the draft was
+ * Save the draft as the workspace's record page. A workspace recipe saves a new revision on the revision the draft was
  * made from (`baseRevision`), so a teammate's save in between is refused, never overwritten. A first-party recipe
  * can't be edited in place: it is customized into a workspace copy (or the copy a blocked save already made, `into`),
- * the draft goes into the copy with the copy's id, title and author, and the copy is switched on for the deal page
+ * the draft goes into the copy with the copy's id, title and author, and the copy is switched on for the selected page
  * only once its save went through. Saving runs the recipe's evals.
  */
 export const save = action({
   args: {
+    object: pageObject,
     recipeId: v.string(), markdown: v.string(), baseRevision: v.optional(v.number()), into: v.optional(v.string()),
     note: v.optional(v.string()), acceptFailingEvals: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<{ recipeId: string; revision: number; copied: boolean; blocked: boolean; failing: string[]; evalsNotRun: string | null }> => {
-    const note = args.note ?? "Customized on the deal page";
+    const object = args.object ?? "deal";
+    const note = args.note ?? `Customized on the ${object} page`;
     if (isWorkspaceId(args.recipeId)) {
       if (args.baseRevision === undefined) throw new ConvexError("Saving a workspace customization needs the revision the draft was made from.");
       const out = await ctx.runAction(api.workspaceRecipes.save, { recipeId: args.recipeId, markdown: args.markdown, baseRevision: args.baseRevision, note, acceptFailingEvals: args.acceptFailingEvals });
@@ -350,12 +373,14 @@ export const save = action({
     const copy = await ctx.runQuery(api.workspaceRecipes.markdown, { recipeId });
     if (!copy) throw new ConvexError("Not authenticated");
     // The draft keeps everything but who it is: the copy's id, title and author.
-    const head = (t: string) => Object.fromEntries(t.split("\n").slice(0, 40).flatMap((l) => { const m = /^(id|title|author):/.exec(l); return m ? [[m[1], l]] : []; }));
+    const frontmatterEnd = (t: string) => t.split("\n").indexOf("---", 1);
+    const head = (t: string) => Object.fromEntries(t.split("\n").slice(1, frontmatterEnd(t)).flatMap((l) => { const m = /^(id|title|author):/.exec(l); return m ? [[m[1], l]] : []; }));
     const theirs = head(copy.markdown);
-    const markdown = args.markdown.split("\n").map((l, i) => { const m = i < 40 ? /^(id|title|author):/.exec(l) : null; return m && theirs[m[1]] ? theirs[m[1]] : l; }).join("\n");
+    const end = frontmatterEnd(args.markdown);
+    const markdown = args.markdown.split("\n").map((l, i) => { const m = i > 0 && i < end ? /^(id|title|author):/.exec(l) : null; return m && theirs[m[1]] ? theirs[m[1]] : l; }).join("\n");
     const base = await ctx.runQuery(internal.workspaceRecipes.editBase, { recipeId });
     const out = await ctx.runAction(api.workspaceRecipes.save, { recipeId, markdown, baseRevision: base.revision, note, acceptFailingEvals: args.acceptFailingEvals });
-    if (!out.blocked) await ctx.runMutation(api.recipes.enableContribution, { point: "deal.page", recipeId, key: "page" });
+    if (!out.blocked) await ctx.runMutation(api.recipes.enableContribution, { point: `${object}.page`, recipeId, key: "page" });
     return { recipeId, revision: out.revision, copied: true, blocked: out.blocked, failing: out.evals.filter((e) => !e.ok).map((e) => e.name), evalsNotRun: out.evalsNotRun };
   },
 });

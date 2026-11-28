@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The deal page's side of customize mode (prototype; the pencil and the overlay are components/customize/customize-mode.tsx).
+ * A record page's side of customize mode (prototype; the pencil and the overlay are components/customize/customize-mode.tsx).
  *
  * The page draws from a draft recipe.md held here, which starts as the recipe in force. Each comment is a job in a
  * queue: `pageCustomize.edit` turns it into layout ops (Jev when it's sure, Luna on the person's ChatGPT plan otherwise),
@@ -12,7 +12,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { DEAL_STAGES, type DealStage } from "../../../../convex/lib/plays/model";
-import type { PageSection, PageSpec } from "../../../../recipes";
+import type { PageObject, PageSection, PageSpec } from "../../../../recipes";
+import { PAGE_KEYS } from "../../../../recipes/kernel";
 import type { SectionRef } from "../../../../recipes/md/edit";
 import { parseRecipe } from "../../../../recipes/md/parse";
 import { useCustomizeAdapter, useCustomizeMode, type CustomizeAdapter, type CustomizeJob, type CustomizeTarget } from "@/components/customize/customize-mode";
@@ -42,8 +43,8 @@ function whenText(s: PageSection) {
 
 type Job = CustomizeJob & { target: { component: string; title: string; nth: number } | null; pointed: string };
 
-/** The page the deal draws, customize mode's adapter for it, and the provider its sections read. */
-export function useShapeMode({ base, markdown, recipeId, revision, recipeTitle }: { base: PageSpec; markdown: string | null; recipeId: string | null; revision: number | null; recipeTitle?: string }) {
+/** The page the record draws, customize mode's adapter for it, and the provider its sections read. */
+export function useShapeMode({ object = "deal", base, markdown, recipeId, revision, recipeTitle }: { object?: PageObject; base: PageSpec; markdown: string | null; recipeId: string | null; revision: number | null; recipeTitle?: string }) {
   const customize = useCustomizeMode();
   const [drafts, setDrafts] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -58,10 +59,10 @@ export function useShapeMode({ base, markdown, recipeId, revision, recipeTitle }
   const draft = drafts.at(-1) ?? markdown;
   const parsed = useMemo(() => {
     if (!draft || !drafts.length) return null;
-    const page = parseRecipe(draft).recipe.dealPage;
-    return { page, lens: lensFor(page, readLens(draft)) };
-  }, [draft, drafts.length]);
-  const baseLens = useMemo(() => lensFor(base, markdown ? readLens(markdown) : []), [base, markdown]);
+    const page = parseRecipe(draft).recipe[PAGE_KEYS[object]];
+    return { page, lens: lensFor(page, readLens(draft, object)) };
+  }, [draft, drafts.length, object]);
+  const baseLens = useMemo(() => lensFor(base, markdown ? readLens(markdown, object) : []), [base, markdown, object]);
   const page = parsed?.page ?? base;
   const lens = parsed?.lens ?? baseLens;
   const active = Boolean(markdown && recipeId);
@@ -71,7 +72,7 @@ export function useShapeMode({ base, markdown, recipeId, revision, recipeTitle }
     setSaved({ state: "saving" });
     try {
       const r = await saveDraft({
-        recipeId, markdown: draft, acceptFailingEvals, ...(draftBase.current !== null ? { baseRevision: draftBase.current } : {}), ...(into ? { into } : {}),
+        object, recipeId, markdown: draft, acceptFailingEvals, ...(draftBase.current !== null ? { baseRevision: draftBase.current } : {}), ...(into ? { into } : {}),
         note: jobs.filter((j) => j.status === "done").map((j) => `${j.where}: ${j.request}`).join("; ").slice(0, 400),
       });
       if (r.blocked) {
@@ -84,7 +85,7 @@ export function useShapeMode({ base, markdown, recipeId, revision, recipeTitle }
       setDrafts([]);
       setInto(null);
       draftBase.current = null;
-      setSaved({ state: "saved", message: `Saved as revision ${r.revision}${r.copied ? ` of a workspace copy (${r.recipeId}), now the deal page for everyone` : ""}${r.evalsNotRun ? `. Evals not run: ${r.evalsNotRun}` : ""}.` });
+      setSaved({ state: "saved", message: `Saved as revision ${r.revision}${r.copied ? ` of a workspace copy (${r.recipeId}), now the ${object} page for everyone` : ""}${r.evalsNotRun ? `. Evals not run: ${r.evalsNotRun}` : ""}.` });
     } catch (e) {
       setSaved({ state: "failed", message: getErrorMessage(e) });
     }
@@ -101,10 +102,10 @@ export function useShapeMode({ base, markdown, recipeId, revision, recipeTitle }
     // The section may have moved since the comment: find it again by its title.
     const i = next.target ? page.findIndex((s, k) => s.component === next.target!.component && (s.title ?? lens[k]?.title ?? s.component) === next.target!.title) : -1;
     const target = i >= 0 ? refOf(page, i) : next.target ? { component: next.target.component as SectionRef["component"], nth: next.target.nth } : undefined;
-    void run({ recipeId: recipeId!, markdown: draft, request: next.request, pointed: next.pointed, ...(target ? { target } : {}) }).then((r) => {
+    void run({ object, recipeId: recipeId!, markdown: draft, request: next.request, pointed: next.pointed, ...(target ? { target } : {}) }).then((r) => {
       if (r.markdown !== draft) {
-        const before = new Set(parseRecipe(draft).recipe.dealPage.map((s) => JSON.stringify(s)));
-        lastFresh.current = new Set(parseRecipe(r.markdown).recipe.dealPage.map((s) => JSON.stringify(s)).filter((k) => !before.has(k)));
+        const before = new Set(parseRecipe(draft).recipe[PAGE_KEYS[object]].map((s) => JSON.stringify(s)));
+        lastFresh.current = new Set(parseRecipe(r.markdown).recipe[PAGE_KEYS[object]].map((s) => JSON.stringify(s)).filter((k) => !before.has(k)));
         if (!drafts.length) draftBase.current = revision;
         setDrafts((d) => [...d, r.markdown]);
         setSaved(null);
@@ -121,14 +122,14 @@ export function useShapeMode({ base, markdown, recipeId, revision, recipeTitle }
     return Number.isNaN(i) ? null : i;
   };
   const adapter: CustomizeAdapter | null = active ? {
-    label: "Deal page",
+    label: `${object[0].toUpperCase()}${object.slice(1)} page`,
     detail: recipeTitle,
     describe: (el) => {
       const i = sectionOf(el);
       if (i === null || !page[i]) return null;
       const s = page[i], l = lens[i];
       const t: CustomizeTarget = {
-        title: s.title ?? l?.title ?? s.component, purpose: l?.purpose, when: `${whenText(s)}${s.collapsed ? ", starts folded" : ""}`,
+        title: s.title ?? l?.title ?? s.component, purpose: l?.purpose, when: `${object === "deal" ? whenText(s) : "shows on this page"}${s.collapsed ? ", starts folded" : ""}`,
         reads: [...new Set([...(l?.settings ?? []).filter((x) => !x.includes(".")), ...(l?.actions.flatMap((a) => a.prompts) ?? [])].map(human))].slice(0, 5),
         does: (s.actions ?? []).map((a) => cleanLabel(a.label)),
         writes: [...new Set(l?.actions.flatMap((a) => a.writes).map(human) ?? [])].slice(0, 6),
@@ -149,12 +150,12 @@ export function useShapeMode({ base, markdown, recipeId, revision, recipeTitle }
     pending: jobs.some((j) => j.status === "queued" || j.status === "working"),
     saved,
     save: (accept) => void save(accept),
-    stages: { options: [{ value: null, label: "this deal's stage" }, ...DEAL_STAGES.map((s) => ({ value: s, label: STAGE_NAMES[s] }))], value: stage, set: (v) => setStage(v as DealStage | null) },
+    stages: object === "deal" ? { options: [{ value: null, label: "this deal's stage" }, ...DEAL_STAGES.map((s) => ({ value: s, label: STAGE_NAMES[s] }))], value: stage, set: (v) => setStage(v as DealStage | null) } : undefined,
   } : null;
-  useCustomizeAdapter(adapter, [active, jobs, drafts, stage, markdown, base, recipeTitle, saved]);
+  useCustomizeAdapter(adapter, [active, jobs, drafts, stage, markdown, base, recipeTitle, saved, object]);
 
   // Compare like with like: the recipe in force as the browser parses it, not as the server sent it.
-  const baseKeys = useMemo(() => new Set((markdown ? parseRecipe(markdown).recipe.dealPage : base).map((s) => JSON.stringify(s))), [markdown, base]);
+  const baseKeys = useMemo(() => new Set((markdown ? parseRecipe(markdown).recipe[PAGE_KEYS[object]] : base).map((s) => JSON.stringify(s))), [markdown, base, object]);
   const shape: Shape | null = active && customize ? {
     indexOf: (s) => page.indexOf(s),
     changed: (s) => drafts.length > 0 && !baseKeys.has(JSON.stringify(s)),
@@ -165,7 +166,7 @@ export function useShapeMode({ base, markdown, recipeId, revision, recipeTitle }
   return { page: active ? page : base, provider };
 }
 
-/** A section of the deal page: findable by customize mode's selector, outlined once this session's edits changed it. */
+/** A section of the record page: findable by customize mode's selector, outlined once this session's edits changed it. */
 export function ShapeSection({ section, children }: { section: PageSection; children: ReactNode }) {
   const shape = useShape()!;
   // A section the page draws that its recipe doesn't list (an older recipe's header, products, splits and apps) can't change here.

@@ -219,7 +219,7 @@ export const recordPage = query({
     const caller = await callerOf(ctx);
     if (!caller) return null;
     const [{ recipe }] = await enabledFor(ctx, caller.user.orgId, `${args.object}.page`);
-    return { recipeId: recipe.id, sections: pageOf(recipe, args.object) };
+    return { recipeId: recipe.id, title: recipe.title, sections: pageOf(recipe, args.object), canEdit: mayDecide(caller) };
   },
 });
 

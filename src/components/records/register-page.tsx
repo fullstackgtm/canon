@@ -40,6 +40,7 @@ import { fieldPatch, hasOwnRow, InlineField, primaryListOf, type CellValue, type
 import { LookupField } from "./lookup-field";
 import { CRM_NAME, CrmFieldNote } from "./crm-note";
 import { MergeWith } from "./merge-dialog";
+import { useShapeMode } from "./shape/shape-mode";
 import { PageSections, type Renderers } from "./page-sections";
 import { CompanyRelations, ContactRelations } from "./related-lists";
 import { FieldGroups, Frame, History, btn, type InDialog } from "./record-parts";
@@ -81,6 +82,10 @@ export function RegisterRecordPage({ object, id, inDialog, layout: preview }: { 
   const desc = useQuery(api.objects.describe, { object });
   const inForce = useQuery(api.recipes.recordPage, preview ? "skip" : { object });
   const layout = preview ? { sections: preview } : inForce;
+  const shapeRecipeId = !preview && !inDialog && inForce?.canEdit ? inForce.recipeId : null;
+  const recipeMarkdown = useQuery(api.workspaceRecipes.markdown, shapeRecipeId ? { recipeId: shapeRecipeId } : "skip");
+  const shape = useShapeMode({ object, base: layout?.sections ?? [], markdown: shapeRecipeId ? recipeMarkdown?.markdown ?? null : null,
+    recipeId: shapeRecipeId, revision: recipeMarkdown?.revision ?? null, recipeTitle: inForce?.title });
   const team = useQuery(api.users.list) as TeamMember[] | undefined;
   // A role that sees only some of these records reads their history through the action that admits them (CP14).
   const perms = useQuery(api.permissions.mine);
@@ -173,9 +178,9 @@ export function RegisterRecordPage({ object, id, inDialog, layout: preview }: { 
     canEdit: desc.writable && !deleted, canDelete: desc.canDelete, deleted,
     "contact.email": Boolean(emailOf(fields, row.values)), "contact.phone": Boolean(phoneOf(fields, row.values)), "contact.company": Boolean(row.accountId),
   };
-  const page: Page = { object, id, desc, row, deleted, team, seesSome, ctx, page: layout.sections, refresh, inDialog, saveField, crm: { claims, follows } };
+  const page: Page = { object, id, desc, row, deleted, team, seesSome, ctx, page: shape.page, refresh, inDialog, saveField, crm: { claims, follows } };
   return (
-    <Frame object={object} id={id} plural={desc.pluralLabel} inDialog={inDialog}>
+    shape.provider(<Frame object={object} id={id} plural={desc.pluralLabel} inDialog={inDialog}>
       {readError && <ReadFailure message={readError} retry={() => { setReadError(""); setAttempt((n) => n + 1); }} retained />}
       <ModulePanels revision={`${generation}:${row.version}`} page={object === "account" ? "company" : "person"} record={id} enabled={!inDialog}
         fallback={(kind) => {
@@ -187,7 +192,7 @@ export function RegisterRecordPage({ object, id, inDialog, layout: preview }: { 
           return <div key={generation}>{object === "account" ? <AccountSections {...visible} /> : <ContactSections {...visible} />}</div>;
         }} />
       {object === "account" && !deleted && <CompanyWebFacts key={`${id}:${String(valueOf(fields, row.values, "domain") ?? "")}`} accountId={id} onPeopleAdded={refresh} />}
-    </Frame>
+    </Frame>)
   );
 }
 
