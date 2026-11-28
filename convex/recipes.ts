@@ -30,6 +30,8 @@ import { slowPattern } from "../recipes/regex.ts";
 import { declaredTheme, themeProblems } from "../recipes/theme.ts";
 import { bundleHash } from "../services/recipe-runtime/src/protocol.ts";
 
+import { ownLayers, personalPage } from "./lib/pageLayers";
+
 const REVISIONS_SHOWN = 20;
 const NOTE_MAX = 300;
 /** Open proposals per workspace and recipe: past this, someone has to decide some first. */
@@ -198,9 +200,10 @@ export const forOrg = query({
     if (!caller) return null;
     const orgId = caller.user.orgId;
     const found = await orgRecipe(ctx, orgId);
+    const personal = await personalPage(ctx, caller.user, { point: "deal.page", key: "page" }, found.recipe.id);
     const available = await availableRecipes(ctx, orgId);
     return {
-      dealPage: { ...card(found), sections: found.recipe.dealPage, layoutTree: found.recipe.layouts?.deal, oldFrame: oldFrame(found), ref: found.ref, coreRoles: found.plays?.coreRoles ?? [], settings: await settingsView(ctx, orgId, found) },
+      dealPage: { ...card(found), sections: personal?.recipe.dealPage ?? found.recipe.dealPage, layoutTree: personal?.recipe.layouts?.deal ?? found.recipe.layouts?.deal, oldFrame: oldFrame(found), ref: found.ref, coreRoles: found.plays?.coreRoles ?? [], settings: await settingsView(ctx, orgId, found) },
       available: await Promise.all(available.map(async (f) => ({
         ...card(f), hasSettings: f.recipe.settingsSchema.length > 0,
         revision: (await currentRevision(ctx, orgId, f.recipe.id))?.revision ?? null, proposals: (await openProposals(ctx, orgId, f.recipe.id)).length,
@@ -218,10 +221,18 @@ export const workspacePages = query({
     const caller = await callerOf(ctx);
     if (!caller) return [];
     const enabled = await enabledFor(ctx, caller.user.orgId, "workspace.pages");
-    return enabled.sort((a, b) => a.recipe.id.localeCompare(b.recipe.id) || (a.recipe.workspacePages ?? []).findIndex((p) => p.slug === a.contribution.key) - (b.recipe.workspacePages ?? []).findIndex((p) => p.slug === b.contribution.key)).flatMap(({ recipe, contribution }) => {
+    const pages = new Map(enabled.sort((a, b) => a.recipe.id.localeCompare(b.recipe.id) || (a.recipe.workspacePages ?? []).findIndex((p) => p.slug === a.contribution.key) - (b.recipe.workspacePages ?? []).findIndex((p) => p.slug === b.contribution.key)).flatMap(({ recipe, contribution }) => {
       const page = recipe.workspacePages?.find((p) => p.slug === contribution.key);
-      return page ? [{ slug: page.slug, title: page.title, icon: page.icon, nav: page.nav }] : [];
-    });
+      return page ? [[page.slug, { slug: page.slug, title: page.title, icon: page.icon, nav: page.nav }] as const] : [];
+    }));
+    for (const layer of await ownLayers(ctx, caller.user)) {
+      const personal = await personalPage(ctx, caller.user, layer.target, layer.recipeId);
+      for (const page of personal?.recipe.workspacePages ?? []) {
+        if (layer.target.point === "workspace.pages" && page.slug === layer.target.key || !personal!.basePages.includes(page.slug))
+          pages.set(page.slug, { slug: page.slug, title: page.title, icon: page.icon, nav: page.nav });
+      }
+    }
+    return [...pages.values()];
   },
 });
 export const workspacePage = query({
@@ -230,8 +241,18 @@ export const workspacePage = query({
     const caller = await callerOf(ctx);
     if (!caller) return null;
     const found = (await enabledFor(ctx, caller.user.orgId, "workspace.pages")).find((e) => e.contribution.key === slug);
-    const page = found?.recipe.workspacePages?.find((p) => p.slug === slug);
-    return found && page ? { ...page, recipeId: found.recipe.id, recipeTitle: found.recipe.title, layoutTree: found.recipe.layouts?.[slug], canEdit: mayDecide(caller) } : null;
+    if (!found) {
+      for (const layer of await ownLayers(ctx, caller.user)) {
+        const personal = await personalPage(ctx, caller.user, layer.target, layer.recipeId);
+        const page = personal?.recipe.workspacePages?.find((p) => p.slug === slug);
+        if (page && !personal!.basePages.includes(slug)) return { ...page, recipeId: layer.recipeId, recipeTitle: personal!.recipe.title, layoutTree: personal!.recipe.layouts?.[slug], canEdit: true };
+      }
+      return null;
+    }
+    const personal = found ? await personalPage(ctx, caller.user, { point: "workspace.pages", key: slug }, found.recipe.id) : null;
+    const recipe = personal?.recipe ?? found?.recipe;
+    const page = recipe?.workspacePages?.find((p) => p.slug === slug);
+    return found && page ? { ...page, recipeId: found.recipe.id, recipeTitle: found.recipe.title, layoutTree: recipe?.layouts?.[slug], canEdit: true } : null;
   },
 });
 /** The sections of the account or contact page the workspace has on (account.page, contact.page), in the recipe's order. */
@@ -240,8 +261,10 @@ export const recordPage = query({
   handler: async (ctx, args) => {
     const caller = await callerOf(ctx);
     if (!caller) return null;
-    const [{ recipe }] = await enabledFor(ctx, caller.user.orgId, `${args.object}.page`);
-    return { recipeId: recipe.id, title: recipe.title, sections: pageOf(recipe, args.object), layoutTree: recipe.layouts?.[args.object], canEdit: mayDecide(caller) };
+    const [found] = await enabledFor(ctx, caller.user.orgId, `${args.object}.page`);
+    const personal = await personalPage(ctx, caller.user, { point: `${args.object}.page`, key: "page" }, found.recipe.id);
+    const recipe = personal?.recipe ?? found.recipe;
+    return { recipeId: recipe.id, title: recipe.title, sections: pageOf(recipe, args.object), layoutTree: recipe.layouts?.[args.object], canEdit: true };
   },
 });
 

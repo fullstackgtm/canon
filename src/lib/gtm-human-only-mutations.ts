@@ -104,7 +104,7 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.recipes.disableContribution": "turning a package contribution off changes what every record shows or runs for the whole workspace; an admin's call",
   // Customize mode: a person reshapes the deal page in place. Agents propose recipe edits with canon_customization propose_edit.
   "api.pageCustomize.edit": "customize mode is a person pointing at their own deal page and judging it live; an agent proposes customization.md edits with canon_customization propose_edit instead",
-  "api.pageCustomize.save": "saving customize mode's draft changes the deal page for the whole workspace, and may make and switch to a workspace copy; an admin's call",
+  "api.pageCustomize.save": "a person saves their own page by default; an explicit workspace save remains an admin or manager decision",
   "api.recipes.revertTo":"reverting package settings changes how every deal is drafted, checked and researched; an admin's call",
   // docs/recipes.md R5: agents preview installs and upgrades (canon_customization preview_install, check_upgrade); a person decides.
   "api.recipes.install": "installing a package brings another author's code into the workspace's deal pages; an admin reviews its permissions and evals and decides",
@@ -120,6 +120,9 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.modules.cancelUpgrade": "cancelling a module's upgrade decides which version serves; an admin's call",
   "api.modules.uploadUrl": "a module's file field takes a file its person picks on their own machine; an agent downloads files (canon_module file) but doesn't attach them",
   // docs/recipes.md "Customizing in the app": agents read a workspace recipe's markdown and revisions (canon_customization get_markdown, list_revisions); a person edits it.
+  "api.workspaceRecipes.savePersonal": "a person saves their own page in the pencil",
+  "api.workspaceRecipes.resetPersonal": "a person resets their own page in the pencil",
+  "api.pageCustomize.promote": "an admin or manager promotes a personal page to the workspace",
   "api.workspaceRecipes.customize": "customizing makes a workspace copy of a package that can then lay out every page; an admin or manager makes it",
   "api.workspaceRecipes.save": "a saved customization.md changes the pages and plays of whoever runs it in the workspace; agents read it and an admin or manager edits it",
   "api.workspaceRecipes.revert": "reverting a customization.md changes the pages and plays of whoever runs it in the workspace; an admin's call",

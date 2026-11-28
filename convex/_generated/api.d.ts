@@ -419,6 +419,7 @@ import type * as lib_outbound_unsubscribe from "../lib/outbound/unsubscribe.js";
 import type * as lib_outbound_unsubscribeRoute from "../lib/outbound/unsubscribeRoute.js";
 import type * as lib_pacing from "../lib/pacing.js";
 import type * as lib_pageEditsDashboard from "../lib/pageEditsDashboard.js";
+import type * as lib_pageLayers from "../lib/pageLayers.js";
 import type * as lib_pagePrefetch from "../lib/pagePrefetch.js";
 import type * as lib_paidProviders from "../lib/paidProviders.js";
 import type * as lib_patchPlanCompat from "../lib/patchPlanCompat.js";
@@ -1077,6 +1078,7 @@ declare const fullApi: ApiFromModules<{
   "lib/outbound/unsubscribeRoute": typeof lib_outbound_unsubscribeRoute;
   "lib/pacing": typeof lib_pacing;
   "lib/pageEditsDashboard": typeof lib_pageEditsDashboard;
+  "lib/pageLayers": typeof lib_pageLayers;
   "lib/pagePrefetch": typeof lib_pagePrefetch;
   "lib/paidProviders": typeof lib_paidProviders;
   "lib/patchPlanCompat": typeof lib_patchPlanCompat;

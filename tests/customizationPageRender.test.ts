@@ -43,6 +43,7 @@ test("Applied lists changed pages first and folds the ones Canon ships as is", (
     "./recipe-github": { GithubConnections: empty },
     "./recipe-modules": { CanonModules: empty, InstallModuleSheet: empty, InstalledModules: empty },
     "./recipe-packages": { InstallSheet: empty, UpgradeSheet: empty, permissionLines: () => [] },
+    "./personal-versions": { PersonalVersions: empty },
     "./recipe-settings": { RecipeSettingsSheet: empty },
   };
   const { outputText } = ts.transpileModule(readFileSync(new URL("../src/app/dashboard/customization/page.tsx", import.meta.url), "utf8"), {

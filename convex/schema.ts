@@ -164,6 +164,14 @@ export default defineSchema({
     .index("by_orgId_and_recipeId_and_revision", ["orgId", "recipeId", "revision"])
     .index("by_orgId_and_recipeId_and_status", ["orgId", "recipeId", "status"]),
 
+  pageLayers: defineTable({
+    orgId: v.id("organizations"), userId: v.id("users"),
+    target: v.object({ point: v.string(), key: v.string() }),
+    recipeId: v.string(), markdown: v.string(), baseRevision: v.union(v.number(), v.null()),
+    baseMarkdown: v.string(), revision: v.number(), updatedAt: v.number(),
+  }).index("by_orgId_and_userId_and_target_point_and_target_key", ["orgId", "userId", "target.point", "target.key"])
+    .index("by_orgId_and_target_point_and_target_key", ["orgId", "target.point", "target.key"]),
+
   // Each saved recipe.md of a workspace recipe (docs/recipes.md, "Customizing in the app"). Rows are never rewritten
   // except to supersede: one `current` row per org and recipe is the markdown its recipePackages row runs.
   recipeMarkdownRevisions: defineTable({

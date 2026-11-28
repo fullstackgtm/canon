@@ -125,7 +125,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   // The workspace's deal page recipe lays out a deal: its play's sections and the record's, in its order.
   const recipe = useQuery(api.recipes.forOrg, object === "deal" && !layout ? {} : "skip");
   // Shape mode (prototype): an admin reshapes the deal page in words and judges it on this page.
-  const shapeRecipeId = object === "deal" && !layout && !inDialog && recipe?.canEdit ? recipe.dealPage.id : null;
+  const shapeRecipeId = object === "deal" && !layout && !inDialog && recipe ? recipe.dealPage.id : null;
   const recipeMarkdown = useQuery(api.workspaceRecipes.markdown, shapeRecipeId ? { recipeId: shapeRecipeId } : "skip");
   const shape = useShapeMode({ layoutTree: layout?.layoutTree ?? recipe?.dealPage.layoutTree, base: recipe?.dealPage.sections ?? [], markdown: shapeRecipeId ? recipeMarkdown?.markdown ?? null : null, recipeId: shapeRecipeId, revision: recipeMarkdown?.revision ?? null, recipeTitle: recipe?.dealPage.title });
 

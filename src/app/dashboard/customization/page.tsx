@@ -17,6 +17,7 @@ import { PointRow, type Offered } from "./point-row";
 import { GithubConnections } from "./recipe-github";
 import { CanonModules, InstallModuleSheet, InstalledModules } from "./recipe-modules";
 import { InstallSheet, UpgradeSheet, permissionLines } from "./recipe-packages";
+import { PersonalVersions } from "./personal-versions";
 import { RecipeSettingsSheet } from "./recipe-settings";
 
 type View = NonNullable<FunctionReturnType<typeof api.recipes.forOrg>>;
@@ -54,6 +55,7 @@ function useTab(): [Tab, (t: Tab) => void] {
 export default function CustomizationPage() {
   const view = useQuery(api.recipes.forOrg);
   const modules = useQuery(api.modules.installed);
+  const personalVersions = useQuery(api.workspaceRecipes.personalVersions, view?.canEdit ? { all: true } : "skip");
   const enable = useMutation(api.recipes.enableContribution);
   const disable = useMutation(api.recipes.disableContribution);
   const uninstall = useMutation(api.recipes.uninstall);
@@ -119,6 +121,9 @@ export default function CustomizationPage() {
           <Section title="Modules" count={modules?.modules.length} action={view.canEdit && <button type="button" className={btn} onClick={() => setTab("browse")}>Add a module</button>}>
             <InstalledModules onInstall={setInstallingModule} onBrowse={() => setTab("browse")} />
           </Section>
+
+          {view.canEdit && [...new Map((personalVersions ?? []).map((v) => [`${v.target.point}:${v.target.key}`, v.target])).values()].map((target) =>
+            <PersonalVersions key={`${target.point}:${target.key}`} target={target} />)}
 
           <Section title="Pages" count={changed.length + modulePages.length} note={changed.length || modulePages.length ? undefined : "Every page runs as Canon ships it."}>
             {(changed.length > 0 || modulePages.length > 0) && (

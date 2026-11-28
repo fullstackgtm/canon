@@ -44,7 +44,7 @@ for (const object of ["deal", "account", "contact"] as const) {
     assert.equal(after[PAGE_KEYS[object]][0].component, "history");
     for (const other of ["deal", "account", "contact"] as const) if (other !== object) assert.deepEqual(after[PAGE_KEYS[other]], before[PAGE_KEYS[other]]);
     assert.ok(readLens(BASE, object).length > 0);
-    const out = await actions.save.handler(ctx, { ...args, markdown: moved.markdown });
+    const out = await actions.save.handler(ctx, { ...args, scope: "workspace", markdown: moved.markdown });
     assert.equal(out.revision, 2);
     assert.deepEqual(enabled, [`${object}.page`]);
     assert.equal(parseRecipe(saved).recipe.meta.id, "@workspace/base");
@@ -52,11 +52,11 @@ for (const object of ["deal", "account", "contact"] as const) {
   });
 }
 
-test("page edits refuse non-deciders before any model call", async () => {
-  await assert.rejects(actions.edit.handler({
-    runQuery: async (ref: unknown) => String(ref) === "internal.records.callerContext" ? { orgId: "org", userId: "member" } : { canEdit: false },
-    runMutation: async () => null,
-  }, { recipeId: "canon-base", object: "account", markdown: BASE, request: "fold this section" }));
+test("members can edit their personal page without a decider capability", async () => {
+  const out = await actions.edit.handler({
+    runQuery: async () => ({ orgId: "org", userId: "member" }), runMutation: async () => null,
+  }, { recipeId: "canon-base", object: "account", markdown: BASE, target: { component: "history" }, request: "fold this section" });
+  assert.equal(parseRecipe(out.markdown).recipe.accountPage.find((s) => s.component === "history")?.collapsed, true);
 });
 
 test("pencil replaces Deals with a stage count chart at the same position and reports its removed action", async () => {

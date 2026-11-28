@@ -10,7 +10,7 @@ import { type LayoutTree } from "../../../../recipes/layout";
  * No confirmation: a job that worked is kept, and Undo steps back. The draft lasts for this session only.
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useAction } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { DEAL_STAGES, type DealStage } from "../../../../convex/lib/plays/model";
 import type { PageSection, PageSpec } from "../../../../recipes";
@@ -48,6 +48,11 @@ type Job = CustomizeJob & { target: { component: string; title: string; nth: num
 /** The page the record draws, customize mode's adapter for it, and the provider its sections read. */
 export function useShapeMode({ object = "deal", base, markdown, recipeId, revision, recipeTitle, layoutTree }: { object?: string; base: PageSpec; layoutTree?: LayoutTree; markdown: string | null; recipeId: string | null; revision: number | null; recipeTitle?: string }) {
   const customize = useCustomizeMode();
+  const personal = useQuery(api.workspaceRecipes.personal, recipeId ? { object, recipeId } : "skip");
+  const [scope, setScope] = useState<"personal" | "workspace">("personal");
+  const resetPersonal = useMutation(api.workspaceRecipes.resetPersonal);
+  const promote = useAction(api.pageCustomize.promote);
+  const effectiveMarkdown = scope === "workspace" ? personal?.workspaceMarkdown ?? markdown : personal?.markdown ?? markdown;
   const [drafts, setDrafts] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [stage, setStage] = useState<DealStage | null>(null);
@@ -56,14 +61,19 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
   const [saved, setSaved] = useState<CustomizeAdapter["saved"]>(null);
   // The revision the draft was made from, so a teammate's save in between is refused rather than overwritten.
   const draftBase = useRef<number | null>(null);
+  const personalBase = useRef<{ markdown: string; revision: number } | null>(null);
   // The workspace copy a blocked save already made, so Save anyway saves into it instead of making another.
   const [into, setInto] = useState<string | null>(null);
-  const draft = drafts.at(-1) ?? markdown;
+  useEffect(() => {
+    setDrafts([]); setJobs([]); setInto(null); setSaved(null); setScope("personal");
+    draftBase.current = null; personalBase.current = null;
+  }, [personal?.userId, object, recipeId]);
+  const draft = drafts.at(-1) ?? effectiveMarkdown;
   const parsed = useMemo(() => {
-    if (!draft || !drafts.length) return null;
+    if (!draft) return null;
     const page = pageOf(parseRecipe(draft).recipe, object);
     return { page, lens: lensFor(page, readLens(draft, object)) };
-  }, [draft, drafts.length, object]);
+  }, [draft, object]);
   const baseLens = useMemo(() => lensFor(base, markdown ? readLens(markdown, object) : []), [base, markdown, object]);
   const page = parsed?.page ?? base;
   const lens = parsed?.lens ?? baseLens;
@@ -74,7 +84,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     setSaved({ state: "saving" });
     try {
       const r = await saveDraft({
-        object, recipeId, markdown: draft, acceptFailingEvals, ...(draftBase.current !== null ? { baseRevision: draftBase.current } : {}), ...(into ? { into } : {}),
+        object, recipeId, markdown: draft, scope, layerRevision: personalBase.current?.revision ?? personal?.layerRevision ?? 0, baseMarkdown: personalBase.current?.markdown ?? personal?.workspaceMarkdown ?? markdown ?? draft, acceptFailingEvals, ...(draftBase.current !== null ? { baseRevision: draftBase.current } : {}), ...(into ? { into } : {}),
         note: jobs.filter((j) => j.status === "done").map((j) => `${j.where}: ${j.request}`).join("; ").slice(0, 400),
       });
       if (r.blocked) {
@@ -87,7 +97,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
       setDrafts([]);
       setInto(null);
       draftBase.current = null;
-      setSaved({ state: "saved", message: `Saved as revision ${r.revision}${r.copied ? ` of a workspace copy (${r.recipeId}), now the ${object} page for everyone` : ""}${r.evalsNotRun ? `. Evals not run: ${r.evalsNotRun}` : ""}.` });
+      setSaved({ state: "saved", message: `${scope === "personal" ? "Saved just for you. " : "Saved for the workspace. "}Saved as revision ${r.revision}${r.copied ? ` of a workspace copy (${r.recipeId}), now the ${object} page for everyone` : ""}${r.evalsNotRun ? `. Evals not run: ${r.evalsNotRun}` : ""}.` });
     } catch (e) {
       setSaved({ state: "failed", message: getErrorMessage(e) });
     }
@@ -108,7 +118,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
       if (r.markdown !== draft) {
         const before = new Set(pageOf(parseRecipe(draft).recipe, object).map((s) => JSON.stringify(s)));
         lastFresh.current = new Set(pageOf(parseRecipe(r.markdown).recipe, object).map((s) => JSON.stringify(s)).filter((k) => !before.has(k)));
-        if (!drafts.length) draftBase.current = revision;
+        if (!drafts.length) { draftBase.current = personal?.revision ?? revision; personalBase.current = { markdown: personal?.workspaceMarkdown ?? markdown ?? draft, revision: personal?.layerRevision ?? 0 }; }
         setDrafts((d) => [...d, r.markdown]);
         setSaved(null);
       }
@@ -126,6 +136,15 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
   const adapter: CustomizeAdapter | null = active ? {
     label: `${object[0].toUpperCase()}${object.slice(1)} page`,
     detail: recipeTitle,
+    scope: personal?.canDecide ? { value: scope, set: (v) => { setScope(v); setDrafts([]); setJobs([]); } } : undefined,
+    conflict: personal?.conflict,
+    useWorkspace: personal?.layerId ? () => { void resetPersonal({ object, layerId: personal.layerId! }).then(() => { setDrafts([]); setJobs([]); }); } : undefined,
+    promote: personal?.canDecide && personal.layerId ? () => {
+      void promote({ layerId: personal.layerId! }).then((r) => {
+        if (r.conflict) { setScope("workspace"); setDrafts([]); draftBase.current = personal.revision; setSaved({ state: "failed", message: "Resolve the workspace conflict markers in Customization before promoting." }); }
+        else setSaved({ state: r.blocked ? "blocked" : "saved", message: r.blocked ? "Workspace evals failed. Review in Customization." : "Promoted to workspace." });
+      }).catch((e) => setSaved({ state: "failed", message: getErrorMessage(e) }));
+    } : undefined,
     describe: (el) => {
       const i = sectionOf(el);
       if (i === null || !page[i]) return null;
@@ -154,7 +173,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     save: (accept) => void save(accept),
     stages: object === "deal" ? { options: [{ value: null, label: "this deal's stage" }, ...DEAL_STAGES.map((s) => ({ value: s, label: STAGE_NAMES[s] }))], value: stage, set: (v) => setStage(v as DealStage | null) } : undefined,
   } : null;
-  useCustomizeAdapter(adapter, [active, jobs, drafts, stage, markdown, base, recipeTitle, saved, object]);
+  useCustomizeAdapter(adapter, [active, jobs, drafts, stage, markdown, base, recipeTitle, saved, object, personal, scope]);
 
   // Compare like with like: the recipe in force as the browser parses it, not as the server sent it.
   const baseKeys = useMemo(() => new Set((markdown ? pageOf(parseRecipe(markdown).recipe, object) : base).map((s) => JSON.stringify(s))), [markdown, base, object]);
