@@ -600,7 +600,9 @@ export default defineSchema({
     count: v.number(),
     ids: v.array(v.string()),
     createdAt: v.number(),
-  }).index("by_orgId_moduleId_snapshot_page", ["orgId", "moduleId", "snapshot", "page"]),
+  })
+    .index("by_orgId_moduleId_snapshot_page", ["orgId", "moduleId", "snapshot", "page"])
+    .index("by_orgId_and_audienceId", ["orgId", "audienceId"]),
 
   // Where a module's deal feed has read the records ledger to, per watch and ledger shard (the `seq` it read
   // through), as automationCursors does for rules; and, under `#`-names, a schedule's last run and the job runner's
@@ -5683,7 +5685,8 @@ export default defineSchema({
   })
     .index("by_userId_and_startedAt", ["userId", "startedAt"])
     .index("by_agentLegId", ["agentLegId"])
-    .index("by_status_and_expiresAt", ["status", "expiresAt"]),
+    .index("by_status_and_expiresAt", ["status", "expiresAt"])
+    .index("by_orgId_queueAudienceId_status_expiresAt", ["orgId", "queueAudienceId", "status", "expiresAt"]),
 
   // One contact dialled in a session. The recording is copied into Canon's
   // storage; the transcript goes to call intelligence (`callRecordingId`).

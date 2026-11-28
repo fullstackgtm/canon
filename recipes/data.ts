@@ -4,7 +4,7 @@ import { compileListRequest, LIST_LIMIT_MAX, FILTERS_MAX, listColumns, OPS_OF } 
 import { compileAggregateRequest } from "../convex/lib/objects/reportSpec.ts";
 import { STANDARD_OBJECTS, resolveObjectDef, isLedgerObjectName, CUSTOM_FIELD_API_NAME, type ResolvedObjectDef, type StandardObjectName } from "../convex/lib/objects/registry.ts";
 
-export const DATA_COMPONENTS = ["table", "list", "metric", "chart"] as const;
+export const DATA_COMPONENTS = ["table", "list", "metric", "chart", "form", "board", "detail"] as const;
 export type DataComponent = typeof DATA_COMPONENTS[number];
 export const isDataComponent = (s: string): s is DataComponent => (DATA_COMPONENTS as readonly string[]).includes(s);
 const scalar = /* @__PURE__ */ (() => z.union([z.string(), z.number().finite(), z.boolean()]))();
@@ -19,6 +19,9 @@ export const DATA_QUERIES = /* @__PURE__ */ (() => {
   });
   const aggregate = z.discriminatedUnion("fn", [z.object({ fn: z.literal("count") }).strict(), z.object({ fn: z.enum(["sum", "avg"]), field: z.string().min(1) }).strict()]);
   const queries = {
+    form: base.extend({ fields: z.array(z.string().min(1)).min(1).max(30), defaults: z.record(z.string(), z.union([scalar, z.null(), reference])).default({}) }).strict(),
+    board: base.extend({ columns: z.array(z.string().min(1)).min(1).max(30).default(["recordTitle"]), groupBy: z.object({ field: z.string() }).strict() }).strict(),
+    detail: base.extend({ columns: z.array(z.string().min(1)).min(1).max(30), limit: z.literal(1).default(1), record: z.string().min(1).optional() }).strict(),
     table: base.extend({ columns: z.array(z.string().min(1)).min(1).max(30).default(["recordTitle"]) }).strict(),
     list: base.extend({ columns: z.array(z.string().min(1)).min(1).max(30).default(["recordTitle"]) }).strict(),
     metric: base.extend({ aggregate }).strict(),
@@ -41,14 +44,19 @@ export function resolveQuery(q: DataQuery, record: { id: string; values: Record<
 }
 const standardDef = (name: string) => Object.hasOwn(STANDARD_OBJECTS, name) ? resolveObjectDef(STANDARD_OBJECTS[name as StandardObjectName]) : undefined;
 export function validateDataQuery(kind: DataComponent, input: unknown, pageObject: string): DataQuery {
-  const q = DATA_QUERIES[kind].parse(input);
+  const q: DataQuery = DATA_QUERIES[kind].parse(input);
   const def = standardDef(q.object), page = standardDef(pageObject);
+  if (kind === "board" && ["account", "contact"].includes(q.object)) throw new Error("Boards cannot move register cards until records.edit supports compare-and-set");
   for (const f of q.filter) if (recordReference(f.value)) {
     if (f.value.record !== "id" && page && !page.byApiName.has(f.value.record) && !page.fields.some((x) => x.fieldId === (f.value as { record: string }).record) && !CUSTOM_FIELD_API_NAME.test(f.value.record)) throw new Error(`unknown record field ${f.value.record}`);
     if (f.op === "empty" || f.op === "notEmpty") throw new Error(`${f.op} takes no value`);
     const col = def && listColumns(def).get(f.field);
     if (col && !OPS_OF[col.kind].includes(f.op)) throw new Error(`${f.field} cannot be filtered with ${f.op}`);
   }
+  const selected = "record" in q && typeof q.record === "string" ? q.record : undefined;
+  if (selected && q.filter.length) throw new Error("A detail uses either record or filter, not both");
+  if (selected && selected !== "id" && page && !page.fields.some((f) => f.apiName === selected || f.fieldId === selected) && !CUSTOM_FIELD_API_NAME.test(selected)) throw new Error(`unknown record field ${selected}`);
+  if ("defaults" in q) for (const value of Object.values(q.defaults)) if (recordReference(value) && value.record !== "id" && page && !page.byApiName.has(value.record) && !page.fields.some((f) => f.fieldId === value.record) && !CUSTOM_FIELD_API_NAME.test(value.record)) throw new Error(`unknown record field ${value.record}`);
   if (def) validateQueryFields(q, def, true);
   return q;
 }
@@ -62,6 +70,16 @@ export function validateQueryFields(q: DataQuery, def: ResolvedObjectDef, deferr
   const filters = q.filter.filter((f) => known(f.field) && !recordReference(f.value));
   if (q.sort) known(q.sort.field);
   if ("columns" in q) q.columns.forEach(known);
+  if ("fields" in q) for (const name of [...q.fields, ...Object.keys(q.defaults)]) {
+    known(name);
+    if (columns.has(name) && !def.fields.some((f) => f.apiName === name)) throw new Error(`A form needs a writable field name: ${name}`);
+  }
+  if ("groupBy" in q) {
+    const name = q.groupBy.field;
+    known(name);
+    const field = def.fields.find((f) => f.apiName === name || f.fieldId === name);
+    if (!("aggregate" in q) && field && field.type !== "picklist") throw new Error("A board groups by a picklist field");
+  }
   compileListRequest(def, { filter: filters, ...(q.sort && columns.has(q.sort.field) ? { sort: q.sort } : {}), limit: q.limit });
   if ("aggregate" in q) {
     const measures = q.aggregate.fn === "count" || known(q.aggregate.field) ? [q.aggregate] : [{ fn: "count" as const }];

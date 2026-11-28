@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast";
 import { useUrlState } from "@/lib/url-state";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { AudienceRelated } from "@/components/records/audience-related";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SelectField } from "@/components/ui/select";
 
 const btn = "inline-flex items-center gap-1 border border-border px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50";
@@ -96,6 +97,10 @@ function AudienceDetail({ audience }: { audience: Listed }) {
   const loadCampaigns = useAction(api.audienceActions.campaigns);
   const push = useAction(api.audienceActions.push);
   const update = useMutation(api.audiences.update);
+  const remove = useMutation(api.audiences.remove);
+  const uses = useQuery(api.audiences.usedIn, { audienceId: id });
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const sequencers = useQuery(api.audiences.sequencerStatus);
   const connected = SEQUENCER_IDS.filter((p) => sequencers?.[p]?.connected);
@@ -194,6 +199,7 @@ function AudienceDetail({ audience }: { audience: Listed }) {
           >
             <Download className="h-3 w-3" /> Export CSV
           </button>
+          {canEdit && <button type="button" className={btn} disabled={busy} onClick={() => setDeleting(true)}>Delete</button>}
         </div>
       </div>
 
@@ -210,6 +216,26 @@ function AudienceDetail({ audience }: { audience: Listed }) {
           <span className="block text-xs text-muted-foreground">Updated {new Date(summary.computedAt).toLocaleString()}. Refreshed every 15 minutes. Exports and pushes use current contacts.</span>
         </p>
       )}
+
+      {deleting && <ConfirmDialog
+        title={`Delete “${name}”?`}
+        description="This permanently removes the audience, its filter and hand-added membership; it cannot be undone. Contacts remain, but this audience’s send and export log will no longer be viewable in Canon. Past calls remain on contact pages, and sequence runs remain on their sequence’s page, subject to your access. Deleting does not stop sequences or other modules already working from their own copies."
+        confirmLabel="Delete audience" destructive
+        onClose={() => setDeleting(false)}
+        onConfirm={async () => {
+          try { await remove({ audienceId: id }); void toast.success(`Deleted ${name}`); }
+          catch (cause) { setDeleteError(getErrorMessage(cause)); }
+        }}
+      />}
+      {deleteError && <p role="alert" className="mt-4 text-sm text-destructive">{deleteError}</p>}
+      <h3 className="mt-6 text-xs font-medium text-muted-foreground">Used in</h3>
+      {uses === undefined ? <p className="mt-2 text-sm text-muted-foreground">Loading uses…</p> : uses && <>
+        {uses.inForce.length > 0 && <><p className="mt-2 text-sm">In force — remove these uses before deleting:</p><ul className="mt-1 text-sm">{uses.inForce.map((use, i) => <li key={i}>{use.href ? <Link className="underline" href={use.href}>{use.label}</Link> : use.label}</li>)}</ul></>}
+        {uses.incomplete && <p className="mt-2 text-sm">We could not check all active uses, so deletion is unavailable.</p>}
+        {uses.history.length > 0 && <><p className="mt-2 text-sm">History:</p><ul className="mt-1 text-sm">{uses.history.map((use, i) => <li key={i}>{use.href ? <Link className="underline" href={use.href}>{use.label}</Link> : use.label}{use.at !== undefined && ` · ${new Date(use.at).toLocaleString()}`}</li>)}</ul></>}
+        {!uses.inForce.length && !uses.history.length && !uses.incomplete && <p className="mt-2 text-sm text-muted-foreground">No uses found in the records checked.</p>}
+        {uses.historyTruncated && <p className="mt-2 text-xs text-muted-foreground">Only the most recent uses are shown.</p>}
+      </>}
 
       <AudienceRelated id={id} related={audience.related ?? []} canEdit={canEdit} />
 
@@ -265,14 +291,14 @@ function AudienceDetail({ audience }: { audience: Listed }) {
         </div>
       )}
 
-      <h3 className="mt-6 text-xs font-medium text-muted-foreground">History</h3>
+      <h3 id="audience-history" className="mt-6 text-xs font-medium text-muted-foreground">History</h3>
       {history === undefined ? null : history.length === 0 ? (
         <p className="mt-2 text-sm text-muted-foreground">Nothing exported or pushed yet.</p>
       ) : (
         <ul className="mt-2 flex flex-col gap-1 text-sm">
           {history.map((h) => (
             <li key={`${h.target}@${h.at}`}>
-              {new Date(h.at).toLocaleString()}: {h.target === "csv" ? `exported ${h.exported} to CSV` : `sent ${h.sent} to ${targetLabel(h.target) ?? h.target}`}
+              {new Date(h.at).toLocaleString()}: {h.target === "csv" ? `exported ${h.exported} to CSV` : h.target.startsWith("linkedin:") ? `enrolled ${h.sent} in a LinkedIn cadence` : `sent ${h.sent} to ${targetLabel(h.target) ?? h.target}`}
               {h.skipped > 0 && `, ${h.skipped} skipped`}
             </li>
           ))}

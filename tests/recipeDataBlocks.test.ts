@@ -49,3 +49,24 @@ test("query ops preserve unrelated bytes, and local pencil generates the same ch
   const ops = standIn(layout, undefined, "show open deals here"); assert.equal(ops.length, 1);
   assert.ok("markdown" in apply(base, ops[0]));
 });
+
+test("write blocks parse, retain actions, and reject register boards and invalid fields", () => {
+  for (const [component, input] of [
+    ["form", { object: "deal", fields: ["name", "closeDate"], defaults: { companyId: { record: "id" } } }],
+    ["board", { object: "deal", groupBy: { field: "stage" }, columns: ["name"] }],
+    ["detail", { object: "account", record: "companyId", columns: ["name"], limit: 1 }],
+  ] as const) {
+    const query = validateDataQuery(component, input, "deal");
+    const out = apply(base, { op: "addSection", object: "deal", component, title: component, query, before: null });
+    assert.ok("markdown" in out, JSON.stringify(out));
+    const parsed = parseRecipe(out.markdown);
+    assert.deepEqual(parsed.problems, []);
+    assert.equal(parsed.recipe.dealPage.at(-1)?.actions?.[0].runs, component === "form" ? "kernel.createRecord" : "kernel.editField");
+    const removed = apply(out.markdown, { op: "removeSection", object: "deal", section: { component } });
+    assert.ok("markdown" in removed); assert.equal(removed.markdown, base);
+  }
+  assert.throws(() => validateDataQuery("board", { object: "account", groupBy: { field: "status" } }, "account"));
+  assert.throws(() => validateDataQuery("board", { object: "deal", groupBy: { field: "name" } }, "account"));
+  assert.throws(() => validateDataQuery("detail", { object: "deal", columns: ["name"], limit: 2 }, "account"));
+  assert.throws(() => validateDataQuery("form", { object: "deal", fields: ["typo"] }, "account"));
+});

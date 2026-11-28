@@ -14,6 +14,7 @@ const register = (definition: unknown) => definition;
 const stubs: Record<string, unknown> = {
   "./_generated/server": { query: register, mutation: register, internalQuery: register, internalMutation: register },
   "./_generated/api": { internal },
+  "./lib/audienceUses": loadConvex(["lib/audienceUses.ts"])["lib/audienceUses.ts"],
   "./lib/capabilities": capabilities,
   "./lib/metadataFields": loadConvex(["lib/metadataFields.ts"])["lib/metadataFields.ts"],
   "./lib/outbound/related": loadConvex(["lib/outbound/related.ts"])["lib/outbound/related.ts"],

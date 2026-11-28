@@ -53,7 +53,7 @@ test("read tools only read; every write tool and destructive tool is marked", as
       assert.ok(c.kind === "query" || (c.kind === "action" && READ_ACTIONS.has(c.name)), `${tool.name} is read-only but called ${c.kind} ${c.name}`);
     }
   }
-  assert.deepEqual(canonTools.filter((t) => t.destructive).map((t) => t.name), ["canon_update_record", "canon_delete_record", "canon_records", "canon_integrations", "canon_review", "canon_data_model", "canon_duplicates"]);
+  assert.deepEqual(canonTools.filter((t) => t.destructive).map((t) => t.name), ["canon_update_record", "canon_delete_record", "canon_records", "canon_integrations", "canon_audiences", "canon_review", "canon_data_model", "canon_duplicates"]);
 });
 
 test("update_record edits accounts through the register and other objects with a version check", async () => {

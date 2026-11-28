@@ -31,6 +31,7 @@ import { encryptForStorage } from "./lib/tokenHelpers";
 import { AUDIENCE_MAX, runsOf } from "./lib/outbound/audience";
 import { SEQUENCER_IDS, SEQUENCERS, type SequencerId } from "./lib/outbound/sequencers";
 import { scheduleAudienceIcpGaps } from "./icpFills";
+import { audienceUses, inForceUses } from "./lib/audienceUses";
 import { readIcps } from "./lib/icpsInterface";
 
 const NAME_MAX = 80;
@@ -120,6 +121,45 @@ export const byId = query({
     if (!found) return null;
     const { user, audience } = found;
     return { _id: audience._id, name: audience.name, filter: audience.filter, related: audience.related, canEdit: canChange(user, audience) };
+  },
+});
+
+export const usedIn = query({
+  args: { audienceId: v.id("audiences") },
+  handler: async (ctx, args) => {
+    const found = await visibleAudience(ctx, args.audienceId);
+    return found ? audienceUses(ctx, found.user, args.audienceId) : null;
+  },
+});
+
+const CLEANUP_BATCH = 500;
+async function cleanAudienceAdditions(ctx: MutationCtx, audienceId: Id<"audiences">): Promise<void> {
+  const rows = await ctx.db.query("audienceAdditions").withIndex("by_audienceId_and_contactId", (q) => q.eq("audienceId", audienceId)).take(CLEANUP_BATCH);
+  for (const row of rows) await ctx.db.delete(row._id);
+  if (rows.length === CLEANUP_BATCH) await ctx.scheduler.runAfter(0, internal.audiences.cleanAdditions, { audienceId });
+}
+
+export const cleanAdditions = internalMutation({
+  args: { audienceId: v.id("audiences") },
+  handler: async (ctx, args): Promise<void> => {
+    if (await ctx.db.get(args.audienceId)) return;
+    await cleanAudienceAdditions(ctx, args.audienceId);
+  },
+});
+
+export const remove = mutation({
+  args: { audienceId: v.id("audiences") },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const audience = await ctx.db.get(args.audienceId);
+    if (!audience || !canSee(user, audience)) throw new ConvexError("Audience not found");
+    if (!canChange(user, audience)) throw new ConvexError("Only the audience's creator, an admin or a manager can delete it");
+    const uses = await inForceUses(ctx, user, audience._id);
+    if (uses.inForce.length) throw new ConvexError(`Cannot delete: ${uses.inForce.map((u) => u.label).join(", ")}. Remove these uses first.`);
+    if (uses.incomplete) throw new ConvexError("Cannot delete: too many agents or active sessions to check all uses. Try again after active sessions finish or routes are removed.");
+    // Removing the document makes every reader see missing before scheduled cleanup starts. There is no undelete.
+    await ctx.db.delete(audience._id);
+    await cleanAudienceAdditions(ctx, audience._id);
   },
 });
 
@@ -282,6 +322,7 @@ export const caller = internalQuery({
 export const addedContactIds = internalQuery({
   args: { audienceId: v.id("audiences") },
   handler: async (ctx, args): Promise<string[]> => {
+    if (!await ctx.db.get(args.audienceId)) return [];
     const rows = await ctx.db.query("audienceAdditions").withIndex("by_audienceId_and_contactId", (q) => q.eq("audienceId", args.audienceId)).take(AUDIENCE_MAX + 1);
     return rows.map((r) => r.contactId);
   },
@@ -322,7 +363,7 @@ export const recordMembers = internalMutation({
     const run = await ctx.db.query("audienceRuns").withIndex("by_audienceId_at_target", (q) => q.eq("audienceId", args.audienceId).eq("at", at).eq("target", args.target)).unique();
     if (run) await ctx.db.patch(run._id, { sent: run.sent + counts.sent, exported: run.exported + counts.exported, skipped: run.skipped + counts.skipped });
     else await ctx.db.insert("audienceRuns", { orgId: args.orgId, audienceId: args.audienceId, target: args.target, at, ...counts });
-    if (args.rows.some((r) => r.outcome !== "skipped")) await ctx.db.patch(args.audienceId, { lastSentAt: at });
+    if (await ctx.db.get(args.audienceId) && args.rows.some((r) => r.outcome !== "skipped")) await ctx.db.patch(args.audienceId, { lastSentAt: at });
   },
 });
 

@@ -44,6 +44,7 @@ export const expire = internalMutation({
 export const addedPage = internalQuery({
   args: { audienceId: v.id("audiences"), cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, a): Promise<{ ids: string[]; next: string | null }> => {
+    if (!await ctx.db.get(a.audienceId)) return { ids: [], next: null };
     const page = await ctx.db.query("audienceAdditions").withIndex("by_audienceId_and_contactId", (q) => q.eq("audienceId", a.audienceId)).paginate({ numItems: ADDED_PAGE, cursor: a.cursor });
     return { ids: page.page.map((r) => r.contactId), next: page.isDone ? null : page.continueCursor };
   },

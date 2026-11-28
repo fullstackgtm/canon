@@ -965,6 +965,10 @@ alter behaviour.
 
 ### Format changelog
 
+**Format 4 write blocks (WC3b).** Adds `form`, `board` and `detail` queries and
+`kernel.createRecord` while format 4 remains in dev. Writes use existing scoped
+create/edit paths. Register boards are refused until they have CAS.
+
 **Format 4.** Read-only `table`, `list`, `metric` and `chart` sections accept one JSON `query` fence. This extends the newly introduced format 4 before external package release. Existing recipes remain unchanged.
 
 ### Open deals {section=table}
@@ -1595,3 +1599,19 @@ Each phase puts a change in front of a user.
   the play's owner, as today, or the installing admin?
 - **Iframes (option 3).** Revisit after R5, for verified authors only, if the
   component vocabulary turns out to be the limit.
+
+### Format 4 write blocks (WC3b)
+
+Data sections also accept `form`, `board` and `detail`. A form query names
+`object`, `fields` and `defaults`. For example, "let me add a deal from this
+account" uses `{"object":"deal","fields":["name","closeDate","stage"],"defaults":{"companyId":{"record":"id"},"currency":"USD"}}`.
+Its action runs `kernel.createRecord`, which dispatches to `deals.createScoped`,
+`records.upsert` or `objects.writeScoped` with the existing server gates.
+An activity form instead offers `kernel.logActivity` and targets the page record.
+
+A board query uses `columns` and `groupBy:{"field":"stage"}`; `limit` bounds
+the cards in each column. A detail query
+uses `columns` and `limit:1`, optionally `record:"companyId"`
+instead of filters. Both offer `kernel.editField`. Removing that action or
+setting its `shows`/`enabled` conditions makes the block read-only. The Visual
+editor adds these actions with a new section and lists them as normal buttons.

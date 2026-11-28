@@ -351,7 +351,7 @@ export function generate(): { skill: string; module: string } {
     settings(),
     "",
     pages(),
-    'Data sections: table, list, metric, chart. Each needs one JSON query fence. Read-only; never define writes. Queries use object, filter (ListFilter[]), sort {field,dir}, columns (table/list), limit 1–200 (default 10). Metric/chart use aggregate {fn:"count"} or {fn:"sum"|"avg",field}; chart needs groupBy {field,bucket?:day|week|month|quarter|year}. Filter values {record:"id"} or {record:"fieldId"} bind this record. addSection accepts query; setQuery replaces one.',
+    'Data sections: table, list, metric, chart, form, board, detail. Each needs one JSON query fence. Table/list/metric/chart are read-only. Form uses fields and defaults, whose values may reference the page record. Its submit offers kernel.createRecord or kernel.logActivity. Board groups columns by a picklist groupBy.field. Detail uses columns, limit:1 and optionally record:"companyId". Board and detail offer kernel.editField. These existing kernel paths retain all gates; never define writes. Example "let me add a deal from this account": addSection form with query {object:"deal",fields:["name","closeDate","stage"],defaults:{companyId:{record:"id"},currency:"USD"}}. Queries use object, filter (ListFilter[]), sort {field,dir}, columns (table/list), limit 1–200 (default 10). Metric/chart use aggregate {fn:"count"} or {fn:"sum"|"avg",field}; chart needs groupBy {field,bucket?:day|week|month|quarter|year}. Filter values {record:"id"} or {record:"fieldId"} bind this record. addSection accepts query; setQuery replaces one.',
     'Example: show this account’s open deals as a table:',
     '### Open deals {section=table}',
     '```query',

@@ -49,6 +49,10 @@ export function standInAnswer(markdown: string, request: string): { markdown: st
 }
 
 export function standInColumns(layout: import("../../recipes/md/edit.ts").Layout, target: import("../../recipes/md/edit.ts").SectionRef | undefined, request: string): import("../../recipes/md/edit.ts").LayoutOp[] {
+  if (layout.object === "account" && /add a form to create a deal (?:here|from this account)/i.test(request)) return [{
+    op: "addSection", object: "account", component: "form", title: "New deal", before: null,
+    query: { object: "deal", filter: [], limit: 10, fields: ["name", "closeDate", "amount", "stage"], defaults: { companyId: { record: "id" }, currency: "USD" } },
+  }];
   if (layout.object === "account" && /^show (?:this account.s )?open deals here[.!]?$/i.test(request.trim())) return [{
     op: "addSection", object: "account", component: "table", title: "Open deals", before: null,
     query: { object: "deal", filter: [{ field: "companyId", op: "eq", value: { record: "id" } }, { field: "isClosed", op: "eq", value: false }], columns: ["recordTitle", "amount"], limit: 10 },
