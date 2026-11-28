@@ -20,6 +20,14 @@ export const LIST_MAX = 25;
 export const SEARCH_MAX = 20;
 export const CONTACTS_MAX = 25;
 export const RECEIPTS_MAX = 8;
+export const CONVERSATIONS_MAX = 15;
+export const THREAD_MESSAGES_MAX = 12;
+/** A long text value (meeting notes, a message body) as the model sees it in a list. */
+const TEXT_MAX = 1_500;
+/** A text value of the one record get_record reads: most of a tool result (askLoop MAX_RESULT_CHARS). */
+const DETAIL_TEXT_MAX = 4_000;
+/** Message text one read_conversation returns, newest first, inside a tool result. */
+const THREAD_TEXT_BUDGET = 4_500;
 
 export type FieldInfo = { fieldId: string; apiName: string; label: string; type: string; options?: Array<{ value: string; label: string; active?: boolean }> };
 export type ObjectInfo = { object: string; label: string; fields: FieldInfo[] };
@@ -34,7 +42,22 @@ export type AskData = {
   facts(object: string, id: string): Promise<FactInfo[] | null>;
   /** Facts behind one field, newest first. Null when the record or its ledger entity isn't the caller's. */
   receipts(object: string, id: string, attribute: string): Promise<unknown | null>;
+  /**
+   * The caller's email and LinkedIn conversations (docs/conversation-intake.md), newest first: their own with no
+   * `contactIds`, else those matched to people their role sees. Text only where the caller may read it.
+   * Absent where conversations aren't wired (tests, other hosts).
+   */
+  conversations?(contactIds: string[] | undefined, limit: number): Promise<ConversationInfo[]>;
+  /** One conversation's latest messages, oldest first, or null when the caller may not see it. */
+  thread?(conversationId: string, limit: number): Promise<{ conversation: ConversationInfo; messages: ConversationMessage[]; more: boolean } | null>;
 };
+
+export type ConversationInfo = {
+  conversationId: string; channel: string; mine: boolean; lastMessageAt: number; contactIds: string[];
+  counterpart: { name?: string; email?: string; domain?: string; profileUrl?: string };
+  subject?: string; lastMessage?: ConversationMessage | null;
+};
+export type ConversationMessage = { direction: string; at: number; from: string; text?: string; hidden?: boolean };
 
 /**
  * Record-service backed reads, scoped to `orgId` (the record service's
@@ -105,12 +128,29 @@ function filtersArg(v: unknown): ListFilter[] {
   });
 }
 
+const clipText = (v: string, max: number) => (v.length <= max ? v : `${v.slice(0, max)} [... ${v.length - max} more characters]`);
+const iso = (ms: number) => (Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 16) : null);
+const messageOut = (m: ConversationMessage) => ({
+  direction: m.direction, at: iso(m.at), from: m.from,
+  ...(typeof m.text === "string" ? { text: clipText(m.text, TEXT_MAX) } : { text: null, hidden: true }),
+});
+const conversationOut = (c: ConversationInfo) => ({
+  conversationId: c.conversationId, channel: c.channel, mine: c.mine, lastMessageAt: iso(c.lastMessageAt),
+  counterpart: c.counterpart, ...(c.subject ? { subject: c.subject } : {}), matchedContactIds: c.contactIds.slice(0, 5),
+});
+/** Whether a conversation's who, what or last message mentions every word of `q`. */
+function conversationMatches(c: ConversationInfo, q: string): boolean {
+  const hay = [c.counterpart.name, c.counterpart.email, c.counterpart.domain, c.subject, c.lastMessage?.text, c.lastMessage?.from]
+    .filter((x): x is string => typeof x === "string").join(" ").toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+}
+
 /** A row's non-empty values keyed by field apiName. */
-function valuesOf(info: ObjectInfo, row: ListRow): Record<string, unknown> {
+function valuesOf(info: ObjectInfo, row: ListRow, textMax = TEXT_MAX): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const f of info.fields) {
     const v = row.values[f.fieldId];
-    if (v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0)) out[f.apiName] = v;
+    if (v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0)) out[f.apiName] = typeof v === "string" ? clipText(v, textMax) : v;
   }
   return out;
 }
@@ -129,6 +169,52 @@ const trimFact = (f: unknown) => {
     observedAt: x.observedAt, evidence, verification: x.verification ?? null,
   };
 };
+
+function conversationTools(data: AskData): AskTool[] {
+  const list = data.conversations;
+  const thread = data.thread;
+  if (!list || !thread) return [];
+  return [
+    {
+      name: "list_conversations",
+      description: "The user's email (Gmail) and LinkedIn conversations, newest first, with who, subject and when. With contactIds, the conversations of those people instead. q keeps those whose counterpart name, email, company domain, subject or last message mention every word (e.g. a person's first name or a company's domain). Use for questions about who the user has been talking to.",
+      args: "q? (text), contactIds? (array of contact ids from other tools), limit? (max 15)",
+      async run(args) {
+        const ids = Array.isArray(args.contactIds) ? args.contactIds.filter((x): x is string => typeof x === "string").slice(0, 20) : [];
+        const q = str(args.q, 100);
+        const limit = limitArg(args.limit, CONVERSATIONS_MAX, 10);
+        // A text filter reads the most it may, then keeps the matches.
+        const found = await list(ids.length ? ids : undefined, q ? 50 : limit);
+        const hits = (q ? found.filter((c) => conversationMatches(c, q)) : found).slice(0, limit);
+        return {
+          conversations: hits.map((c) => ({ ...conversationOut(c), ...(c.lastMessage ? { lastMessage: messageOut(c.lastMessage) } : {}) })),
+          ...(q && !hits.length ? { note: `None of the ${found.length} most recent conversations mention "${q}".` } : {}),
+        };
+      },
+    },
+    {
+      name: "read_conversation",
+      description: "One email or LinkedIn conversation's latest messages, oldest first. A message whose text the user may not read shows hidden.",
+      args: "conversationId (from list_conversations), limit? (max 12)",
+      async run(args) {
+        const id = str(args.conversationId, 100);
+        if (!id) throw new Error("conversationId is required");
+        const out = await thread(id, limitArg(args.limit, THREAD_MESSAGES_MAX, THREAD_MESSAGES_MAX));
+        if (!out) return { error: "No such conversation, or the user cannot see it." };
+        // Newest messages win the budget: an older one that doesn't fit is left out, as olderMessages says.
+        const kept: ReturnType<typeof messageOut>[] = [];
+        let used = 0;
+        for (const m of [...out.messages].reverse().map(messageOut)) {
+          const size = (m.text ?? "").length + 80;
+          if (kept.length && used + size > THREAD_TEXT_BUDGET) break;
+          kept.unshift(m);
+          used += size;
+        }
+        return { ...conversationOut(out.conversation), olderMessages: out.more || kept.length < out.messages.length, messages: kept };
+      },
+    },
+  ];
+}
 
 export function askTools(data: AskData): AskTool[] {
   const infos = new Map<string, Promise<ObjectInfo | null>>();
@@ -157,11 +243,11 @@ export function askTools(data: AskData): AskTool[] {
     {
       name: "search_records",
       description: "Find records by name (accounts and contacts by name, other objects by title), best matches first. Use to get ids.",
-      args: "q (text), objects? (array of object names; default account, contact, deal), limit? (max 20)",
+      args: "q (text), objects? (array of object names; default account, contact, deal, meeting), limit? (max 20)",
       async run(args, seen) {
         const q = str(args.q);
         if (!q) throw new Error("q is required");
-        const objects = Array.isArray(args.objects) && args.objects.length ? [...new Set(args.objects.map((o) => objectArg(o)))] : ["account", "contact", "deal"];
+        const objects = Array.isArray(args.objects) && args.objects.length ? [...new Set(args.objects.map((o) => objectArg(o)))] : ["account", "contact", "deal", "meeting"];
         const hits = await data.search(q, objects, limitArg(args.limit, SEARCH_MAX, 10));
         return { hits: hits.map((h) => note(seen, h.object, h.id, h.title)) };
       },
@@ -204,7 +290,7 @@ export function askTools(data: AskData): AskTool[] {
         ]);
         return {
           ...ref,
-          values: valuesOf(o, row),
+          values: valuesOf(o, row, DETAIL_TEXT_MAX),
           ...(facts ? { facts: facts.slice(0, 40).map((f) => ({ attribute: f.attribute, value: f.value, state: f.state, source: f.sourceKind })) } : {}),
           ...(object === "account"
             ? {
@@ -234,5 +320,6 @@ export function askTools(data: AskData): AskTool[] {
         return { current: out.state, facts: out.facts.slice(0, RECEIPTS_MAX).map(trimFact) };
       },
     },
+    ...conversationTools(data),
   ];
 }

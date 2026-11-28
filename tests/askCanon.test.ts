@@ -90,3 +90,45 @@ test("the loop is capped: after MAX_ROUNDS the model may only answer, and a bad 
   assert.ok(model.prompts[1].includes('"error"'), "the model is told what went wrong");
   assert.match(result.answer, /couldn't work out/);
 });
+
+test("conversation tools find a counterpart who isn't a contact and hide text the caller may not read", async () => {
+  const yasser = {
+    conversationId: "c1", channel: "email", mine: true, lastMessageAt: Date.UTC(2026, 10, 20), contactIds: [],
+    counterpart: { name: "Yasser Khan", email: "yasser@seismic.com", domain: "seismic.com" }, subject: "Pilot scope",
+    lastMessage: { direction: "in", at: Date.UTC(2026, 10, 20), from: "yasser@seismic.com", text: "Sending the order form Monday." },
+  };
+  const other = { ...yasser, conversationId: "c2", counterpart: { name: "Ada" }, subject: "Hello", lastMessage: { direction: "in", at: 1, from: "ada", hidden: true } };
+  const asked: Array<string[] | undefined> = [];
+  const data: AskData = {
+    ...recordAskData((await twoOrgs()).client, "orgA", noLedger),
+    async conversations(contactIds) { asked.push(contactIds); return [yasser, other]; },
+    async thread(id) { return id === "c1" ? { conversation: yasser, messages: [yasser.lastMessage, other.lastMessage], more: false } : null; },
+  };
+  const tools = new Map(askTools(data).map((t) => [t.name, t]));
+  const run = (name: string, args: Record<string, unknown>) => tools.get(name)!.run(args, new Map()) as Promise<Record<string, unknown>>;
+
+  const found = (await run("list_conversations", { q: "yasser" })).conversations as Array<Record<string, unknown>>;
+  assert.deepEqual(found.map((c) => c.conversationId), ["c1"]);
+  assert.equal(asked[0], undefined, "no contactIds reads the caller's own conversations");
+  assert.match((await run("list_conversations", { q: "nobody" })).note as string, /None of the 2/);
+
+  const read = await run("read_conversation", { conversationId: "c1" });
+  const messages = read.messages as Array<Record<string, unknown>>;
+  assert.equal(messages[0].text, "Sending the order form Monday.");
+  assert.deepEqual([messages[1].text, messages[1].hidden], [null, true]);
+  assert.deepEqual(await run("read_conversation", { conversationId: "c9" }), { error: "No such conversation, or the user cannot see it." });
+
+  // Without conversations wired, the tools aren't offered.
+  assert.equal(askTools(recordAskData((await twoOrgs()).client, "orgA", noLedger)).some((t) => t.name === "list_conversations"), false);
+});
+
+test("read_conversation keeps the newest messages when a thread is long", async () => {
+  const at = (i: number) => Date.UTC(2026, 10, i + 1);
+  const messages = Array.from({ length: 12 }, (_, i) => ({ direction: "in", at: at(i), from: "y", text: `m${i} ${"x".repeat(1400)}` }));
+  const conversation = { conversationId: "c1", channel: "email", mine: true, lastMessageAt: at(11), contactIds: [], counterpart: {} };
+  const data: AskData = { ...recordAskData((await twoOrgs()).client, "orgA", noLedger), conversations: async () => [], thread: async () => ({ conversation, messages, more: false }) };
+  const read = (await askTools(data).find((t) => t.name === "read_conversation")!.run({ conversationId: "c1" }, new Map())) as { messages: Array<{ text: string }>; olderMessages: boolean };
+  assert.ok(read.messages.at(-1)!.text.startsWith("m11"), "the newest message survives");
+  assert.ok(read.messages.length < 12 && read.olderMessages);
+  assert.ok(JSON.stringify(read).length < 6_000, "fits one tool result");
+});

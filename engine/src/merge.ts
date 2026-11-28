@@ -58,7 +58,7 @@ const CONFLICT_IGNORED_FIELDS = new Set([
 
 export function normalizeDomain(domain?: string): string | undefined {
   if (!domain) return undefined;
-  return domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, "") || undefined;
+  return domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split(/[/?#]/, 1)[0] || undefined;
 }
 
 function normalizeEmail(email?: string): string | undefined {
@@ -80,8 +80,12 @@ export function mergeSnapshots(snapshots: CanonicalGtmSnapshot[]): {
   const sources = snapshots.map((snapshot) => snapshot.provider);
   const matches: MergeMatch[] = [];
   const conflicts: MergeConflict[] = [];
-  // Original id (per source snapshot) → merged id, used to re-point references.
-  const idRemap = new Map<string, string>();
+  // Provider IDs can overlap across object types.
+  const idRemap = {
+    user: new Map<string, string>(),
+    account: new Map<string, string>(),
+    contact: new Map<string, string>(),
+  };
 
   function namespaced(provider: string, id: string) {
     return `${provider}:${id}`;
@@ -111,13 +115,13 @@ export function mergeSnapshots(snapshots: CanonicalGtmSnapshot[]): {
             identities: [identityOf({ ...record, provider: record.provider ?? provider })],
           };
           merged.push(copy);
-          idRemap.set(sourceId, sourceId);
+          idRemap[type].set(sourceId, sourceId);
           for (const entry of keyed) byKey.set(`${entry.matchedBy}:${entry.key}`, copy);
           continue;
         }
 
         const primary = existing.match;
-        idRemap.set(sourceId, primary.id);
+        idRemap[type].set(sourceId, primary.id);
         primary.identities = [
           ...(primary.identities ?? []),
           identityOf({ ...record, provider: record.provider ?? provider }),
@@ -160,6 +164,12 @@ export function mergeSnapshots(snapshots: CanonicalGtmSnapshot[]): {
     },
   );
 
+  function remapRef(type: MergeMatch["type"] | "deal", provider: string, id?: string) {
+    if (id === undefined) return undefined;
+    const sourceId = namespaced(provider, id);
+    return type === "deal" ? sourceId : idRemap[type].get(sourceId) ?? sourceId;
+  }
+
   // A shared domain inside a recorded corporate family is not identity. Block
   // that domain from cross-system collapsing before any records are combined.
   const familyDomains = new Set<string>();
@@ -180,6 +190,7 @@ export function mergeSnapshots(snapshots: CanonicalGtmSnapshot[]): {
       provider: snapshot.provider,
       records: snapshot.accounts.map((account) => ({
         ...account,
+        ownerId: remapRef("user", snapshot.provider, account.ownerId),
         parentAccountId: account.parentAccountId ? namespaced(snapshot.provider, account.parentAccountId) : undefined,
       })),
     })),
@@ -208,18 +219,22 @@ export function mergeSnapshots(snapshots: CanonicalGtmSnapshot[]): {
 
   const contacts = mergeCollection(
     "contact",
-    snapshots.map((snapshot) => ({ provider: snapshot.provider, records: snapshot.contacts })),
+    snapshots.map((snapshot) => ({
+      provider: snapshot.provider,
+      records: snapshot.contacts.map((contact) => ({
+        ...contact,
+        accountId: remapRef("account", snapshot.provider, contact.accountId),
+        ownerId: remapRef("user", snapshot.provider, contact.ownerId),
+      })),
+    })),
     (contact) => {
       const email = normalizeEmail(contact.email);
       return email ? [{ key: email, matchedBy: "email" as const }] : [];
     },
   );
 
-  const remapRef = (provider: string, id?: string) =>
-    id === undefined ? undefined : idRemap.get(`${provider}:${id}`) ?? namespaced(provider, id);
-
   for (const account of accounts) {
-    if (account.parentAccountId) account.parentAccountId = idRemap.get(account.parentAccountId) ?? account.parentAccountId;
+    if (account.parentAccountId) account.parentAccountId = idRemap.account.get(account.parentAccountId) ?? account.parentAccountId;
   }
 
   const deals = snapshots.flatMap((snapshot) =>
@@ -228,8 +243,8 @@ export function mergeSnapshots(snapshots: CanonicalGtmSnapshot[]): {
       id: namespaced(snapshot.provider, deal.id),
       provider: deal.provider ?? snapshot.provider,
       identities: [identityOf({ ...deal, provider: deal.provider ?? snapshot.provider })],
-      accountId: remapRef(snapshot.provider, deal.accountId),
-      ownerId: remapRef(snapshot.provider, deal.ownerId),
+      accountId: remapRef("account", snapshot.provider, deal.accountId),
+      ownerId: remapRef("user", snapshot.provider, deal.ownerId),
     })),
   );
 
@@ -238,10 +253,10 @@ export function mergeSnapshots(snapshots: CanonicalGtmSnapshot[]): {
       ...activity,
       id: namespaced(snapshot.provider, activity.id),
       provider: activity.provider ?? snapshot.provider,
-      accountId: remapRef(snapshot.provider, activity.accountId),
-      contactId: remapRef(snapshot.provider, activity.contactId),
-      dealId: remapRef(snapshot.provider, activity.dealId),
-      ownerId: remapRef(snapshot.provider, activity.ownerId),
+      accountId: remapRef("account", snapshot.provider, activity.accountId),
+      contactId: remapRef("contact", snapshot.provider, activity.contactId),
+      dealId: remapRef("deal", snapshot.provider, activity.dealId),
+      ownerId: remapRef("user", snapshot.provider, activity.ownerId),
     })),
   );
 

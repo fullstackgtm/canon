@@ -46,7 +46,7 @@ async function summaryOf(ctx: QueryCtx, access: Access, c: Doc<"conversations">)
   const [last] = (await readableThread(ctx, access, c, 1)).messages;
   return {
     conversationId: c._id, channel: c.channel, ownerUserId: c.ownerUserId, mine: c.ownerUserId === access.userId,
-    counterpart: c.counterpart, contactIds: c.contactIds, lastMessageAt: c.lastMessageAt,
+    counterpart: c.counterpart, ...(c.subject ? { subject: c.subject } : {}), contactIds: c.contactIds, lastMessageAt: c.lastMessageAt,
     lastMessage: (last ?? null) as ThreadMessage | null, extraction: extractionOf(c),
   };
 }

@@ -2,7 +2,7 @@
 
 import { IntegrationGate, IntegrationReport } from "@/components/integration-gate";
 import { INTEGRATION_FEATURES } from "./catalog";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useSyncExternalStore } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -135,9 +135,16 @@ function IntegrationsContent() {
   );
 }
 
+const subscribe = () => () => {};
+
 export default function IntegrationsPage() {
+  // Convex can answer before hydration finishes, so the first client render would show statuses and the
+  // deployment report that the server rendered as loading (a hydration mismatch). Hydrate the fallback first.
+  const hydrated = useSyncExternalStore(subscribe, () => true, () => false);
+  const fallback = <ViewFrame title="Integrations"><p className="text-sm text-muted-foreground">Loading integrations...</p></ViewFrame>;
+  if (!hydrated) return fallback;
   return (
-    <Suspense fallback={<ViewFrame title="Integrations"><p className="text-sm text-muted-foreground">Loading integrations...</p></ViewFrame>}>
+    <Suspense fallback={fallback}>
       <IntegrationsContent />
     </Suspense>
   );

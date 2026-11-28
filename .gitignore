@@ -81,6 +81,8 @@ hubspot.config.yml
 # and a cloud .env.local that worktree-setup.sh moved aside (.devstack/env.local.cloud-backup*).
 # Unanchored: the resource runner also writes .devstack/activity in a service directory it runs from.
 .devstack/
+# Bombadil traces from npm run e2e:bombadil.
+.bombadil/
 # belt and braces in case a moved-aside env file is ever relocated
 *.cloud-backup
 *.cloud-backup.*
