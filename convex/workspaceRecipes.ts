@@ -24,6 +24,10 @@ import { apply } from "../recipes/md/edit.ts";
 import { copySlug, copyTitle, forkMarkdown, isWorkspaceId, lineDiff, orgSlug, workspaceId, workspaceProblems, type WorkspaceSource } from "../recipes/workspace.ts";
 import { bundleHash } from "../services/recipe-runtime/src/protocol.ts";
 
+import { customObjectRows } from "./lib/objects/orgDefs";
+import { isCustomObjectName } from "../modules/kernel/reportLanguage";
+import { may } from "./lib/access";
+import { accessFor } from "./permissions";
 import { ownLayer, ownLayers, pageBase, personalPage, rebaseLayer, targetFor, workspacePagesInLayer } from "./lib/pageLayers";
 
 const REVISIONS_SHOWN = 20;
@@ -527,8 +531,13 @@ export const workflowBases = internalQuery({
       const resolved = await personalPage(ctx, user, layer.target, layer.recipeId);
       for (const page of resolved?.recipe.workspacePages ?? []) if (!resolved!.basePages.includes(page.slug) || layer.target.key === page.slug) targets.set(page.slug, layer.recipeId);
     }
+    const access = await accessFor(ctx, user);
+    for (const row of await customObjectRows(ctx, user.orgId)) {
+      if (row.object?.archivedAt === undefined && may(access, row.apiName, "read") && !targets.has(row.apiName)) targets.set(row.apiName, "canon-base");
+    }
     const pages = [];
     for (const [target, recipeId] of targets) {
+      if (isCustomObjectName(target) && !may(access, target, "read")) continue;
       const base = await pageBase(ctx, user.orgId, recipeId, targetFor(target));
       let personal = await personalPage(ctx, user, targetFor(target), base.recipeId);
       if (!personal && !["deal", "account", "contact"].includes(target)) {

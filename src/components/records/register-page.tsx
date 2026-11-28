@@ -6,6 +6,7 @@
  * An edit goes through records.edit, which puts a row nobody has worked onto the ledger first, and returns once the
  * row shows it. History exists once the row is on the ledger.
  */
+import { highlightsActions, useRecordBlockRenderers } from "./record-blocks";
 import { dataRenderers } from "./data-section";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ModulePanels } from "../modules/module-panels";
@@ -36,7 +37,7 @@ import { SelectField } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/utils";
 import { useScopedQuery } from "@/lib/use-scoped-query";
-import { groupFields, offered, sectionActions, type ActionId, type ComponentOf, type Context, type PageSection, type PageSpec } from "../../../recipes";
+import { groupFields, offered, sectionActions, type ActionId, type PageAction, type ComponentOf, type Context, type PageSection, type PageSpec } from "../../../recipes";
 import { fieldPatch, hasOwnRow, InlineField, primaryListOf, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
 import { LookupField } from "./lookup-field";
 import { CRM_NAME, CrmFieldNote } from "./crm-note";
@@ -198,7 +199,7 @@ export function RegisterRecordPage({ object, id, inDialog, layout: preview, layo
 }
 
 /** The first action the page offers for `runs` in `host`, or null when the recipe leaves it out. */
-const offerOf = (p: Page, section: PageSection, host: "header" | "fields", runs: ActionId, here: Context = {}) =>
+const offerOf = (p: Page, section: PageSection, host: "fields", runs: ActionId, here: Context = {}) =>
   offered(sectionActions(section), host, [runs], { ...p.ctx, ...here }, {}, p.object)[0] ?? null;
 
 const userName = (team: TeamMember[] | undefined) => (uid: string) => team?.find((u) => u._id === uid)?.name ?? "A teammate";
@@ -211,6 +212,43 @@ function logLabel(p: Page, section: PageSection) {
   return (kind: ActivityObject) => offered([action], "timeline", [action.runs], p.ctx, { kind: KIND_LABEL[kind] }, p.object)[0]?.label ?? KIND_LABEL[kind];
 }
 
+function partyHeaderControls(p: Page, actions: readonly PageAction[], host: "header" | "highlights") {
+  const { object, id, row, desc: { fields }, team } = p;
+  const offer = (runs: ActionId) => offered(actions, host, [runs], p.ctx, {}, object)[0];
+  const status = offer("kernel.setStatus"), owner = offer("kernel.setOwner"), merge = offer("kernel.merge"), restore = offer("kernel.restore"), archive = offer("kernel.archive");
+  const statusField = fields.find((f) => f.apiName === "status"), ownerField = fields.find((f) => f.apiName === "ownerId");
+  const lookupAccountId = object === "contact" && row.accountId ? row.accountId : undefined;
+  const controls = actions.flatMap((a): ReactNode[] => {
+    const placed = (o: typeof status) => o?.action.id === a.id;
+    if (placed(status) && statusField) {
+      return [<StatusSelect key={a.id} label={status!.label} disabled={status!.disabled} value={(valueOf(fields, row.values, "status") as AccountStatus | undefined) ?? "new"} onChange={(next) => void p.saveField(statusField, next)} />];
+    }
+    if (placed(owner) && ownerField) {
+      return [<SelectField key={a.id} aria-label={owner!.label} disabled={owner!.disabled} value={(valueOf(fields, row.values, "ownerId") as string | undefined) ?? ""}
+        onValueChange={(v) => void p.saveField(ownerField, v || null)}
+        options={[{ value: "", label: "Unassigned" }, ...(team ?? []).filter((u) => u.isActive).map((u) => ({ value: u._id, label: u.name }))]} />];
+    }
+    if ((a.runs === "kernel.findEmail" || a.runs === "kernel.findPhone") && lookupAccountId) {
+      const find = offered([a], host, [a.runs], p.ctx, {}, object)[0];
+      const kind = a.runs === "kernel.findEmail" ? "email" : "phone";
+      return find ? [<FindContactInfo key={a.id} kind={kind} label={find.label} disabled={find.disabled} accountId={lookupAccountId} contactId={id} name={row.title || "this person"} className="py-1.5" onFound={p.refresh} />] : [];
+    }
+    if (placed(restore)) return [<ArchiveButton key={a.id} page={p} archived={false} label={restore!.label} disabled={restore!.disabled} />];
+    if (placed(archive)) return [<ArchiveButton key={a.id} page={p} archived label={archive!.label} disabled={archive!.disabled} />];
+    if (placed(merge)) return [<MergeButton key={a.id} page={p} label={merge!.label} disabled={merge!.disabled} />];
+    return [];
+  });
+  return controls;
+}
+
+function usePartyRecordBlocks(p: Page) {
+  return useRecordBlockRenderers({
+    data: { object: p.object, id: p.id, desc: p.desc, title: p.row.title, values: p.row.values, version: p.row.version, team: p.team },
+    page: p.page, context: p.ctx,
+    actions: (section) => partyHeaderControls(p, highlightsActions(section), "highlights"),
+  });
+}
+
 /** The sections an account's page and a contact's page draw the same way. */
 function partyRenderers(p: Page, title: { aside?: ReactNode; extra?: ReactNode }): Pick<Renderers<ComponentOf<Party>>, "header" | "fields" | "history"> {
   const { object, id, desc, row, deleted, team } = p;
@@ -221,30 +259,7 @@ function partyRenderers(p: Page, title: { aside?: ReactNode; extra?: ReactNode }
   const lastFields = groups.at(-1)?.section;
   return {
     header: (section, { held }) => {
-      const offer = (runs: ActionId) => offerOf(p, section, "header", runs);
-      const status = offer("kernel.setStatus"), owner = offer("kernel.setOwner"), merge = offer("kernel.merge"), restore = offer("kernel.restore"), archive = offer("kernel.archive");
-      const statusField = fields.find((f) => f.apiName === "status"), ownerField = fields.find((f) => f.apiName === "ownerId");
-      const lookupAccountId = object === "contact" && row.accountId ? row.accountId : undefined;
-      const controls = sectionActions(section).flatMap((a): ReactNode[] => {
-        const placed = (o: typeof status) => o?.action.id === a.id;
-        if (placed(status) && statusField) {
-          return [<StatusSelect key={a.id} label={status!.label} disabled={status!.disabled} value={(valueOf(fields, row.values, "status") as AccountStatus | undefined) ?? "new"} onChange={(next) => void p.saveField(statusField, next)} />];
-        }
-        if (placed(owner) && ownerField) {
-          return [<SelectField key={a.id} aria-label={owner!.label} disabled={owner!.disabled} value={(valueOf(fields, row.values, "ownerId") as string | undefined) ?? ""}
-            onValueChange={(v) => void p.saveField(ownerField, v || null)}
-            options={[{ value: "", label: "Unassigned" }, ...(team ?? []).filter((u) => u.isActive).map((u) => ({ value: u._id, label: u.name }))]} />];
-        }
-        if ((a.runs === "kernel.findEmail" || a.runs === "kernel.findPhone") && lookupAccountId) {
-          const find = offered([a], "header", [a.runs], p.ctx, {}, object)[0];
-          const kind = a.runs === "kernel.findEmail" ? "email" : "phone";
-          return find ? [<FindContactInfo key={a.id} kind={kind} label={find.label} disabled={find.disabled} accountId={lookupAccountId} contactId={id} name={row.title || "this person"} className="py-1.5" onFound={p.refresh} />] : [];
-        }
-        if (placed(restore)) return [<ArchiveButton key={a.id} page={p} archived={false} label={restore!.label} disabled={restore!.disabled} />];
-        if (placed(archive)) return [<ArchiveButton key={a.id} page={p} archived label={archive!.label} disabled={archive!.disabled} />];
-        if (placed(merge)) return [<MergeButton key={a.id} page={p} label={merge!.label} disabled={merge!.disabled} />];
-        return [];
-      });
+      const controls = partyHeaderControls(p, sectionActions(section), "header");
       return (
         <div className="record-header">
           <div>
@@ -370,6 +385,7 @@ function AccountSections(p: Page) {
   ) : null;
   const renderers: Renderers<ComponentOf<"account">> = {
     ...shared,
+    ...usePartyRecordBlocks(p),
     ...dataRenderers({ id, values: row.values, ...(data ? { company: { domain: data.account.domain, ...(data.account.stream ? { stream: data.account.stream } : {}) } } : {}) }, p.desc.fields, "account", p.ctx),
     fitBar: () => (data ? <FitBar fit={data.account.fit} explanation={explanation} /> : null),
     whyFit: (section, { held }) => data ? (
@@ -401,6 +417,7 @@ function ContactSections(p: Page) {
   const fields = desc.fields;
   const renderers: Renderers<ComponentOf<"contact">> = {
     ...partyRenderers(p, {}),
+    ...usePartyRecordBlocks(p),
     ...dataRenderers({ id, values: row.values }, desc.fields, "contact", p.ctx),
     aiFields: (section) => aiFields.length > 0 ? <AiFieldsPanel fields={aiFields} answers={aiAnswers?.[id]} contactId={id} actions={sectionActions(section)} ctx={p.ctx} title={section.title} /> : null,
     related: (section) => <ContactRelations contactId={id} placed={{ actions: sectionActions(section), ctx: p.ctx }} />,

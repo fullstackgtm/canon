@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { validPageSlug, PAGE_ICONS, RESERVED_PAGE_SLUGS } from "../pages.ts";
 import { pageKind, componentsOf } from "../blocks.ts";
 import { DATA_QUERY_GRAMMAR, isDataComponent, validateDataQuery } from "../data.ts";
@@ -8,7 +9,7 @@ import { parseLayout, pageKeys, LAYOUT_GRAMMAR, type LayoutTree } from "../layou
  * (a Canon built-in or a name the recipe's TypeScript registers), the plays data and the evals. Every problem comes
  * with its line. Pure, so it runs in a Convex action at install time, in the browser and in Node.
  */
-import { BLOCKS, SECTION_ATTRIBUTES, whenOf } from "../blocks.ts";
+import { BLOCKS, SECTION_ATTRIBUTES, whenOf, isRecordBlock, parseRecordProps, RECORD_PROPS } from "../blocks.ts";
 import { themeDeclProblems, type ThemeDecl } from "../theme.ts";
 import { DEAL_ROLES } from "../../convex/lib/objects/registry.ts";
 import { DEAL_STAGES, PLAY_CHANNELS, type DealStage } from "../../convex/lib/plays/model.ts";
@@ -448,7 +449,7 @@ const EVAL_KEYS = ["name", "description", "call", "expect"];
 const ACTION_KEYS = ["id", "label", "label_after", "runs", "prompt", "prompts", "review", "input", "writes", "fields", "shows", "enabled", "llm", "gate", "done", "note"];
 const ACTION_ID = /^[a-z][A-Za-z0-9]{0,39}$/;
 const PLAYS_FENCES = ["stages", "data", "people"];
-const KNOWN_FENCES = ["query", "layout", "fields", "action", "logic", "evals", "ts", "choices", "schema", "output", "theme", "template", "ai-fields", ...PLAYS_FENCES];
+const KNOWN_FENCES = ["props", "query", "layout", "fields", "action", "logic", "evals", "ts", "choices", "schema", "output", "theme", "template", "ai-fields", ...PLAYS_FENCES];
 const TEMPLATE_ATTRS = ["kind", "key"];
 /** Questions Jev answers rather than prompts a model is sent: the remit (people.center) and the buyer fit (people.fit). */
 const JEV_PROMPTS = ["people.center", "people.fit"];
@@ -561,8 +562,9 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
 
   // ── Pages: the sections under a {page=<object>} heading lay out that object's page, and any others the deal's ──
   for (const h of headings.filter((x) => x.role === "page")) {
-    if (pageKind(h.attrs.page) === "workspace") {
-      if (!validPageSlug(h.attrs.page)) at(h.line, "page slug must be lowercase kebab and cannot name an existing dashboard route");
+    if (pageKind(h.attrs.page) === "custom" && h.attrs.nav && h.attrs.nav !== "hidden") at(h.line, "a custom record page has hidden navigation");
+    if (!PAGE_OBJECTS.some((object) => object === h.attrs.page)) {
+      if (pageKind(h.attrs.page) === "workspace" && !validPageSlug(h.attrs.page)) at(h.line, "page slug must be lowercase kebab and cannot name an existing dashboard route");
       if (!h.title || h.title.length > 80) at(h.line, "a page needs a title of 1 to 80 characters");
       if (headings.some((x) => x !== h && x.role === "page" && x.attrs.page === h.attrs.page && x.line < h.line)) at(h.line, "page slug is declared twice");
       if (h.attrs.nav !== undefined && !["main", "hidden"].includes(h.attrs.nav)) at(h.line, "nav is main or hidden");
@@ -624,6 +626,19 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
   }
   for (const s of sections) if (s.section.component === "fields" && s.fieldsLine === null) at(s.line, `section ${s.section.title} needs a \`\`\`fields block naming its fields`);
 
+  for (const f of fences.filter((f) => f.lang === "props")) {
+    const open = sections.find((s) => s.heading === f.heading);
+    if (!open || !isRecordBlock(open.section.component)) { at(f.line, "props belong under a record building block", "warning"); continue; }
+    if ("props" in open.section) { at(f.line, "only one props block per section"); continue; }
+    try {
+      const props = parseRecordProps(open.section.component, JSON.parse(f.lines.map((l) => l.text).join("\n")), pageKind(open.object));
+      open.section = { ...open.section, props } as unknown as PageSection;
+    } catch (e) { at(f.line, `props: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+  for (const s of sections) if (isRecordBlock(s.section.component) && !("props" in s.section)) {
+    try { s.section = { ...s.section, props: parseRecordProps(s.section.component, {}, pageKind(s.object)) } as unknown as PageSection; }
+    catch { at(s.line, "this block needs a valid props block"); }
+  }
   for (const f of fences.filter((x) => x.lang === "query")) {
     const open = sections.find((s) => s.heading === f.heading);
     if (!open || !isDataComponent(open.section.component)) { at(f.line, "a query belongs under a data section"); continue; }
@@ -918,7 +933,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
   }
   const opened = (object: string) => sections.filter((s) => s.object === object);
   const [dealPage, accountPage, contactPage] = PAGE_OBJECTS.map((o) => opened(o).map((s) => s.section));
-  const workspacePages = headings.filter((h) => h.role === "page" && pageKind(h.attrs.page) === "workspace").map((h) => ({ slug: h.attrs.page, title: h.title, ...(h.attrs.icon ? { icon: h.attrs.icon } : {}), nav: (h.attrs.nav ?? "main") as "main" | "hidden", sections: opened(h.attrs.page).map((s) => s.section) }));
+  const workspacePages = headings.filter((h) => h.role === "page" && !PAGE_OBJECTS.some((object) => object === h.attrs.page)).map((h) => ({ slug: h.attrs.page, title: h.title, ...(h.attrs.icon ? { icon: h.attrs.icon } : {}), nav: (pageKind(h.attrs.page) === "custom" ? "hidden" : h.attrs.nav ?? "main") as "main" | "hidden", sections: opened(h.attrs.page).map((s) => s.section) }));
   const layouts: Partial<Record<string, LayoutTree>> = {};
   for (const f of fences.filter((f) => f.lang === "layout")) {
     const object = (enclosing(f.heading, "page")?.attrs.page ?? "deal") as PageObject;
@@ -975,7 +990,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
   const firstLine = (id: PointId) => {
     const page = PAGE_OBJECTS.find((o) => `${o}.page` === id);
     if (id === "workspace.theme") return themeFence?.line;
-    if (id === "workspace.pages") return headings.find((h) => h.role === "page" && pageKind(h.attrs.page) === "workspace")?.line;
+    if (id === "workspace.pages") return headings.find((h) => h.role === "page" && !PAGE_OBJECTS.some((object) => object === h.attrs.page))?.line;
     return page ? opened(page)[0]?.line : id === "fields" ? aiFence?.line : templateFences.find((t) => `templates.${t.kind}s` === id)?.f.line;
   };
   for (const id of POINT_IDS) {
@@ -1014,6 +1029,8 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
  * Every table that decides what a recipe.md may say, as plain data: tests/recipeFormat.test.ts hashes it against
  * RECIPE_GRAMMAR_SHA256, so the grammar can't change without the format's record of it (recipes/kernel.ts).
  */
+export const RECORD_PROPS_GRAMMAR = Object.fromEntries(Object.entries(RECORD_PROPS).map(([id, schema]) => [id, z.toJSONSchema(schema)]));
+
 export const RECIPE_GRAMMAR = {
   workspacePages: { reserved: RESERVED_PAGE_SLUGS, icons: PAGE_ICONS, nav: ["main", "hidden"] },
   layout: LAYOUT_GRAMMAR,
@@ -1024,7 +1041,8 @@ export const RECIPE_GRAMMAR = {
   settings: { columns: SETTING_COLUMNS, kinds: Object.keys(KIND_LIMITS), roles: DEAL_ROLES, channels: PLAY_CHANNELS, levels: LEVEL_IDS },
   headings: HEADING_ATTRS,
   stages: DEAL_STAGES,
-  components: { page: PAGE_COMPONENTS, play: PLAY_COMPONENTS, objects: { ...COMPONENTS, workspace: componentsOf("workspace") }, panels: PANELS, rest: REST_FIELDS, parts: PARTS },
+  recordProps: RECORD_PROPS_GRAMMAR,
+  components: { page: PAGE_COMPONENTS, play: PLAY_COMPONENTS, objects: { ...COMPONENTS, workspace: componentsOf("workspace"), custom: componentsOf("custom") }, panels: PANELS, rest: REST_FIELDS, parts: PARTS },
   fences: KNOWN_FENCES,
   templates: { attrs: TEMPLATE_ATTRS, kinds: TEMPLATE_KIND_IDS },
   fields: { keys: AI_FIELD_KEYS, objects: ["account", "contact"], kinds: ["classify", "qa"], answers: ["text", "number", "boolean"], autoAccept: AUTO_ACCEPT_RANGE, people: PEOPLE_REF_KEYS },

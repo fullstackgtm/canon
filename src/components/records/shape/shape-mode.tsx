@@ -77,7 +77,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
   const baseLens = useMemo(() => lensFor(base, markdown ? readLens(markdown, object) : []), [base, markdown, object]);
   const page = parsed?.page ?? base;
   const lens = parsed?.lens ?? baseLens;
-  const active = Boolean(markdown && recipeId);
+  const active = Boolean(effectiveMarkdown && recipeId);
 
   async function save(acceptFailingEvals = false) {
     if (!draft || !recipeId || !drafts.length) return;
@@ -178,7 +178,8 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
   useCustomizeAdapter(adapter, [active, jobs, drafts, markdown, base, recipeTitle, saved, object, personal, scope, customize?.workflow]);
 
   // Compare like with like: the recipe in force as the browser parses it, not as the server sent it.
-  const baseKeys = useMemo(() => new Set((markdown ? pageOf(parseRecipe(markdown).recipe, object) : base).map((s) => JSON.stringify(s))), [markdown, base, object]);
+  const workspaceMarkdown = personal?.workspaceMarkdown ?? markdown;
+  const baseKeys = useMemo(() => new Set((workspaceMarkdown ? pageOf(parseRecipe(workspaceMarkdown).recipe, object) : base).map((s) => JSON.stringify(s))), [workspaceMarkdown, base, object]);
   const shape: Shape | null = active && customize ? {
     indexOf: (s) => page.indexOf(s),
     changed: (s) => drafts.length > 0 && !baseKeys.has(JSON.stringify(s)),

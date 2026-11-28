@@ -52,6 +52,11 @@ export function PageSections<O extends import("../../../recipes/blocks").PageKin
   const draw = (entry: Entry) => (shape ? <ShapeSection section={entry.section}>{drawn(entry)}</ShapeSection> : drawn(entry));
   if (tree) {
     const keys = pageKeys(page);
+    const relatedIn = (node: LayoutNode): string[] => {
+      if (!("section" in node)) return node.children.flatMap(relatedIn);
+      const section = page[keys.indexOf(node.section)];
+      return section?.component === "relatedList" && shows(section, shownAt) ? [section.props.relationship] : [];
+    };
     const drawNode = (node: LayoutNode): ReactNode => {
       if ("section" in node) {
         const section = page[keys.indexOf(node.section)];
@@ -59,15 +64,15 @@ export function PageSections<O extends import("../../../recipes/blocks").PageKin
       }
       const children = node.children.map((child, i) => <div className="min-w-0" key={i}>{drawNode(child)}</div>);
       if (node.kind === "columns") return <div data-layout="columns" className="grid min-w-0 grid-cols-1 gap-4 md:grid-cols-[var(--layout-columns)]" style={{ "--layout-columns": (node.widths ?? node.children.map(() => 1)).map((w) => `minmax(0,${w}fr)`).join(" ") } as import("react").CSSProperties}>{children}</div>;
-      if (node.kind === "tabs") return <Tabs defaultValue="0" className="min-w-0"><TabsList className="h-auto max-w-full flex-wrap">{node.labels!.map((label, i) => <TabsTrigger key={i} value={String(i)}>{label}</TabsTrigger>)}</TabsList>{children.map((child, i) => <TabsContent key={i} value={String(i)} className="min-w-0">{child}</TabsContent>)}</Tabs>;
+      if (node.kind === "tabs") return <Tabs defaultValue="0" className="min-w-0"><TabsList className="h-auto max-w-full flex-wrap">{node.labels!.map((label, i) => <TabsTrigger key={i} value={String(i)} data-related-tab={relatedIn(node.children[i]).join(" ") || undefined}>{label}</TabsTrigger>)}</TabsList>{children.map((child, i) => <TabsContent key={i} value={String(i)} className="min-w-0">{child}</TabsContent>)}</Tabs>;
       if (node.kind === "card") return <section className="min-w-0 bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm"><h2 className="px-6 font-semibold leading-none">{node.title}</h2><div className="space-y-4 px-6">{children}</div></section>;
       return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">{children}</div>;
     };
-    return <div data-shape-page={shape ? "" : undefined} className="min-w-0">{drawNode(completeTree(tree, keys))}</div>;
+    return <div data-record-sections data-shape-page={shape ? "" : undefined} className="min-w-0">{drawNode(completeTree(tree, keys))}</div>;
   }
-  const rows = rowsOf(entriesOf(page.filter((s) => shows(s, shownAt))), (object === "workspace" ? [] : BESIDE[object as PageObject])).flatMap((row) => ("left" in row && !row.right.length ? row.left : [row]));
+  const rows = rowsOf(entriesOf(page.filter((s) => shows(s, shownAt))), (BESIDE[object as PageObject] ?? [])).flatMap((row) => ("left" in row && !row.right.length ? row.left : [row]));
   return (
-    <div data-shape-page={shape ? "" : undefined} className="grid grid-cols-[minmax(0,1fr)] gap-4">
+    <div data-record-sections data-shape-page={shape ? "" : undefined} className="grid grid-cols-[minmax(0,1fr)] gap-4">
       {rows.map((row, i) => "section" in row ? <Fragment key={i}>{draw(row)}</Fragment> : (
         <div key={i} className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-4">{row.left.map((s, j) => <Fragment key={j}>{draw(s)}</Fragment>)}</div>

@@ -11,7 +11,7 @@ import { CONTAINERS, completeTree, pageKeys, printLayout, sectionKey, validateTr
  */
 import { DEAL_STAGES, type DealStage } from "../../convex/lib/plays/model.ts";
 import { PANELS, placements, type ActionId, type PageAction, type Panel } from "../actions.ts";
-import { BLOCKS, componentsOf, pageKind } from "../blocks.ts";
+import { BLOCKS, componentsOf, pageKind, isRecordBlock, parseRecordProps, type RecordProps } from "../blocks.ts";
 import { pageOf, PAGE_KEYS, isComponentOf, type PageComponent, type PageObject, type PageSection, type PageSpec } from "../kernel.ts";
 import { hasErrors, parseRecipe, readBlock, type CompiledRecipe, type Problem } from "./parse.ts";
 
@@ -26,19 +26,20 @@ export type When = { stage: readonly DealStage[] } | { notStage: readonly DealSt
 
 /** One layout edit. An action is known by its id, which is unique on its page; `before: null` puts a thing last. */
 export type TreeOp =
-  | { op: "wrapSections"; object: string; sections: SectionRef[]; kind: Exclude<ContainerKind, "stack">; id: string; props?: ContainerProps }
+  | { op: "wrapSections"; object: string; sections: SectionRef[]; kind: ContainerKind; id: string; props?: ContainerProps }
   | { op: "unwrap"; object: string; container: string }
   | { op: "moveIntoContainer"; object: string; section: SectionRef; container: string; before: SectionRef | null }
   | { op: "setContainerProps"; object: string; container: string; props: ContainerProps };
-export type PageOp = { op: "addPage"; slug: string; title: string; icon?: string } | { op: "removePage"; slug: string };
+export type PageOp = { op: "addPage"; slug: string; title: string; icon?: string; record?: boolean } | { op: "removePage"; slug: string };
 export type LayoutOp = PageOp | TreeOp
+  | { op: "setProps"; object: string; section: SectionRef; props: RecordProps }
   | { op: "setQuery"; object: string; section: SectionRef; query: DataQuery }
   | { op: "moveSection"; object: string; section: SectionRef; before: SectionRef | null }
   | { op: "setCollapsed"; object: string; section: SectionRef; collapsed: boolean }
   | { op: "setWhen"; object: "deal"; section: SectionRef; when: When | null }
   | { op: "renameSection"; object: string; section: SectionRef; title: string }
   | { op: "removeSection"; object: string; section: SectionRef }
-  | { op: "addSection"; object: string; component: PageComponent; title: string; fields?: readonly string[]; query?: DataQuery; before: SectionRef | null }
+  | { op: "addSection"; object: string; component: PageComponent; title: string; fields?: readonly string[]; query?: DataQuery; props?: RecordProps; before: SectionRef | null }
   | { op: "moveAction"; object: string; section: SectionRef; action: string; before: string | null }
   | { op: "setActionLabel"; object: string; section: SectionRef; action: string; label: string }
   | { op: "removeAction"; object: string; section: SectionRef; action: string }
@@ -57,6 +58,7 @@ export type LayoutSection = {
   collapsed: boolean;
   when: When | null;
   fields?: readonly string[];
+  props?: RecordProps;
   query?: DataQuery;
   asQuery?: DataQuery;
   actions: Array<Pick<PageAction, "id" | "runs" | "label" | "labelAfter" | "panel" | "shows" | "enabled">>;
@@ -277,12 +279,12 @@ export function apply(markdown: string, op: LayoutOp): EditResult {
     const lines = [...doc.lines];
     let want: CompiledRecipe;
     if (op.op === "addPage") {
-      if (own || !validPageSlug(op.slug) || !op.title.trim() || /[\r\n{}]/.test(op.title) || (op.icon && !(PAGE_ICONS as readonly string[]).includes(op.icon))) return { error: "a page needs a unique lowercase kebab slug, a title and a sidebar icon" };
+      if (own || !(op.record ? pageKind(op.slug) === "custom" : validPageSlug(op.slug)) || !op.title.trim() || /[\r\n{}]/.test(op.title) || (op.icon && !(PAGE_ICONS as readonly string[]).includes(op.icon))) return { error: "a page needs a unique lowercase kebab slug, a title and a sidebar icon" };
       const contributes = lines.findIndex((l) => /^contributes:/.test(l));
       if (contributes < 0) return { error: "cannot locate contributes" };
       if (!recipe.meta.contributes.includes("workspace.pages")) lines[contributes] = lines[contributes].replace(/\]/, ", workspace.pages]").replace("[,", "[");
       put(lines, lines.at(-1) === "" ? lines.length - 1 : lines.length, [`# ${op.title} {page=${op.slug}${op.icon ? ` icon=${op.icon}` : ""}}`, ""]);
-      want = { ...recipe, meta: { ...recipe.meta, permissions: { ...recipe.meta.permissions, slots: [...new Set([...recipe.meta.permissions.slots, "workspace.pages" as const])] }, contributes: [...new Set([...recipe.meta.contributes, "workspace.pages" as const])] }, workspacePages: [...pages, { slug: op.slug, title: op.title, nav: "main", ...(op.icon ? { icon: op.icon } : {}), sections: [] }] };
+      want = { ...recipe, meta: { ...recipe.meta, permissions: { ...recipe.meta.permissions, slots: [...new Set([...recipe.meta.permissions.slots, "workspace.pages" as const])] }, contributes: [...new Set([...recipe.meta.contributes, "workspace.pages" as const])] }, workspacePages: [...pages, { slug: op.slug, title: op.title, nav: op.record ? "hidden" : "main", ...(op.icon ? { icon: op.icon } : {}), sections: [] }] };
     } else {
       const head = doc.heads.find((h) => h.attrs.page === op.slug);
       if (!own || !head) return { error: "page does not exist" };
@@ -299,7 +301,7 @@ export function apply(markdown: string, op: LayoutOp): EditResult {
     const next = lines.join(doc.eol), after = parse(next);
     return hasErrors(after.problems) || !same(after.recipe, want) ? { error: "page edit failed exactness check", problems: after.problems } : { markdown: next };
   }
-  if (pageKind(op.object) === "workspace" && !recipe.workspacePages?.some((p) => p.slug === op.object)) return { error: "page does not exist" };
+  if (!Object.hasOwn(PAGE_KEYS, op.object) && !recipe.workspacePages?.some((p) => p.slug === op.object)) return { error: "page does not exist" };
   const page = pageOf(recipe, op.object);
   const at = locate(doc, page, op.object);
   if (!at) return { error: `can't find the ${op.object} page's sections in the text` };
@@ -334,7 +336,7 @@ export function apply(markdown: string, op: LayoutOp): EditResult {
   const after = parse(next);
   const errors = after.problems.filter((p) => p.level === "error");
   if (errors.length) return { error: `the edit would break the customization: ${errors.map((p) => p.message).join("; ")}`, problems: errors };
-  const want: CompiledRecipe = { ...recipe, ...(pageKind(op.object) === "workspace" ? { workspacePages: recipe.workspacePages?.map((p) => p.slug === op.object ? { ...p, sections: plan.page } : p) } : { [PAGE_KEYS[op.object as PageObject]]: plan.page }), ...(layouts ? { layouts } : {}) };
+  const want: CompiledRecipe = { ...recipe, ...(!Object.hasOwn(PAGE_KEYS, op.object) ? { workspacePages: recipe.workspacePages?.map((p) => p.slug === op.object ? { ...p, sections: plan.page } : p) } : { [PAGE_KEYS[op.object as PageObject]]: plan.page }), ...(layouts ? { layouts } : {}) };
   const norm = (r: CompiledRecipe) => ({ ...r, dealPage: rendered(r.dealPage), accountPage: rendered(r.accountPage), contactPage: rendered(r.contactPage) });
   if (!same(norm(after.recipe), norm(want))) return { error: "the edit would change more than the layout it names" };
   return { markdown: next };
@@ -362,9 +364,15 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
       try { query = validateDataQuery(op.component, op.query, pageKind(op.object)); }
       catch (e) { return { error: String(e) }; }
     } else if (op.query) return { error: "only data sections accept queries" };
+    let props: RecordProps | undefined;
+    try {
+      if (isRecordBlock(op.component)) props = parseRecordProps(op.component, op.props, pageKind(op.object));
+      else if (op.props !== undefined) return { error: "only record building blocks take props" };
+    } catch (e) { return { error: String(e) }; }
     const before = op.before && sectionAt(op.before);
     if (before && "error" in before) return before;
     const block = [`${"#".repeat((at[0]?.head.level ?? pageHead!.level + 1))} ${title} {section=${op.component}}`, ...(op.component === "fields" ? ["", "```fields", fields.join(", "), "```"] : [])];
+    if (props) block.push("", "```props", ...JSON.stringify(props, null, 2).split("\n"), "```");
     if (query) block.push("", "```query", ...JSON.stringify(query, null, 2).split("\n"), "```");
     const runs = op.component === "form" ? "kernel.createRecord" : op.component === "board" || op.component === "detail" ? "kernel.editField" : undefined;
     const takenActions = new Set(page.flatMap((s) => s.actions?.map((a) => a.id) ?? []));
@@ -373,7 +381,7 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
     const actions: PageAction[] | undefined = runs ? [{ id: actionId, label: op.component === "form" ? "Create" : "Edit", runs }] : undefined;
     if (actions) for (const a of actions) block.push("", "```action", `id: ${a.id}`, `label: ${a.label}`, `runs: ${a.runs}`, "```");
     put(lines, before ? before.loc.head.at : (last?.head.end ?? pageHead!.end), block);
-    const section = { component: op.component, title, ...(op.component === "fields" ? { fields } : {}), ...(query ? { query } : {}), ...(actions ? { actions } : {}) } as PageSection;
+    const section = { component: op.component, title, ...(op.component === "fields" ? { fields } : {}), ...(query ? { query } : {}), ...(props ? { props } : {}), ...(actions ? { actions } : {}) } as PageSection;
     const i = before ? before.i : page.length;
     return { lines, page: [...page.slice(0, i), section, ...page.slice(i)] };
   }
@@ -416,6 +424,16 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
   const head = loc.head;
 
   switch (op.op) {
+    case "setProps": {
+      if (!isRecordBlock(s.component)) return { error: "only record building blocks take props" };
+      let props: RecordProps;
+      try { props = parseRecordProps(s.component, op.props, pageKind(op.object)); } catch (e) { return { error: String(e) }; }
+      const fence = doc.fences.find((f) => f.lang === "props" && f.head === head);
+      const content = JSON.stringify(props, null, 2).split("\n");
+      if (fence) lines.splice(fence.at + 1, fence.close - fence.at - 1, ...content);
+      else put(lines, head.at + 1, ["```props", ...content, "```"]);
+      return { lines, page: withSection(page, i, { ...s, props } as PageSection) };
+    }
     case "setQuery": {
       if (!isDataComponent(s.component)) return { error: "only data sections accept queries" };
       let query: DataQuery;
@@ -549,7 +567,7 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
 export function describeLayout(markdown: string, object: string): Layout | { error: string; problems?: Problem[] } {
   const { recipe, problems } = parse(markdown);
   if (hasErrors(problems)) return { error: "the customization has problems to fix before its layout can be edited", problems: problems.filter((p) => p.level === "error") };
-  if (pageKind(object) === "workspace" && !recipe.workspacePages?.some((p) => p.slug === object)) return { error: "page does not exist" };
+  if (!Object.hasOwn(PAGE_KEYS, object) && !recipe.workspacePages?.some((p) => p.slug === object)) return { error: "page does not exist" };
   const page = pageOf(recipe, object);
   const present = new Set(page.map((s) => s.component));
   return {
@@ -562,6 +580,7 @@ export function describeLayout(markdown: string, object: string): Layout | { err
       return {
         ref: refOf(page, i), component: s.component, title: s.title ?? s.component, collapsed: Boolean(s.collapsed), when: (s.when as When | undefined) ?? null,
         ...(s.component === "fields" ? { fields: s.fields } : {}),
+        ...("props" in s ? { props: s.props } : {}),
         ...("query" in s ? { query: s.query } : {}),
         ...(asQuery ? { asQuery } : {}),
         actions: actions.map((a) => ({ id: a.id, runs: a.runs, label: a.label, ...(a.labelAfter !== undefined ? { labelAfter: a.labelAfter } : {}), ...(a.panel ? { panel: a.panel } : {}), ...(a.shows !== undefined ? { shows: a.shows } : {}), ...(a.enabled !== undefined ? { enabled: a.enabled } : {}) })),
@@ -569,7 +588,7 @@ export function describeLayout(markdown: string, object: string): Layout | { err
           .map((p) => ({ runs: p.id, ...(hosts.get(p.host) ? { panel: hosts.get(p.host) } : {}) })),
       };
     }),
-    addable: componentsOf(pageKind(object)).filter((c) => c === "fields" || !present.has(c)),
+    addable: componentsOf(pageKind(object)).filter((c) => c === "fields" || c === "relatedList" || !present.has(c)),
   };
 }
 

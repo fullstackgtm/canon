@@ -26,6 +26,7 @@ const RUN_STATUS = ["none", "running", "done", "failed"];
 /** What every action on each object's page can read. */
 const PAGE: Readonly<Record<PageKind, Scope>> = {
   workspace: { canEdit: bool, deleted: bool },
+  custom: { canEdit: bool, canDelete: bool, deleted: bool },
   deal: {
     canEdit: bool,
     canDelete: bool,

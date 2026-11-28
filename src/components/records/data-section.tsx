@@ -22,7 +22,7 @@ import type { ObjectDescription } from "./fields";
 import type { Context } from "../../../recipes/conditions";
 
 type DataRecord = { id: string; values: Record<string, unknown>; company?: { domain: string; stream?: string } };
-type Fields = readonly { apiName: string; fieldId: string; label?: string; hidden?: boolean; type?: string }[];
+type Fields = readonly { apiName: string; fieldId: string; label?: string; hidden?: boolean; type?: string; options?: readonly { value: string; label: string }[] }[];
 type Answer = { desc: ObjectDescription; query: DataQuery; rows?: ListResponse; fields: Fields } | { rows: ListResponse; fields: Fields; unlinked?: string[] } | { aggregate: AggregateResponse; fields: Fields };
 export function DataSection({ section, record, fields, pageObject = "deal", context = {} }: { pageObject?: PageKind; context?: Context; section: Extract<PageSection, { component: DataComponent }>; record: DataRecord; fields: Fields }) {
   const client = useConvex();
@@ -82,7 +82,7 @@ export function DataSection({ section, record, fields, pageObject = "deal", cont
     {current?.error ? <p role="alert" className="text-sm text-muted-foreground">{current.error}</p> : current?.answer ? "desc" in current.answer && (section.component === "form" || section.component === "board" || section.component === "detail") ? <DataWriteResult externalSaves={saved} section={section} query={current.answer.query} desc={current.answer.desc} rows={current.answer.rows} pageObject={pageObject} context={context} record={record} pageFields={fields} reload={() => setGeneration((g) => g + 1)} /> : <DataResult kind={section.component} query={section.query} answer={current.answer} /> : <p role="status" className="text-sm text-muted-foreground">Loading records…</p>}
   </section>;
 }
-export function DataResult({ kind, query: q, answer }: { kind: DataComponent; query: DataQuery; answer: Answer }) {
+export function DataResult({ kind, query: q, answer, compact = false }: { kind: DataComponent; query: DataQuery; answer: Answer; compact?: boolean }) {
   if ("aggregate" in answer && "aggregate" in q) {
     const fieldOf = (name: string): FieldInfo | undefined => { const f = answer.fields.find((f) => f.apiName === name); return f ? { label: f.label ?? name, type: f.type ?? "text" } : undefined; };
     const groupBy = "groupBy" in q ? [q.groupBy] : [];
@@ -102,11 +102,12 @@ export function DataResult({ kind, query: q, answer }: { kind: DataComponent; qu
     if (value == null) return "—";
     if (f?.type === "currency" && typeof value === "number") return formatMoney(value, typeof row.values.currency === "string" ? row.values.currency : "USD", 2);
     if (f?.type === "checkbox") return value ? "Yes" : "No";
+    if (f?.type === "picklist") return f.options?.find((option) => option.value === value)?.label ?? String(value);
     return Array.isArray(value) ? value.join(", ") : String(value);
   };
-  const link = (row: ListResponse["rows"][number]) => "unlinked" in answer && answer.unlinked?.includes(row.id) ? <span>{row.title}</span> : <span className="inline-flex items-center gap-1"><RecordLink object={q.object} id={row.id} className="hover:underline">{row.title}</RecordLink><RecordQuickView object={q.object} id={row.id} label={row.title} /></span>;
+  const link = (row: ListResponse["rows"][number]) => "unlinked" in answer && answer.unlinked?.includes(row.id) ? <span>{row.title}</span> : <span className="inline-flex items-center gap-1"><RecordLink object={q.object} id={row.id} className={compact ? "whitespace-normal [overflow-wrap:anywhere] hover:underline" : "hover:underline"}>{row.title}</RecordLink>{!compact && <RecordQuickView object={q.object} id={row.id} label={row.title} />}</span>;
   if (kind === "list") return <ul className="divide-y divide-border">{answer.rows.rows.map((row) => <li key={row.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 py-2 text-sm">{link(row)}<span className="break-words text-muted-foreground">{q.columns.filter((c) => c !== "recordTitle").map((c) => cell(row, c)).join(" · ")}</span></li>)}</ul>;
-  return <div className="min-w-0 max-w-full overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Record</TableHead>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableHead key={c}>{label(c)}</TableHead>)}</TableRow></TableHeader><TableBody>{answer.rows.rows.map((row) => <TableRow key={row.id}><TableCell>{link(row)}</TableCell>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableCell key={c}>{cell(row, c)}</TableCell>)}</TableRow>)}</TableBody></Table></div>;
+  return <div className="min-w-0 max-w-full overflow-x-auto"><Table><TableHeader><TableRow><TableHead className={compact ? "px-1.5" : undefined}>Record</TableHead>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableHead className={compact ? "px-1.5" : undefined} key={c}>{label(c)}</TableHead>)}</TableRow></TableHeader><TableBody>{answer.rows.rows.map((row) => <TableRow key={row.id}><TableCell className={compact ? "px-1.5" : undefined}>{link(row)}</TableCell>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableCell className={compact ? "px-1.5 text-xs" : undefined} key={c}>{cell(row, c)}</TableCell>)}</TableRow>)}</TableBody></Table></div>;
 }
 export function dataRenderers(record: DataRecord, fields: Fields, pageObject: PageKind = "deal", context: Context = {}) {
   const render = (section: Extract<PageSection, { component: DataComponent }>) => <DataSection section={section} record={record} fields={fields} pageObject={pageObject} context={context} />;

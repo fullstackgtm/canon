@@ -30,3 +30,9 @@ export async function createDataRecord(client: Pick<ConvexReactClient, "action">
   if (problem) throw new Error(problem);
   return saveOf(out);
 }
+
+export function dataCreateFields(desc: ObjectDescription) {
+  return desc.fields.filter((f) => !f.hidden && !f.system && !desc.readOnlyFields.includes(f.apiName) &&
+    (desc.apiName !== "deal" ? f.required || f.fieldId === desc.titleFieldId
+      : ["name", "closeDate", "stage", "amount"].includes(f.apiName) || f.required && f.apiName.startsWith("custom.")));
+}

@@ -1,5 +1,7 @@
 "use client";
 
+import { RecordBlocks, highlightsActions } from "./record-blocks";
+import { pageKind } from "../../../recipes/blocks";
 import { dataRenderers } from "./data-section";
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -126,9 +128,11 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   // The workspace's deal page recipe lays out a deal: its play's sections and the record's, in its order.
   const recipe = useQuery(api.recipes.forOrg, object === "deal" && !layout ? {} : "skip");
   // Shape mode (prototype): an admin reshapes the deal page in words and judges it on this page.
-  const shapeRecipeId = object === "deal" && !layout && !inDialog && recipe ? recipe.dealPage.id : null;
-  const recipeMarkdown = useQuery(api.workspaceRecipes.markdown, shapeRecipeId ? { recipeId: shapeRecipeId } : "skip");
-  const shape = useShapeMode({ layoutTree: layout?.layoutTree ?? recipe?.dealPage.layoutTree, base: recipe?.dealPage.sections ?? [], markdown: shapeRecipeId ? recipeMarkdown?.markdown ?? null : null, recipeId: shapeRecipeId, revision: recipeMarkdown?.revision ?? null, recipeTitle: recipe?.dealPage.title });
+  const custom = pageKind(object) === "custom";
+  const customLayout = useQuery(api.recipes.workspacePage, custom && !layout ? { slug: object } : "skip");
+  const shapeRecipeId = !layout && !inDialog ? (object === "deal" ? recipe?.dealPage.id : custom ? customLayout?.recipeId ?? "canon-base" : null) ?? null : null;
+  const recipeMarkdown = useQuery(api.workspaceRecipes.markdown, shapeRecipeId && !custom ? { recipeId: shapeRecipeId } : "skip");
+  const shape = useShapeMode({ object, layoutTree: layout?.layoutTree ?? (custom ? customLayout?.layoutTree : recipe?.dealPage.layoutTree), base: layout?.page ?? (custom ? customLayout?.sections ?? RECORD_PAGE : recipe?.dealPage.sections ?? RECORD_PAGE), markdown: shapeRecipeId ? recipeMarkdown?.markdown ?? null : null, recipeId: shapeRecipeId, revision: recipeMarkdown?.revision ?? null, recipeTitle: custom ? customLayout?.recipeTitle ?? desc?.label : recipe?.dealPage.title });
 
   if (desc === undefined || record === undefined || (object === "deal" && !layout && recipe === undefined)) return <div className="p-4 sm:p-8"><LoadingCards /></div>;
   if (desc === null || record === null || record.object !== object) {
@@ -182,7 +186,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const active = record.lifecycle.status === "active";
   const dealPage = object === "deal" ? layout ? { sections: layout.page, hasPlays: layout.hasPlays } : recipe?.dealPage : undefined;
   const playMounted = Boolean(dealPage?.hasPlays) && !inDialog && active;
-  const page: PageSpec = object === "deal" ? framed(shapeRecipeId ? shape.page : dealPage?.sections ?? [], !layout && Boolean(recipe?.dealPage.oldFrame)) : RECORD_PAGE;
+  const page: PageSpec = object === "deal" ? framed(shapeRecipeId ? shape.page : dealPage?.sections ?? [], !layout && Boolean(recipe?.dealPage.oldFrame)) : layout?.page ?? (custom ? shape.page : RECORD_PAGE);
   const toGroups = (groups: ReturnType<typeof groupFields<FieldDescription>>) =>
     groups.filter((g) => g.fields.length > 0).map((g) => ({ section: g.section, title: g.section.title, collapsed: Boolean(g.section.collapsed), fields: g.fields }));
   const sectionGroups = toGroups(groupFields(page, shownFields));
@@ -249,7 +253,8 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
       <div className="mt-3">{body}</div>
     </details>
   ) : body;
-  const recordSections: RecordRenderers = {
+  const context = { canEdit: writable, canDelete: canArchive, deleted };
+  const recordSections: Omit<RecordRenderers, keyof typeof import("../../../recipes/blocks").RECORD_PROPS> = {
     ...dataRenderers({ id, values: record.values }, desc.fields, "deal", { canEdit: writable, deleted, stage: typeof record.values.stage === "string" ? record.values.stage : "in" }),
     // A deal's header offers the archive and restore its recipe lists, in its order.
     header: (section, { stage }) => <>
@@ -295,7 +300,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
   const converted = typeof record.values.convertedAt === "number" ? record.values.convertedAt : null;
   return (
     <Frame object={object} id={id} plural={desc.pluralLabel} inDialog={inDialog}>
-      {object !== "deal" && header(
+      {object !== "deal" && !page.some((s) => s.component === "highlights") && header(
         <>
           {object === "lead" && !converted && !deleted && writable && (
             <button type="button" onClick={() => setConverting(true)} className={cn(btn, "bg-primary text-primary-foreground hover:bg-primary/85")}><UserCheck className="h-3 w-3" /> Convert</button>
@@ -313,7 +318,18 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
       {object === "lead" && (
         <ConvertLeadDialog leadId={id} open={converting} onClose={() => setConverting(false)} onConverted={() => inDialog?.onSaved([])} />
       )}
-      {shape.provider(playMounted ? <DealPlay streamId={id} amount={typeof record.values.amount === "number" ? record.values.amount : null} currency={typeof record.values.currency === "string" ? record.values.currency : null} team={team} page={page} record={recordSections} /> : <PageSections object="deal" page={page} stage={null} renderers={{ ...NO_PLAY, ...recordSections }} />)}
+      {shape.provider(<RecordBlocks
+        data={{ object, id, title: record.title, values: { ...record.values, ...computed }, desc, version: record.version, team,
+          ...(object === "deal" && typeof record.values.companyId === "string" ? { companyId: record.values.companyId } : {}) }}
+        page={page} context={context} save={saveField}
+        actions={(section) => offered(highlightsActions(section), "highlights", ["kernel.archive", "kernel.restore"], context, {}, pageKind(object))
+          .map(({ action, label, disabled }) => action.runs === "kernel.restore" ? restoreButton(label, disabled) : archiveButton(label, disabled))}
+      >{(blocks) => {
+        const renderers = { ...recordSections, ...blocks };
+        return playMounted
+          ? <DealPlay streamId={id} amount={typeof record.values.amount === "number" ? record.values.amount : null} currency={typeof record.values.currency === "string" ? record.values.currency : null} team={team} page={page} record={renderers} />
+          : <PageSections object={custom ? "custom" : "deal"} page={page} stage={null} renderers={{ ...NO_PLAY, ...renderers }} />;
+      }}</RecordBlocks>)}
     </Frame>
   );
 }

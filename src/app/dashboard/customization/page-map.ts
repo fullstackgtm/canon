@@ -3,6 +3,7 @@
  * and say what is applied to each. The theme and the navigation change every page, so they belong to the workspace.
  * Pure: the browser and tests import it.
  */
+import { isCustomObjectName } from "../../../../modules/kernel/reportLanguage.ts";
 import { isPointId, pointOf, type PointId } from "../../../../recipes/points.ts";
 
 export const CANON_PAGES = [
@@ -92,7 +93,7 @@ const RECORD_PAGES = {
   "deal.page": { object: "deal", title: "Deal page", href: "/dashboard/deals" },
 } as const;
 
-export const standaloneHref = (slug: string) => `/dashboard/p/${encodeURIComponent(slug)}`;
+export const standaloneHref = (slug: string) => `/dashboard/${isCustomObjectName(slug) ? "records" : "p"}/${encodeURIComponent(slug)}`;
 
 type Version = { target: { point: string; key: string }; pages: ReadonlyArray<{ slug: string; title: string }>; isOwn: boolean };
 
