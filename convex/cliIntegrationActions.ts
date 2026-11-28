@@ -45,6 +45,8 @@ export const connectFromCli = action({
         "HubSpot rejected the token. Use a private-app token with CRM read scopes.",
       );
     }
+    const account: { portalId?: unknown } | null = await response.json();
+    const externalOrgId = typeof account?.portalId === "number" ? String(account.portalId) : undefined;
     // A paired CLI's token replaces the org's connection, so a token that can't sync must not replace one that can.
     const scopes = await hubspotTokenScopes(token);
     const missing = scopes && missingHubspotScopes(scopes);
@@ -55,6 +57,7 @@ export const connectFromCli = action({
       userId: cliToken.userId,
       accessToken: token,
       scopes: scopes ?? HS_SCOPES,
+      externalOrgId,
     });
     return { ok: true, created: result.created };
   },

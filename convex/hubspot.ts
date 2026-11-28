@@ -9,6 +9,7 @@ import {
 } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { awaitsLogin } from "./lib/clerkRoles";
 import { getCurrentUser, requireCap, scopeUserToActiveOrg } from "./lib";
 import { crmContactEntity, crmFollowsKey, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDealValues } from "./canon";
 import { shardOf } from "./lib/objects/write";
@@ -70,6 +71,14 @@ export const getUserByClerkId = internalQuery({
       .first();
     if (!user) return null;
     return scopeUserToActiveOrg(ctx, user, args.activeClerkOrgId ?? null);
+  },
+});
+
+export const connector = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireCap(ctx, "integrations.manage");
+    return { orgId: user.orgId, userId: user._id };
   },
 });
 
@@ -136,7 +145,7 @@ export const setSyncCursors = internalMutation({
       .query("integrations")
       .withIndex("by_orgId_provider", (q) => q.eq("orgId", args.orgId).eq("provider", PROVIDER))
       .first();
-    if (!integration) return;
+    if (!integration || (integration.connectedAt !== undefined && run.startedAt < integration.connectedAt)) return;
     const { openSince, ...rest } = integration.syncCursors ?? {};
     const cursors = openSince === undefined || openSince === args.modifiedSince ? rest : { ...rest, openSince };
     await ctx.db.patch(integration._id, {
@@ -257,13 +266,13 @@ export const storeTokens = internalMutation({
       tokenExpiresAt: args.tokenExpiresAt,
       scopes: args.scopes,
       ...(args.displayName ? { displayName: args.displayName } : {}),
-      ...(args.externalOrgId ? { externalOrgId: args.externalOrgId } : {}),
+      externalOrgId: args.externalOrgId,
       ...(args.externalOrgDomain
         ? { externalOrgDomain: args.externalOrgDomain }
         : {}),
       isActive: true,
       connectedBy: args.userId,
-      connectedAt: existing?.connectedAt ?? now,
+      connectedAt: args.externalOrgId && args.externalOrgId === existing?.externalOrgId ? existing.connectedAt ?? now : now,
       updatedAt: now,
     };
 
@@ -273,7 +282,10 @@ export const storeTokens = internalMutation({
       const syncConfig = (existing.syncConfig as { schedule?: string } | undefined)?.schedule
         ? existing.syncConfig
         : { ...(existing.syncConfig ?? {}), schedule: "daily" };
-      await ctx.db.patch(existing._id, { ...patch, syncConfig });
+      await ctx.db.patch(existing._id, {
+        ...patch, syncConfig,
+        ...(!args.externalOrgId || args.externalOrgId !== existing.externalOrgId ? { syncCursors: undefined } : {}),
+      });
       await ctx.scheduler.runAfter(0, internal.hubspotActions.syncAllInternal, {
         orgId: args.orgId,
         trigger: "oauth",
@@ -310,6 +322,7 @@ export const connectFromCli = internalMutation({
     userId: v.id("users"),
     accessToken: v.string(),
     scopes: v.optional(v.array(v.string())),
+    externalOrgId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -336,7 +349,9 @@ export const connectFromCli = internalMutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         ...fields,
-        connectedAt: existing.connectedAt ?? now,
+        ...(!args.externalOrgId || args.externalOrgId !== existing.externalOrgId ? { syncCursors: undefined } : {}),
+        externalOrgId: args.externalOrgId,
+        connectedAt: args.externalOrgId && args.externalOrgId === existing.externalOrgId ? existing.connectedAt ?? now : now,
       });
       // Re-sync on reactivation or to retry a previously failed sync; otherwise
       // a healthy connection isn't re-synced on every paired audit.
@@ -353,6 +368,7 @@ export const connectFromCli = internalMutation({
       orgId: args.orgId,
       provider: PROVIDER,
       ...fields,
+      externalOrgId: args.externalOrgId,
       syncConfig: { schedule: "daily" },
       connectedAt: now,
       createdAt: now,
@@ -527,7 +543,7 @@ export const upsertOwners = internalMutation({
           // Persist the CRM owner id even when the owner merged onto an
           // existing Clerk user by email — owner suggestions key on this.
           crmOwnerId: owner.crmOwnerId,
-          isActive: true,
+          ...(awaitsLogin(existing.clerkUserId) && !existing.clerkUserId.startsWith("member:") && existing.deactivatedBy !== "canon" ? { isActive: true } : {}),
         });
         ownerMap[owner.crmOwnerId] = existing._id;
         results.updated++;

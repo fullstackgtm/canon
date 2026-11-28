@@ -3,7 +3,7 @@ import { action, internalAction, internalMutation, mutation, query } from "./_ge
 import type { ActionCtx, MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { api, internal } from "./_generated/api";
-import { requireUser, activeClerkOrgIdFromIdentity } from "./lib";
+import { requireUser } from "./lib";
 // CP14: these pages read the CRM mirror and deal tables whole, so a role whose rules narrow its reads sees them empty.
 import { requireUnrestricted, unrestrictedUser } from "./permissions";
 import {
@@ -542,12 +542,7 @@ const actionOperations: Record<string, ActionHandler> = {
   // underlying stripeActions.backfillApplyInternal is internal-only, so there
   // is no unapproved path to the write.
   "backfill.stripe": async (ctx, args, operations, planDocument, patchPlanId, valueOverrides) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-    const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     // Plans created through stripeActions.proposeBackfillPlan carry the full
     // reviewed operation list — apply EXACTLY those (what was approved is
@@ -570,12 +565,7 @@ const actionOperations: Record<string, ActionHandler> = {
   // Hygiene remediation — always through an APPROVED plan whose persisted
   // per-operation review rows select the package PatchPlan operation ids.
   "hygiene.apply_operations": async (ctx, args, operations, planDocument, patchPlanId, valueOverrides) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-    const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     if (!operations || operations.length === 0) {
       throw new ConvexError("This hygiene plan carries no persisted operations.");
@@ -591,12 +581,7 @@ const actionOperations: Record<string, ActionHandler> = {
     });
   },
   "deal.assign_owners": async (ctx, _args, operations, planDocument, patchPlanId, valueOverrides) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-    const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     if (!operations || operations.length === 0) {
       throw new ConvexError(

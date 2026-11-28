@@ -635,3 +635,8 @@ export const grantMembership = internalMutation({
     return { userId: user._id, orgId: org._id, org: org.name };
   },
 });
+
+export const currentUser = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<(Doc<"users"> & { capabilities?: readonly string[] }) | null> => getCurrentUser(ctx),
+});

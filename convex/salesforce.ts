@@ -9,6 +9,7 @@ import {
 } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
+import { awaitsLogin } from "./lib/clerkRoles";
 import { getCurrentUser, requireCap, scopeUserToActiveOrg } from "./lib";
 import { crmAccountEntity, crmContactEntity, crmFollowsKey, dealEntity, partySyncHasBudget, saveCrmAccount, saveCrmContact, saveDealValues } from "./canon";
 import { crmDealValues } from "./lib/canon/dealLedger";
@@ -164,13 +165,13 @@ export const storeTokens = internalMutation({
       scopes: args.scopes,
       clientCredentials: args.clientCredentials ? await encryptForStorage(args.clientCredentials) : undefined,
       ...(args.displayName ? { displayName: args.displayName } : {}),
-      ...(args.externalOrgId ? { externalOrgId: args.externalOrgId } : {}),
+      externalOrgId: args.externalOrgId,
       ...(args.externalOrgDomain
         ? { externalOrgDomain: args.externalOrgDomain }
         : {}),
       isActive: true,
       connectedBy: args.userId,
-      connectedAt: existing?.connectedAt ?? now,
+      connectedAt: args.externalOrgId && args.externalOrgId === existing?.externalOrgId ? existing.connectedAt ?? now : now,
       updatedAt: now,
     };
 
@@ -180,7 +181,10 @@ export const storeTokens = internalMutation({
       const syncConfig = (existing.syncConfig as { schedule?: string } | undefined)?.schedule
         ? existing.syncConfig
         : { ...(existing.syncConfig ?? {}), schedule: "daily" };
-      await ctx.db.patch(existing._id, { ...patch, syncConfig });
+      await ctx.db.patch(existing._id, {
+        ...patch, syncConfig,
+        ...(!args.externalOrgId || args.externalOrgId !== existing.externalOrgId ? { syncCursors: undefined } : {}),
+      });
       await ctx.scheduler.runAfter(0, internal.salesforceActions.syncAllInternal, {
         orgId: args.orgId,
         trigger: "oauth",
@@ -382,7 +386,7 @@ export const upsertOwners = internalMutation({
           // Persist the CRM owner id even when the owner merged onto an
           // existing Clerk user by email — owner suggestions key on this.
           crmOwnerId: owner.crmOwnerId,
-          isActive: owner.isActive,
+          ...(awaitsLogin(existing.clerkUserId) && !existing.clerkUserId.startsWith("member:") && existing.deactivatedBy !== "canon" ? { isActive: owner.isActive } : {}),
         });
         ownerMap[owner.crmOwnerId] = existing._id;
         results.updated++;
@@ -942,7 +946,7 @@ export const setSyncCursors = internalMutation({
       .query("integrations")
       .withIndex("by_orgId_provider", (q) => q.eq("orgId", args.orgId).eq("provider", PROVIDER))
       .first();
-    if (!integration) return;
+    if (!integration || (integration.connectedAt !== undefined && run.startedAt < integration.connectedAt)) return;
     const { openSince, ...rest } = integration.syncCursors ?? {};
     const cursors = openSince === undefined || openSince === args.modifiedSince ? rest : { ...rest, openSince };
     await ctx.db.patch(integration._id, {

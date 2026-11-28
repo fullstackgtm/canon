@@ -21,7 +21,6 @@ import { applyLegacyRowsThroughConnector, applyThroughPackage, patchPlanFromDocu
 import type { PatchPlan } from "../engine/src/types.ts";
 import type { PersistedDoOperation } from "./gtm";
 import type { Id } from "./_generated/dataModel";
-import { activeClerkOrgIdFromIdentity } from "./lib";
 
 /**
  * Stripe → closed-won backfill, app-side. Stripe is the revenue source of
@@ -38,12 +37,7 @@ import { activeClerkOrgIdFromIdentity } from "./lib";
 const STRIPE_VALIDATE_PATH = "/v1/customers?limit=1";
 
 async function requireManagerUser(ctx: any) {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) throw new ConvexError("Not authenticated");
-  const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-    clerkUserId: identity.subject,
-    activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-  });
+  const user = await ctx.runQuery(internal.users.currentUser, {});
   if (!user) throw new ConvexError("User not found");
   if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
   return user;

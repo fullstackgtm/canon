@@ -22,7 +22,6 @@ import { nextRate, RATE_MIN_INTERVAL_MS, type RateSample } from "./lib/syncObjec
 import { crmContactLinks, linkCrmContacts } from "./lib/crmLinks";
 import { clientFor } from "./records";
 import { createHash, randomBytes } from "crypto";
-import { activeClerkOrgIdFromIdentity } from "./lib";
 import {
   mintClientCredentialsToken,
   myDomainOrigin,
@@ -229,12 +228,7 @@ export const patchDealNextStep = internalAction({
     nextStep: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-    const user = await ctx.runQuery(internal.salesforce.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user || user.orgId !== args.orgId) throw new ConvexError("Organization not found");
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
 
@@ -262,13 +256,7 @@ export const patchDealNextStep = internalAction({
 export const getAuthUrl = action({
   args: { cliUserCode: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-
-    const user = await ctx.runQuery(internal.salesforce.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
 
@@ -498,13 +486,7 @@ async function refreshAccessTokenForOrg(
 export const syncAll = action({
   args: {},
   handler: async (ctx): Promise<SyncCounts> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-
-    const user = await ctx.runQuery(internal.salesforce.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
 
