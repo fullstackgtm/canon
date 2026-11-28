@@ -13,7 +13,7 @@
  */
 import { CANON_LAYOUT_SKILL } from "../recipes/skills/canon-layout/skill.generated.ts";
 import { turnMeter } from "./lib/agents/webhook";
-import { NO_PLAN, PROPOSAL_BUDGET, REQUEST_MAX } from "./lib/recipeAgent";
+import { customizeModel, NO_PLAN, PROPOSAL_BUDGET, REQUEST_MAX } from "./lib/recipeAgent";
 import { proposeWorkflow, WORKFLOW_TOOL, WORKFLOW_SCHEMA, type WorkflowPage, type WorkflowProposal } from "./lib/workflowAgent";
 import { customizationSuggestionContext, readSuggestions, standInSuggestions, suggestionPrompt, SUGGESTION_SCHEMA, SUGGESTION_TOOL } from "./lib/customizeSuggestions";
 import type { ObjectDef } from "./lib/objects/registry";
@@ -322,7 +322,7 @@ async function runEdit(
   if (key && target) {
     const t = Date.now();
     const routed = await jevRoute(key, layout, target, request, args.pointed ?? "").catch((e) => { trace.route += `jev failed (${e instanceof Error ? e.message.slice(0, 80) : e}); `; return null; });
-    trace.route += `jev ${Date.now() - t}ms${routed ? "" : " → luna"}; `;
+    trace.route += `jev ${Date.now() - t}ms${routed ? "" : " → model"}; `;
     if (routed?.refused) return refuse(routed.summary, "Jev", "jev:drawn");
     if (routed) {
       const { ok, errors, text } = check(args.markdown, routed.ops);
@@ -333,7 +333,7 @@ async function runEdit(
 
   const llm = await resolveLlm(ctx, caller.userId as Id<"users">);
   if (!llm) throw new ConvexError("Connect ChatGPT in Integrations: changes that need words run on your own ChatGPT plan.");
-  const model = llm.model ?? DEFAULT_MODELS[llm.provider];
+  const model = customizeModel(llm, DEFAULT_MODELS);
   const kept = await keptBundle(ctx, args.recipeId);
   let prompt = lunaPrompt(layout, target ?? null, request, args.markdown, kept, args.pointed?.slice(0, 300) ?? null);
   let last = "";
@@ -495,8 +495,8 @@ export const workflow = action({
     const meter = turnMeter(PROPOSAL_BUDGET, start);
     const proposal = await proposeWorkflow(input, {
       skill: CANON_LAYOUT_SKILL, charge: (prompt) => meter.charge(prompt),
-      call: (prompt) => llm ? forcedToolCall(prompt, WORKFLOW_TOOL, { ...WORKFLOW_SCHEMA, properties: { ...WORKFLOW_SCHEMA.properties, ops: { type: "object", additionalProperties: opsSchema("deal").properties.ops } } }, llm.model ?? DEFAULT_MODELS[llm.provider], llm) : Promise.resolve(standInWorkflow(input)),
+      call: (prompt) => llm ? forcedToolCall(prompt, WORKFLOW_TOOL, { ...WORKFLOW_SCHEMA, properties: { ...WORKFLOW_SCHEMA.properties, ops: { type: "object", additionalProperties: opsSchema("deal").properties.ops } } }, customizeModel(llm, DEFAULT_MODELS), llm) : Promise.resolve(standInWorkflow(input)),
     });
-    return { ...proposal, model: llm ? `${llm.provider}:${llm.model ?? DEFAULT_MODELS[llm.provider]}` : STAND_IN_MODEL, ms: Date.now() - start };
+    return { ...proposal, model: llm ? `${llm.provider}:${customizeModel(llm, DEFAULT_MODELS)}` : STAND_IN_MODEL, ms: Date.now() - start };
   },
 });

@@ -15,7 +15,7 @@ import { CANON_LAYOUT_SKILL } from "../recipes/skills/canon-layout/skill.generat
 import { RECIPE_MAX_BYTES } from "../recipes/manifest.ts";
 import { turnMeter } from "./lib/agents/webhook";
 import { resolveLlm } from "./lib/llmResolver";
-import { EDIT_SCHEMA, EDIT_TOOL, NO_PLAN, PROPOSAL_BUDGET, REQUEST_MAX, proposeRecipeEdit, type Proposal } from "./lib/recipeAgent";
+import { EDIT_SCHEMA, EDIT_TOOL, NO_PLAN, PROPOSAL_BUDGET, REQUEST_MAX, customizeModel, proposeRecipeEdit, type Proposal } from "./lib/recipeAgent";
 import { STAND_IN_MODEL, recipeAgentStandIn, standInAnswer } from "./lib/recipeAgentStandIn";
 import { runEvals } from "./lib/recipeRuntime";
 import type { ActionCaller } from "./records";
@@ -39,12 +39,13 @@ export const proposeEdit = action({
     // The requesting person's own plan pays; there is no server key to fall back to (docs/org-agents.md, "Who pays").
     const llm = standIn ? null : await resolveLlm(ctx, caller.userId as Id<"users">);
     if (!standIn && !llm) throw new ConvexError(NO_PLAN);
-    const model = llm ? `${llm.provider}:${llm.model ?? DEFAULT_MODELS[llm.provider]}` : STAND_IN_MODEL;
+    const modelId = llm ? customizeModel(llm, DEFAULT_MODELS) : null;
+    const model = llm ? `${llm.provider}:${modelId}` : STAND_IN_MODEL;
     const meter = turnMeter(PROPOSAL_BUDGET, Date.now());
     const proposal = await proposeRecipeEdit({ ...args, request }, {
       skill: CANON_LAYOUT_SKILL,
       isolate: caller.orgId,
-      call: async (prompt) => (llm ? forcedToolCall(prompt, EDIT_TOOL, EDIT_SCHEMA, llm.model ?? DEFAULT_MODELS[llm.provider], llm) : standInAnswer(args.baseMarkdown, request)),
+      call: async (prompt) => (llm ? forcedToolCall(prompt, EDIT_TOOL, EDIT_SCHEMA, modelId!, llm) : standInAnswer(args.baseMarkdown, request)),
       charge: (prompt) => meter.charge(prompt),
       spent: () => meter.spent.tokens,
       runEvals,

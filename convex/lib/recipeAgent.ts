@@ -20,6 +20,17 @@ export const MAX_ATTEMPTS = 3;
 export const REQUEST_MAX = 2_000;
 /** One proposal's model budget, charged before each call (lib/agents/webhook.ts turnMeter). */
 export const PROPOSAL_BUDGET = { maxTokens: 150_000, maxSeconds: 300 };
+/**
+ * Customizing a page or customization.md asks a model to read a layout and infer intent, so the ChatGPT plan uses
+ * the Sol tier here, not the small default. CUSTOMIZE_MODEL overrides it per deployment. Inline prompt
+ * suggestions stay on the fast default: they must arrive while the person is still looking at the box.
+ */
+export const CUSTOMIZE_CHATGPT_MODEL = "gpt-6.2-sol";
+export function customizeModel(llm: { provider: string; model?: string }, defaults: Record<string, string>): string {
+  if (llm.provider === "chatgpt") return process.env.CUSTOMIZE_MODEL || CUSTOMIZE_CHATGPT_MODEL;
+  return llm.model ?? defaults[llm.provider];
+}
+
 export const NO_PLAN = "Editing a customization with an agent runs on your own ChatGPT plan, and you haven't connected one. Connect ChatGPT in Integrations, then try again.";
 
 export const EDIT_TOOL = "customization_edit";
