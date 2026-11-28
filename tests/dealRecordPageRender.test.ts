@@ -51,6 +51,7 @@ function render(object: string, status = "active", inDialog = false, recipe: rec
     "./shape/shape-mode": NO_SHAPE,
     "./convert-lead": { ConvertLeadDialog: empty },
     "./deal-products": { DealProducts: empty },
+    "./deal-pipeline-rail": { DealPipelineRail: empty },
     "./list-view": {},
     "./record-target": recordTarget,
     "./lookup-field": { useLookupTitles: empty },

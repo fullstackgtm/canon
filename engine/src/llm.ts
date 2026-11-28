@@ -110,6 +110,7 @@ export type LlmCallOptions = {
   apiKey: string;
   model?: string;
   fetchImpl?: typeof fetch;
+  imageUrls?: readonly string[];
   /**
    * Override the Anthropic Messages endpoint — point the package at an
    * OpenAI/Anthropic-compatible gateway (GLM-5.2, z.ai, a local proxy) without
@@ -445,6 +446,7 @@ export async function forcedToolCall(
   if (options.provider === "chatgpt") {
     return chatgptToolCall(fetchImpl, prompt, toolName, schema, model, options);
   }
+  if (options.imageUrls?.length) throw new Error("Image references require a connected ChatGPT plan.");
   if (options.provider === "anthropic") {
     const anthropicUrl = resolveLlmUrl(options.anthropicBaseUrl, ANTHROPIC_URL, "/v1/messages");
     const response = await llmFetch(fetchImpl, anthropicUrl, {
@@ -572,6 +574,7 @@ async function chatgptToolCall(
 ): Promise<unknown> {
   if (!options.chatgptAccountId) throw new Error("ChatGPT provider needs chatgptAccountId.");
   const url = resolveLlmUrl(options.chatgptBaseUrl, `${CHATGPT_CODEX_URL}/responses`, "/responses");
+  const images = options.imageUrls ?? [];
   let response: Response;
   try {
     response = await fetchImpl(url, {
@@ -588,7 +591,10 @@ async function chatgptToolCall(
       body: JSON.stringify({
         model,
         instructions: `You are a precise data-extraction assistant. Always answer by calling the ${toolName} function exactly once.`,
-        input: [{ type: "message", role: "user", content: [{ type: "input_text", text: prompt }] }],
+        input: [{ type: "message", role: "user", content: [
+          { type: "input_text", text: prompt },
+          ...images.map((image_url) => ({ type: "input_image", image_url, detail: "auto" })),
+        ] }],
         tools: [{ type: "function", name: toolName, description: `Return the ${toolName} result.`, parameters: schema, strict: false }],
         tool_choice: "required",
         parallel_tool_calls: false,
@@ -598,14 +604,20 @@ async function chatgptToolCall(
       }),
     });
   } catch (error) {
+    if (images.length) throw new Error("Cannot reach ChatGPT. Check network access.");
     const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : "";
     throw new Error(`Cannot reach ${new URL(url).hostname}${cause}. Check network access.`);
   }
   if (!response.ok) throw chatgptApiError(response);
   if (!response.body) throw new Error("ChatGPT returned no streaming response body.");
-  const argumentsJson = await readChatgptFunctionArguments(response.body, toolName);
-  if (!argumentsJson) throw new Error("ChatGPT returned no tool call — try again or a different model.");
-  return JSON.parse(argumentsJson);
+  try {
+    const argumentsJson = await readChatgptFunctionArguments(response.body, toolName);
+    if (!argumentsJson) throw new Error("ChatGPT returned no tool call — try again or a different model.");
+    return JSON.parse(argumentsJson);
+  } catch (error) {
+    if (images.length) throw new Error("ChatGPT could not process the image references. Try another image or check that your plan supports images.");
+    throw error;
+  }
 }
 
 export type WebSearchHit = { url: string; title: string };

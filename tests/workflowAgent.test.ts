@@ -6,20 +6,30 @@ import { parseRecipe } from "../recipes/md/parse.ts";
 import { standInWorkflow as standIn } from "../convex/lib/workflowStandIn.ts";
 import { loadConvex } from "./convexHandlers.ts";
 
-test("workflow refuses a Stage rail on Canon defaults and withholds the model's success claim", async () => {
-  const input = fixtureInput("Add the Stage rail below the header so I can see the deal's progress at a glance");
+test("workflow adds a Stage rail below the deal header on Canon defaults without a play", async () => {
+  const input = fixtureInput("Add a stage rail below the deal header to show deal progress through stages");
+  input.pages.find((page) => page.target === "deal")!.dealPlay = { available: false, reason: "Canon defaults has no deal play." };
   const proposal = await proposeWorkflow(input, { skill: "test", charge: () => {}, call: async () => standIn(input) });
-  assert.deepEqual(proposal.targets, []);
-  assert.match(proposal.summary, /Stage rail requires a deal play/);
-  assert.doesNotMatch(proposal.summary, /Added the Stage rail/);
+  assert.deepEqual(proposal.dropped, []);
+  assert.deepEqual(proposal.targets.map((target) => target.target), ["deal"]);
+  const { recipe } = parseRecipe(proposal.targets[0].markdown);
+  assert.deepEqual(recipe.dealPage.slice(0, 2).map((section) => section.component), ["header", "stageRail"]);
 });
 
 test("workflow treats archived deals as record-only even with plays enabled", async () => {
-  const request = "Add a Stage rail below the header";
+  const request = "Add the Prep section";
   const input = fixtureInput(request);
   input.pages.find((p) => p.target === "deal")!.dealPlay = { available: true };
   const fn = loadConvex(["pageCustomize.ts"], {
-    "lib/recipeAgentStandIn.ts": (real) => ({ ...real, recipeAgentStandIn: () => true }),
+    "lib/recipeAgentStandIn.ts": (real) => ({
+      ...real,
+      recipeAgentStandIn: () => true,
+      standInWorkflow: () => ({
+        plan: [{ target: "deal", why: "See what must happen before the deal moves." }],
+        ops: { deal: [{ op: "addSection", object: "deal", component: "prep", title: "Prep", before: null }] },
+        summary: "Added Prep.",
+      }),
+    }),
   })["pageCustomize.ts"];
   const proposal = await fn.workflow.handler({
     runQuery: async (ref: unknown) => {
@@ -33,7 +43,7 @@ test("workflow treats archived deals as record-only even with plays enabled", as
     runAction: () => assert.fail("an archived record cannot mount its play"),
   }, { request, dealId: "archived-deal" });
   assert.equal(proposal.targets.length, 0);
-  assert.match(proposal.summary, /deal play is unavailable on this record/i);
+  assert.match(proposal.summary, /Prep requires a deal play.*unavailable on this record/i);
 });
 
 for (const c of workflowCases.filter((c) => c.canonical)) test(`stand-in ${c.request} satisfies workflow structure`, () => {
@@ -75,6 +85,19 @@ test("context includes layouts and field metadata, never records or row values",
   assert.ok(!JSON.stringify(context).includes('"values":'));
   assert.ok(!JSON.stringify(context).includes('"baseMarkdown":'));
 });
+test("an image-backed workflow explains when a reference has no matching block", async () => {
+  const input = { ...fixtureInput("Make this look like the reference"), imageReference: { currentTarget: "deal" } };
+  const summary = "There is no registered block for the calendar in the reference.";
+  const out = await proposeWorkflow(input, { skill: "test", charge: () => {}, call: async (prompt) => {
+    assert.match(prompt, /images as visual references for layout, density, grouping, and emphasis/);
+    assert.match(prompt, /current page target is "deal"/);
+    return { plan: [], ops: {}, summary };
+  } });
+  assert.deepEqual(out.targets, []);
+  assert.deepEqual(out.dropped, []);
+  assert.equal(out.summary, summary);
+});
+
 test("standalone references and cross-target ops cannot change drafts", () => {
   const input = fixtureInput("test");
   const out = checkWorkflow(input, { plan: [{ target: "queue", create: { slug: "queue", title: "Queue" }, why: "test" }], ops: { queue: [{ op: "setCollapsed", object: "contact", section: { component: "history" }, collapsed: true }, { op: "addSection", object: "queue", component: "table", title: "Bad", before: null, query: { object: "contact", filter: [{ field: "id", op: "eq", value: { record: "id" } }], columns: ["name"], limit: 10 } }] }, summary: "test" });

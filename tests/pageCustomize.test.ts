@@ -59,6 +59,20 @@ test("members can edit their personal page without a decider capability", async 
   assert.equal(parseRecipe(out.markdown).recipe.accountPage.find((s) => s.component === "history")?.collapsed, true);
 });
 
+test("image-only section edits acknowledge the reference without storing an attempt", async () => {
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  const ctx = {
+    runQuery: async () => ({ orgId: "org", userId: "member" }),
+    runMutation: () => assert.fail("image-backed edits must not write the edit audit"),
+  };
+  const out = await actions.edit.handler(ctx, {
+    recipeId: "canon-base", markdown: BASE, target: { component: "history" }, request: "", images: [image],
+  });
+  assert.equal(out.markdown, BASE);
+  assert.match(out.summary, /1 image attached/);
+  assert.ok(!JSON.stringify(out).includes(image));
+});
+
 test("pencil replaces Deals with a stage count chart at the same position and reports its removed action", async () => {
   const { describeLayout } = await import("../recipes/md/edit.ts");
   const { builtInDataView } = await import("../recipes/md/dataView.ts");

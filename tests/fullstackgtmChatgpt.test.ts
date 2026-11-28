@@ -50,6 +50,43 @@ test("chatgpt provider: streamed Responses call with account header, returns too
   assert.equal(body.stream, true);
   assert.equal(body.store, false);
   assert.equal(body.tools[0].name, "result");
+  assert.deepEqual(body.input[0].content, [{ type: "input_text", text: "hi" }]);
+});
+
+test("forced tool calls send visual references as unstored ChatGPT image parts", async () => {
+  const imageUrls = ["data:image/png;base64,iVBORw0KGgo=", "data:image/jpeg;base64,/9j/"];
+  const fetchImpl: typeof fetch = async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    assert.equal(body.store, false);
+    assert.deepEqual(body.input, [{
+      type: "message",
+      role: "user",
+      content: [
+        { type: "input_text", text: "Use these references" },
+        { type: "input_image", image_url: imageUrls[0], detail: "auto" },
+        { type: "input_image", image_url: imageUrls[1], detail: "auto" },
+      ],
+    }]);
+    return sse([{ type: "response.output_item.done", item: { type: "function_call", name: "result", arguments: "{}" } }]);
+  };
+  const options = { apiKey: "access-token", chatgptAccountId: "acct_1", fetchImpl, imageUrls };
+  assert.deepEqual(await forcedToolCall("Use these references", "result", {}, "test", { ...options, provider: "chatgpt" }), {});
+  for (const provider of ["openai", "anthropic"] as const) {
+    await assert.rejects(forcedToolCall("Use these references", "result", {}, "test", { ...options, provider }), /require a connected ChatGPT plan/);
+  }
+});
+
+test("ChatGPT image failures omit provider errors that can echo image data", async () => {
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  const fetchImpl: typeof fetch = async () => sse([
+    { type: "response.failed", response: { error: { message: `Unsupported image: ${image}` } } },
+  ]);
+  await assert.rejects(
+    forcedToolCall("Use this reference", "result", {}, "test", {
+      provider: "chatgpt", apiKey: "token", chatgptAccountId: "acct", fetchImpl, imageUrls: [image],
+    }),
+    (error: Error) => /could not process the image references/.test(error.message) && !error.message.includes(image),
+  );
 });
 
 test("chatgpt provider: 401 points the user at reconnecting, never echoes the body", async () => {

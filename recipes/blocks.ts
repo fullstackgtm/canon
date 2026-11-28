@@ -180,7 +180,7 @@ export const BLOCKS = {
   chart: /* @__PURE__ */ dataBlock("chart", "Chart", /* @__PURE__ */ dataObjects(33)),
   queue: /* @__PURE__ */ block("queue", "play", { deal: 1 }, "Queue", "The rep's open deals, at risk and closing soon first, and why the next one needs them."),
   summary: /* @__PURE__ */ block("summary", "play", { deal: 2 }, "Summary", "The deal's health, amount, close date and owner, and the account research run with its status.", ["health", "amount", "closeDate", "owner", "research"]),
-  stageRail: /* @__PURE__ */ block("stageRail", "play", { deal: 3 }, "Stage rail", "The three stages, the current one marked, and its exit."),
+  stageRail: /* @__PURE__ */ block("stageRail", "record", { deal: 3 }, "Stage rail", "The deal's pipeline stages, with the current one marked. When a deal play is available, shows its three stages and the current stage's exit."),
   fanOut: /* @__PURE__ */ block("fanOut", "play", { deal: 4 }, "Fan out", "Everyone Canon could reach first, with their goal, systems and first touch. Search, the ICP buyer filter and picking people are the page's own controls."),
   prep: /* @__PURE__ */ block("prep", "play", { deal: 5 }, "Prep", "Where the deal stands and what it needs before it can move: the executive has heard from us, more than one person is engaged, the next call is booked within `nextCallDays`, and the signer is known."),
   plan: /* @__PURE__ */ block("plan", "play", { deal: 6 }, "Plan", "The first open step, soonest due first, with its draft."),

@@ -32,6 +32,7 @@ import { RecordLink } from "./record-context";
 import { recordListOf } from "./record-target";
 import { RegisterRecordPage } from "./register-page";
 import { DealProducts } from "./deal-products";
+import { DealPipelineRail } from "./deal-pipeline-rail";
 import { useShapeMode } from "./shape/shape-mode";
 
 /** Any record but a deal: its fields, timeline and history in one block. */
@@ -257,6 +258,7 @@ function LedgerRecordPage({ object, id, inDialog, layout }: { object: string; id
       {/* The deal's missing company and people, up front: Canon's proposals to accept or dismiss (convex/dealGaps.ts). */}
       {!inDialog && !deleted && <div className="mb-6"><DealGaps streamId={streamId} onChanged={() => {}} /></div>}
     </>,
+    stageRail: (section) => typeof record.values.stage === "string" ? <DealPipelineRail stage={record.values.stage} title={section.title ?? "Stage rail"} collapsed={section.collapsed} /> : null,
     products: (section) => folded(section, "Products", <DealProducts deal={streamId} version={record.version} amount={typeof record.values.amount === "number" ? record.values.amount : null} currency={String(record.values.currency ?? "USD")} active={active && record.complete} canEditAmount={writable && !desc.readOnlyFields.includes("amount")} title={section.title ?? "Products"} />),
     splits: (section) => folded(section, "Credit splits", splitField ? (
       <section aria-label={section.title ?? "Credit splits"} className="border border-border bg-card p-4">

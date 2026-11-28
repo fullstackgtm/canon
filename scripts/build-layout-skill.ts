@@ -149,6 +149,8 @@ function pages(): string {
     "",
     table(["Page", "Components a section can be"], PAGE_OBJECTS.map((o) => [o, codes(COMPONENTS[o])])),
     "",
+    `On a deal, ${code("stageRail")} works with Canon defaults. It shows the pipeline stages and marks the current stage. When a deal play is available, it shows the play's stages and the current stage's exit.`,
+    "",
     "A section moves with everything under it: from its heading down to the line before the next heading of the same or a higher level, its prose, ```` ```action ```` blocks, ```` ```logic ```` lines, tables and sub-headings included. Never leave a block behind.",
     "",
     `A \`fields\` section names its fields in a ${fenced("fields")} block, one api name per line; \`${REST_FIELDS}\` takes every field no section names, so keep it in exactly one section of the page. ` +

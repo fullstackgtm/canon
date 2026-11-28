@@ -36,6 +36,7 @@ const nextConfig: NextConfig = {
       ]),
       // A company has one page since the Accounts and Companies pages merged; old links to the Companies one land on it.
       { source: "/dashboard/records/account/:id", destination: "/dashboard/accounts/:id", permanent: false },
+      { source: "/dashboard/deals/:id", destination: "/dashboard/records/deal/:id", permanent: false },
       // Recipes became Customization; saved links and bookmarks to it and its editors land on the new route.
       { source: "/dashboard/recipes", destination: "/dashboard/customization", permanent: false },
       { source: "/dashboard/recipes/:rest*", destination: "/dashboard/customization/:rest*", permanent: false },
