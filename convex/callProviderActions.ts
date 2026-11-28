@@ -14,7 +14,6 @@ import {
   type ProgressEmitter,
 } from "../engine/src/progress.ts";
 import { syncRunProgressEmitter } from "./lib/syncRunProgress";
-import { activeClerkOrgIdFromIdentity } from "./lib";
 import { fetchAvomaCalls, normalizeAvomaCall } from "./lib/calls/avoma";
 
 const callProviderValidator = v.union(
@@ -42,13 +41,7 @@ type NormalizedProviderCall = {
 export const syncProvider = action({
   args: { provider: callProviderValidator },
   handler: async (ctx, args): Promise<{ calls: number; insights: number }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-
-    const user = await ctx.runQuery(internal.callProviders.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
 

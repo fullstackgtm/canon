@@ -3,7 +3,6 @@ import { can, refusal } from "./lib/capabilities";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { activeClerkOrgIdFromIdentity } from "./lib";
 import { saveDealValues } from "./canon";
 
 /**
@@ -148,12 +147,7 @@ export const proposeDealOwnerBackfill = action({
     operationCount: number;
     unassignable: Array<{ dealName: string; reason: string }>;
   }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-    const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     if (!can(user, "team.edit")) throw new ConvexError(refusal("team.edit"));
     await ctx.runQuery(internal.permissions.requireUnrestrictedPrincipal, { orgId: user.orgId, userId: user._id, what: "owner backfill over the CRM" });

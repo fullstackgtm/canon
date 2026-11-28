@@ -24,7 +24,6 @@ import { mirrorAccount, mirrorContact, mirrorDeal } from "./lib/hubspotMirror";
 import { mappingsKey, planHubspotSync } from "./lib/hubspotSyncPlan";
 import { nextRate, RATE_MIN_INTERVAL_MS, type RateSample } from "./lib/syncObjectProgress";
 import { fixtureFetch } from "./lib/hubspotFixture";
-import { activeClerkOrgIdFromIdentity } from "./lib";
 
 const HS_AUTH_URL = "https://app.hubspot.com/oauth/authorize";
 const HS_TOKEN_URL = "https://api.hubapi.com/oauth/v1/token";
@@ -199,13 +198,7 @@ export async function connectorForOrg(
 export const getAuthUrl = action({
   args: { cliUserCode: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-
-    const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
 
@@ -252,8 +245,7 @@ export const getAuthUrl = action({
 export const connectWithToken = action({
   args: { token: v.string() },
   handler: async (ctx, args): Promise<{ ok: true; portalId: number }> => {
-    // The signed-in admin or manager (lib.ts getCurrentUser, which a local stack's dev user also passes).
-    const who = await ctx.runQuery(internal.hubspotImport.importer, {});
+    const who = await ctx.runQuery(internal.hubspot.connector, {});
 
     const token = args.token.trim();
     if (!token) throw new ConvexError("A private-app token is required");
@@ -293,12 +285,7 @@ export const patchDealNextStep = internalAction({
     nextStep: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-    const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user || user.orgId !== args.orgId) throw new ConvexError("Organization not found");
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
 
@@ -413,13 +400,7 @@ export const syncAll = action({
   // full: read every record again rather than only those modified since the last sync (Full resync).
   args: { full: v.optional(v.boolean()) },
   handler: async (ctx, args): Promise<SyncCounts> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-
-    const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     if (!can(user, "integrations.manage")) throw new ConvexError(refusal("integrations.manage"));
 

@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { getCurrentUser, activeClerkOrgIdFromIdentity } from "./lib";
+import { getCurrentUser } from "./lib";
 import { snapshotFromPages } from "./hygiene";
 import type { CanonicalGtmSnapshot, PatchPlan } from "../engine/src/types.ts";
 // Node-free imports only (see the note in hygiene.ts): audit engine + pure
@@ -283,12 +283,7 @@ export const insertBackfillEntries = internalMutation({
 export const capture = action({
   args: {},
   handler: async (ctx): Promise<{ score: number; findings: number }> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new ConvexError("Not authenticated");
-    const user = await ctx.runQuery(internal.hubspot.getUserByClerkId, {
-      clerkUserId: identity.subject,
-      activeClerkOrgId: activeClerkOrgIdFromIdentity(identity) ?? undefined,
-    });
+    const user = await ctx.runQuery(internal.users.currentUser, {});
     if (!user) throw new ConvexError("User not found");
     await ctx.runQuery(internal.permissions.requireUnrestrictedPrincipal, { orgId: user.orgId, userId: user._id, what: "a CRM health reading" });
     return captureReading(ctx, user.orgId, "manual");
