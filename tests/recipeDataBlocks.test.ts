@@ -70,3 +70,39 @@ test("write blocks parse, retain actions, and reject register boards and invalid
   assert.throws(() => validateDataQuery("detail", { object: "deal", columns: ["name"], limit: 2 }, "account"));
   assert.throws(() => validateDataQuery("form", { object: "deal", fields: ["typo"] }, "account"));
 });
+
+test("companyDeals is a read-only account relation and rejects other pages and objects", () => {
+  const input = { object: "deal", from: "companyDeals", columns: ["name", "amount", "stage", "closeDate"] };
+  assert.equal(validateDataQuery("table", input, "account").from, "companyDeals");
+  for (const page of ["deal", "contact", "workspace"]) assert.throws(() => validateDataQuery("table", input, page));
+  assert.throws(() => validateDataQuery("table", { ...input, object: "contact" }, "account"));
+  assert.throws(() => validateDataQuery("table", { ...input, from: "unknown" }, "account"));
+  assert.throws(() => validateDataQuery("form", { object: "deal", from: "companyDeals", fields: ["name"] }, "account"));
+  const text = add(validateDataQuery("table", input, "account"));
+  assert.deepEqual(parseRecipe(text).problems, []);
+  assert.ok(parseRecipe(text.replace('"from": "companyDeals"', '"from": "unknown"')).problems.some((p) => p.level === "error"));
+});
+
+test("companyDeals evaluates the viewer-scoped linked and CRM rows with list and report semantics", async () => {
+  const { companyDealsData } = await import("../recipes/relationData.ts");
+  const { STANDARD_OBJECTS, resolveObjectDef } = await import("../convex/lib/objects/registry.ts");
+  const def = resolveObjectDef(STANDARD_OBJECTS.deal);
+  const deals = [
+    { dealId: "crm", streamId: "crm-stream", name: "CRM deal", amount: 20000, currency: "USD", stage: "closed_won", isClosed: true, closeDate: "2026-11-20", createdAt: 1 },
+    { dealId: "linked1", streamId: "stream1", name: "Linked one", amount: 10000, currency: "USD", stage: "qualification", isClosed: false, closeDate: "2026-12-31", createdAt: 2 },
+    { dealId: "linked2", streamId: null, name: "Linked two", stage: "prospecting", isClosed: false, closeDate: "2026-12-31", createdAt: 3 },
+  ];
+  const query = (kind: "chart" | "metric" | "table", extra: object) => validateDataQuery(kind, { object: "deal", from: "companyDeals", ...extra }, "account");
+  const chart = companyDealsData(query("chart", { aggregate: { fn: "count" }, groupBy: { field: "stage" }, limit: 1 }), deals, def);
+  assert.ok(chart.aggregate);
+  assert.equal(chart.aggregate.rows, 3);
+  assert.deepEqual(chart.aggregate.total, [3]);
+  assert.deepEqual(chart.aggregate.groups.map((g) => [g.keys[0], g.values[0]]), [["closed_won", 1], ["prospecting", 1], ["qualification", 1]]);
+  const sum = companyDealsData(query("metric", { aggregate: { fn: "sum", field: "amount" }, filter: [{ field: "isClosed", op: "eq", value: false }] }), deals, def);
+  assert.ok(sum.aggregate); assert.deepEqual(sum.aggregate.total, [10000]);
+  const table = companyDealsData(query("table", { columns: ["name"], sort: { field: "name", dir: "desc" }, limit: 1, filter: [{ field: "isClosed", op: "eq", value: false }] }), deals, def);
+  assert.ok(table.rows); assert.equal(table.rows.total, 2); assert.equal(table.rows.rows[0].title, "Linked two"); assert.deepEqual(table.unlinked, ["linked2"]);
+  const avg = companyDealsData(query("metric", { aggregate: { fn: "avg", field: "amount" } }), deals, def);
+  assert.ok(avg.aggregate); assert.deepEqual(avg.aggregate.total, [15000]);
+  assert.throws(() => companyDealsData(query("table", { columns: ["ownerId"] }), deals, def));
+});

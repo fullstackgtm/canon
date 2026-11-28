@@ -13,6 +13,7 @@ export const DATA_QUERIES = /* @__PURE__ */ (() => {
   const filter = z.object({ field: z.string().min(1), op: z.enum(FILTER_OPS), value: z.union([scalar, z.array(scalar), reference]).optional() }).strict();
   const base = z.object({
     object: z.string().refine(isLedgerObjectName, "unknown listed object"),
+    from: z.literal("companyDeals").optional(),
     filter: z.array(filter).max(FILTERS_MAX).default([]),
     sort: z.object({ field: z.string(), dir: z.enum(["asc", "desc"]) }).strict().optional(),
     limit: z.number().int().min(1).max(LIST_LIMIT_MAX).default(10),
@@ -46,6 +47,7 @@ const standardDef = (name: string) => Object.hasOwn(STANDARD_OBJECTS, name) ? re
 export function validateDataQuery(kind: DataComponent, input: unknown, pageObject: string): DataQuery {
   const q: DataQuery = DATA_QUERIES[kind].parse(input);
   if (pageObject === "workspace" && (kind === "detail" || q.filter.some((f) => recordReference(f.value)) || ("defaults" in q && Object.values(q.defaults).some(recordReference)))) throw new Error("Standalone pages cannot use record references or detail blocks");
+  if (q.from && (pageObject !== "account" || q.object !== "deal" || !["table", "list", "metric", "chart"].includes(kind))) throw new Error("companyDeals is a read-only deal relation on the account page");
   const def = standardDef(q.object), page = standardDef(pageObject);
   if (kind === "board" && ["account", "contact"].includes(q.object)) throw new Error("Boards cannot move register cards until records.edit supports compare-and-set");
   for (const f of q.filter) if (recordReference(f.value)) {

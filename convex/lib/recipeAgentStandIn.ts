@@ -1,3 +1,4 @@
+import { builtInDataView } from "../../recipes/md/dataView.ts";
 import { apply, type LayoutOp } from "../../recipes/md/edit.ts";
 /**
  * The recipe agent's stand-in model on a local stack (docs/recipes.md, "Editing with an agent"). A local stack's dev
@@ -56,6 +57,8 @@ export function standInAnswer(markdown: string, request: string): { markdown: st
 }
 
 export function standInColumns(layout: import("../../recipes/md/edit.ts").Layout, target: import("../../recipes/md/edit.ts").SectionRef | undefined, request: string): import("../../recipes/md/edit.ts").LayoutOp[] {
+  const view = builtInDataView(layout, target, request);
+  if (view) return view.ops;
   if (/make me a page of open deals/i.test(request)) return [{ op: "addPage", slug: "open-deals", title: "Open deals", icon: "chart" }, openDealsTable()];
   if (/add a metric/i.test(request)) return [{ op: "addSection", object: layout.object, component: "metric", title: "Open deals count", before: null, query: { object: "deal", filter: [{ field: "isClosed", op: "eq", value: false }], aggregate: { fn: "count" }, limit: 10 } }];
   if (layout.object === "account" && /add a form to create a deal (?:here|from this account)/i.test(request)) return [{
@@ -64,7 +67,7 @@ export function standInColumns(layout: import("../../recipes/md/edit.ts").Layout
   }];
   if (layout.object === "account" && /^show (?:this account.s )?open deals here[.!]?$/i.test(request.trim())) return [{
     op: "addSection", object: "account", component: "table", title: "Open deals", before: null,
-    query: { object: "deal", filter: [{ field: "companyId", op: "eq", value: { record: "id" } }, { field: "isClosed", op: "eq", value: false }], columns: ["recordTitle", "amount"], limit: 10 },
+    query: { object: "deal", from: "companyDeals", filter: [{ field: "isClosed", op: "eq", value: false }], columns: ["recordTitle", "amount"], limit: 10 },
   }];
   const match = /^put (?:this|it) next to (.+?)[.!]?$/i.exec(request.trim());
   const other = match && layout.sections.find((s) => s.title.toLowerCase() === match[1].trim().toLowerCase());

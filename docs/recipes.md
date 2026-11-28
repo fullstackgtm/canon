@@ -965,6 +965,12 @@ alter behaviour.
 
 ### Format changelog
 
+**Format 4 named relations.** Read-only data queries on account pages may use
+`from: "companyDeals"` with `object: "deal"` to read the same linked and
+CRM-mirrored deals as the built-in Deals section. Filters, sorting and aggregates
+apply to the viewer-scoped relation rows. Existing queries keep their meaning.
+
+
 **Format 4 workspace pages (WC4).** `workspace.pages` contributes additive pages.
 Declare `# Open deals {page=open-deals icon=chart nav=main}`, with sections
 and an optional layout block beneath it. Slugs are unique lowercase kebab names

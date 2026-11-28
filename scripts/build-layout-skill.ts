@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { BINDINGS, KERNEL_ACTIONS, PANELS, placements, scopeOf, type ActionId, type Binding } from "../recipes/actions.ts";
 import { BUILTINS, RULES, WHO } from "../recipes/builtins.ts";
 import { FIELD_SLUG } from "../recipes/fields.ts";
-import { COMPONENTS } from "../recipes/blocks.ts";
+import { BLOCKS, COMPONENTS } from "../recipes/blocks.ts";
 import { BESIDE, CEILINGS, HOLDS, PAGE_OBJECTS, RECIPE_FORMAT, RECIPE_GRAMMAR_SHA256, REST_FIELDS } from "../recipes/kernel.ts";
 import { RECIPE_MAX_BYTES } from "../recipes/manifest.ts";
 import { KIND_LIMITS, RECIPE_GRAMMAR } from "../recipes/md/parse.ts";
@@ -352,10 +352,17 @@ export function generate(): { skill: string; module: string } {
     "",
     pages(),
     'Data sections: table, list, metric, chart, form, board, detail. Each needs one JSON query fence. Table/list/metric/chart are read-only. Form uses fields and defaults, whose values may reference the page record. Its submit offers kernel.createRecord or kernel.logActivity. Board groups columns by a picklist groupBy.field. Detail uses columns, limit:1 and optionally record:"companyId". Board and detail offer kernel.editField. These existing kernel paths retain all gates; never define writes. Example "let me add a deal from this account": addSection form with query {object:"deal",fields:["name","closeDate","stage"],defaults:{companyId:{record:"id"},currency:"USD"}}. Queries use object, filter (ListFilter[]), sort {field,dir}, columns (table/list), limit 1–200 (default 10). Metric/chart use aggregate {fn:"count"} or {fn:"sum"|"avg",field}; chart needs groupBy {field,bucket?:day|week|month|quarter|year}. Filter values {record:"id"} or {record:"fieldId"} bind this record. addSection accepts query; setQuery replaces one.',
+    'Built-in sections expose an optional asQuery in describeLayout. To show one as table/list/metric/chart, use that query and its record references. from:"companyDeals" is a read-only relation allowed only on the account page with object:"deal"; it reads the same deals as the built-in Deals section, including CRM mirrors. For an account\u2019s deals always use from:"companyDeals": a companyId filter misses deals synced from a CRM. Filters, sorting, columns, limits and aggregates then apply to those rows. Table/list keep columns; metric/chart replace columns with aggregate, and chart adds groupBy. "Make this into X" replaces the original section at the same position; "add/also show X" keeps it and adds beside it. Sections without asQuery have no faithful data-query equivalent; do not invent one.',
+    table(["Built-in", "Page", "asQuery"], Object.values(BLOCKS).flatMap((b) => Object.entries(b.asQuery ?? {}).map(([page, query]) => [b.id, page, code(JSON.stringify(query))]))),
+    'Worked example: on an account, "make this into a graph" pointed at Deals (companyDeals) removes that section and inserts the following at the same position. In layout ops, removeSection companyDeals then addSection chart before the original next section. Preserve from:"companyDeals", drop columns, and count by stage. This named relation reads the same viewer-scoped linked and CRM-mirrored deals as the built-in section. The summary must say that the "New deal" button goes away, a form block can bring it back, and Undo restores Deals and its button.',
+    '### Deals {section=chart}',
+    '```query',
+    '{"object":"deal","from":"companyDeals","filter":[],"aggregate":{"fn":"count"},"groupBy":{"field":"stage"},"limit":200}',
+    '```',
     'Example: show this account’s open deals as a table:',
     '### Open deals {section=table}',
     '```query',
-    '{"object":"deal","filter":[{"field":"companyId","op":"eq","value":{"record":"id"}},{"field":"isClosed","op":"eq","value":false}],"columns":["recordTitle","amount"],"limit":10}',
+    '{"object":"deal","from":"companyDeals","filter":[{"field":"isClosed","op":"eq","value":false}],"columns":["recordTitle","amount"],"limit":10}',
     '```',
     `Standalone workspace pages: heading # Open deals {page=open-deals icon=chart nav=main}. Add workspace.pages to contributes. Lowercase kebab slugs must be unique and cannot name a dashboard route or deal/account/contact. nav=hidden omits the sidebar. Each page holds its own sections and optional layout. Use only table, list, metric, chart, form and board, with no {record:…} references. Editors support addPage {slug,title,icon?}, removePage {slug}, and existing section/query/tree ops with object set to the slug.`,
     `Layout containers: ${LAYOUT_GRAMMAR.containers.join(", ")}. At most one fenced layout block per page, scoped like headings. Leaves use component#nth (zero-based). Two spaces per level. Unmentioned sections render afterward. Columns need 2–3 children, optional widths. Tabs need one label per child. Cards need a title. Example using existing Velocity sections:`,

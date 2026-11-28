@@ -1,4 +1,4 @@
-import { DATA_QUERIES } from "./data.ts";
+import { DATA_QUERIES, type DataQuery } from "./data.ts";
 /** The page block vocabulary shared by recipes, the editor and renderer coverage types. Pure: no Node imports. */
 import { z } from "zod";
 import { DEAL_STAGES, type DealStage } from "../convex/lib/plays/model.ts";
@@ -156,12 +156,12 @@ function headingSchema(id: string, parts?: readonly string[]) {
 
 /** Pure call sites let play-runtime bundles omit the editor schemas and catalog metadata. */
 function block<const I extends string, const G extends string, const O extends Partial<Record<PageKind, number>>>(
-  id: I, group: G, objects: O, title: string, purpose: string, parts?: readonly string[],
+  id: I, group: G, objects: O, title: string, purpose: string, parts?: readonly string[], asQuery?: Partial<Record<PageKind, DataQuery>>,
 ) {
   const actions = Object.entries(ACTION_CATALOG).flatMap(([action, spec]) => Object.entries(spec.hosts).flatMap(([object, hosts]) =>
     Object.keys(hosts).filter((host) => host === id || PANELS[host as keyof typeof PANELS] === id).map((host) => ({ id: action as keyof typeof ACTION_CATALOG, object: object as PageKind, host })),
   ));
-  return { id, group, objects, title, purpose, parts, actions, props: headingSchema(id, parts) };
+  return { id, group, objects, title, purpose, parts, asQuery, actions, props: headingSchema(id, parts) };
 }
 
 function dataObjects(rank: number) { return { deal: rank, account: rank, contact: rank, workspace: rank }; }
@@ -201,7 +201,7 @@ export const BLOCKS = {
   whyFit: /* @__PURE__ */ block("whyFit", "party", { account: 3 }, "Why fit", "Why the company fits the ICP."),
   scoreHistory: /* @__PURE__ */ block("scoreHistory", "party", { account: 4 }, "Score history", "The company's fit score history."),
   topSignals: /* @__PURE__ */ block("topSignals", "party", { account: 6 }, "Top signals", "The company's latest signals and their status."),
-  companyDeals: /* @__PURE__ */ block("companyDeals", "party", { account: 7 }, "Company deals", "The deals at this company."),
+  companyDeals: /* @__PURE__ */ block("companyDeals", "party", { account: 7 }, "Company deals", "The deals at this company.", undefined, { account: { object: "deal", from: "companyDeals", filter: [], columns: ["name", "amount", "stage", "closeDate"], limit: 200 } }),
   peopleAcrossDeals: /* @__PURE__ */ block("peopleAcrossDeals", "party", { account: 8 }, "People across deals", "People across the company's deals."),
   aiFields: /* @__PURE__ */ block("aiFields", "party", { contact: 2 }, "Ai fields", "The person's AI field answers and research."),
   callPanel: /* @__PURE__ */ block("callPanel", "party", { contact: 4 }, "Call panel", "Call the person and log the call's outcome."),

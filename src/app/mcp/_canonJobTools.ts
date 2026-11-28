@@ -197,8 +197,10 @@ export const canonJobTools: CanonTool[] = [
   ),
   groupTool(
     "canon_signals",
-    "Buying signals (job-board hiring) and the heat score for top accounts.",
+    "Buying signals (job-board hiring) and the heat score for top accounts, and signal watches: a yes-or-no question asked of each account weekly (an account AI field) with a rule that tasks the account's owner when the answer turns yes. watch_catalog lists the starters and what the workspace watches; watch makes one from a starter key or your own label and question (admins). A watch answers nothing until you run its field on the accounts to watch with canon_ai_fields \"run\", and its rule stays paused until a person resumes it on the Automations page.",
     {
+      watch_catalog: q(api.signalWatches.catalog, "{} -> { templates: [{ key, label, question, task, group, watching: { slug, attribute, refresh } | null }], custom: [...], canInstall }"),
+      watch: m(api.signalWatches.watch, "{ key } | { label, question (yes or no, about one company), task? (the owner's task when it turns yes) } -> { slug, attribute, ruleId, next }"),
       status: q(api.signals.status),
       set_enabled: m(api.signals.setEnabled, "{ enabled: boolean }"),
       check_now: m(api.signals.checkNow),

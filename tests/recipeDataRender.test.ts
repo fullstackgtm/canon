@@ -12,7 +12,7 @@ const require = createRequire(import.meta.url);
 const tag = (name: string) => function Tag({ children, ...props }: { children?: ReactNode }) { return createElement(name, props, children); };
 const exports: { DataResult?: ComponentType<Record<string, unknown>> } = {};
 const stubs: Record<string, unknown> = {
-  "../../../convex/lib/objects/views": {}, "./data-write-section": {}, "convex/react": {}, "../../../convex/_generated/api": {}, "../../../recipes/data": {}, "../../../convex/lib/objects/registry": {},
+  "../../../convex/lib/objects/views": {}, "./data-write-section": {}, "convex/react": {}, "../../../convex/_generated/api": {}, "../../../recipes/data": {}, "../../../recipes/relationData": {}, "../../../convex/lib/objects/registry": {},
   "@/components/ui/table": Object.fromEntries(Object.entries({ Table: "table", TableHeader: "thead", TableHead: "th", TableBody: "tbody", TableRow: "tr", TableCell: "td" }).map(([k, v]) => [k, tag(v)])),
   "./record-context": { RecordLink: ({ id, children }: { id: string; children: ReactNode }) => createElement("a", { href: `/record/${id}` }, children), RecordQuickView: () => null },
   "../../../modules/kernel/text": { formatMoney: (v: number) => `$${(v / 100).toFixed(2)}` }, "../reports/report-chart": {}, "../reports/present": { present },

@@ -370,7 +370,7 @@ function AccountSections(p: Page) {
   ) : null;
   const renderers: Renderers<ComponentOf<"account">> = {
     ...shared,
-    ...dataRenderers({ id, values: row.values }, p.desc.fields, "account", p.ctx),
+    ...dataRenderers({ id, values: row.values, ...(data ? { company: { domain: data.account.domain, ...(data.account.stream ? { stream: data.account.stream } : {}) } } : {}) }, p.desc.fields, "account", p.ctx),
     fitBar: () => (data ? <FitBar fit={data.account.fit} explanation={explanation} /> : null),
     whyFit: (section, { held }) => data ? (
       <WhyThisFit title={section.title} explanation={explanation} citations={company.citations ?? []} values={{ industry: data.account.industry, country: data.account.country, employees: data.account.employees }}>

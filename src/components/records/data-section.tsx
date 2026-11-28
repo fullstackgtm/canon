@@ -1,4 +1,5 @@
 "use client";
+import { companyDealsData } from "../../../recipes/relationData";
 import type { PageKind } from "../../../recipes/blocks";
 import { useEffect, useState } from "react";
 import { useConvex } from "convex/react";
@@ -20,9 +21,10 @@ import { DataWriteResult } from "./data-write-section";
 import type { ObjectDescription } from "./fields";
 import type { Context } from "../../../recipes/conditions";
 
+type DataRecord = { id: string; values: Record<string, unknown>; company?: { domain: string; stream?: string } };
 type Fields = readonly { apiName: string; fieldId: string; label?: string; hidden?: boolean; type?: string }[];
-type Answer = { desc: ObjectDescription; query: DataQuery; rows?: ListResponse; fields: Fields } | { rows: ListResponse; fields: Fields } | { aggregate: AggregateResponse; fields: Fields };
-export function DataSection({ section, record, fields, pageObject = "deal", context = {} }: { pageObject?: PageKind; context?: Context; section: Extract<PageSection, { component: DataComponent }>; record: { id: string; values: Record<string, unknown> }; fields: Fields }) {
+type Answer = { desc: ObjectDescription; query: DataQuery; rows?: ListResponse; fields: Fields } | { rows: ListResponse; fields: Fields; unlinked?: string[] } | { aggregate: AggregateResponse; fields: Fields };
+export function DataSection({ section, record, fields, pageObject = "deal", context = {} }: { pageObject?: PageKind; context?: Context; section: Extract<PageSection, { component: DataComponent }>; record: DataRecord; fields: Fields }) {
   const client = useConvex();
   const [state, setState] = useState<{ key: string; answer?: Answer; error?: string }>();
   const [generation, setGeneration] = useState(0);
@@ -40,6 +42,11 @@ export function DataSection({ section, record, fields, pageObject = "deal", cont
       validateQueryFields(q, def);
       const used = [...q.filter.map((f) => f.field), ...(q.sort ? [q.sort.field] : []), ...("columns" in q ? q.columns : []), ...("aggregate" in q && q.aggregate.fn !== "count" ? [q.aggregate.field] : []), ...("groupBy" in q ? [q.groupBy.field] : [])];
       if (used.some((name) => desc.fields.some((f) => (f.apiName === name || f.fieldId === name) && f.hidden))) throw new Error("You cannot view a field used by this query");
+      if (q.from) {
+        if (pageObject !== "account" || q.object !== "deal" || !record.company) throw new Error("This relation needs an account record");
+        const deals = await client.query(api.deals.forCompany, { companyId: record.id, domain: record.company.domain, ...(record.company.stream ? { stream: record.company.stream } : {}) });
+        return { ...companyDealsData(q, deals, def), fields: desc.fields };
+      }
       if (section.component === "form" || section.component === "board" || section.component === "detail") {
         if ("defaults" in q) for (const [field, value] of Object.entries(q.defaults)) if (value && typeof value === "object") resolveQuery({ ...q, filter: [{ field, op: "eq", value }] }, record, fields);
         const usedFields = "fields" in q ? [...q.fields, ...Object.keys(q.defaults)] : "columns" in q ? q.columns : [];
@@ -97,11 +104,11 @@ export function DataResult({ kind, query: q, answer }: { kind: DataComponent; qu
     if (f?.type === "checkbox") return value ? "Yes" : "No";
     return Array.isArray(value) ? value.join(", ") : String(value);
   };
-  const link = (row: ListResponse["rows"][number]) => <span className="inline-flex items-center gap-1"><RecordLink object={q.object} id={row.id} className="hover:underline">{row.title}</RecordLink><RecordQuickView object={q.object} id={row.id} label={row.title} /></span>;
+  const link = (row: ListResponse["rows"][number]) => "unlinked" in answer && answer.unlinked?.includes(row.id) ? <span>{row.title}</span> : <span className="inline-flex items-center gap-1"><RecordLink object={q.object} id={row.id} className="hover:underline">{row.title}</RecordLink><RecordQuickView object={q.object} id={row.id} label={row.title} /></span>;
   if (kind === "list") return <ul className="divide-y divide-border">{answer.rows.rows.map((row) => <li key={row.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 py-2 text-sm">{link(row)}<span className="break-words text-muted-foreground">{q.columns.filter((c) => c !== "recordTitle").map((c) => cell(row, c)).join(" · ")}</span></li>)}</ul>;
   return <div className="min-w-0 max-w-full overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Record</TableHead>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableHead key={c}>{label(c)}</TableHead>)}</TableRow></TableHeader><TableBody>{answer.rows.rows.map((row) => <TableRow key={row.id}><TableCell>{link(row)}</TableCell>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableCell key={c}>{cell(row, c)}</TableCell>)}</TableRow>)}</TableBody></Table></div>;
 }
-export function dataRenderers(record: { id: string; values: Record<string, unknown> }, fields: Fields, pageObject: PageKind = "deal", context: Context = {}) {
+export function dataRenderers(record: DataRecord, fields: Fields, pageObject: PageKind = "deal", context: Context = {}) {
   const render = (section: Extract<PageSection, { component: DataComponent }>) => <DataSection section={section} record={record} fields={fields} pageObject={pageObject} context={context} />;
   return { table: render, list: render, metric: render, chart: render, form: render, board: render, detail: render };
 }

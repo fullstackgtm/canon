@@ -58,6 +58,7 @@ export type LayoutSection = {
   when: When | null;
   fields?: readonly string[];
   query?: DataQuery;
+  asQuery?: DataQuery;
   actions: Array<Pick<PageAction, "id" | "runs" | "label" | "labelAfter" | "panel" | "shows" | "enabled">>;
   addable: Array<{ runs: ActionId; panel?: Panel }>;
 };
@@ -556,11 +557,13 @@ export function describeLayout(markdown: string, object: string): Layout | { err
     tree: completeTree(recipe.layouts?.[object], pageKeys(page)),
     sections: page.map((s, i): LayoutSection => {
       const actions = s.actions ?? [];
+      const asQuery = BLOCKS[s.component].asQuery?.[pageKind(object)];
       const hosts = new Map<string, Panel | undefined>([[s.component, undefined], ...Object.entries(PANELS).filter(([, c]) => c === s.component).map(([p]) => [p, p as Panel] as const)]);
       return {
         ref: refOf(page, i), component: s.component, title: s.title ?? s.component, collapsed: Boolean(s.collapsed), when: (s.when as When | undefined) ?? null,
         ...(s.component === "fields" ? { fields: s.fields } : {}),
         ...("query" in s ? { query: s.query } : {}),
+        ...(asQuery ? { asQuery } : {}),
         actions: actions.map((a) => ({ id: a.id, runs: a.runs, label: a.label, ...(a.labelAfter !== undefined ? { labelAfter: a.labelAfter } : {}), ...(a.panel ? { panel: a.panel } : {}), ...(a.shows !== undefined ? { shows: a.shows } : {}), ...(a.enabled !== undefined ? { enabled: a.enabled } : {}) })),
         addable: BLOCKS[s.component].actions.filter((p) => p.object === pageKind(object) && hosts.has(p.host) && !actions.some((a) => a.runs === p.id && a.panel === hosts.get(p.host)))
           .map((p) => ({ runs: p.id, ...(hosts.get(p.host) ? { panel: hosts.get(p.host) } : {}) })),

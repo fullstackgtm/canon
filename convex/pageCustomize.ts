@@ -23,6 +23,7 @@ import { KERNEL_ACTIONS, type ActionId } from "../recipes/actions.ts";
 import { pageKind, componentsOf } from "../recipes/blocks.ts";
 import { pageOf, PARTS, type PageComponent } from "../recipes/kernel.ts";
 import { RECIPE_BUNDLES } from "../recipes/_bundles.generated.ts";
+import { builtInDataView } from "../recipes/md/dataView.ts";
 import { apply, describeLayout, type Layout, type LayoutOp, type SectionRef } from "../recipes/md/edit.ts";
 import { parseRecipe } from "../recipes/md/parse.ts";
 import { DRAWN, drawnText, refuseSectionRename } from "../recipes/md/pointed.ts";
@@ -97,6 +98,8 @@ const short = (d: string) => (d.length > 2_500 ? `${d.slice(0, 2_500)}\n…` : d
 async function jevRoute(key: string, layout: Layout, target: SectionRef, request: string, pointed: string): Promise<{ ops: LayoutOp[]; summary: string; refused?: boolean } | null> {
   const section = layout.sections.find((s) => sameRef(s.ref, target));
   if (!section) return null;
+  const view = builtInDataView(layout, target, request);
+  if (view) return view;
   const others = layout.sections.filter((s) => !sameRef(s.ref, target));
   const questions: Record<string, SystemOneQuestion> = {
     kind: {
@@ -230,6 +233,7 @@ function lunaPrompt(layout: Layout, target: SectionRef | null, request: string, 
     "2. Text `edits`, for what a section draws and how things work: a section heading's show= parts; else prefer changing a setting's Default in the `## Settings` table (respect its Limits); else a table row, a check's rule, or a button's `shows:`/`enabled:` condition." + (kept ? " This customization's prompts and ```logic lines run from its own TypeScript bundle, so never edit prompt prose or logic lines: express the change through settings and tables." : " You may also edit a prompt's prose."),
     'Data blocks: table, list, metric and chart are read-only sections; form, board and detail are write-capable sections on every record page. addSection takes query; setQuery replaces an existing data section query. Example on account: {op:"addSection",component:"table",title:"Open deals",before:null,query:{object:"deal",filter:[{field:"companyId",op:"eq",value:{record:"id"}},{field:"isClosed",op:"eq",value:false}],columns:["recordTitle","amount"],limit:10}}. Metric query uses aggregate:{fn:"count"} instead of columns. Chart also needs groupBy:{field:"stage"}. Form query uses fields and defaults (values may be {record:"id"}); submit uses kernel.createRecord or kernel.logActivity. Board uses columns and groupBy:{field:"stage"}; detail uses columns and limit:1, optionally record:"companyId". Both edit through kernel.editField. Every write must be offered in actions. Example "let me add a deal from this account": addSection form query:{object:"deal",fields:["name","closeDate","stage"],defaults:{companyId:{record:"id"},currency:"USD"}}. Never invent writes.',
     "Standalone pages use addPage {slug,title,icon?}, then addSection with object:slug. removePage {slug} removes one. Slugs must be lowercase kebab, distinct from dashboard routes. Only table/list/metric/chart/form/board are allowed; never use record references. Declare workspace.pages. On standalone pages add a metric with object: the current slug.",
+    'Built-in sections with asQuery can become table, list, metric or chart data sections. Use their asQuery, retaining from, filters and record references. from:"companyDeals" is a read-only relation allowed only on the account page with object:"deal"; it reads the same deals as the built-in Deals section, including CRM mirrors. Filters, sorting, columns, limits and aggregates then apply to those rows. Table/list keep columns; metric/chart replace columns with aggregate:{fn:"count"}; chart also needs groupBy:{field:"stage"} for deals or a suitable picklist. "Make this into X" replaces the section using removeSection and addSection at the same position (before the next section); "add/also show X" adds beside it. This is supported even though Canon draws the original component. If replacing a section with actions, explain in the summary which buttons go away, that a form block can bring record creation back, and that Undo restores the original. Without asQuery, do not invent a query or promise to change a built-in display.',
     "Tree ops: wrapSections {sections:[refs], kind:columns|tabs|card, id:uniqueName, props:{widths?:[2,1], labels?:[one label per tab], title?:card title}} groups siblings; unwrap {container:id} removes a container; moveIntoContainer {section,container,before:ref|null} moves a leaf; setContainerProps {container,props} changes props. Columns need 2–3 children. Tabs need labels. Cards need a title. Existing moveSection moves within its container.",
     "Return the fewest changes that do what the person asked. Never invent settings, components, actions or data the customization doesn't have. If the request can't be done in this customization, return nothing and say why in the summary.",
     layout.object === "deal" ? FIXED : "The layout lists the sections and actions this page can customize. Controls drawn inside a component are not recipe actions.",
@@ -237,7 +241,7 @@ function lunaPrompt(layout: Layout, target: SectionRef | null, request: string, 
     target ? `That is inside the section with ref ${JSON.stringify(target)}. "this", "it" or an unnamed subject means what they pointed at: a button is that action; the section's title means the section, so a request that only gives new words ("change to X", "call it X") renames it; "title", "heading" or "section" in the request always means the section's title, even when they pointed at a field or control inside it, so "change title to X" renames the section; a part is that part of the section's show=. Pointing is only a hint at where: judge by what the request asks for. A request about how the section works (how many, how long, which, when) is a customization change wherever they pointed. Only when the request changes the wording, look or presence of "a control or text the section's component draws" itself, return nothing and say plainly that Canon draws it and it can't change here yet; never rename or change the section in its place.` : "What they pointed at is outside every customization section, so it's one of the parts the customization doesn't control unless the request names a section. Never apply the request to some other section as a guess: if it is about what they pointed at, return nothing and say plainly that Canon draws that part and it can't change here yet.",
     ...(layout.object === "deal" ? ["Stages: in = Get in, case = Build the case, close = Close."] : []),
     `Instruction: ${request}`,
-    `Layout: ${JSON.stringify({ tree: layout.tree, sections: layout.sections.map((s, i) => ({ ref: s.ref, title: s.title, when: s.when, collapsed: s.collapsed, ...(PARTS[s.component] ? { parts: PARTS[s.component], show: page[i]?.show ?? PARTS[s.component] } : {}), actions: s.actions.map((a) => ({ id: a.id, label: a.label, ...(a.panel ? { panel: a.panel } : {}) })), addableActions: s.addable })), addableComponents: layout.addable })}`,
+    `Layout: ${JSON.stringify({ tree: layout.tree, sections: layout.sections.map((s, i) => ({ ref: s.ref, title: s.title, when: s.when, collapsed: s.collapsed, ...(s.asQuery ? { asQuery: s.asQuery } : {}), ...(PARTS[s.component] ? { parts: PARTS[s.component], show: page[i]?.show ?? PARTS[s.component] } : {}), actions: s.actions.map((a) => ({ id: a.id, label: a.label, ...(a.panel ? { panel: a.panel } : {}) })), addableActions: s.addable })), addableComponents: layout.addable })}`,
     `customization.md:\n<<<\n${markdown}\n>>>`,
   ].join("\n\n");
 }
@@ -300,13 +304,14 @@ async function runEdit(
 
   if (recipeAgentStandIn()) {
     const section = target && layout.sections.find((s) => sameRef(s.ref, target));
+    const view = builtInDataView(layout, target, request);
     let ops: LayoutOp[] = standInColumns(layout, target, request);
     if (section && /^(?:fold|collapse)\b/i.test(request)) ops = [{ op: "setCollapsed", object, section: section.ref, collapsed: true }];
     else if (section && /^move (?:this|it) to the top[.!]?$/i.test(request)) ops = [{ op: "moveSection", object, section: section.ref, before: layout.sections[0]?.ref ?? null }];
     const checked = check(args.markdown, ops);
     trace.route = "local stand-in; ";
     return done(checked.errors.length ? args.markdown : checked.text,
-      checked.errors.length ? checked.errors.join("; ") : ops.length ? "Updated the section. (Local stand-in model.)" : "Local stand-in supports folding a section or moving it to the top.", STAND_IN_MODEL, "layout");
+      checked.errors.length ? checked.errors.join("; ") : ops.length ? view?.summary ?? "Updated the section. (Local stand-in model.)" : "Local stand-in supports folding a section or moving it to the top.", STAND_IN_MODEL, "layout");
   }
 
   const key = integrationEnabled("jev") ? process.env.JEV_API_KEY : undefined;
