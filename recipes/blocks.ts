@@ -7,6 +7,8 @@ import type { PageSection } from "./kernel.ts";
 
 export const PAGE_OBJECTS = ["deal", "account", "contact"] as const;
 export type PageObject = (typeof PAGE_OBJECTS)[number];
+export type PageKind = PageObject | "workspace";
+export const pageKind = (target: string): PageKind => (PAGE_OBJECTS as readonly string[]).includes(target) ? target as PageObject : "workspace";
 export const PANELS = { draftPanel: "plan" } as const;
 
 const ACTION_CATALOG = {
@@ -70,7 +72,7 @@ const ACTION_CATALOG = {
   "kernel.setStatus": { hosts: { account: { header: "record" } }, calls: "records.edit", writes: true, requires: "!deleted", ready: "canEdit", gate: "the edit lands on the company's ledger, with the person as its author" },
   "kernel.setOwner": { hosts: { account: { header: "record" } }, calls: "records.edit", writes: true, requires: "!deleted", ready: "canEdit", gate: "an active teammate, or nobody; the edit lands on the company's ledger" },
   "kernel.editField": {
-    hosts: { deal: { detail: "record", board: "record" }, account: { fields: "record", detail: "record", board: "record" }, contact: { fields: "record", detail: "record", board: "record" } }, calls: "records.edit, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
+    hosts: { workspace: { board: "record" }, deal: { detail: "record", board: "record" }, account: { fields: "record", detail: "record", board: "record" }, contact: { fields: "record", detail: "record", board: "record" } }, calls: "records.edit, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
     gate: "a field the workspace made read-only stays so; an edit to a row nobody has worked puts it on the ledger first",
   },
   "kernel.findEmail": {
@@ -91,7 +93,7 @@ const ACTION_CATALOG = {
   },
   "kernel.restore": { hosts: { deal: { header: "record" }, account: { header: "record" }, contact: { header: "record" } }, calls: "records.bulkRegister, objects.restore", writes: true, requires: "canDelete && deleted", gate: "brings an archived record back" },
   "kernel.createRecord": {
-    hosts: { deal: { form: "record" }, account: { form: "record" }, contact: { form: "record" } },
+    hosts: { workspace: { form: "record" }, deal: { form: "record" }, account: { form: "record" }, contact: { form: "record" } },
     calls: "deals.createScoped, records.upsert, objects.writeScoped", writes: true, ready: "canEdit && !deleted",
     gate: "the existing create path checks the caller, tenant, create permission, visible and writable fields, references, validation and duplicates; a form cannot add a write",
   },
@@ -153,28 +155,29 @@ function headingSchema(id: string, parts?: readonly string[]) {
 }
 
 /** Pure call sites let play-runtime bundles omit the editor schemas and catalog metadata. */
-function block<const I extends string, const G extends string, const O extends Partial<Record<PageObject, number>>>(
+function block<const I extends string, const G extends string, const O extends Partial<Record<PageKind, number>>>(
   id: I, group: G, objects: O, title: string, purpose: string, parts?: readonly string[],
 ) {
   const actions = Object.entries(ACTION_CATALOG).flatMap(([action, spec]) => Object.entries(spec.hosts).flatMap(([object, hosts]) =>
-    Object.keys(hosts).filter((host) => host === id || PANELS[host as keyof typeof PANELS] === id).map((host) => ({ id: action as keyof typeof ACTION_CATALOG, object: object as PageObject, host })),
+    Object.keys(hosts).filter((host) => host === id || PANELS[host as keyof typeof PANELS] === id).map((host) => ({ id: action as keyof typeof ACTION_CATALOG, object: object as PageKind, host })),
   ));
   return { id, group, objects, title, purpose, parts, actions, props: headingSchema(id, parts) };
 }
 
-function dataBlock<K extends keyof typeof DATA_QUERIES>(id: K, title: string, rank: number) {
-  return { ...block(id, "data", { deal: rank, account: rank, contact: rank }, title, "Read records through a declarative query."), query: DATA_QUERIES[id] };
+function dataObjects(rank: number) { return { deal: rank, account: rank, contact: rank, workspace: rank }; }
+function dataBlock<K extends keyof typeof DATA_QUERIES, const O extends Partial<Record<PageKind, number>>>(id: K, title: string, objects: O) {
+  return { ...block(id, "data", objects, title, "Read records through a declarative query."), query: DATA_QUERIES[id] };
 }
 
 /** Object ranks preserve the existing add-menu and grammar order, independently of catalog order. */
 export const BLOCKS = {
-  form: /* @__PURE__ */ dataBlock("form", "Form", 34),
-  board: /* @__PURE__ */ dataBlock("board", "Board", 35),
-  detail: /* @__PURE__ */ dataBlock("detail", "Detail", 36),
-  table: /* @__PURE__ */ dataBlock("table", "Table", 30),
-  list: /* @__PURE__ */ dataBlock("list", "List", 31),
-  metric: /* @__PURE__ */ dataBlock("metric", "Metric", 32),
-  chart: /* @__PURE__ */ dataBlock("chart", "Chart", 33),
+  form: /* @__PURE__ */ dataBlock("form", "Form", /* @__PURE__ */ dataObjects(34)),
+  board: /* @__PURE__ */ dataBlock("board", "Board", /* @__PURE__ */ dataObjects(35)),
+  detail: /* @__PURE__ */ dataBlock("detail", "Detail", { deal: 36, account: 36, contact: 36 }),
+  table: /* @__PURE__ */ dataBlock("table", "Table", /* @__PURE__ */ dataObjects(30)),
+  list: /* @__PURE__ */ dataBlock("list", "List", /* @__PURE__ */ dataObjects(31)),
+  metric: /* @__PURE__ */ dataBlock("metric", "Metric", /* @__PURE__ */ dataObjects(32)),
+  chart: /* @__PURE__ */ dataBlock("chart", "Chart", /* @__PURE__ */ dataObjects(33)),
   queue: /* @__PURE__ */ block("queue", "play", { deal: 1 }, "Queue", "The rep's open deals, at risk and closing soon first, and why the next one needs them."),
   summary: /* @__PURE__ */ block("summary", "play", { deal: 2 }, "Summary", "The deal's health, amount, close date and owner, and the account research run with its status.", ["health", "amount", "closeDate", "owner", "research"]),
   stageRail: /* @__PURE__ */ block("stageRail", "play", { deal: 3 }, "Stage rail", "The three stages, the current one marked, and its exit."),
@@ -215,11 +218,12 @@ export const PARTY_COMPONENTS = /* @__PURE__ */ inGroup("party");
 export type PlayComponent = (typeof PLAY_COMPONENTS)[number];
 export type RecordComponent = (typeof RECORD_COMPONENTS)[number];
 export type PartyComponent = (typeof PARTY_COMPONENTS)[number];
-export type ComponentOf<O extends PageObject> = { [K in PageComponent]: O extends keyof (typeof BLOCKS)[K]["objects"] ? K : never }[PageComponent];
-export const componentsOf = <O extends PageObject>(object: O): ComponentOf<O>[] => Object.values(BLOCKS)
+export type ComponentOf<O extends PageKind> = { [K in PageComponent]: O extends keyof (typeof BLOCKS)[K]["objects"] ? K : never }[PageComponent];
+export const componentsOf = <O extends PageKind>(object: O): ComponentOf<O>[] => Object.values(BLOCKS)
   .filter((b) => object in b.objects)
-  .sort((a, b) => (a.objects as Partial<Record<PageObject, number>>)[object]! - (b.objects as Partial<Record<PageObject, number>>)[object]!)
+  .sort((a, b) => (a.objects as Partial<Record<PageKind, number>>)[object]! - (b.objects as Partial<Record<PageKind, number>>)[object]!)
   .map((b) => b.id) as ComponentOf<O>[];
+export const WORKSPACE_COMPONENTS = /* @__PURE__ */ componentsOf("workspace");
 export const COMPONENTS = { deal: /* @__PURE__ */ componentsOf("deal"), account: /* @__PURE__ */ componentsOf("account"), contact: /* @__PURE__ */ componentsOf("contact") };
 /**
  * The parts a component draws that a section's `show=` can pick, in the order they draw. A section without `show=`

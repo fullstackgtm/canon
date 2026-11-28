@@ -1,8 +1,9 @@
 "use client";
+import type { PageKind } from "../../../recipes/blocks";
 import { useState } from "react";
 import { useConvex, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import type { PageSection, PageObject } from "../../../recipes/kernel";
+import type { PageSection } from "../../../recipes/kernel";
 import type { Context } from "../../../recipes/conditions";
 import { offered } from "../../../recipes/actions";
 import { resolveQuery, type DataQuery } from "../../../recipes/data";
@@ -37,13 +38,13 @@ export function DataForm({ query, desc, initial, buttons, onSubmit, team }: { te
   </form>;
 }
 
-export function DataWriteResult({ section, query: q, desc, rows, pageObject, context, record, pageFields, reload, externalSaves }: { section: Extract<PageSection, { component: "form" | "detail" | "board" }>; query: DataQuery; desc: ObjectDescription; rows?: ListResponse; pageObject: PageObject; context: Context; record: { id: string; values: Record<string, unknown> }; pageFields: readonly { apiName: string; fieldId: string; hidden?: boolean }[]; reload: () => void; externalSaves?: BoardSaves }) {
+export function DataWriteResult({ section, query: q, desc, rows, pageObject, context, record, pageFields, reload, externalSaves }: { section: Extract<PageSection, { component: "form" | "detail" | "board" }>; query: DataQuery; desc: ObjectDescription; rows?: ListResponse; pageObject: PageKind; context: Context; record: { id: string; values: Record<string, unknown> }; pageFields: readonly { apiName: string; fieldId: string; hidden?: boolean }[]; reload: () => void; externalSaves?: BoardSaves }) {
   const client = useConvex();
   const team = useQuery(api.users.list, {}) as TeamMember[] | undefined;
   const [error, setError] = useState("");
   const [saves, setSaves] = useState<BoardSaves>({ n: 0, saves: [] });
   const changed = (saved: BoardSaves["saves"] = []) => { reload(); window.dispatchEvent(new CustomEvent(RECORDS_SAVED, { detail: saved })); };
-  const offers = offered(section.actions ?? [], section.component, ["kernel.editField", "kernel.createRecord", "kernel.logActivity"], { ...context, canEdit: section.component === "form" ? desc.canCreate : desc.writable }, {}, pageObject);
+  const offers = offered(section.actions ?? [], section.component, ["kernel.editField", "kernel.createRecord", "kernel.logActivity"], { deleted: false, ...context, canEdit: section.component === "form" ? desc.canCreate : desc.writable }, {}, pageObject);
   const edit = offers.find((o) => o.action.runs === "kernel.editField");
   const canEdit = Boolean(edit && !edit.disabled && desc.writable);
   async function save(row: ListResponse["rows"][number], field: string, value: CellValue, version: number) {

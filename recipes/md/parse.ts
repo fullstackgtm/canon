@@ -1,3 +1,5 @@
+import { validPageSlug, PAGE_ICONS, RESERVED_PAGE_SLUGS } from "../pages.ts";
+import { pageKind, componentsOf } from "../blocks.ts";
 import { DATA_QUERY_GRAMMAR, isDataComponent, validateDataQuery } from "../data.ts";
 import { parseLayout, pageKeys, LAYOUT_GRAMMAR, type LayoutTree } from "../layout.ts";
 /**
@@ -52,7 +54,8 @@ export type CompiledRecipe = {
   meta: RecipeMeta;
   settingsSchema: AnyDescriptor[];
   defaults: Settings;
-  layouts?: Partial<Record<PageObject, LayoutTree>>;
+  workspacePages?: import("../kernel.ts").WorkspacePage[];
+  layouts?: Partial<Record<string, LayoutTree>>;
   dealPage: PageSpec;
   /** The ```theme block (recipes/theme.ts), its values bound to settings; null for a recipe without one. */
   theme: ThemeDecl | null;
@@ -340,7 +343,7 @@ const HEADING = /^(#{1,6})\s+(.*?)(?:\s+\{([^}]*)\})?\s*$/;
 const FENCE = /^(`{3,})\s*([\w-]*)\s*(.*)$/;
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*$/;
 const HEADING_ATTRS: Record<string, readonly string[]> = {
-  page: ["page"],
+  page: ["page", "icon", "nav"],
   section: SECTION_ATTRIBUTES,
   panel: ["panel"],
   prompt: ["prompt", "args", "kind", "min_confidence", "tool"],
@@ -558,23 +561,29 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
 
   // ── Pages: the sections under a {page=<object>} heading lay out that object's page, and any others the deal's ──
   for (const h of headings.filter((x) => x.role === "page")) {
-    if (!(PAGE_OBJECTS as readonly string[]).includes(h.attrs.page)) at(h.line, `page=${h.attrs.page} is not a page a customization lays out (${PAGE_OBJECTS.join(", ")})`);
+    if (pageKind(h.attrs.page) === "workspace") {
+      if (!validPageSlug(h.attrs.page)) at(h.line, "page slug must be lowercase kebab and cannot name an existing dashboard route");
+      if (!h.title || h.title.length > 80) at(h.line, "a page needs a title of 1 to 80 characters");
+      if (headings.some((x) => x !== h && x.role === "page" && x.attrs.page === h.attrs.page && x.line < h.line)) at(h.line, "page slug is declared twice");
+      if (h.attrs.nav !== undefined && !["main", "hidden"].includes(h.attrs.nav)) at(h.line, "nav is main or hidden");
+      if (h.attrs.icon !== undefined && !(PAGE_ICONS as readonly string[]).includes(h.attrs.icon)) at(h.line, "icon must name a sidebar icon");
+    }
     if (enclosing(h.parent, "page") || enclosing(h.parent, "section")) at(h.line, "a {page=…} heading sits above its sections, not under another page or section");
   }
-  const objectOf = (h: Heading): PageObject => {
+  const objectOf = (h: Heading): string => {
     const page = enclosing(h, "page")?.attrs.page;
-    return (PAGE_OBJECTS as readonly string[]).includes(page ?? "") ? (page as PageObject) : "deal";
+    return page ?? "deal";
   };
 
   // ── Sections ──
-  type Open = { section: PageSection; object: PageObject; line: number; fieldsLine: number | null; heading: Heading };
+  type Open = { section: PageSection; object: string; line: number; fieldsLine: number | null; heading: Heading };
   const sections: Open[] = [];
   for (const h of headings.filter((x) => x.role === "section")) {
     const component = h.attrs.section;
     const object = objectOf(h);
     if (!isComponentOf(object, component)) {
       const elsewhere = (PAGE_COMPONENTS as readonly string[]).includes(component) ? `; ${component} sits on the ${PAGE_OBJECTS.filter((o) => isComponentOf(o, component)).join(" and ")} page` : "";
-      at(h.line, `section=${component} is not a component of the ${object} page (${COMPONENTS[object].join(", ")})${elsewhere}`);
+      at(h.line, `section=${component} is not a component of the ${object} page (${componentsOf(pageKind(object)).join(", ")})${elsewhere}`);
       continue;
     }
     const section = { component: component as PageComponent, title: h.title, ...(component === "fields" ? { fields: [] } : {}) } as PageSection;
@@ -606,7 +615,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
       for (const name of list(l.text)) {
         if (!FIELD_NAME.test(name)) { at(l.line, `${name} is not a field name`); continue; }
         // Kept in the page: another workspace's object may have it, and the page skips it where it's missing.
-        const known = opts.objectFields?.[open.object];
+        const known = opts.objectFields?.[open.object as PageObject];
         if (name !== REST_FIELDS && known && !known.includes(name)) at(l.line, `${name} is not a field of the ${open.object} object; the page skips it`, "warning");
         names.push(name);
       }
@@ -620,7 +629,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
     if (!open || !isDataComponent(open.section.component)) { at(f.line, "a query belongs under a data section"); continue; }
     if ("query" in open.section) { at(f.line, "only one query per section"); continue; }
     try {
-      const query = validateDataQuery(open.section.component, JSON.parse(f.lines.map((l) => l.text).join("\n")), open.object);
+      const query = validateDataQuery(open.section.component, JSON.parse(f.lines.map((l) => l.text).join("\n")), pageKind(open.object));
       open.section = { ...open.section, query } as unknown as PageSection;
     } catch (e) { at(f.line, `query: ${e instanceof Error ? e.message : String(e)}`); }
   }
@@ -894,7 +903,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
     if (panel !== undefined && !Object.hasOwn(PANELS, panel)) { at(panelHeading!.line, `panel=${panel} is not a kernel panel (${Object.keys(PANELS).join(", ")})`); continue; }
     if (panel !== undefined && PANELS[panel as Panel] !== open.section.component) { at(panelHeading!.line, `the ${panel} sits in a {section=${PANELS[panel as Panel]}} section`); continue; }
     const host = (panel ?? open.section.component) as Host;
-    if (!placements().some((p) => p.object === open.object && p.host === host)) { at(f.line, `action ${id}: a ${open.section.component} section has no actions`); continue; }
+    if (!placements().some((p) => p.object === pageKind(open.object) && p.host === host)) { at(f.line, `action ${id}: a ${open.section.component} section has no actions`); continue; }
     const text = (k: string) => (typeof raw[k] === "string" ? (raw[k] as string) : undefined);
     const action: PageAction = {
       id, label: String(raw.label ?? ""), runs: runs as PageAction["runs"],
@@ -904,12 +913,13 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
       ...(refs.length ? { prompts: refs.flat().filter((x): x is string => typeof x === "string") } : {}),
       ...(Array.isArray(fieldsRef) ? { fields: fieldsRef as string[] } : {}),
     };
-    if (isActionId(runs)) for (const p of actionProblems(action, host, open.object)) at(lineOf(p.key === "label_after" ? "label_after" : p.key), `action ${id}: ${p.message}`);
+    if (isActionId(runs)) for (const p of actionProblems(action, host, pageKind(open.object))) at(lineOf(p.key === "label_after" ? "label_after" : p.key), `action ${id}: ${p.message}`);
     open.section = { ...open.section, actions: [...(open.section.actions ?? []), action] };
   }
-  const opened = (object: PageObject) => sections.filter((s) => s.object === object);
+  const opened = (object: string) => sections.filter((s) => s.object === object);
   const [dealPage, accountPage, contactPage] = PAGE_OBJECTS.map((o) => opened(o).map((s) => s.section));
-  const layouts: Partial<Record<PageObject, LayoutTree>> = {};
+  const workspacePages = headings.filter((h) => h.role === "page" && pageKind(h.attrs.page) === "workspace").map((h) => ({ slug: h.attrs.page, title: h.title, ...(h.attrs.icon ? { icon: h.attrs.icon } : {}), nav: (h.attrs.nav ?? "main") as "main" | "hidden", sections: opened(h.attrs.page).map((s) => s.section) }));
+  const layouts: Partial<Record<string, LayoutTree>> = {};
   for (const f of fences.filter((f) => f.lang === "layout")) {
     const object = (enclosing(f.heading, "page")?.attrs.page ?? "deal") as PageObject;
     if (layouts[object]) { at(f.line, `only one layout block per ${object} page`); continue; }
@@ -961,10 +971,11 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
   // A people field written inline in the ```people block is a field too (recipes/fields.ts fieldsOf), but recipes wrote
   // those before fields were a point, so only the ```ai-fields block declares the point.
   const declaredFields = (Array.isArray(aiRaw) ? aiRaw : []) as unknown as RecipeField[];
-  const parts = { dealPage, accountPage, contactPage, theme, templates: declaredTemplates, fields: declaredFields, data: null };
+  const parts = { workspacePages, dealPage, accountPage, contactPage, theme, templates: declaredTemplates, fields: declaredFields, data: null };
   const firstLine = (id: PointId) => {
     const page = PAGE_OBJECTS.find((o) => `${o}.page` === id);
     if (id === "workspace.theme") return themeFence?.line;
+    if (id === "workspace.pages") return headings.find((h) => h.role === "page" && pageKind(h.attrs.page) === "workspace")?.line;
     return page ? opened(page)[0]?.line : id === "fields" ? aiFence?.line : templateFences.find((t) => `templates.${t.kind}s` === id)?.f.line;
   };
   for (const id of POINT_IDS) {
@@ -996,7 +1007,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
 
   const code = fences.filter((f) => f.lang === "ts").map((f) => ({ line: f.line, source: f.lines.map((l) => l.text).join("\n") }));
   problems.sort((a, b) => a.line - b.line);
-  return { recipe: { meta, settingsSchema, defaults, dealPage, theme, accountPage, contactPage, ...(Object.keys(layouts).length ? { layouts } : {}), models, templates, fields: aiFields, data, prompts, logic, evals, code }, problems };
+  return { recipe: { meta, settingsSchema, defaults, dealPage, theme, accountPage, contactPage, ...(workspacePages.length ? { workspacePages } : {}), ...(Object.keys(layouts).length ? { layouts } : {}), models, templates, fields: aiFields, data, prompts, logic, evals, code }, problems };
 }
 
 /**
@@ -1004,6 +1015,7 @@ export function parseRecipe(source: string, opts: { objectFields?: Partial<Recor
  * RECIPE_GRAMMAR_SHA256, so the grammar can't change without the format's record of it (recipes/kernel.ts).
  */
 export const RECIPE_GRAMMAR = {
+  workspacePages: { reserved: RESERVED_PAGE_SLUGS, icons: PAGE_ICONS, nav: ["main", "hidden"] },
   layout: LAYOUT_GRAMMAR,
   query: DATA_QUERY_GRAMMAR,
   frontmatter: { keys: FRONT_KEYS, objects: RECIPE_OBJECTS, sources: RECIPE_SOURCES, permissions: ["read", "llm", "sources"] },
@@ -1012,7 +1024,7 @@ export const RECIPE_GRAMMAR = {
   settings: { columns: SETTING_COLUMNS, kinds: Object.keys(KIND_LIMITS), roles: DEAL_ROLES, channels: PLAY_CHANNELS, levels: LEVEL_IDS },
   headings: HEADING_ATTRS,
   stages: DEAL_STAGES,
-  components: { page: PAGE_COMPONENTS, play: PLAY_COMPONENTS, objects: COMPONENTS, panels: PANELS, rest: REST_FIELDS, parts: PARTS },
+  components: { page: PAGE_COMPONENTS, play: PLAY_COMPONENTS, objects: { ...COMPONENTS, workspace: componentsOf("workspace") }, panels: PANELS, rest: REST_FIELDS, parts: PARTS },
   fences: KNOWN_FENCES,
   templates: { attrs: TEMPLATE_ATTRS, kinds: TEMPLATE_KIND_IDS },
   fields: { keys: AI_FIELD_KEYS, objects: ["account", "contact"], kinds: ["classify", "qa"], answers: ["text", "number", "boolean"], autoAccept: AUTO_ACCEPT_RANGE, people: PEOPLE_REF_KEYS },

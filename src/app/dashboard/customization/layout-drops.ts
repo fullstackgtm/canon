@@ -4,7 +4,6 @@
  */
 import { DEAL_STAGES, type DealStage } from "../../../../convex/lib/plays/model.ts";
 import type { Layout, LayoutOp, LayoutSection, When } from "../../../../recipes/md/edit.ts";
-import type { PageObject } from "../../../../recipes/kernel.ts";
 
 /** Where a dragged thing lands: before the item at this index, or last when it is the list's length. */
 export type Slot = number;
@@ -21,7 +20,7 @@ type Action = LayoutSection["actions"][number];
 export const areaOf = (section: LayoutSection, panel: Action["panel"]) => section.actions.filter((a) => a.panel === panel);
 
 /** The button `id` dropped at `slot` among its area's buttons, or null when that leaves it where it is. */
-export function actionDrop(object: PageObject, section: LayoutSection, id: string, slot: Slot): LayoutOp | null {
+export function actionDrop(object: string, section: LayoutSection, id: string, slot: Slot): LayoutOp | null {
   const action = section.actions.find((a) => a.id === id);
   if (!action) return null;
   const area = areaOf(section, action.panel);

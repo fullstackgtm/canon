@@ -9,15 +9,15 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { invalidateFit } from "./lib/fitInvalidation";
 import { action, internalMutation, internalQuery, query, type ActionCtx, type QueryCtx } from "./_generated/server";
-import { callerOf, mayDecide, requireDecider } from "./recipes";
-import { currentRevision, modelSettings, upstreamChange, orgConnections, packageRow, recipeIn, requireRecipe, storedOverrides } from "./lib/recipes";
+import { callerOf, mayDecide, requireDecider, setEnabled } from "./recipes";
+import { enabledFor, currentRevision, modelSettings, upstreamChange, orgConnections, packageRow, recipeIn, requireRecipe, storedOverrides } from "./lib/recipes";
 import { proposalEvals } from "./lib/recipeAgent";
 import { runEvals } from "./lib/recipeRuntime";
 import { recipeAgentStandIn } from "./lib/recipeAgentStandIn";
 import { openSource, type Connection } from "./lib/recipeSources";
 import { BUILTINS_BUNDLE, FIRST_PARTY_MARKDOWN, RECIPE_BUNDLES } from "../recipes/_bundles.generated.ts";
 import { codeNames, markdownBundle, runnable } from "../recipes/compose.ts";
-import { isFirstParty, parseOverrides } from "../recipes/index.ts";
+import { contributionsOf, planEnable, pointOf, isFirstParty, parseOverrides } from "../recipes/index.ts";
 import { RECIPE_MAX_BYTES, fromManifest, parseManifest, toManifest, type Manifest } from "../recipes/manifest.ts";
 import { parseRecipe, type Runnable } from "../recipes/md/parse.ts";
 import { copySlug, copyTitle, forkMarkdown, isWorkspaceId, lineDiff, orgSlug, workspaceId, workspaceProblems, type WorkspaceSource } from "../recipes/workspace.ts";
@@ -375,6 +375,13 @@ export const storeRevision = internalMutation({
       ...(args.upstream ? { upstream: { version: args.upstream.version, markdown: args.upstream.markdown } } : {}),
       ...(keptBundle ? { bundle: { hash: args.bundleHash, storageId: args.storageId } } : {}), status: "current", createdAt: Date.now(),
     });
+    const beforePages = new Set((parseRecipe(current.markdown).recipe.workspacePages ?? []).map((p) => p.slug));
+    const on = await enabledFor(ctx, user.orgId, "workspace.pages");
+    for (const next of contributionsOf(now).filter((c) => c.point === "workspace.pages" && !beforePages.has(c.key))) {
+      const plan = planEnable(pointOf("workspace.pages"), on.map((e) => e.contribution), next);
+      if (!plan.ok) throw new ConvexError(plan.error);
+      await setEnabled(ctx, user, "workspace.pages", args.recipeId, next.key, true);
+    }
     const old = pkg.bundleStorageId;
     const forkedFrom = args.upstream ? { ...pkg.source.forkedFrom, version: args.upstream.version, markdownHash: args.upstream.markdownHash } : pkg.source.forkedFrom;
     await ctx.db.patch(pkg._id, { manifest: args.manifest, version: args.version, bundleHash: args.bundleHash, bundleStorageId: args.storageId, source: { ...pkg.source, markdownHash: args.markdownHash, forkedFrom } });

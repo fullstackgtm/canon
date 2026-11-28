@@ -29,6 +29,7 @@ export const POINT_PAGE: Record<PointId, CanonPageId> = {
   "contact.page": "people",
   "workspace.theme": "workspace",
   "workspace.nav": "workspace",
+  "workspace.pages": "workspace",
   "forecast.model": "revenue",
   "health.model": "health",
   "scoring.lead": "leads",

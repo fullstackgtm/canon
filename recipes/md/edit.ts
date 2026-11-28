@@ -1,3 +1,4 @@
+import { validPageSlug, PAGE_ICONS } from "../pages.ts";
 import { isDataComponent, validateDataQuery, type DataQuery } from "../data.ts";
 import { CONTAINERS, completeTree, pageKeys, printLayout, sectionKey, validateTree, type LayoutNode, type LayoutTree, type ContainerKind, type ContainerProps } from "../layout.ts";
 /**
@@ -10,8 +11,8 @@ import { CONTAINERS, completeTree, pageKeys, printLayout, sectionKey, validateTr
  */
 import { DEAL_STAGES, type DealStage } from "../../convex/lib/plays/model.ts";
 import { PANELS, placements, type ActionId, type PageAction, type Panel } from "../actions.ts";
-import { BLOCKS, componentsOf } from "../blocks.ts";
-import { COMPONENTS, PAGE_KEYS, PAGE_OBJECTS, isComponentOf, type PageComponent, type PageObject, type PageSection, type PageSpec } from "../kernel.ts";
+import { BLOCKS, componentsOf, pageKind } from "../blocks.ts";
+import { pageOf, PAGE_KEYS, isComponentOf, type PageComponent, type PageObject, type PageSection, type PageSpec } from "../kernel.ts";
 import { hasErrors, parseRecipe, readBlock, type CompiledRecipe, type Problem } from "./parse.ts";
 
 /**
@@ -25,25 +26,26 @@ export type When = { stage: readonly DealStage[] } | { notStage: readonly DealSt
 
 /** One layout edit. An action is known by its id, which is unique on its page; `before: null` puts a thing last. */
 export type TreeOp =
-  | { op: "wrapSections"; object: PageObject; sections: SectionRef[]; kind: Exclude<ContainerKind, "stack">; id: string; props?: ContainerProps }
-  | { op: "unwrap"; object: PageObject; container: string }
-  | { op: "moveIntoContainer"; object: PageObject; section: SectionRef; container: string; before: SectionRef | null }
-  | { op: "setContainerProps"; object: PageObject; container: string; props: ContainerProps };
-export type LayoutOp = TreeOp
-  | { op: "setQuery"; object: PageObject; section: SectionRef; query: DataQuery }
-  | { op: "moveSection"; object: PageObject; section: SectionRef; before: SectionRef | null }
-  | { op: "setCollapsed"; object: PageObject; section: SectionRef; collapsed: boolean }
+  | { op: "wrapSections"; object: string; sections: SectionRef[]; kind: Exclude<ContainerKind, "stack">; id: string; props?: ContainerProps }
+  | { op: "unwrap"; object: string; container: string }
+  | { op: "moveIntoContainer"; object: string; section: SectionRef; container: string; before: SectionRef | null }
+  | { op: "setContainerProps"; object: string; container: string; props: ContainerProps };
+export type PageOp = { op: "addPage"; slug: string; title: string; icon?: string } | { op: "removePage"; slug: string };
+export type LayoutOp = PageOp | TreeOp
+  | { op: "setQuery"; object: string; section: SectionRef; query: DataQuery }
+  | { op: "moveSection"; object: string; section: SectionRef; before: SectionRef | null }
+  | { op: "setCollapsed"; object: string; section: SectionRef; collapsed: boolean }
   | { op: "setWhen"; object: "deal"; section: SectionRef; when: When | null }
-  | { op: "renameSection"; object: PageObject; section: SectionRef; title: string }
-  | { op: "removeSection"; object: PageObject; section: SectionRef }
-  | { op: "addSection"; object: PageObject; component: PageComponent; title: string; fields?: readonly string[]; query?: DataQuery; before: SectionRef | null }
-  | { op: "moveAction"; object: PageObject; section: SectionRef; action: string; before: string | null }
-  | { op: "setActionLabel"; object: PageObject; section: SectionRef; action: string; label: string }
-  | { op: "removeAction"; object: PageObject; section: SectionRef; action: string }
-  | { op: "addAction"; object: PageObject; section: SectionRef; runs: ActionId; panel?: Panel; id?: string; label?: string }
+  | { op: "renameSection"; object: string; section: SectionRef; title: string }
+  | { op: "removeSection"; object: string; section: SectionRef }
+  | { op: "addSection"; object: string; component: PageComponent; title: string; fields?: readonly string[]; query?: DataQuery; before: SectionRef | null }
+  | { op: "moveAction"; object: string; section: SectionRef; action: string; before: string | null }
+  | { op: "setActionLabel"; object: string; section: SectionRef; action: string; label: string }
+  | { op: "removeAction"; object: string; section: SectionRef; action: string }
+  | { op: "addAction"; object: string; section: SectionRef; runs: ActionId; panel?: Panel; id?: string; label?: string }
   /** `undefined` leaves a condition as it is, `null` removes it. */
-  | { op: "setActionCondition"; object: PageObject; section: SectionRef; action: string; shows?: string | null; enabled?: string | null }
-  | { op: "moveField"; object: PageObject; field: string; to: SectionRef; before: string | null };
+  | { op: "setActionCondition"; object: string; section: SectionRef; action: string; shows?: string | null; enabled?: string | null }
+  | { op: "moveField"; object: string; field: string; to: SectionRef; before: string | null };
 
 export type EditResult = { markdown: string } | { error: string; problems?: Problem[] };
 
@@ -59,7 +61,7 @@ export type LayoutSection = {
   actions: Array<Pick<PageAction, "id" | "runs" | "label" | "labelAfter" | "panel" | "shows" | "enabled">>;
   addable: Array<{ runs: ActionId; panel?: Panel }>;
 };
-export type Layout = { tree: LayoutTree; object: PageObject; sections: LayoutSection[]; addable: PageComponent[] };
+export type Layout = { tree: LayoutTree; object: string; sections: LayoutSection[]; addable: PageComponent[] };
 
 // ───────────────────────────── Reading the text's structure ─────────────────────────────
 //
@@ -108,9 +110,9 @@ function read(markdown: string): Doc {
 }
 
 const enclosing = (h: Head | null, role: string): Head | null => { for (let x = h; x; x = x.parent) if (x.attrs[role] !== undefined) return x; return null; };
-const objectOf = (h: Head): PageObject => {
+const objectOf = (h: Head): string => {
   const page = enclosing(h, "page")?.attrs.page;
-  return (PAGE_OBJECTS as readonly string[]).includes(page ?? "") ? (page as PageObject) : "deal";
+  return page ?? "deal";
 };
 
 /** A placed action's block in the text: the fence, its id, and the panel heading it sits under. */
@@ -128,7 +130,7 @@ function idOf(doc: Doc, f: Fence): string {
 }
 
 /** The text's sections of `object`'s page, one for each of the parsed page's, or null when they don't line up. */
-function locate(doc: Doc, page: PageSpec, object: PageObject): Located[] | null {
+function locate(doc: Doc, page: PageSpec, object: string): Located[] | null {
   const heads = doc.heads.filter((h) => h.attrs.section !== undefined && objectOf(h) === object && isComponentOf(object, h.attrs.section));
   const out = heads.map((head): Located => ({
     head,
@@ -268,12 +270,41 @@ export function apply(markdown: string, op: LayoutOp): EditResult {
   const { recipe, problems } = parse(markdown);
   if (hasErrors(problems)) return { error: "the customization has problems to fix before its layout can be edited", problems: problems.filter((p) => p.level === "error") };
   const doc = read(markdown);
-  const page = recipe[PAGE_KEYS[op.object]];
+  if (op.op === "addPage" || op.op === "removePage") {
+    const pages = recipe.workspacePages ?? [];
+    const own = pages.find((p) => p.slug === op.slug);
+    const lines = [...doc.lines];
+    let want: CompiledRecipe;
+    if (op.op === "addPage") {
+      if (own || !validPageSlug(op.slug) || !op.title.trim() || /[\r\n{}]/.test(op.title) || (op.icon && !(PAGE_ICONS as readonly string[]).includes(op.icon))) return { error: "a page needs a unique lowercase kebab slug, a title and a sidebar icon" };
+      const contributes = lines.findIndex((l) => /^contributes:/.test(l));
+      if (contributes < 0) return { error: "cannot locate contributes" };
+      if (!recipe.meta.contributes.includes("workspace.pages")) lines[contributes] = lines[contributes].replace(/\]/, ", workspace.pages]").replace("[,", "[");
+      put(lines, lines.at(-1) === "" ? lines.length - 1 : lines.length, [`# ${op.title} {page=${op.slug}${op.icon ? ` icon=${op.icon}` : ""}}`, ""]);
+      want = { ...recipe, meta: { ...recipe.meta, permissions: { ...recipe.meta.permissions, slots: [...new Set([...recipe.meta.permissions.slots, "workspace.pages" as const])] }, contributes: [...new Set([...recipe.meta.contributes, "workspace.pages" as const])] }, workspacePages: [...pages, { slug: op.slug, title: op.title, nav: "main", ...(op.icon ? { icon: op.icon } : {}), sections: [] }] };
+    } else {
+      const head = doc.heads.find((h) => h.attrs.page === op.slug);
+      if (!own || !head) return { error: "page does not exist" };
+      lines.splice(head.at, head.end - head.at);
+      const remaining = pages.filter((p) => p !== own);
+      if (!remaining.length) {
+        const n = lines.findIndex((l) => /^contributes:/.test(l));
+        lines[n] = lines[n].replace(/,\s*workspace.pages|workspace.pages,?\s*/, "");
+      }
+      const { workspacePages: _, layouts: oldLayouts, ...rest } = recipe;
+      const layouts = Object.fromEntries(Object.entries(oldLayouts ?? {}).filter(([slug]) => slug !== op.slug));
+      want = { ...rest, meta: { ...recipe.meta, permissions: { ...recipe.meta.permissions, slots: remaining.length ? recipe.meta.permissions.slots : recipe.meta.permissions.slots.filter((p) => p !== "workspace.pages") }, contributes: remaining.length ? recipe.meta.contributes : recipe.meta.contributes.filter((p) => p !== "workspace.pages") }, ...(remaining.length ? { workspacePages: remaining } : {}), ...(Object.keys(layouts).length ? { layouts } : {}) };
+    }
+    const next = lines.join(doc.eol), after = parse(next);
+    return hasErrors(after.problems) || !same(after.recipe, want) ? { error: "page edit failed exactness check", problems: after.problems } : { markdown: next };
+  }
+  if (pageKind(op.object) === "workspace" && !recipe.workspacePages?.some((p) => p.slug === op.object)) return { error: "page does not exist" };
+  const page = pageOf(recipe, op.object);
   const at = locate(doc, page, op.object);
   if (!at) return { error: `can't find the ${op.object} page's sections in the text` };
   if (["wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"].includes(op.op)) return applyTree(markdown, recipe, doc, op as TreeOp);
   if (recipe.layouts?.[op.object] && op.op === "moveSection") return moveInTree(markdown, recipe, doc, op);
-  const plan = planOf(doc, page, at, op as Exclude<LayoutOp, TreeOp>);
+  const plan = planOf(doc, page, at, op as Exclude<LayoutOp, TreeOp | PageOp>);
   if ("error" in plan) return plan;
   let next = plan.lines.join(doc.eol);
   let layouts = recipe.layouts;
@@ -302,13 +333,13 @@ export function apply(markdown: string, op: LayoutOp): EditResult {
   const after = parse(next);
   const errors = after.problems.filter((p) => p.level === "error");
   if (errors.length) return { error: `the edit would break the customization: ${errors.map((p) => p.message).join("; ")}`, problems: errors };
-  const want: CompiledRecipe = { ...recipe, [PAGE_KEYS[op.object]]: plan.page, ...(layouts ? { layouts } : {}) };
+  const want: CompiledRecipe = { ...recipe, ...(pageKind(op.object) === "workspace" ? { workspacePages: recipe.workspacePages?.map((p) => p.slug === op.object ? { ...p, sections: plan.page } : p) } : { [PAGE_KEYS[op.object as PageObject]]: plan.page }), ...(layouts ? { layouts } : {}) };
   const norm = (r: CompiledRecipe) => ({ ...r, dealPage: rendered(r.dealPage), accountPage: rendered(r.accountPage), contactPage: rendered(r.contactPage) });
   if (!same(norm(after.recipe), norm(want))) return { error: "the edit would change more than the layout it names" };
   return { markdown: next };
 }
 
-function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, TreeOp>): Plan {
+function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, TreeOp | PageOp>): Plan {
   const lines = [...doc.lines];
   const sectionAt = (ref: SectionRef): { error: string } | { i: number; s: PageSection; loc: Located } => {
     const i = indexOf(page, ref);
@@ -317,8 +348,9 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
   const last = at.at(-1);
 
   if (op.op === "addSection") {
-    if (!isComponentOf(op.object, op.component)) return { error: `${op.component} is not a component of the ${op.object} page (${COMPONENTS[op.object].join(", ")})` };
-    if (!last) return { error: `this customization lays out no ${op.object} page to add to` };
+    if (!isComponentOf(op.object, op.component)) return { error: `${op.component} is not a component of the ${op.object} page (${componentsOf(pageKind(op.object)).join(", ")})` };
+    const pageHead = doc.heads.find((h) => h.attrs.page === op.object);
+    if (!last && !pageHead) return { error: `this customization lays out no ${op.object} page to add to` };
     const title = op.title.trim();
     if (!title || /[\r\n{}]/.test(title)) return { error: "a section's title is one line of text, without braces" };
     if ((op.component === "fields") !== (op.fields !== undefined)) return { error: "a fields section, and only a fields section, names its fields" };
@@ -326,12 +358,12 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
     if (op.component === "fields" && !fields.length) return { error: "a fields section names at least one field" };
     let query: DataQuery | undefined;
     if (isDataComponent(op.component)) {
-      try { query = validateDataQuery(op.component, op.query, op.object); }
+      try { query = validateDataQuery(op.component, op.query, pageKind(op.object)); }
       catch (e) { return { error: String(e) }; }
     } else if (op.query) return { error: "only data sections accept queries" };
     const before = op.before && sectionAt(op.before);
     if (before && "error" in before) return before;
-    const block = [`${"#".repeat(at[0].head.level)} ${title} {section=${op.component}}`, ...(op.component === "fields" ? ["", "```fields", fields.join(", "), "```"] : [])];
+    const block = [`${"#".repeat((at[0]?.head.level ?? pageHead!.level + 1))} ${title} {section=${op.component}}`, ...(op.component === "fields" ? ["", "```fields", fields.join(", "), "```"] : [])];
     if (query) block.push("", "```query", ...JSON.stringify(query, null, 2).split("\n"), "```");
     const runs = op.component === "form" ? "kernel.createRecord" : op.component === "board" || op.component === "detail" ? "kernel.editField" : undefined;
     const takenActions = new Set(page.flatMap((s) => s.actions?.map((a) => a.id) ?? []));
@@ -339,7 +371,7 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
     for (let n = 2; takenActions.has(actionId); n++) actionId = `${op.component}${n}`;
     const actions: PageAction[] | undefined = runs ? [{ id: actionId, label: op.component === "form" ? "Create" : "Edit", runs }] : undefined;
     if (actions) for (const a of actions) block.push("", "```action", `id: ${a.id}`, `label: ${a.label}`, `runs: ${a.runs}`, "```");
-    put(lines, before ? before.loc.head.at : last.head.end, block);
+    put(lines, before ? before.loc.head.at : (last?.head.end ?? pageHead!.end), block);
     const section = { component: op.component, title, ...(op.component === "fields" ? { fields } : {}), ...(query ? { query } : {}), ...(actions ? { actions } : {}) } as PageSection;
     const i = before ? before.i : page.length;
     return { lines, page: [...page.slice(0, i), section, ...page.slice(i)] };
@@ -386,7 +418,7 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
     case "setQuery": {
       if (!isDataComponent(s.component)) return { error: "only data sections accept queries" };
       let query: DataQuery;
-      try { query = validateDataQuery(s.component, op.query, op.object); } catch (e) { return { error: String(e) }; }
+      try { query = validateDataQuery(s.component, op.query, pageKind(op.object)); } catch (e) { return { error: String(e) }; }
       const fence = doc.fences.find((f) => f.lang === "query" && enclosing(f.head, "section") === head);
       if (!fence) return { error: "section has no query" };
       lines.splice(fence.at + 1, fence.close - fence.at - 1, ...JSON.stringify(query, null, 2).split("\n"));
@@ -427,7 +459,7 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
     case "addAction": {
       const host = op.panel ?? s.component;
       if (op.panel !== undefined && PANELS[op.panel] !== s.component) return { error: `the ${op.panel} sits in a ${PANELS[op.panel]} section` };
-      if (!placements().some((p) => p.id === op.runs && p.object === op.object && p.host === host)) return { error: `${op.runs} can't sit in the ${op.object} page's ${host}` };
+      if (!placements().some((p) => p.id === op.runs && p.object === pageKind(op.object) && p.host === host)) return { error: `${op.runs} can't sit in the ${op.object} page's ${host}` };
       const taken = new Set(page.flatMap((x) => (x.actions ?? []).map((a) => a.id)));
       const base = op.runs.slice(op.runs.indexOf(".") + 1);
       let id = op.id ?? base;
@@ -513,10 +545,11 @@ function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, T
 // ───────────────────────────── describeLayout ─────────────────────────────
 
 /** What a visual layout editor draws for `object`'s page: its sections in order, and what it could add. */
-export function describeLayout(markdown: string, object: PageObject): Layout | { error: string; problems?: Problem[] } {
+export function describeLayout(markdown: string, object: string): Layout | { error: string; problems?: Problem[] } {
   const { recipe, problems } = parse(markdown);
   if (hasErrors(problems)) return { error: "the customization has problems to fix before its layout can be edited", problems: problems.filter((p) => p.level === "error") };
-  const page = recipe[PAGE_KEYS[object]];
+  if (pageKind(object) === "workspace" && !recipe.workspacePages?.some((p) => p.slug === object)) return { error: "page does not exist" };
+  const page = pageOf(recipe, object);
   const present = new Set(page.map((s) => s.component));
   return {
     object,
@@ -529,15 +562,15 @@ export function describeLayout(markdown: string, object: PageObject): Layout | {
         ...(s.component === "fields" ? { fields: s.fields } : {}),
         ...("query" in s ? { query: s.query } : {}),
         actions: actions.map((a) => ({ id: a.id, runs: a.runs, label: a.label, ...(a.labelAfter !== undefined ? { labelAfter: a.labelAfter } : {}), ...(a.panel ? { panel: a.panel } : {}), ...(a.shows !== undefined ? { shows: a.shows } : {}), ...(a.enabled !== undefined ? { enabled: a.enabled } : {}) })),
-        addable: BLOCKS[s.component].actions.filter((p) => p.object === object && hosts.has(p.host) && !actions.some((a) => a.runs === p.id && a.panel === hosts.get(p.host)))
+        addable: BLOCKS[s.component].actions.filter((p) => p.object === pageKind(object) && hosts.has(p.host) && !actions.some((a) => a.runs === p.id && a.panel === hosts.get(p.host)))
           .map((p) => ({ runs: p.id, ...(hosts.get(p.host) ? { panel: hosts.get(p.host) } : {}) })),
       };
     }),
-    addable: componentsOf(object).filter((c) => c === "fields" || !present.has(c)),
+    addable: componentsOf(pageKind(object)).filter((c) => c === "fields" || !present.has(c)),
   };
 }
 
-function writeTree(markdown: string, doc: Doc, object: PageObject, tree: LayoutTree): string {
+function writeTree(markdown: string, doc: Doc, object: string, tree: LayoutTree): string {
   const fence = doc.fences.find((f) => f.lang === "layout" && (f.head ? objectOf(f.head) : "deal") === object);
   const lines = [...doc.lines];
   const block = ["```layout", ...printLayout(tree).split("\n"), "```"];
@@ -549,11 +582,11 @@ function writeTree(markdown: string, doc: Doc, object: PageObject, tree: LayoutT
   }
   return lines.join(doc.eol);
 }
-function treeEdit(markdown: string, recipe: CompiledRecipe, doc: Doc, object: PageObject, change: (tree: LayoutTree) => void): EditResult {
+function treeEdit(markdown: string, recipe: CompiledRecipe, doc: Doc, object: string, change: (tree: LayoutTree) => void): EditResult {
   try {
-    const tree = structuredClone(completeTree(recipe.layouts?.[object], pageKeys(recipe[PAGE_KEYS[object]])));
+    const tree = structuredClone(completeTree(recipe.layouts?.[object], pageKeys(pageOf(recipe, object))));
     change(tree);
-    validateTree(tree, pageKeys(recipe[PAGE_KEYS[object]]));
+    validateTree(tree, pageKeys(pageOf(recipe, object)));
     const next = writeTree(markdown, doc, object, tree);
     const after = parse(next);
     const want = { ...recipe, layouts: { ...recipe.layouts, [object]: tree } };
@@ -598,7 +631,7 @@ function applyTree(markdown: string, recipe: CompiledRecipe, doc: Doc, op: TreeO
   });
 }
 function moveInTree(markdown: string, recipe: CompiledRecipe, doc: Doc, op: Extract<LayoutOp, {op: "moveSection"}>): EditResult {
-  const tree = completeTree(recipe.layouts?.[op.object], pageKeys(recipe[PAGE_KEYS[op.object]]));
+  const tree = completeTree(recipe.layouts?.[op.object], pageKeys(pageOf(recipe, op.object)));
   const parent = containers(tree).find((c) => c.children.some((n) => "section" in n && n.section === sectionKey(op.section)));
   if (!parent) return { error: "section does not exist" };
   if (op.before && sectionKey(op.before) === sectionKey(op.section)) return { markdown };

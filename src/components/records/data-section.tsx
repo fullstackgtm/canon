@@ -1,4 +1,5 @@
 "use client";
+import type { PageKind } from "../../../recipes/blocks";
 import { useEffect, useState } from "react";
 import { useConvex } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -17,12 +18,11 @@ import { projectedPast } from "../../../convex/lib/objects/views";
 import type { BoardSaves } from "./board-view";
 import { DataWriteResult } from "./data-write-section";
 import type { ObjectDescription } from "./fields";
-import type { PageObject } from "../../../recipes/kernel";
 import type { Context } from "../../../recipes/conditions";
 
 type Fields = readonly { apiName: string; fieldId: string; label?: string; hidden?: boolean; type?: string }[];
 type Answer = { desc: ObjectDescription; query: DataQuery; rows?: ListResponse; fields: Fields } | { rows: ListResponse; fields: Fields } | { aggregate: AggregateResponse; fields: Fields };
-export function DataSection({ section, record, fields, pageObject = "deal", context = {} }: { pageObject?: PageObject; context?: Context; section: Extract<PageSection, { component: DataComponent }>; record: { id: string; values: Record<string, unknown> }; fields: Fields }) {
+export function DataSection({ section, record, fields, pageObject = "deal", context = {} }: { pageObject?: PageKind; context?: Context; section: Extract<PageSection, { component: DataComponent }>; record: { id: string; values: Record<string, unknown> }; fields: Fields }) {
   const client = useConvex();
   const [state, setState] = useState<{ key: string; answer?: Answer; error?: string }>();
   const [generation, setGeneration] = useState(0);
@@ -101,7 +101,7 @@ export function DataResult({ kind, query: q, answer }: { kind: DataComponent; qu
   if (kind === "list") return <ul className="divide-y divide-border">{answer.rows.rows.map((row) => <li key={row.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 py-2 text-sm">{link(row)}<span className="break-words text-muted-foreground">{q.columns.filter((c) => c !== "recordTitle").map((c) => cell(row, c)).join(" · ")}</span></li>)}</ul>;
   return <div className="min-w-0 max-w-full overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Record</TableHead>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableHead key={c}>{label(c)}</TableHead>)}</TableRow></TableHeader><TableBody>{answer.rows.rows.map((row) => <TableRow key={row.id}><TableCell>{link(row)}</TableCell>{q.columns.filter((c) => c !== "recordTitle").map((c) => <TableCell key={c}>{cell(row, c)}</TableCell>)}</TableRow>)}</TableBody></Table></div>;
 }
-export function dataRenderers(record: { id: string; values: Record<string, unknown> }, fields: Fields, pageObject: PageObject = "deal", context: Context = {}) {
+export function dataRenderers(record: { id: string; values: Record<string, unknown> }, fields: Fields, pageObject: PageKind = "deal", context: Context = {}) {
   const render = (section: Extract<PageSection, { component: DataComponent }>) => <DataSection section={section} record={record} fields={fields} pageObject={pageObject} context={context} />;
   return { table: render, list: render, metric: render, chart: render, form: render, board: render, detail: render };
 }

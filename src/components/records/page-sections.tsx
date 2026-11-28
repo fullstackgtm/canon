@@ -41,7 +41,7 @@ function rowsOf(entries: readonly Entry[], beside: readonly PageComponent[]): Ro
 }
 
 /** The page's sections that show at `stage`, in the recipe's order, each drawn by its component's renderer. */
-export function PageSections<O extends PageObject>({ object, page, stage, renderers }: { object: O; page: PageSpec; stage: DealStage | null; renderers: Renderers<ComponentOf<O>> }) {
+export function PageSections<O extends import("../../../recipes/blocks").PageKind>({ object, page, stage, renderers }: { object: O; page: PageSpec; stage: DealStage | null; renderers: Renderers<ComponentOf<O>> }) {
   const render = renderers as unknown as Record<PageComponent, (s: PageSection, inner: Inner) => ReactNode>;
   const shape = useShape();
   const tree = useContext(LayoutTreeContext);
@@ -65,7 +65,7 @@ export function PageSections<O extends PageObject>({ object, page, stage, render
     };
     return <div data-shape-page={shape ? "" : undefined} className="min-w-0">{drawNode(completeTree(tree, keys))}</div>;
   }
-  const rows = rowsOf(entriesOf(page.filter((s) => shows(s, shownAt))), BESIDE[object]).flatMap((row) => ("left" in row && !row.right.length ? row.left : [row]));
+  const rows = rowsOf(entriesOf(page.filter((s) => shows(s, shownAt))), (object === "workspace" ? [] : BESIDE[object as PageObject])).flatMap((row) => ("left" in row && !row.right.length ? row.left : [row]));
   return (
     <div data-shape-page={shape ? "" : undefined} className="grid grid-cols-[minmax(0,1fr)] gap-4">
       {rows.map((row, i) => "section" in row ? <Fragment key={i}>{draw(row)}</Fragment> : (

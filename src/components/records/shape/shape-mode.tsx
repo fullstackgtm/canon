@@ -13,8 +13,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { useAction } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { DEAL_STAGES, type DealStage } from "../../../../convex/lib/plays/model";
-import type { PageObject, PageSection, PageSpec } from "../../../../recipes";
-import { PAGE_KEYS } from "../../../../recipes/kernel";
+import type { PageSection, PageSpec } from "../../../../recipes";
+import { pageOf } from "../../../../recipes/kernel";
 import type { SectionRef } from "../../../../recipes/md/edit";
 import { parseRecipe } from "../../../../recipes/md/parse";
 import { useCustomizeAdapter, useCustomizeMode, type CustomizeAdapter, type CustomizeJob, type CustomizeTarget } from "@/components/customize/customize-mode";
@@ -46,7 +46,7 @@ function whenText(s: PageSection) {
 type Job = CustomizeJob & { target: { component: string; title: string; nth: number } | null; pointed: string };
 
 /** The page the record draws, customize mode's adapter for it, and the provider its sections read. */
-export function useShapeMode({ object = "deal", base, markdown, recipeId, revision, recipeTitle, layoutTree }: { object?: PageObject; base: PageSpec; layoutTree?: LayoutTree; markdown: string | null; recipeId: string | null; revision: number | null; recipeTitle?: string }) {
+export function useShapeMode({ object = "deal", base, markdown, recipeId, revision, recipeTitle, layoutTree }: { object?: string; base: PageSpec; layoutTree?: LayoutTree; markdown: string | null; recipeId: string | null; revision: number | null; recipeTitle?: string }) {
   const customize = useCustomizeMode();
   const [drafts, setDrafts] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -61,7 +61,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
   const draft = drafts.at(-1) ?? markdown;
   const parsed = useMemo(() => {
     if (!draft || !drafts.length) return null;
-    const page = parseRecipe(draft).recipe[PAGE_KEYS[object]];
+    const page = pageOf(parseRecipe(draft).recipe, object);
     return { page, lens: lensFor(page, readLens(draft, object)) };
   }, [draft, drafts.length, object]);
   const baseLens = useMemo(() => lensFor(base, markdown ? readLens(markdown, object) : []), [base, markdown, object]);
@@ -106,8 +106,8 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     const target = i >= 0 ? refOf(page, i) : next.target ? { component: next.target.component as SectionRef["component"], nth: next.target.nth } : undefined;
     void run({ object, recipeId: recipeId!, markdown: draft, request: next.request, pointed: next.pointed, ...(target ? { target } : {}) }).then((r) => {
       if (r.markdown !== draft) {
-        const before = new Set(parseRecipe(draft).recipe[PAGE_KEYS[object]].map((s) => JSON.stringify(s)));
-        lastFresh.current = new Set(parseRecipe(r.markdown).recipe[PAGE_KEYS[object]].map((s) => JSON.stringify(s)).filter((k) => !before.has(k)));
+        const before = new Set(pageOf(parseRecipe(draft).recipe, object).map((s) => JSON.stringify(s)));
+        lastFresh.current = new Set(pageOf(parseRecipe(r.markdown).recipe, object).map((s) => JSON.stringify(s)).filter((k) => !before.has(k)));
         if (!drafts.length) draftBase.current = revision;
         setDrafts((d) => [...d, r.markdown]);
         setSaved(null);
@@ -157,7 +157,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
   useCustomizeAdapter(adapter, [active, jobs, drafts, stage, markdown, base, recipeTitle, saved, object]);
 
   // Compare like with like: the recipe in force as the browser parses it, not as the server sent it.
-  const baseKeys = useMemo(() => new Set((markdown ? parseRecipe(markdown).recipe[PAGE_KEYS[object]] : base).map((s) => JSON.stringify(s))), [markdown, base, object]);
+  const baseKeys = useMemo(() => new Set((markdown ? pageOf(parseRecipe(markdown).recipe, object) : base).map((s) => JSON.stringify(s))), [markdown, base, object]);
   const shape: Shape | null = active && customize ? {
     indexOf: (s) => page.indexOf(s),
     changed: (s) => drafts.length > 0 && !baseKeys.has(JSON.stringify(s)),

@@ -8,7 +8,6 @@ import { AlertCircle, CheckCircle2, FileCode, GitMerge, History, LayoutList, Rot
 import { api } from "../../../../convex/_generated/api";
 import { runnable } from "../../../../recipes/compose";
 import { conflictsIn, merge3, resolveConflict } from "../../../../recipes/merge";
-import type { PageObject } from "../../../../recipes/kernel";
 import { parseRecipe, type CompiledRecipe, type Problem } from "../../../../recipes/md/parse";
 import { workspaceProblems } from "../../../../recipes/workspace";
 import { LoadingRows } from "@/components/dashboard";
@@ -65,7 +64,7 @@ function Editor({ view }: { view: View }) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [caretLine, setCaretLine] = useState(1);
   // The page picked in Visual; Markdown's preview follows the caret instead.
-  const [visualPage, setVisualPage] = useState<PageObject>("deal");
+  const [visualPage, setVisualPage] = useState<string>("deal");
   // A line to select once Markdown shows, for a jump made from Visual.
   const pendingJump = useRef<number | null>(null);
   // A merge's upstream text: a kept bundle's prompts and logic are checked against the upstream's while merging.

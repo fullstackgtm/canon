@@ -45,6 +45,7 @@ export function resolveQuery(q: DataQuery, record: { id: string; values: Record<
 const standardDef = (name: string) => Object.hasOwn(STANDARD_OBJECTS, name) ? resolveObjectDef(STANDARD_OBJECTS[name as StandardObjectName]) : undefined;
 export function validateDataQuery(kind: DataComponent, input: unknown, pageObject: string): DataQuery {
   const q: DataQuery = DATA_QUERIES[kind].parse(input);
+  if (pageObject === "workspace" && (kind === "detail" || q.filter.some((f) => recordReference(f.value)) || ("defaults" in q && Object.values(q.defaults).some(recordReference)))) throw new Error("Standalone pages cannot use record references or detail blocks");
   const def = standardDef(q.object), page = standardDef(pageObject);
   if (kind === "board" && ["account", "contact"].includes(q.object)) throw new Error("Boards cannot move register cards until records.edit supports compare-and-set");
   for (const f of q.filter) if (recordReference(f.value)) {

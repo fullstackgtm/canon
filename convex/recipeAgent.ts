@@ -25,7 +25,7 @@ export const proposeEdit = action({
     recipeId: v.string(),
     baseMarkdown: v.string(),
     request: v.string(),
-    object: v.optional(v.union(v.literal("deal"), v.literal("account"), v.literal("contact"))),
+    object: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<Proposal & { model: string }> => {
     const caller: ActionCaller | null = await ctx.runQuery(internal.records.callerContext, {});

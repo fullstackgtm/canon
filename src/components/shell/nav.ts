@@ -8,7 +8,7 @@ import { NAV_SECTIONS as SECTION_ORDER, type NavIcon } from "../../../modules/ke
 
 export type NavItem = {
   /** How workspace.nav names it to hide it or open on it; Settings, Customization, Automations and Canon fields have none, so they always show. */
-  id?: NavPage;
+  id?: string;
   label: string;
   href: string;
   icon: LucideIcon;
@@ -105,7 +105,7 @@ export type NavLink = { id: string; label: string; href: string; icon: NavIcon; 
  */
 export type NavModule = { moduleId?: string; reportsTakeover?: boolean; slug: string; nav: { label: string; icon: NavIcon; section: string; href: string; id?: string; legacy?: string } | null; links?: readonly NavLink[] };
 
-const MODULE_ICONS: Record<NavIcon, LucideIcon> = {
+export const MODULE_ICONS: Record<NavIcon, LucideIcon> = {
   box: Box, clipboard: ClipboardList, coins: Coins, receipt: Receipt, scale: Scale, target: Target, briefcase: Briefcase, chart: ChartColumn, map: MapPin,
   check: CheckSquare, inbox: Inbox, send: Send, layout: LayoutDashboard, linkedin: Linkedin, phone: Phone, radio: Radio, bot: Bot, plug: Plug, sparkles: Sparkles, key: KeyRound,
 };

@@ -20,7 +20,8 @@ import type { Id } from "./_generated/dataModel";
 import { DEFAULT_MODELS, forcedToolCall } from "../engine/src/llm.ts";
 import { DEAL_STAGES, type DealStage } from "./lib/plays/model";
 import { KERNEL_ACTIONS, type ActionId } from "../recipes/actions.ts";
-import { COMPONENTS, PAGE_KEYS, PARTS, type PageObject, type PageComponent } from "../recipes/kernel.ts";
+import { pageKind, componentsOf } from "../recipes/blocks.ts";
+import { pageOf, PARTS, type PageComponent } from "../recipes/kernel.ts";
 import { RECIPE_BUNDLES } from "../recipes/_bundles.generated.ts";
 import { apply, describeLayout, type Layout, type LayoutOp, type SectionRef } from "../recipes/md/edit.ts";
 import { parseRecipe } from "../recipes/md/parse.ts";
@@ -33,7 +34,7 @@ import type { ActionCaller } from "./records";
 
 const STAGE_NAMES: Record<DealStage, string> = { in: "Get in (first stage, finding the way in)", case: "Build the case (middle stage)", close: "Close (final stage)" };
 const JEV_CONFIDENCE = 0.7;
-const pageObject = v.optional(v.union(v.literal("deal"), v.literal("account"), v.literal("contact")));
+const pageObject = v.optional(v.string());
 
 type Result = { markdown: string; summary: string; by: string; ms: number; route: string; diff: string; kind: "layout" | "behavior"; refusedBy?: string };
 
@@ -176,7 +177,7 @@ async function jevRoute(key: string, layout: Layout, target: SectionRef, request
 }
 
 const OPS_TOOL = "page_edits";
-const opsSchema = (object: PageObject) => ({
+const opsSchema = (object: string) => ({
   type: "object",
   properties: {
     ops: {
@@ -185,7 +186,8 @@ const opsSchema = (object: PageObject) => ({
       items: {
         type: "object",
         properties: {
-          op: { type: "string", enum: ["moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "setQuery", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition", "wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"] },
+          op: { type: "string", enum: ["addPage", "removePage", "moveSection", "setCollapsed", ...(object === "deal" ? ["setWhen"] : []), "renameSection", "removeSection", "addSection", "setQuery", "moveAction", "setActionLabel", "removeAction", "addAction", "setActionCondition", "wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"] },
+          slug: { type: "string" }, icon: { type: "string" }, object: { type: "string" },
           section: { type: "object", properties: { component: { type: "string" }, nth: { type: "number" } }, description: "The section the op is about, as its ref in the layout." },
           before: { description: "moveSection/addSection: the ref of the section it goes before, or null for the end. moveAction: the action id it goes before, or null." },
           sections: { type: "array", items: { type: "object", properties: { component: { type: "string" }, nth: { type: "number" } }, required: ["component"] } },
@@ -221,12 +223,13 @@ const opsSchema = (object: PageObject) => ({
 const FIXED = "Every section of the deal page is the customization's, the header (section=header: the deal's name, Archive and Restore), Products, Credit splits and the apps panel included. Some components draw parts a section's heading picks with show=\"…\": the layout lists them as a section's `parts`, and `show` is what it draws now (absent means all). To hide or bring back a part, edit that heading's show= to list the parts to keep (add show= if the heading has none); never remove a part by removing the section. Inside a section, the controls a component draws itself (search boxes, filters, select/clear buttons, counts) aren't in the customization; only its actions and parts are.";
 
 function lunaPrompt(layout: Layout, target: SectionRef | null, request: string, markdown: string, kept: boolean, pointed: string | null) {
-  const page = parseRecipe(markdown).recipe[PAGE_KEYS[layout.object]];
+  const page = pageOf(parseRecipe(markdown).recipe, layout.object);
   return [
     `You change a CRM ${layout.object} page by editing its customization.md, the file that defines what the page shows and how it works. Two kinds of change:`,
     `1. Layout \`ops\`, for where things sit: sections (by ref {component, nth}), their titles,${layout.object === "deal" ? " the stages they show in (`when`)," : ""} whether they start folded, their buttons (by action id).`,
     "2. Text `edits`, for what a section draws and how things work: a section heading's show= parts; else prefer changing a setting's Default in the `## Settings` table (respect its Limits); else a table row, a check's rule, or a button's `shows:`/`enabled:` condition." + (kept ? " This customization's prompts and ```logic lines run from its own TypeScript bundle, so never edit prompt prose or logic lines: express the change through settings and tables." : " You may also edit a prompt's prose."),
     'Data blocks: table, list, metric and chart are read-only sections; form, board and detail are write-capable sections on every record page. addSection takes query; setQuery replaces an existing data section query. Example on account: {op:"addSection",component:"table",title:"Open deals",before:null,query:{object:"deal",filter:[{field:"companyId",op:"eq",value:{record:"id"}},{field:"isClosed",op:"eq",value:false}],columns:["recordTitle","amount"],limit:10}}. Metric query uses aggregate:{fn:"count"} instead of columns. Chart also needs groupBy:{field:"stage"}. Form query uses fields and defaults (values may be {record:"id"}); submit uses kernel.createRecord or kernel.logActivity. Board uses columns and groupBy:{field:"stage"}; detail uses columns and limit:1, optionally record:"companyId". Both edit through kernel.editField. Every write must be offered in actions. Example "let me add a deal from this account": addSection form query:{object:"deal",fields:["name","closeDate","stage"],defaults:{companyId:{record:"id"},currency:"USD"}}. Never invent writes.',
+    "Standalone pages use addPage {slug,title,icon?}, then addSection with object:slug. removePage {slug} removes one. Slugs must be lowercase kebab, distinct from dashboard routes. Only table/list/metric/chart/form/board are allowed; never use record references. Declare workspace.pages. On standalone pages add a metric with object: the current slug.",
     "Tree ops: wrapSections {sections:[refs], kind:columns|tabs|card, id:uniqueName, props:{widths?:[2,1], labels?:[one label per tab], title?:card title}} groups siblings; unwrap {container:id} removes a container; moveIntoContainer {section,container,before:ref|null} moves a leaf; setContainerProps {container,props} changes props. Columns need 2–3 children. Tabs need labels. Cards need a title. Existing moveSection moves within its container.",
     "Return the fewest changes that do what the person asked. Never invent settings, components, actions or data the customization doesn't have. If the request can't be done in this customization, return nothing and say why in the summary.",
     layout.object === "deal" ? FIXED : "The layout lists the sections and actions this page can customize. Controls drawn inside a component are not recipe actions.",
@@ -239,11 +242,11 @@ function lunaPrompt(layout: Layout, target: SectionRef | null, request: string, 
   ].join("\n\n");
 }
 
-function asOps(raw: unknown, object: PageObject): LayoutOp[] {
+function asOps(raw: unknown, object: string): LayoutOp[] {
   const items = (raw as { ops?: unknown })?.ops;
   if (!Array.isArray(items)) return [];
-  return items.flatMap((o) => (o && typeof o === "object" && typeof (o as { op?: unknown }).op === "string" ? [{ ...(o as object), object } as LayoutOp] : []))
-    .map((o) => ("component" in o && o.op === "addSection" && !(COMPONENTS[object] as readonly string[]).includes(o.component) ? { ...o, component: "fields" as PageComponent } : o));
+  return items.flatMap((o) => (o && typeof o === "object" && typeof (o as { op?: unknown }).op === "string" ? [{ object, ...(o as object) } as LayoutOp] : []))
+    .map((o) => ("component" in o && o.op === "addSection" && !componentsOf(pageKind(o.object)).includes(o.component) ? { ...o, component: "fields" as PageComponent } : o));
 }
 
 export const edit = action({
@@ -283,7 +286,7 @@ export const edit = action({
 
 async function runEdit(
   ctx: ActionCtx, caller: ActionCaller,
-  args: { object?: PageObject; recipeId: string; markdown: string; target?: { component: string; nth?: number }; pointed?: string },
+  args: { object?: string; recipeId: string; markdown: string; target?: { component: string; nth?: number }; pointed?: string },
   request: string, started: number, trace: { route: string; by: string },
 ): Promise<Result> {
   const object = args.object ?? "deal";
@@ -388,7 +391,10 @@ export const save = action({
     const markdown = args.markdown.split("\n").map((l, i) => { const m = i > 0 && i < end ? /^(id|title|author):/.exec(l) : null; return m && theirs[m[1]] ? theirs[m[1]] : l; }).join("\n");
     const base = await ctx.runQuery(internal.workspaceRecipes.editBase, { recipeId });
     const out = await ctx.runAction(api.workspaceRecipes.save, { recipeId, markdown, baseRevision: base.revision, note, acceptFailingEvals: args.acceptFailingEvals });
-    if (!out.blocked) await ctx.runMutation(api.recipes.enableContribution, { point: `${object}.page`, recipeId, key: "page" });
+    if (!out.blocked) {
+      if (pageKind(object) === "workspace") await ctx.runMutation(internal.recipes.activateWorkspacePageCopy, { recipeId, sourceId: args.recipeId, slug: object });
+      else await ctx.runMutation(api.recipes.enableContribution, { point: `${object}.page`, recipeId, key: "page" });
+    }
     return { recipeId, revision: out.revision, copied: true, blocked: out.blocked, failing: out.evals.filter((e) => !e.ok).map((e) => e.name), evalsNotRun: out.evalsNotRun };
   },
 });

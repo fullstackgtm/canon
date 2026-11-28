@@ -15,7 +15,7 @@ import { TEMPLATE_KINDS, TEMPLATE_KIND_IDS, type Template, type TemplateKind } f
 export type PointKind = "page" | "theme" | "fields" | "signals" | "model" | "rules" | "templates";
 
 /** The part of a recipe a point reads its contributions from. A recipe.md compiles to it, and so does a stored manifest. */
-export type RecipeParts = Pick<RecipeDefinition, "dealPage" | "models" | "settingsSchema" | "templates" | "fields" | "data"> & Partial<Pick<RecipeDefinition, (typeof PAGE_KEYS)[PageObject] | "theme">>;
+export type RecipeParts = Pick<RecipeDefinition, "dealPage" | "models" | "settingsSchema" | "templates" | "fields" | "data"> & Partial<Pick<RecipeDefinition, (typeof PAGE_KEYS)[PageObject] | "theme" | "workspacePages">>;
 
 /** One thing a recipe offers at a point. `key` is unique within the recipe and point: a page's is `page`, a field's its slug. */
 export type Offer<D> = { key: string; title: string; declares: D };
@@ -116,7 +116,15 @@ const WORKSPACE_THEME: ExclusivePoint<ThemeDecl> = {
   defaults: { unset: "canon-ledger", newWorkspace: "canon-ledger" },
 };
 
+const WORKSPACE_PAGES: AdditivePoint<import("./kernel.ts").WorkspacePage> = {
+  id: "workspace.pages", kind: "page", cardinality: "additive", title: "Pages",
+  description: "Standalone pages in the workspace sidebar.", missing: "a heading with {page=<slug>}",
+  discover: (r) => (r.workspacePages ?? []).map((p) => ({ key: p.slug, title: p.title, declares: p })),
+  problems: () => [], conflict: (a, b) => a.key === b.key ? `both define the page ${a.key}` : null,
+  implies: { read: [] }, binds: "data",
+};
 export const POINTS = {
+  "workspace.pages": WORKSPACE_PAGES,
   "deal.page": pagePoint("deal", {
     title: "Deal page", description: "What every deal page shows, and whether Canon keeps a play on each deal.",
     missing: "a heading like ## Overview {section=fields} starts its sections",
