@@ -9,8 +9,11 @@ import ts from "typescript";
 const require = createRequire(import.meta.url);
 test("workspace route draws loading, not found and an enabled page through the shared renderers", () => {
   let spec: unknown;
+  let workflow: unknown = null;
   const exports: { default?: React.ComponentType<any> } = {};
   const stubs: Record<string, unknown> = {
+    "@/components/customize/customize-mode": { useCustomizeMode: () => ({ workflow }) },
+    "../../../../../recipes/md/parse": { parseRecipe: () => ({ recipe: { meta: { title: "Draft" }, workspacePages: [{ slug: "open-deals", title: "Draft page", sections: [{ component: "metric", title: "Draft metric" }] }] } }) },
     react: { ...React, use: () => ({ slug: "open-deals" }) },
     "convex/react": { useQuery: (ref: unknown) => ref === "page" ? spec : undefined },
     "../../../../../convex/_generated/api": { api: { recipes: { workspacePage: "page" }, workspaceRecipes: { markdown: "markdown" } } },
@@ -24,4 +27,7 @@ test("workspace route draws loading, not found and an enabled page through the s
   spec = null; assert.match(render(), /Page not found/);
   spec = { title: "Open deals", recipeId: "recipe", sections: [{ component: "metric", title: "Pipeline" }] };
   assert.match(render(), /Open deals.*Pipeline.*12/);
+  spec = null;
+  workflow = { targets: [{ target: "open-deals", recipeId: "recipe", markdown: "draft" }] };
+  assert.match(render(), /Draft page.*Draft metric.*12/);
 });

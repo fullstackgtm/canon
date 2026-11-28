@@ -8,9 +8,9 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { invalidateFit } from "./lib/fitInvalidation";
-import { action, internalMutation, internalQuery, mutation, query, type ActionCtx, type QueryCtx } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query, type ActionCtx, type QueryCtx, type MutationCtx } from "./_generated/server";
 import { callerOf, mayDecide, requireDecider, setEnabled } from "./recipes";
-import { enabledFor, currentRevision, modelSettings, upstreamChange, orgConnections, packageRow, recipeIn, requireRecipe, storedOverrides } from "./lib/recipes";
+import { orgRecipe, enabledFor, currentRevision, modelSettings, upstreamChange, orgConnections, packageRow, recipeIn, requireRecipe, storedOverrides } from "./lib/recipes";
 import { proposalEvals } from "./lib/recipeAgent";
 import { runEvals } from "./lib/recipeRuntime";
 import { recipeAgentStandIn } from "./lib/recipeAgentStandIn";
@@ -480,26 +480,64 @@ export const personal = query({
   },
 });
 
-export const savePersonal = mutation({
-  args: { object: v.string(), recipeId: v.string(), markdown: v.string(), layerRevision: v.number(), baseMarkdown: v.string() },
+const personalArgs = { object: v.string(), recipeId: v.string(), markdown: v.string(), layerRevision: v.number(), baseMarkdown: v.string() };
+type PersonalSave = { object: string; recipeId: string; markdown: string; layerRevision: number; baseMarkdown: string };
+async function savePersonalPage(ctx: MutationCtx, args: PersonalSave) {
+  const caller = await callerOf(ctx);
+  if (!caller || caller.agent) throw new ConvexError("Sign in to customize your page.");
+  const user = caller.user, target = targetFor(args.object);
+  const base = await pageBase(ctx, user.orgId, args.recipeId, target);
+  const existing = await ownLayer(ctx, user, target);
+  if ((existing?.revision ?? 0) !== args.layerRevision) throw new ConvexError("Your page changed. Reload before saving.");
+  if (!existing && (await ownLayers(ctx, user)).length >= 20) throw new ConvexError("You can keep at most 20 personal pages. Use the workspace page for one before saving another.");
+  const merged = rebaseLayer({ baseMarkdown: args.baseMarkdown, markdown: args.markdown }, base.markdown);
+  if (merged.conflict) throw new ConvexError("The workspace page changed; your version kept. Review before saving.");
+  if (parseRecipe(merged.markdown).recipe.meta.id !== args.recipeId) throw new ConvexError("The page recipe id cannot change.");
+  const validationId = isFirstParty(args.recipeId) ? "@workspace/personal-validation" : args.recipeId;
+  const validationText = isFirstParty(args.recipeId) ? forkMarkdown(merged.markdown, { id: validationId, title: parseRecipe(merged.markdown).recipe.meta.title, org: "personal" }) : merged.markdown;
+  checked(validationText, { id: validationId, frozen: runnable(parseRecipe(base.markdown).recipe) });
+  const fields = { orgId: user.orgId, userId: user._id, target, recipeId: args.recipeId, markdown: merged.markdown,
+    baseMarkdown: base.markdown, baseRevision: base.revision, revision: (existing?.revision ?? 0) + 1, updatedAt: Date.now() };
+  if (existing) await ctx.db.patch(existing._id, fields); else await ctx.db.insert("pageLayers", fields);
+  return { revision: fields.revision };
+}
+export const savePersonal = mutation({ args: personalArgs, handler: savePersonalPage });
+export const saveWorkflow = mutation({
+  args: { targets: v.array(v.object(personalArgs)) },
   handler: async (ctx, args) => {
+    if (!args.targets.length || args.targets.length > 20 || new Set(args.targets.map((t) => t.object)).size !== args.targets.length) throw new ConvexError("Choose 1–20 distinct pages.");
+    const revisions = [];
+    for (const target of args.targets) revisions.push(await savePersonalPage(ctx, target));
+    return revisions;
+  },
+});
+
+export const workflowBases = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<{ userId: Id<"users">; pages: import("./lib/workflowAgent").WorkflowPage[] }> => {
     const caller = await callerOf(ctx);
-    if (!caller || caller.agent) throw new ConvexError("Sign in to customize your page.");
-    const user = caller.user, target = targetFor(args.object);
-    const base = await pageBase(ctx, user.orgId, args.recipeId, target);
-    const existing = await ownLayer(ctx, user, target);
-    if ((existing?.revision ?? 0) !== args.layerRevision) throw new ConvexError("Your page changed. Reload before saving.");
-    if (!existing && (await ownLayers(ctx, user)).length >= 20) throw new ConvexError("You can keep at most 20 personal pages. Use the workspace page for one before saving another.");
-    const merged = rebaseLayer({ baseMarkdown: args.baseMarkdown, markdown: args.markdown }, base.markdown);
-    if (merged.conflict) throw new ConvexError("The workspace page changed; your version kept. Review before saving.");
-    if (parseRecipe(merged.markdown).recipe.meta.id !== args.recipeId) throw new ConvexError("The page recipe id cannot change.");
-    const validationId = isFirstParty(args.recipeId) ? "@workspace/personal-validation" : args.recipeId;
-    const validationText = isFirstParty(args.recipeId) ? forkMarkdown(merged.markdown, { id: validationId, title: parseRecipe(merged.markdown).recipe.meta.title, org: "personal" }) : merged.markdown;
-    checked(validationText, { id: validationId, frozen: runnable(parseRecipe(base.markdown).recipe) });
-    const fields = { orgId: user.orgId, userId: user._id, target, recipeId: args.recipeId, markdown: merged.markdown,
-      baseMarkdown: base.markdown, baseRevision: base.revision, revision: (existing?.revision ?? 0) + 1, updatedAt: Date.now() };
-    if (existing) await ctx.db.patch(existing._id, fields); else await ctx.db.insert("pageLayers", fields);
-    return { revision: fields.revision };
+    if (!caller || caller.agent) throw new ConvexError("Sign in to customize your pages.");
+    const { user } = caller;
+    const fallback = (await orgRecipe(ctx, user.orgId)).recipe.id;
+    const targets = new Map<string, string>([["deal", fallback], ["account", "canon-base"], ["contact", "canon-base"]]);
+    for (const row of await enabledFor(ctx, user.orgId, "workspace.pages")) targets.set(row.contribution.key, row.recipe.id);
+    for (const layer of await ownLayers(ctx, user)) {
+      const resolved = await personalPage(ctx, user, layer.target, layer.recipeId);
+      for (const page of resolved?.recipe.workspacePages ?? []) if (!resolved!.basePages.includes(page.slug) || layer.target.key === page.slug) targets.set(page.slug, layer.recipeId);
+    }
+    const pages = [];
+    for (const [target, recipeId] of targets) {
+      const base = await pageBase(ctx, user.orgId, recipeId, targetFor(target));
+      let personal = await personalPage(ctx, user, targetFor(target), base.recipeId);
+      if (!personal && !["deal", "account", "contact"].includes(target)) {
+        for (const layer of await ownLayers(ctx, user)) {
+          const candidate = await personalPage(ctx, user, layer.target, layer.recipeId);
+          if (candidate?.recipe.workspacePages?.some((p) => p.slug === target) && !candidate.basePages.includes(target)) { personal = { ...candidate, revision: 0 }; break; }
+        }
+      }
+      pages.push({ target, recipeId: base.recipeId, markdown: personal?.markdown ?? base.markdown, baseMarkdown: base.markdown, layerRevision: personal?.revision ?? 0 });
+    }
+    return { userId: user._id, pages };
   },
 });
 

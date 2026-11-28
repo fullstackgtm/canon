@@ -83,3 +83,5 @@ export function standInColumns(layout: import("../../recipes/md/edit.ts").Layout
 function openDealsTable(): LayoutOp {
   return { op: "addSection", object: "open-deals", component: "table", title: "Open deals", before: null, query: { object: "deal", filter: [{ field: "isClosed", op: "eq", value: false }], columns: ["recordTitle", "amount"], limit: 10 } };
 }
+
+export { standInWorkflow } from "./workflowStandIn.ts";

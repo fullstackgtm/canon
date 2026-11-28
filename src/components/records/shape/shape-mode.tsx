@@ -68,7 +68,8 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     setDrafts([]); setJobs([]); setInto(null); setSaved(null); setScope("personal");
     draftBase.current = null; personalBase.current = null;
   }, [personal?.userId, object, recipeId]);
-  const draft = drafts.at(-1) ?? effectiveMarkdown;
+  const workflowDraft = customize?.workflow?.targets.find((t) => t.target === object);
+  const draft = workflowDraft?.markdown ?? drafts.at(-1) ?? effectiveMarkdown;
   const parsed = useMemo(() => {
     if (!draft) return null;
     const page = pageOf(parseRecipe(draft).recipe, object);
@@ -158,6 +159,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
       return t;
     },
     submit: (text, el, pointed) => {
+      if (customize?.workflow?.targets.length) return;
       const i = sectionOf(el);
       const s = i === null ? null : page[i];
       const target = s ? { component: s.component, title: s.title ?? lens[i!]?.title ?? s.component, nth: refOf(page, i!).nth ?? 0 } : null;
@@ -173,7 +175,7 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     save: (accept) => void save(accept),
     stages: object === "deal" ? { options: [{ value: null, label: "this deal's stage" }, ...DEAL_STAGES.map((s) => ({ value: s, label: STAGE_NAMES[s] }))], value: stage, set: (v) => setStage(v as DealStage | null) } : undefined,
   } : null;
-  useCustomizeAdapter(adapter, [active, jobs, drafts, stage, markdown, base, recipeTitle, saved, object, personal, scope]);
+  useCustomizeAdapter(adapter, [active, jobs, drafts, stage, markdown, base, recipeTitle, saved, object, personal, scope, customize?.workflow]);
 
   // Compare like with like: the recipe in force as the browser parses it, not as the server sent it.
   const baseKeys = useMemo(() => new Set((markdown ? pageOf(parseRecipe(markdown).recipe, object) : base).map((s) => JSON.stringify(s))), [markdown, base, object]);

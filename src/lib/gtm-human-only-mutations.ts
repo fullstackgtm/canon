@@ -122,6 +122,8 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   // docs/recipes.md "Customizing in the app": agents read a workspace recipe's markdown and revisions (canon_customization get_markdown, list_revisions); a person edits it.
   "api.workspaceRecipes.savePersonal": "a person saves their own page in the pencil",
   "api.workspaceRecipes.resetPersonal": "a person resets their own page in the pencil",
+  "api.workspaceRecipes.saveWorkflow": "a person saves the pages their own workflow request changed, as their personal versions",
+  "api.pageCustomize.workflow": "a person describes how they work in the pencil and judges the proposed pages live; an agent proposes customization.md edits with canon_customization propose_edit instead",
   "api.pageCustomize.promote": "an admin or manager promotes a personal page to the workspace",
   "api.workspaceRecipes.customize": "customizing makes a workspace copy of a package that can then lay out every page; an admin or manager makes it",
   "api.workspaceRecipes.save": "a saved customization.md changes the pages and plays of whoever runs it in the workspace; agents read it and an admin or manager edits it",

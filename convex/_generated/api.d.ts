@@ -549,6 +549,8 @@ import type * as lib_usage from "../lib/usage.js";
 import type * as lib_waitlistSlackText from "../lib/waitlistSlackText.js";
 import type * as lib_webCrypto from "../lib/webCrypto.js";
 import type * as lib_withheldFields from "../lib/withheldFields.js";
+import type * as lib_workflowAgent from "../lib/workflowAgent.js";
+import type * as lib_workflowStandIn from "../lib/workflowStandIn.js";
 import type * as lib_workspaceArchive_actors from "../lib/workspaceArchive/actors.js";
 import type * as lib_workspaceArchive_importRows from "../lib/workspaceArchive/importRows.js";
 import type * as lib_workspaceArchive_register from "../lib/workspaceArchive/register.js";
@@ -1208,6 +1210,8 @@ declare const fullApi: ApiFromModules<{
   "lib/waitlistSlackText": typeof lib_waitlistSlackText;
   "lib/webCrypto": typeof lib_webCrypto;
   "lib/withheldFields": typeof lib_withheldFields;
+  "lib/workflowAgent": typeof lib_workflowAgent;
+  "lib/workflowStandIn": typeof lib_workflowStandIn;
   "lib/workspaceArchive/actors": typeof lib_workspaceArchive_actors;
   "lib/workspaceArchive/importRows": typeof lib_workspaceArchive_importRows;
   "lib/workspaceArchive/register": typeof lib_workspaceArchive_register;

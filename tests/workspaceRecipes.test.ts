@@ -294,3 +294,17 @@ test("personal layers rebase clean changes and retain their version on conflict;
   assert.equal(conflict.conflict, true);
   assert.equal(conflict.markdown, "a\nmine\nc");
 });
+
+test("workflow context resolves personal markdown and refuses agents", async () => {
+  const w = workspace();
+  const base = FIRST_PARTY_MARKDOWN["canon-base"];
+  const { apply } = await import("../recipes/md/edit.ts");
+  const edit = apply(base, { op: "setCollapsed", object: "contact", section: { component: "history" }, collapsed: true });
+  assert.ok("markdown" in edit);
+  await w.fn.savePersonal.handler(w.ctx, { object: "contact", recipeId: "canon-base", markdown: edit.markdown, baseMarkdown: base, layerRevision: 0 });
+  const context = await w.fn.workflowBases.handler(w.ctx, {});
+  assert.equal(context.pages.find((p: { target: string }) => p.target === "contact").markdown, edit.markdown);
+  assert.equal(context.pages.find((p: { target: string }) => p.target === "contact").layerRevision, 1);
+  const agent = loadConvex(["workspaceRecipes.ts"], { "recipes.ts": (real) => ({ ...real, callerOf: async () => ({ user, agent: { id: "agent" } }) }) });
+  await assert.rejects(agent["workspaceRecipes.ts"].workflowBases.handler(w.ctx, {}), /Sign in/);
+});

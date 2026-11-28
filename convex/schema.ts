@@ -4509,6 +4509,12 @@ export default defineSchema({
     refreshCadence: v.optional(v.union(v.literal("weekly"), v.literal("monthly"))),
     refreshNextAt: v.optional(v.number()),
     refreshHold: v.optional(v.object({ message: v.string(), at: v.number() })),
+    // An account field's lasting scope (docs/signal-automations.md, S2): each refresh asks every account it matches,
+    // best fit first, that has no answer since the cadence, new accounts included. Absent: only stale answers.
+    watchFilter: v.optional(filterValidator),
+    // Where the last scoped refresh stopped when it hit the run cap: the next one resumes there, and one that
+    // reaches the end of the scope clears it, so a scope bigger than the cap is covered over several refreshes.
+    watchCursor: v.optional(v.string()),
     // When the question last changed (a recipe setting edit). Facts and attempts from before it answered the old
     // question: they are not shown and do not stop a run from asking again.
     questionSince: v.optional(v.number()),
