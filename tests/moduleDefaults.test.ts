@@ -33,7 +33,7 @@ function example(m: Record<string, unknown>, sha: string, bundle: string | null 
 const fixtureImports: Record<string, ModuleImport> = {};
 const canonImports: Record<string, ModuleImport> = {};
 const configuration = { env: {} as Record<string, string> };
-const loaded = loadConvex(["modules.ts", "moduleDefaults.ts", "moduleActivityPublications.ts", "researchSessions.ts", "reports.ts", "dashboards.ts", "templates.ts", "../modules/examples/_examples.generated.ts"], {
+const loaded = loadConvex(["modules.ts", "inboundForms.ts", "lib/modules/intake.ts", "moduleDefaults.ts", "moduleActivityPublications.ts", "researchSessions.ts", "reports.ts", "dashboards.ts", "templates.ts", "../modules/examples/_examples.generated.ts"], {
   "lib.ts": (r) => ({ ...r, getCurrentUser: async () => caller.user, requireUser: async () => caller.user, agentClientOf: async () => caller.agent }),
   "lib/modules/imports.ts": (r) => { Object.assign(canonImports, r.MODULE_IMPORTS); return { ...r, MODULE_IMPORTS: fixtureImports }; },
 }, { process: configuration });
@@ -60,7 +60,7 @@ function harness(examples?: Record<string, Example>, imports: Record<string, Mod
     const result = loaded[`${file}.ts`][name]; assert.ok(result, `Unknown handler ${String(ref)}`); return result;
   };
   const scheduler = { runAfter: async (delay: number, ref: unknown, args: Record<string, unknown>) => {
-    if (["internal.recordActions.importSession", "internal.fitReconciler.reconcile"].includes(String(ref))) return;
+    if (["internal.recordActions.importSession", "internal.fitReconciler.reconcile", "internal.moduleJobs.feed"].includes(String(ref))) return;
     handler(ref); assert.ok(delay >= 0);
     const queue = String(ref).split(".")[1] === "moduleActivityPublications" || String(ref) === "internal.modules.resumeImports" ? publications : scheduled;
     queue.push({ name: String(ref), args, delay });
@@ -623,4 +623,79 @@ test("Browse hides catalog-only modules, gates new installs, and leaves installe
   await h.run("uninstall", { moduleId: WORK.id });
   await h.run("previewInstall", { source: "canon:fixture" });
   assert.deepEqual(plain((await h.run("examples")).examples.map((e: { slug: string }) => e.slug)), ["beta"]);
+});
+
+
+test("Inbound same-version upgrades preserve forms and submissions through the generic owner and index backfill", async () => {
+  const old = JSON.parse(readFileSync("tests/fixtures/modules/inbound/pre-review.module.json", "utf8"));
+  const current = originalExamples.inbound;
+  const catalog = { inbound: example(old, "a") };
+  const h = harness(catalog, {}, { INBOUND_FORMS: "on" });
+  const preview = await h.run("previewInstall", { source: "canon:inbound" });
+  await h.run("install", { source: preview.source, sha: preview.pinned.sha, manifestHash: preview.manifestHash });
+  await h.run("setEnabled", { moduleId: old.id, enabled: true });
+  const publicId = "abcdefghijklmnopqrstuv";
+  const formData = { name: "Contact", fields: [{ key: "email", label: "Email", kind: "email", required: true, mapsTo: "email" }], status: "live", publicId, publishedBy: "admin" };
+  await h.db.insert("moduleDocs", { orgId: "org", moduleId: old.id, collection: "forms", key: "contact", version: 1, createdAt: 1, updatedAt: 1, data: formData });
+  await h.db.insert("moduleFormLinks", { orgId: "org", moduleId: old.id, formKey: "contact", publicId, createdBy: "admin", createdAt: 1 });
+  const input = { publicId, nonce: "new", ipHash: "hash", userAgent: "test", answers: { email: "new@example.test" }, params: {} };
+  const intake = loaded["inboundForms.ts"];
+  const resolution = loaded["lib/modules/intake.ts"].resolveSubmission as unknown as (ctx: unknown, args: unknown) => Promise<unknown>;
+  const project = loaded["lib/modules/intake.ts"].formProjection as unknown as (ctx: unknown, id: string) => Promise<unknown>;
+  const closed = async () => {
+    assert.equal(await project(h.ctx(), publicId), null);
+    assert.equal((await intake.admit.handler(h.ctx(), input)).status, 404);
+    assert.equal((await intake.commit.handler(h.ctx(), { ...input, version: 1, match: { by: "none", candidates: [] } })).status, 404);
+    await assert.rejects(resolution(h.ctx(), { key: "old", expect: 1, action: "dismiss" }));
+    assert.equal(h.db.rows("canonEntities").length, 0);
+    assert.equal(h.db.rows("moduleRateLimits").length, 0, "no nonce or quota is consumed");
+  };
+  await closed();
+  const oldData = { formKey: "contact", answers: JSON.stringify(input.answers), utm: "{}", hidden: "{}", outcome: "received", receivedAt: 123, ipHash: "hash", userAgent: "old" };
+  const oldId = await h.db.insert("moduleDocs", { orgId: "org", moduleId: old.id, collection: "submissions", key: "old", version: 1, createdAt: 1, updatedAt: 1, data: oldData });
+  catalog.inbound = current;
+  assert.deepEqual(plain((await h.run("installed")).modules[0].availableUpdate), { source: "canon:inbound", version: old.version });
+  await h.run("sweep"); await h.drain();
+  assert.equal((await h.rows("modulePackages"))[0].source.sha, "a".repeat(64), "the sweep leaves manually installed non-default modules alone");
+  const update = await h.run("previewInstall", { source: "canon:inbound" });
+  assert.equal(update.upgrade.sameCommit, false);
+  assert.deepEqual(plain(update.upgrade.problems), []);
+  assert.ok(update.upgrade.reindexed.includes("submissions"));
+  assert.ok(update.upgrade.rechecked.includes("submissions"));
+  assert.equal((await h.run("install", { source: update.source, sha: update.pinned.sha, manifestHash: update.manifestHash })).status, "upgrading");
+  const pending = (await h.rows("modulePackages"))[0].pending;
+  assert.ok(pending.work.some((w: any) => w.collection === "submissions" && w.mode === "rewrite" && w.owner));
+  await closed();
+  await h.drain();
+  const pkg = (await h.rows("modulePackages"))[0];
+  assert.equal(pkg.pending, undefined);
+  assert.equal(pkg.source.sha, current.sha);
+  assert.deepEqual(JSON.parse(pkg.manifest), JSON.parse(current.manifest));
+  const retained: any = await h.db.get(oldId);
+  assert.deepEqual(plain(retained.data), oldData);
+  assert.equal(retained.ownerUserId, undefined, "old unassigned submissions remain unassigned");
+  const slot = pkg.slots.submissions.byOutcomeReceived;
+  assert.equal(retained[`s${slot}a`], "received");
+  assert.equal(retained[`s${slot}b`], 123);
+  assert.deepEqual(plain(h.db.rows("moduleDocs").find(r => r.collection === "forms")!.data), formData);
+  assert.ok(await project(h.ctx(), publicId));
+  assert.equal((await intake.admit.handler(h.ctx(), input)).status, 202);
+  assert.equal((await intake.commit.handler(h.ctx(), { ...input, version: 1, match: { by: "ambiguous", candidates: [] } })).status, 200);
+  const review: any = h.db.rows("moduleDocs").find(r => r.collection === "submissions" && r.key !== "old");
+  await resolution(h.ctx(), { key: review.key, expect: review.version, action: "dismiss" });
+  assert.equal((await h.db.get(review._id) as any).data.outcome, "dismissed");
+  assert.equal((await intake.commit.handler(h.ctx(), { ...input, nonce: "lead", version: 1, match: { by: "none", candidates: [] } })).status, 200);
+  assert.equal(h.db.rows("canonEntities").length, 1);
+
+  const selected = harness({ inbound: example(old, "a") }, {}, { INBOUND_FORMS: "on" });
+  await selected.db.patch("org", { startingPlan: { modules: [{ id: old.id }] } });
+  await selected.run("sweep"); await selected.drain();
+  shipped.MODULE_EXAMPLES.inbound = current;
+  await selected.run("sweep");
+  assert.ok((await selected.rows("modulePackages"))[0].pending, "the same-version hash change starts the starting-plan upgrade");
+  await selected.drain();
+  const automatic = (await selected.rows("modulePackages"))[0];
+  assert.equal(automatic.source.sha, current.sha);
+  assert.equal(automatic.pending, undefined);
+  assert.ok(automatic.autoUpgrade);
 });

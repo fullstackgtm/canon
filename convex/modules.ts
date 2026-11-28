@@ -23,6 +23,7 @@ import { providedCollectionsReset } from "./lib/modules/providedChanges";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation, internalQuery, mutation, query, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { admitResolution, resolveSubmissionInput, type ResolutionOwners } from "./lib/modules/intake";
 import { executeCanonOperation } from "./lib/modules/canonOperations";
 import { encryptForStorage } from "./lib/tokenHelpers";
 import type { CanonCallAuthorization } from "./lib/modules/scope";
@@ -963,6 +964,8 @@ async function fillDealCompanies(ctx: ActionCtx, snap: Snapshot, reads: Record<s
   }
 }
 
+const resolutionOwnerV = v.object({ id: v.string(), found: v.boolean(), ownerId: v.union(v.string(), v.null()) });
+const resolutionOwnersV = v.object({ candidate: resolutionOwnerV, company: v.optional(resolutionOwnerV) });
 const canonAuthorizationV = v.object({ orgId: v.id("organizations"), packageId: v.id("modulePackages"), call: v.string(), input: v.string(), operation: v.string(), userId: v.id("users"), moduleId: v.string(), epoch: v.number(), revision: v.optional(v.string()) });
 
 export const callDispatch = internalQuery({
@@ -974,14 +977,15 @@ export const callDispatch = internalQuery({
 });
 
 export const executeCanonCall = internalMutation({
-  args: { module: v.string(), call: v.string(), args: v.record(v.string(), v.any()), authorization: canonAuthorizationV, encryptedSecret: v.optional(sealedV) },
+  args: { module: v.string(), call: v.string(), args: v.record(v.string(), v.any()), authorization: canonAuthorizationV, encryptedSecret: v.optional(sealedV), resolutionOwners: v.optional(resolutionOwnersV) },
   handler: async (ctx, a): Promise<CallResult> => {
     const scope = await scopeOrRefuse(ctx, a.module, undefined, undefined, a.authorization.epoch);
     const fresh = await scope.authorizeCanonCall(a.call, a.args);
     if (fresh.orgId !== a.authorization.orgId || fresh.packageId !== a.authorization.packageId || fresh.call !== a.authorization.call || fresh.input !== a.authorization.input || fresh.userId !== a.authorization.userId || fresh.moduleId !== a.authorization.moduleId || fresh.operation !== a.authorization.operation || fresh.revision !== a.authorization.revision) throw superseded();
     if (a.encryptedSecret !== undefined && fresh.operation !== "agents.rotateSecret") throw new ConvexError("Unexpected Canon preparation.");
+    if (a.resolutionOwners !== undefined && fresh.operation !== "submissions.resolve") throw new ConvexError("Unexpected Canon preparation.");
     const input = await scope.canonInput(a.call, a.args);
-    const value = await executeCanonOperation(ctx, fresh.operation, input, a.encryptedSecret === undefined ? undefined : { operation: "agents.rotateSecret", encryptedSecret: a.encryptedSecret });
+    const value = await executeCanonOperation(ctx, fresh.operation, input, a.resolutionOwners !== undefined ? { operation: "submissions.resolve", owners: a.resolutionOwners } : a.encryptedSecret === undefined ? undefined : { operation: "agents.rotateSecret", encryptedSecret: a.encryptedSecret });
     const transition = await written(scope, scope.finishCanonCall(a.call, a.args, value));
     return { writes: transition ? 2 : 1, proposed: [], ...(scope.manifest.calls![a.call].returns === "value" ? { value: transition ? { ...(value as { jobId: string }), transition } : value } : {}) };
   },
@@ -999,6 +1003,39 @@ export const prepareCanonSecret = internalAction({
   },
 });
 
+export const resolutionReadPlan = internalQuery({
+  args: { module: v.string(), call: v.string(), args: v.record(v.string(), v.any()), authorization: canonAuthorizationV },
+  handler: async (ctx, a) => {
+    const scope = await scopeOrRefuse(ctx, a.module, undefined, undefined, a.authorization.epoch);
+    const fresh = await scope.authorizeCanonCall(a.call, a.args);
+    if (fresh.operation !== "submissions.resolve" || fresh.orgId !== a.authorization.orgId || fresh.packageId !== a.authorization.packageId || fresh.call !== a.authorization.call || fresh.input !== a.authorization.input || fresh.userId !== a.authorization.userId || fresh.moduleId !== a.authorization.moduleId || fresh.operation !== a.authorization.operation || fresh.revision !== a.authorization.revision) throw superseded();
+    const parsed = resolveSubmissionInput.safeParse(await scope.canonInput(a.call, a.args));
+    if (!parsed.success) throw new ConvexError("Invalid arguments for the Canon operation.");
+    const { candidate, submission } = await admitResolution(ctx, parsed.data);
+    return { orgId: fresh.orgId, candidate: parsed.data.action !== "dismiss" && candidate && candidate.object !== "lead" ? { id: candidate.id, object: candidate.object } : null,
+      companyId: parsed.data.action === "link" && candidate?.object === "person" && typeof submission.data.companyId === "string" ? submission.data.companyId : null };
+  },
+});
+
+export const prepareCanonResolution = internalAction({
+  args: { module: v.string(), call: v.string(), args: v.record(v.string(), v.any()), authorization: canonAuthorizationV },
+  handler: async (ctx, a): Promise<CallResult> => {
+    if (a.authorization.operation !== "submissions.resolve") throw new ConvexError("Unsupported Canon preparation.");
+    const plan = await ctx.runQuery(internal.modules.resolutionReadPlan, a);
+    let resolutionOwners: ResolutionOwners | undefined;
+    if (plan.candidate) {
+      try {
+        const client = clientFor(ctx);
+        const row = plan.candidate.object === "person" ? await client.getContact(plan.orgId, plan.candidate.id) : (await client.get(plan.orgId, plan.candidate.id))?.account ?? null;
+        const company = plan.companyId ? (await client.get(plan.orgId, plan.companyId))?.account ?? null : null;
+        resolutionOwners = { candidate: { id: plan.candidate.id, found: row !== null, ownerId: row?.ownerId ?? null },
+          ...(plan.companyId ? { company: { id: plan.companyId, found: company !== null, ownerId: company?.ownerId ?? null } } : {}) };
+      } catch { throw new ConvexError("Could not read that record's current owner. Try again."); }
+    }
+    return ctx.runMutation(internal.modules.executeCanonCall, { ...a, ...(resolutionOwners ? { resolutionOwners } : {}) });
+  },
+});
+
 /** Run one of the module's calls as the caller. */
 export const call = action({
   args: { module: v.string(), call: v.string(), args: v.optional(v.record(v.string(), v.any())) },
@@ -1008,7 +1045,9 @@ export const call = action({
     const input = { ...a, args: a.args ?? {}, authorization };
     return authorization.operation === "agents.rotateSecret"
       ? ctx.runAction(internal.modules.prepareCanonSecret, input)
-      : ctx.runMutation(internal.modules.executeCanonCall, input);
+      : authorization.operation === "submissions.resolve"
+        ? ctx.runAction(internal.modules.prepareCanonResolution, input)
+        : ctx.runMutation(internal.modules.executeCanonCall, input);
   },
 });
 

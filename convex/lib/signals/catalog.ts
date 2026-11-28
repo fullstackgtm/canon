@@ -12,11 +12,13 @@ export type SignalTemplate = {
   /** What the account owner is asked to do when it turns yes. */
   task: string;
   group: "hiring" | "leadership" | "money" | "strategy" | "risk";
+  /** Answered from the daily job-board check, with no model and at no cost (lib/signals/hiring.ts). */
+  source?: "job_boards";
 };
 
 export const SIGNAL_TEMPLATES: readonly SignalTemplate[] = [
   {
-    key: "hiring_sales", group: "hiring", label: "Hiring sales reps",
+    key: "hiring_sales", group: "hiring", label: "Hiring sales reps", source: "job_boards",
     question: "Has this company posted three or more open sales roles (SDR, BDR, account executive or sales leadership) in the last 30 days, on its careers page or job boards?",
     task: "They're building a sales team: reach the sales leader",
   },
@@ -63,6 +65,16 @@ export const SIGNAL_TEMPLATES: readonly SignalTemplate[] = [
 ];
 
 export const signalTemplate = (key: string): SignalTemplate | undefined => SIGNAL_TEMPLATES.find((t) => t.key === key);
+
+/**
+ * Three starters to suggest first, by the workspace's onboarding archetypes (lib/startingPlan.ts): a new team
+ * watches for money and hiring, a CRM-backed sales team for leadership and M&A, a self-serve team for risk.
+ */
+export function suggestedSignals(archetypes: readonly string[]): string[] {
+  if (archetypes.includes("S2") || archetypes.includes("M3")) return ["new_sales_leader", "acquisition", "expansion"];
+  if (archetypes.includes("G4")) return ["layoffs", "new_marketing_leader", "expansion"];
+  return ["raised_funding", "hiring_sales", "new_sales_leader"];
+}
 
 export const SIGNAL_PREFIX = "Signal: ";
 

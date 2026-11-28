@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadConvex, memoryDb } from "./convexHandlers.ts";
+import { hiringSalesFinding, isSalesRole } from "../convex/lib/signals/hiring.ts";
 
 const admin = { _id: "users:ada", orgId: "organizations:org", role: "admin", isActive: true, name: "Ada", email: "ada@acme.test" };
 const rep = { ...admin, _id: "users:rex", role: "rep", name: "Rex", email: "rex@acme.test" };
@@ -29,7 +30,10 @@ test("watching a starter makes a registered weekly field and a paused owner-task
   assert.equal((rule.actions as Array<{ kind: string }>)[0].kind, "create_task");
 
   const listed = await watches.catalog.handler(ctx, {});
-  assert.equal(listed.templates.find((t: { key: string }) => t.key === "new_sales_leader").watching.slug, field.slug);
+  const leader = listed.templates.find((t: { key: string }) => t.key === "new_sales_leader");
+  assert.equal(leader.watching.slug, field.slug);
+  assert.equal(leader.watching.ruleId, rule._id, "the Signals section links each watch to its rule");
+  assert.equal(listed.templates.filter((t: { suggested: boolean }) => t.suggested).map((t: { key: string }) => t.key).join(), "hiring_sales,new_sales_leader,raised_funding");
 
   await assert.rejects(watches.watch.handler(ctx, { key: "new_sales_leader" }), /already watches/);
   await watches.watch.handler(ctx, { label: "Opened a Denver office", question: "Has this company opened an office in Denver in the last 90 days?" });
@@ -42,6 +46,13 @@ test("watching a starter makes a registered weekly field and a paused owner-task
   assert.ok((watched().refreshNextAt as number) <= Date.now());
   await watches.setScope.handler(ctx, { slug: scoped.slug, filter: null });
   assert.equal(watched().watchFilter, undefined);
+
+  // "Hiring sales reps" answers from job boards: no judgment, and the daily job-board check is turned on.
+  const hiring = await watches.watch.handler(ctx, { key: "hiring_sales" });
+  const jobsField = db.rows("researchAgents").find((f) => f.slug === hiring.slug)!;
+  assert.equal(jobsField.answerSource, "job_boards");
+  assert.ok(!jobsField.judgment, "a count of postings is not a judgment");
+  assert.ok((db.rows("signalWatch")[0].nextRunAt as number) <= Date.now());
 
   signedIn = rep;
   await assert.rejects(watches.watch.handler(ctx, { key: "raised_funding" }));
@@ -70,4 +81,25 @@ test("a capped scoped refresh keeps its place for the next one; reaching the end
   assert.equal(db.rows("researchAgents")[0].watchCursor, "page3");
   await research.progressRun.handler(ctx, { runId: await run("page7"), set: { status: "done" }, listEnded: true });
   assert.equal(db.rows("researchAgents")[0].watchCursor, undefined);
+});
+
+test("hiring sales reps from job boards: three recent selling roles say yes with cites, fewer say no, no board stays unknown", () => {
+  const now = Date.parse("2026-11-28T00:00:00Z");
+  const role = (title: string, daysAgo: number) => ({ trigger: `hiring: ${title}`, quote: title, sourceUrl: `https://boards.greenhouse.io/acme/jobs/${title.length}${daysAgo}`, observedAt: now - daysAgo * 86_400_000 });
+  const board = { source: "greenhouse", token: "acme", checkedAt: now };
+  assert.ok(isSalesRole("Senior Account Executive") && isSalesRole("SDR, EMEA") && !isSalesRole("Sales Operations Manager") && !isSalesRole("Salesforce Developer"));
+
+  const yes = hiringSalesFinding(board, [role("Account Executive", 3), role("BDR", 10), role("Head of Sales", 20), role("Backend Engineer", 1)], now);
+  assert.equal(yes.status === "answered" && yes.value, true);
+  assert.equal(yes.status === "answered" && yes.cites?.length, 3);
+
+  const no = hiringSalesFinding(board, [role("Account Executive", 3), role("BDR", 45)], now);
+  assert.equal(no.status === "answered" && no.value, false);
+  assert.equal(no.status === "answered" && no.sourceUrl, "https://boards.greenhouse.io/acme/jobs/173");
+
+  // Three openings under one title are one stored row with openings: 3, and count as three.
+  const three = hiringSalesFinding(board, [{ ...role("Account Executive", 2), openings: 3 }], now);
+  assert.equal(three.status === "answered" && three.value, true);
+
+  assert.equal(hiringSalesFinding(null, [], now).status, "unknown");
 });

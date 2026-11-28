@@ -128,6 +128,8 @@ export type LlmCallOptions = {
   chatgptAccountId?: string;
   /** Override the ChatGPT Codex backend base (default chatgpt.com/backend-api/codex). */
   chatgptBaseUrl?: string;
+  chatgptReasoningEffort?: "low";
+  chatgptSignal?: AbortSignal;
   /** Optional OpenAI-compatible streaming telemetry. Raw reasoning text is
    * deliberately not exposed; only provider-authored summaries and activity. */
   onReasoningSummary?: (summary: string) => void;
@@ -574,6 +576,7 @@ async function chatgptToolCall(
   try {
     response = await fetchImpl(url, {
       method: "POST",
+      signal: options.chatgptSignal,
       headers: {
         Authorization: `Bearer ${options.apiKey}`,
         "chatgpt-account-id": options.chatgptAccountId,
@@ -589,6 +592,7 @@ async function chatgptToolCall(
         tools: [{ type: "function", name: toolName, description: `Return the ${toolName} result.`, parameters: schema, strict: false }],
         tool_choice: "required",
         parallel_tool_calls: false,
+        ...(options.chatgptReasoningEffort ? { reasoning: { effort: options.chatgptReasoningEffort } } : {}),
         store: false,
         stream: true,
       }),

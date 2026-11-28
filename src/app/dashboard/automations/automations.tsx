@@ -17,6 +17,7 @@ import {
   type AutomationAction, type Condition, type IfStep, type OwnerChoice, type RuleNames, type RuleShape, type RuleStep, type Trigger,
 } from "../../../../modules/kernel/automation";
 
+import { Signals } from "./signals";
 import { dateValueControl, dateControlValue, type DateValueKind } from "./date-value";
 
 const btn = "border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-40";
@@ -154,6 +155,7 @@ export function AutomationRules({ selected, creating, onSelect }: { selected: st
     <div className="max-w-5xl space-y-4">
       <AskCanon standIn={ws.askStandIn} />
       <Proposals ws={ws} />
+      {!creating && <Signals rules={rules} onSelect={onSelect} />}
       {creating && <Builder ws={ws} onDone={() => onSelect(null)} />}
       {rules.length === 0 && !creating && (
         <p className="border border-border p-4 text-sm text-muted-foreground">No rules yet. A rule could create a follow-up task when a deal reaches Proposal, or hand each new lead to the next rep in turn.</p>

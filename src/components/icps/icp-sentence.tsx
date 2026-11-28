@@ -52,7 +52,9 @@ function ValuePicker({ clause, field, onChange, onRemove }: {
     );
   } else if (options) {
     const needle = q.trim().toLowerCase();
-    const shown = options.filter((o) => values.includes(o.value) || !needle || o.label.toLowerCase().includes(needle));
+    // A saved value outside the vocabulary (an agent-written "Data and analytics") still lists, checked, so it can be cleared.
+    const all = [...options, ...values.filter((v) => !options.some((o) => o.value === v)).map((v) => ({ value: v, label: v }))];
+    const shown = all.filter((o) => values.includes(o.value) || !needle || o.label.toLowerCase().includes(needle));
     shown.sort((a, b) => Number(values.includes(b.value)) - Number(values.includes(a.value)));
     body = (
       <div className="grid gap-1">

@@ -616,20 +616,22 @@ export const probeResearchRun = (ctx: MutationCtx, args: ResearchStartArgs): Pro
 
 async function start(ctx: MutationCtx, args: ResearchStartArgs, probe: boolean): Promise<RunStart> {
   const user = await requireUser(ctx);
-  if (!integrationEnabled("chatgpt") && !integrationEnabled("openrouter")) return { runId: null, refused: "AI research is off. Configure TOKEN_ENCRYPTION_KEY or OPENROUTER_API_KEY." };
+  const agent = await agentBySlug(ctx, user.orgId, args.slug);
+  if (!agent) throw new ConvexError("Unknown field");
+  // A job-board field (lib/signals/hiring.ts) runs no model: no plan, no credits.
+  const fromJobs = agent.answerSource === "job_boards";
+  if (!fromJobs && !integrationEnabled("chatgpt") && !integrationEnabled("openrouter")) return { runId: null, refused: "AI research is off. Configure TOKEN_ENCRYPTION_KEY or OPENROUTER_API_KEY." };
   // A probe researches its sample, so it may spend that much; a run what its cap allows, in whole records.
   const capMicro = probe ? PROBE_SIZE * RECORD_MICRO : Math.round((args.capCredits ?? RUN_CAP * RECORD_CREDITS) * MICRO);
   if (!Number.isFinite(capMicro) || capMicro < RECORD_MICRO) throw new ConvexError(`Set a cap of at least ${credits(RECORD_CREDITS)}, the cost of researching one record.`);
   // Research on the starter's own ChatGPT plan costs no credits. Without one, it runs on Canon's research model
   // and spends credits, decided here once so a run never switches how it is paid.
   const plan = await ctx.db.query("chatgptAuth").withIndex("by_userId", (q) => q.eq("userId", user._id)).unique();
-  const onCredits = !integrationEnabled("chatgpt") || plan?.status !== "connected";
+  const onCredits = !fromJobs && (!integrationEnabled("chatgpt") || plan?.status !== "connected");
   if (onCredits) {
     if (!canonResearchLlm()) throw new ConvexError("No AI model is connected. Sign in with ChatGPT under Integrations → ChatGPT.");
     await requireResearchCredits(ctx, user.orgId);
   }
-  const agent = await agentBySlug(ctx, user.orgId, args.slug);
-  if (!agent) throw new ConvexError("Unknown field");
   if (agent.entityType === "contact" && !args.contacts) throw new ConvexError("Choose which contacts to research.");
   const scope: RunScope = agent.entityType === "contact"
     ? { entity: "contact", scope: await resolveContactScope(ctx, user, args.contacts!) }
@@ -638,7 +640,7 @@ async function start(ctx: MutationCtx, args: ResearchStartArgs, probe: boolean):
   if (!acting.ok) return { runId: null, refused: acting.message };
   if (await hasLiveRun(ctx, agent._id)) throw new ConvexError("A run for this field is already in progress.");
   const now = Date.now();
-  const pi = piResearchEnabled(user.orgId) && piEligible({ trigger: probe ? "probe" : undefined, onCredits }, specOf(agent));
+  const pi = !fromJobs && piResearchEnabled(user.orgId) && piEligible({ trigger: probe ? "probe" : undefined, onCredits }, specOf(agent));
   const runId = await ctx.db.insert("researchRuns", {
     orgId: user.orgId, agentId: agent._id, filter: scope.entity === "contact" ? scope.scope : scope.filter, scope, status: "running",
     inScope: 0, planned: 0, done: 0, skipped: 0, answered: 0, unknown: 0, noEvidence: 0, errors: 0, pagesRead: 0, llmCalls: 0,
@@ -1060,7 +1062,8 @@ export async function setResearchRefresh(ctx: MutationCtx, args: { slug: string;
 export const startDueRefreshes = internalMutation({
   args: { now: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    if (!integrationEnabled("chatgpt")) return { started: 0, held: 0, busy: 0 };
+    // A model-backed field needs the ChatGPT integration; a job-board field (lib/signals/hiring.ts) needs none.
+    const modelOn = integrationEnabled("chatgpt");
     const now = args.now ?? Date.now();
     const due = await ctx.db.query("researchAgents")
       .withIndex("by_refreshNextAt", (q) => q.gte("refreshNextAt", 0).lte("refreshNextAt", now)).take(REFRESH_BATCH);
@@ -1068,6 +1071,7 @@ export const startDueRefreshes = internalMutation({
     for (const field of due) {
       const cadence = field.refreshCadence;
       if (!cadence) { await ctx.db.patch(field._id, { refreshNextAt: undefined }); continue; }
+      if (!modelOn && field.answerSource !== "job_boards") continue;
       const again = (hold?: string) => ctx.db.patch(field._id, {
         refreshNextAt: now + REFRESH_RETRY_MS, refreshHold: hold ? { message: hold, at: now } : undefined,
       });
@@ -1075,7 +1079,7 @@ export const startDueRefreshes = internalMutation({
       if (!acting.ok) { await again(acting.message); out.held++; continue; }
       const ownerId = acting.agent.ownerUserId;
       const plan = await ctx.db.query("chatgptAuth").withIndex("by_userId", (q) => q.eq("userId", ownerId)).unique();
-      if (plan?.status !== "connected") {
+      if (plan?.status !== "connected" && field.answerSource !== "job_boards") {
         await again("The agent's owner has not connected ChatGPT. Refresh resumes once they sign in under Integrations → ChatGPT.");
         out.held++;
         continue;
@@ -1168,6 +1172,6 @@ export const previewContext = internalQuery({
     // A run reads as its owner too (getRun), so the count is of the records both see.
     const linked = field.agentId ? await ctx.db.get(field.agentId) : null;
     const ownerAccess = await principalAccess(ctx, user.orgId, [fieldOwner(field, linked)]);
-    return { ownerAccess, userId: user._id, orgId: user.orgId as string, label: field.label, entityType: field.entityType, scope, autoAccept: threshold !== null, jevReads, factual, chatgptConnected: plan?.status === "connected", latestProbe };
+    return { ownerAccess, userId: user._id, orgId: user.orgId as string, label: field.label, entityType: field.entityType, scope, autoAccept: threshold !== null, jevReads, factual, chatgptConnected: plan?.status === "connected", modelFree: field.answerSource === "job_boards", latestProbe };
   },
 });

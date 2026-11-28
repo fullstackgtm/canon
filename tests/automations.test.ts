@@ -804,7 +804,7 @@ test('resolving Create triggers the created assign-owner rule',async()=>{
   const w=workspace();await rule(w,{name:'Inbound resolution',object:'lead',trigger:{kind:'created'},actions:[{kind:'assign_owner',owner:{kind:'member',userId:AVERY}}]});
   const {manifest}=await inboundModule(w);
   const id=await w.db.insert('moduleDocs',{orgId:ORG,moduleId:manifest.id,collection:'submissions',key:'review',version:1,createdAt:1,updatedAt:1,data:{formKey:'contact',answers:JSON.stringify({email:'new@example.test'}),utm:'{}',hidden:'{}',outcome:'needs_review',receivedAt:1,ipHash:'hash',userAgent:'test',candidates:[{object:'company',id:'company',reason:'domain',ownerId:AVERY}]}});
-  await (M['lib/modules/intake.ts'].resolveSubmission as any)(w.ctx,{key:'review',expect:1,action:'create',candidateId:'company'});
+  await (M['lib/modules/intake.ts'].resolveSubmission as any)(w.ctx,{key:'review',expect:1,action:'create',candidateId:'company'},{candidate:{id:'company',found:true,ownerId:AVERY}});
   const submission:any=await w.db.get(id);await fanout(w);await drain(w);
   assert.equal((await lead(w,submission.data.leadId)).ownerId,AVERY);assert.equal(runs(w).length,1);
 });

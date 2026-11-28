@@ -54,7 +54,7 @@ test("starting plans keep unknowns, combine archetypes, cap modules and use ship
       slugs.map((s) => `@canon/${s}`),
     );
     assert.ok(plan.modules.length <= 6);
-    assert.equal(plan.tasks.length, 3);
+    assert.equal(plan.tasks.length, 4); // review_icp or connect_crm, triage_tam, research_accounts, watch_signals
     assert.equal(plan.landing, "/dashboard/accounts?segment=seg-a");
     for (const m of plan.modules) {
       assert.equal(
@@ -257,7 +257,7 @@ test("session edits survive findings, cached visitors do not inherit answers, an
   assert.equal(
     (await loaded["onboarding.ts"].getStartingPlan.handler(ctx, {})).tasks
       .length,
-    3,
+    4,
   );
   await loaded["onboarding.ts"].completePlanTask.handler(ctx, {
     stepId: "triage_tam",

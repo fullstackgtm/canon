@@ -1,4 +1,5 @@
 "use node";
+import { hiringSalesFinding } from "./lib/signals/hiring";
 import { siteUrl } from "./lib/siteUrl";
 
 /**
@@ -355,18 +356,22 @@ async function slice(ctx: ActionCtx, runId: Id<"researchRuns">): Promise<null> {
   const refresh = run.trigger === "refresh";
   // A run started without a ChatGPT plan uses Canon's research model and is paid in credits; any other uses the
   // starter's plan, free.
-  const billed = run.onCredits === true;
-  const llm = billed ? canonResearchLlm() : await resolveLlm(ctx, run.createdBy);
-  if (!llm) {
+  // A job-board field answers from the daily job-board check, with no model, no plan and no credits (lib/signals/hiring.ts).
+  const fromJobs = agent.answerSource === "job_boards";
+  const billed = run.onCredits === true && !fromJobs;
+  const llm = fromJobs ? null : billed ? canonResearchLlm() : await resolveLlm(ctx, run.createdBy);
+  if (!llm && !fromJobs) {
     if (billed) return fail("Canon's research model isn't configured on this deployment.");
     if (refresh) await ctx.runMutation(internal.researchAgents.holdRefresh, { runId, message: "The agent's owner's ChatGPT sign-in is missing or expired. Refresh resumes once they sign in under Integrations → ChatGPT." });
     return fail("No AI model is connected. Sign in with ChatGPT under Integrations → ChatGPT.");
   }
-  const model = llm.model ?? DEFAULT_MODELS[llm.provider];
+  // A job-board field has no model; nothing below that calls one runs for it.
+  const model = llm ? llm.model ?? DEFAULT_MODELS[llm.provider] : "job-boards";
   // Per account: model requests carry the account's abort signal, so a deadline stops them. `counted`
   // tallies the record's model calls outside its deadline, so a record that times out keeps its count.
   const callWith = (signal: AbortSignal, counted: () => void) => (prompt: string, tool: string, schema: object) => {
     counted();
+    if (!llm) throw new Error("This field answers from job boards, without a model.");
     return forcedToolCall(prompt, tool, schema, model, { ...llm, fetchImpl: (input, init) => fetch(input, { ...init, signal }) });
   };
   const ws = run.orgId as string;
@@ -374,7 +379,7 @@ async function slice(ctx: ActionCtx, runId: Id<"researchRuns">): Promise<null> {
   const google = googleSearch(ws);
   const searchWith = (signal: AbortSignal, counted: () => void) => makeWebSearch({
     fetchPage,
-    ...(llm.provider === "chatgpt" ? { chatgpt: (q: string) => { counted(); return chatgptWebSearch(q, model, { ...llm, signal }); } } : {}),
+    ...(llm?.provider === "chatgpt" ? { chatgpt: (q: string) => { counted(); return chatgptWebSearch(q, model, { ...llm, signal }); } } : {}),
     ...(google ? { google } : {}),
   });
   const client = principalClient(ctx, ws, loaded.principals);
@@ -428,7 +433,13 @@ async function slice(ctx: ActionCtx, runId: Id<"researchRuns">): Promise<null> {
       const steps = todo.map((): TraceStep[] => []);
       const ms = todo.map(() => 0);
       const calls = todo.map(() => 0);
+      const jobs = fromJobs ? new Map((await ctx.runQuery(internal.signals.jobsFor, { orgId: run.orgId, domains: todo.map((t) => t.subject.domain) })).map((j) => [j.domain, j])) : null;
       const results = await pool(todo.map((row, i) => ({ row, i })), CONCURRENCY, async ({ row, i }) => {
+        if (jobs) {
+          const j = jobs.get(row.subject.domain);
+          const answered: Awaited<ReturnType<typeof researchCompany>> = { finding: hiringSalesFinding(j?.board ?? null, j?.rows ?? [], Date.now()), pages: [], calls: 0, searches: [] };
+          return answered;
+        }
         const t0 = Date.now();
         const counted = () => { calls[i]++; };
         const onStep = (s: TraceStep) => { if (steps[i].length < MAX_TRACE_STEPS) steps[i].push(s.kind === "read" ? { ...s, url: s.url.slice(0, 500) } : s); };
@@ -483,7 +494,7 @@ async function slice(ctx: ActionCtx, runId: Id<"researchRuns">): Promise<null> {
       // (a probe asks for every record, for the distribution). A confident read is proposed as the answer
       // with what Jev read as its evidence; the write gate still decides, as for a quoted answer.
       const jevQuestion = jevQuestionFor(spec);
-      const jevKey = integrationEnabled("jev") ? process.env.JEV_API_KEY : undefined;
+      const jevKey = !fromJobs && integrationEnabled("jev") ? process.env.JEV_API_KEY : undefined;
       if (jevQuestion && jevKey) {
         await pool(todo.map((row, i) => ({ row, r: results[i] })), JEV_CONCURRENCY, async ({ row, r }) => {
           const o = outcomes.find((x) => x.recordId === row.id);
@@ -567,9 +578,9 @@ type LatestProbe = { at: number; status: "running" | "done" | "failed" | "cancel
  */
 export const previewRun = action({
   args: { slug: v.string(), filter: v.optional(filterValidator), contacts: v.optional(contactScopeValidator) },
-  handler: async (ctx, args): Promise<{ label: string; entityType: "account" | "contact"; chatgptConnected: boolean; canonModel: boolean; inScope: number; estimate: RunEstimate; latestProbe: LatestProbe; spendable: number }> => {
+  handler: async (ctx, args): Promise<{ label: string; entityType: "account" | "contact"; chatgptConnected: boolean; canonModel: boolean; modelFree: boolean; inScope: number; estimate: RunEstimate; latestProbe: LatestProbe; spendable: number }> => {
     const caller = await requireCaller(ctx, { read: true });
-    const info: { ownerAccess: Access[] | null; userId: Id<"users">; orgId: string; label: string; entityType: "account" | "contact"; scope: ContactScope | null; autoAccept: boolean; jevReads: boolean; factual: boolean; chatgptConnected: boolean; latestProbe: LatestProbe } | null =
+    const info: { ownerAccess: Access[] | null; userId: Id<"users">; orgId: string; label: string; entityType: "account" | "contact"; scope: ContactScope | null; autoAccept: boolean; jevReads: boolean; factual: boolean; chatgptConnected: boolean; modelFree: boolean; latestProbe: LatestProbe } | null =
       await ctx.runQuery(internal.researchAgents.previewContext, { slug: args.slug, contacts: args.contacts });
     if (!info) throw new ConvexError("Unknown field");
     // The count is of the records the caller and the field's owner both see, as the run will read (CP14).
@@ -587,6 +598,8 @@ export const previewRun = action({
       spendable: spendableMicro / MICRO,
       // Without a ChatGPT plan the run can still go, on Canon's research model and credits.
       canonModel: !!canonResearchLlm(),
+      // A job-board field runs no model: free, whatever the plan or balance.
+      modelFree: info.modelFree,
       label: info.label, entityType: info.entityType, chatgptConnected, inScope: total,
       estimate: estimateRun({ inScope: total, autoAccept: info.autoAccept, factual: info.factual, jevReads: info.jevReads, seedPages: contacts ? 1 : 0 }),
       latestProbe: info.latestProbe,

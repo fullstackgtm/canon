@@ -127,9 +127,9 @@ export function RunPreviewDialog({
   const capCredits = Number(cap);
   const capOk = Number.isFinite(capCredits) && capCredits >= RECORD_CREDITS;
   // Research on a ChatGPT plan is free: it needs no cap, however few credits the workspace has.
-  const billed = !!data && !data.chatgptConnected;
+  const billed = !!data && !data.modelFree && !data.chatgptConnected;
   // Without a ChatGPT plan a run still goes, on Canon's research model and credits, where the deployment has one.
-  const canRun = !!data && (data.chatgptConnected || data.canonModel);
+  const canRun = !!data && (data.modelFree || data.chatgptConnected || data.canonModel);
 
   useEffect(() => {
     if (!slug || (contacts && !scope)) return setData(null);
@@ -160,7 +160,7 @@ export function RunPreviewDialog({
               {data.inScope.toLocaleString()} {noun}{data.inScope === 1 ? "" : "s"} in scope
               {data.inScope > data.estimate.cap ? `; one run does at most ${data.estimate.cap}, run again to continue` : ""}.
             </p>
-            <EstimateLines e={data.estimate} who="Your" noun={noun} billed={!data.chatgptConnected} />
+            <EstimateLines e={data.estimate} who="Your" noun={noun} billed={billed} />
             {contacts && <p className="text-xs text-muted-foreground">Each contact is answered from a web search for them, their company&apos;s website, and their profile page when the record has one. An answer needs a quote that names the person.</p>}
             {data.latestProbe && (
               <div className="border-l-2 border-border pl-2">
@@ -170,7 +170,7 @@ export function RunPreviewDialog({
               </div>
             )}
             {/* Only research on a model Canon pays for spends credits, so only that has a cap to set. */}
-            {!data.chatgptConnected && <label className="flex flex-wrap items-center gap-2 text-sm">
+            {billed && <label className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">Cap this run at</span>
               <input
                 type="number" inputMode="numeric" min={RECORD_CREDITS} step={RECORD_CREDITS} value={cap} onChange={(e) => setCap(e.target.value)}
@@ -182,10 +182,10 @@ export function RunPreviewDialog({
                 The workspace has {Math.floor(data.spendable).toLocaleString()} left.
               </span>
             </label>}
-            {!data.chatgptConnected && capOk && capCredits > data.spendable && (
+            {billed && capOk && capCredits > data.spendable && (
               <p className="text-xs text-muted-foreground">That is more than the workspace has: the run stops when its credits run out.</p>
             )}
-            {!data.chatgptConnected && (data.canonModel ? (
+            {billed && (data.canonModel ? (
               <p className="text-xs text-muted-foreground">You haven&apos;t connected ChatGPT, so this run uses Canon&apos;s research model and spends credits. Sign in under Integrations → ChatGPT to research for free.</p>
             ) : (
               <p className="text-sm text-destructive">Your ChatGPT sign-in is missing or expired, so this run would fail. Sign in under Integrations → ChatGPT first.</p>
