@@ -7,6 +7,7 @@
 import { ConvexError } from "convex/values";
 import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
+import { metadataFields } from "../metadataFields";
 import { hiddenFields, permissionOf, type Access } from "../access";
 import { listViewDef } from "../objects/listSpec";
 import { customObjectRows, loadOrgObject } from "../objects/orgDefs";
@@ -40,7 +41,8 @@ export async function recordSourcePlan(ctx: QueryCtx, orgId: Id<"organizations">
     const d = permissionOf(access, rel.object).read ? await listedDefOf(ctx, orgId, rel.object) : null;
     related.set(rel.object, d && d.archivedAt === undefined ? d : null);
   }
-  return { title: def.pluralLabel, fields: recordReportFields(object, def, (o) => related.get(o), (o) => new Set(hiddenFields(access, o))) };
+  const withheld = await metadataFields(ctx, orgId, access);
+  return { title: def.pluralLabel, fields: recordReportFields(object, def, (o) => related.get(o), (o) => new Set([...hiddenFields(access, o), ...(withheld.get(o) ?? [])])) };
 }
 
 /** The Canon sources `canon.*` stands for in a workspace: each registered one the module's `reads.records` grants, then its live custom objects. */

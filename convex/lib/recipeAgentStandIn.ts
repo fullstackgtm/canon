@@ -47,3 +47,15 @@ export function standInAnswer(markdown: string, request: string): { markdown: st
   lines[open.i] = lines[open.i].replace(/\}\s*$/, " collapsed=true}");
   return { markdown: lines.join("\n"), summary: `Folded ${open.title}. (Local stand-in model: it only moves sections or folds one.)` };
 }
+
+export function standInColumns(layout: import("../../recipes/md/edit.ts").Layout, target: import("../../recipes/md/edit.ts").SectionRef | undefined, request: string): import("../../recipes/md/edit.ts").LayoutOp[] {
+  const match = /^put (?:this|it) next to (.+?)[.!]?$/i.exec(request.trim());
+  const other = match && layout.sections.find((s) => s.title.toLowerCase() === match[1].trim().toLowerCase());
+  if (!target || !other) return [];
+  const ids = new Set<string>();
+  const visit = (n: import("../../recipes/layout.ts").LayoutNode) => { if (!("section" in n)) { ids.add(n.id); n.children.forEach(visit); } };
+  visit(layout.tree);
+  let id = "columns", i = 1;
+  while (ids.has(id)) id = `columns${i++}`;
+  return [{ op: "wrapSections", object: layout.object, sections: [target, other.ref], kind: "columns", id }];
+}

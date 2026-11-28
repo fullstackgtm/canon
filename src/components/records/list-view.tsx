@@ -701,6 +701,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
       <div>
         {contextProblem && <p role="alert" className="mb-2 text-sm text-destructive">Could not open this filter. {contextProblem}</p>}
         {context.kind === "filter" && handoffProblem && !contextProblem && <p role="alert" className="mb-2 text-sm text-destructive">{handoffProblem}</p>}
+        {!!activeView?.omittedClauses && <p role="status" className="mb-2 text-sm text-muted-foreground">Some saved filters or sorting were left out because your role does not see those fields. Saving this view keeps these omissions.</p>}
         <FilterBar filters={spec.filter} columns={columns} dayColumns={dayColumns} canAdd={filterRoom >= 2} resetKey={specLoads} fields={desc.fields} team={team} onChange={(next) => edit({ filter: next })} />
       </div></div>}
     >

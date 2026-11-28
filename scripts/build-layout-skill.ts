@@ -1,3 +1,4 @@
+import { LAYOUT_GRAMMAR } from "../recipes/layout.ts";
 /**
  * Writes recipes/skills/canon-layout/SKILL.md, the skill an agent reads before it edits a recipe.md, and the module
  * that carries the same text into Convex (recipes/skills/canon-layout/skill.generated.ts). Every list in it comes from
@@ -350,6 +351,14 @@ export function generate(): { skill: string; module: string } {
     settings(),
     "",
     pages(),
+    `Layout containers: ${LAYOUT_GRAMMAR.containers.join(", ")}. At most one fenced layout block per page, scoped like headings. Leaves use component#nth (zero-based). Two spaces per level. Unmentioned sections render afterward. Columns need 2–3 children, optional widths. Tabs need one label per child. Cards need a title. Example using existing Velocity sections:`,
+    '```layout',
+    'stack root',
+    '  columns overview {"widths":[2,1]}',
+    '    section summary#0',
+    '    section brief#0',
+    '```',
+
     "",
     actions(),
     "",

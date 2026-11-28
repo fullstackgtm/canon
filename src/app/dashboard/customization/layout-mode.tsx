@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { AlertCircle, Undo2 } from "lucide-react";
 import type { DealStage } from "../../../../convex/lib/plays/model";
+import { sectionKey, type LayoutNode } from "../../../../recipes/layout";
 import { PAGE_OBJECTS, type PageObject } from "../../../../recipes/kernel";
 import { apply, describeLayout, type LayoutOp } from "../../../../recipes/md/edit";
 import { parseRecipe } from "../../../../recipes/md/parse";
@@ -64,6 +65,14 @@ export function LayoutMode({ markdown, object, onPage, onChange, canUndo, onUndo
       return true;
     },
   };
+  const outline = (node: LayoutNode): import("react").ReactNode => {
+    if ("section" in node) {
+      const i = layout.sections.findIndex((s) => sectionKey(s.ref) === node.section);
+      const s = layout.sections[i];
+      return s ? <SectionCard key={node.section} ctx={ctx} index={i} over={drag?.kind === "section" ? over : null} setOver={setOver} autoRename={fresh === i} /> : null;
+    }
+    return <li key={node.id}><p className="px-3 py-1 text-xs font-medium text-muted-foreground">{node.title ?? node.kind} <span className="font-mono">{node.id}</span></p><ol className="ml-4 border-l">{node.children.map(outline)}</ol></li>;
+  };
   const keys = (e: KeyboardEvent) => {
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
     if (!typing && (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z" && canUndo) { e.preventDefault(); undo(); }
@@ -92,9 +101,7 @@ export function LayoutMode({ markdown, object, onPage, onChange, canUndo, onUndo
       ) : (
         <>
           <ol aria-label={`Sections of the ${PAGE_TITLE[page].toLowerCase()}`} className="border border-border bg-card" onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null); }}>
-            {layout.sections.map((s, i) => (
-              <SectionCard key={`${s.ref.component}:${s.ref.nth}`} ctx={ctx} index={i} over={drag?.kind === "section" ? over : null} setOver={setOver} autoRename={fresh === i} />
-            ))}
+            {layout.tree.children.map(outline)}
           </ol>
           {notice?.key === "page" && <p role="alert" className="border border-warning/50 bg-warning/10 px-2 py-1.5 text-xs">{notice.message}</p>}
           <AddSection ctx={ctx} onAdded={setFresh} />

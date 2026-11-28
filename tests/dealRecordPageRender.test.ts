@@ -1,9 +1,10 @@
+import { tabs } from "./helpers/layout-tabs.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { createElement, Fragment, type ComponentType, type ReactNode } from "react";
+import { createContext, createElement, Fragment, type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as recipes from "../recipes/index.ts";
@@ -18,9 +19,9 @@ const outputText = transpile("../src/components/records/record-page.tsx");
 const recordParts = transpile("../src/components/records/record-parts.tsx");
 const pageSections: { PageSections?: ComponentType<Record<string, unknown>> } = {};
 // Customize mode is off: no shape context, and the page is the recipe's own sections.
-const NO_SHAPE = { useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children,
+const NO_SHAPE = { LayoutTreeContext: createContext(undefined), useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children,
   useShapeMode: ({ base }: { base: recipes.PageSpec }) => ({ page: base, provider: (children: ReactNode) => children }) };
-runInNewContext(transpile("../src/components/records/page-sections.tsx"), { exports: pageSections, require: (id: string) => (id === "../../../recipes" ? recipes : id === "./shape/shape-mode" ? NO_SHAPE : require(id)) });
+runInNewContext(transpile("../src/components/records/page-sections.tsx"), { exports: pageSections, require: (id: string) => (id === "@/components/ui/tabs" ? tabs : id === "../../../recipes" ? recipes : id === "./shape/shape-mode" ? NO_SHAPE : require(id)) });
 const NO_PLAY = Object.fromEntries(recipes.PLAY_COMPONENTS.map((c) => [c, empty]));
 
 function render(object: string, status = "active", inDialog = false, recipe: recipes.RecipeId = recipes.POINTS["deal.page"].defaults.unset) {

@@ -1,3 +1,4 @@
+import { validateTree, pageKeys, type LayoutTree } from "./layout.ts";
 /**
  * An installed recipe as Canon stores it (docs/recipes.md, "The package"). A package is `recipe.md`, and
  * `dist/recipe.js` when it has TypeScript; an install reads the markdown into this manifest, everything Canon reads
@@ -43,6 +44,7 @@ export type Manifest = {
   permissions: Permissions;
   settingsSchema: readonly AnyDescriptor[];
   defaults: Settings;
+  layouts?: Partial<Record<PageObject, LayoutTree>>;
   dealPage: PageSpec;
   /** The workspace theme it contributes; absent in every manifest stored before themes. */
   theme?: ThemeDecl;
@@ -183,10 +185,11 @@ const MANIFEST = obj({
   title: str(1, 80),
   description: str(1, 600),
   author: obj({ org: str(1, 40, /^[a-z0-9][a-z0-9-]*$/, "an org name of a-z, 0-9 and -"), kind: oneOf(["agency"]) }),
-  engines: obj({ canon: oneOf([RECIPE_FORMAT]) }),
+  engines: obj({ canon: oneOf([RECIPE_FORMAT, "3"]) }),
   permissions: obj({ read: subset(RECIPE_OBJECTS), slots: subset(POINT_IDS), llm: oneOf(["owner", "none"]), sources: subset(RECIPE_SOURCES) }),
   settingsSchema: list(descriptor, 100),
   defaults: dict(any, 100),
+  layouts: any,
   dealPage: pageCheck("deal", 0),
   accountPage: pageCheck("account", 0),
   contactPage: pageCheck("contact", 0),
@@ -199,7 +202,7 @@ const MANIFEST = obj({
   templates: list(obj({ kind: oneOf(TEMPLATE_KIND_IDS), key: str(1, 63), title: str(1, 80), spec: any }), 100),
   fields: list(any, 50),
   data: any,
-}, ["accountPage", "contactPage", "models", "templates", "fields", "theme"]);
+}, ["layouts", "accountPage", "contactPage", "models", "templates", "fields", "theme"]);
 
 /** What Jev's buyer-fit question answers: the kernel orders buyers by it. */
 export const FIT_CHOICES = ["left", "right", "tie"];
@@ -220,6 +223,10 @@ export function playsDataErrors(resolved: unknown): string[] {
 
 /** Why the manifest's settings, data and deal page don't hold together, once each has its right shape. */
 function crossChecks(m: Manifest, errors: string[]) {
+  if (m.layouts !== undefined && (m.layouts === null || typeof m.layouts !== "object" || Array.isArray(m.layouts) || Object.keys(m.layouts).some((key) => !(PAGE_OBJECTS as readonly string[]).includes(key)))) {
+    errors.push("layouts is a map of deal, account or contact trees");
+    return;
+  }
   const keys = m.settingsSchema.map((d) => d.key);
   if (new Set(keys).size !== keys.length) errors.push("settingsSchema describes a setting twice");
   for (const k of Object.keys(m.defaults)) if (!keys.includes(k)) errors.push(`defaults.${k} is not in settingsSchema`);
@@ -235,6 +242,10 @@ function crossChecks(m: Manifest, errors: string[]) {
   if (errors.length) return;
   for (const object of PAGE_OBJECTS) {
     const key = PAGE_KEYS[object], page = pageOf(m, object);
+    if (m.layouts && Object.hasOwn(m.layouts, object)) {
+      try { validateTree(m.layouts[object]!, pageKeys(page)); }
+      catch (e) { errors.push(`layouts.${object}: ${String(e)}`); }
+    }
     page.forEach((s, i) => {
       if ((s.component === "fields") !== ("fields" in s)) errors.push(`${key}[${i}] must list fields when, and only when, it is a fields section`);
       if (s.component === "fields" && !s.title) errors.push(`${key}[${i}].title is missing`);
@@ -287,7 +298,7 @@ export function parseManifest(raw: unknown): { ok: true; manifest: Manifest } | 
 export function fromManifest(m: Manifest): RecipeDefinition {
   return Object.freeze({
     id: m.id, version: m.version, title: m.title, description: m.description, author: m.author, permissions: m.permissions,
-    settings: m.defaults, settingsSchema: m.settingsSchema, dealPage: m.dealPage, theme: m.theme ?? null, accountPage: m.accountPage ?? [], contactPage: m.contactPage ?? [], models: m.models ?? {}, templates: m.templates ?? [], fields: m.fields ?? [], data: m.data, code: null, evals: m.evals,
+    settings: m.defaults, settingsSchema: m.settingsSchema, dealPage: m.dealPage, ...(m.layouts ? { layouts: m.layouts } : {}), theme: m.theme ?? null, accountPage: m.accountPage ?? [], contactPage: m.contactPage ?? [], models: m.models ?? {}, templates: m.templates ?? [], fields: m.fields ?? [], data: m.data, code: null, evals: m.evals,
   });
 }
 
@@ -300,6 +311,7 @@ export function toManifest(r: CompiledRecipe): Manifest {
   return {
     id: r.meta.id, version: r.meta.version, title: r.meta.title, description: r.meta.description, author: r.meta.author as Manifest["author"], engines: { canon: RECIPE_FORMAT },
     permissions: r.meta.permissions, settingsSchema: r.settingsSchema, defaults: r.defaults, evals: r.evals, data: r.data, templates: r.templates, fields: r.fields, ...(Object.keys(r.models).length ? { models: r.models } : {}),
+    ...(r.layouts ? { layouts: r.layouts } : {}),
     dealPage: r.dealPage.map((s) => ({ ...s, actions: s.actions ?? [] })),
     ...(r.accountPage.length ? { accountPage: r.accountPage.map((s) => ({ ...s, actions: s.actions ?? [] })) } : {}),
     ...(r.contactPage.length ? { contactPage: r.contactPage.map((s) => ({ ...s, actions: s.actions ?? [] })) } : {}),

@@ -78,13 +78,13 @@ type Page = {
 };
 
 /** `preview` lays the page out from a recipe draft instead of the recipe in force (the recipe editor's preview). */
-export function RegisterRecordPage({ object, id, inDialog, layout: preview }: { object: Party; id: string; inDialog?: InDialog; layout?: PageSpec }) {
+export function RegisterRecordPage({ object, id, inDialog, layout: preview, layoutTree }: { object: Party; id: string; inDialog?: InDialog; layout?: PageSpec; layoutTree?: import("../../../recipes/layout").LayoutTree }) {
   const desc = useQuery(api.objects.describe, { object });
   const inForce = useQuery(api.recipes.recordPage, preview ? "skip" : { object });
   const layout = preview ? { sections: preview } : inForce;
   const shapeRecipeId = !preview && !inDialog && inForce?.canEdit ? inForce.recipeId : null;
   const recipeMarkdown = useQuery(api.workspaceRecipes.markdown, shapeRecipeId ? { recipeId: shapeRecipeId } : "skip");
-  const shape = useShapeMode({ object, base: layout?.sections ?? [], markdown: shapeRecipeId ? recipeMarkdown?.markdown ?? null : null,
+  const shape = useShapeMode({ object, base: layout?.sections ?? [], layoutTree: layoutTree ?? inForce?.layoutTree, markdown: shapeRecipeId ? recipeMarkdown?.markdown ?? null : null,
     recipeId: shapeRecipeId, revision: recipeMarkdown?.revision ?? null, recipeTitle: inForce?.title });
   const team = useQuery(api.users.list) as TeamMember[] | undefined;
   // A role that sees only some of these records reads their history through the action that admits them (CP14).

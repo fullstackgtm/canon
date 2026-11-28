@@ -1,9 +1,10 @@
+import { tabs } from "./helpers/layout-tabs.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { createElement, type ComponentType, type ReactNode } from "react";
+import { createContext, createElement, type ComponentType, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as recipes from "../recipes/index.ts";
@@ -16,11 +17,11 @@ const base = readFileSync(new URL("../recipes/canon-base/recipe.md", import.meta
 const lineOf = (text: string, needle: string, from = 0) => text.split("\n").findIndex((l, i) => i >= from && l.includes(needle)) + 1;
 
 // Customize mode is off: no shape context, so sections draw unwrapped.
-const NO_SHAPE = { useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children };
+const NO_SHAPE = { LayoutTreeContext: createContext<import("../recipes/layout.ts").LayoutTree | undefined>(undefined), useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children };
 const sections: { PageSections?: ComponentType<Record<string, unknown>> } = {};
 runInNewContext(ts.transpileModule(readFileSync(new URL("../src/components/records/page-sections.tsx", import.meta.url), "utf8"), {
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
-}).outputText, { exports: sections, require: (id: string) => (id === "../../../recipes" ? recipes : id === "./shape/shape-mode" ? NO_SHAPE : require(id)) });
+}).outputText, { exports: sections, require: (id: string) => (id === "@/components/ui/tabs" ? tabs : id === "../../../recipes" ? recipes : id === "./shape/shape-mode" ? NO_SHAPE : require(id)) });
 
 /** The page drawn with each component as its name, a held section inside its holder, and the two columns as [ | ]. */
 function drawn(object: recipes.PageObject, page: recipes.PageSpec): string {
@@ -59,4 +60,25 @@ test("a contact's actions read the contact page's scope, and the page offers eac
   const contact = { canEdit: true, canDelete: true, deleted: false, "contact.company": true };
   assert.deepEqual(shown({ ...contact, "contact.email": true }), ["Find phone", "Merge with…"]);
   assert.deepEqual(shown({ ...contact, canEdit: false, deleted: true }), ["Restore"]);
+});
+
+test("explicit layout draws responsive columns, UI SDK tabs, cards and trailing sections", () => {
+  const tree: import("../recipes/layout.ts").LayoutTree = { kind: "stack", id: "root", children: [
+    { kind: "columns", id: "cols", widths: [2, 1], children: [{ section: "header#0" }, { section: "timeline#0" }] },
+    { kind: "tabs", id: "tabs", labels: ["People", "Details"], children: [{ section: "related#0" }, { section: "history#0" }] },
+    { kind: "card", id: "context", title: "Context", children: [{ section: "companyDeals#0" }] },
+  ] };
+  const page = recipes.RECIPES["canon-base"].accountPage;
+  const renderers = Object.fromEntries(recipes.COMPONENTS.account.map((c) => [c, () => createElement("i", null, c)]));
+  const html = renderToStaticMarkup(createElement(NO_SHAPE.LayoutTreeContext.Provider, { value: tree }, createElement(sections.PageSections!, { object: "account", page, stage: null, renderers })));
+  assert.match(html, /data-layout="columns"/);
+  assert.match(html, /grid-cols-1[^"]*md:grid-cols-/);
+  assert.match(html, /minmax\(0,2fr\) minmax\(0,1fr\)/);
+  assert.match(html, /role="tab"/);
+  assert.match(html, /role="tabpanel"/);
+  assert.match(html, /People/);
+  assert.match(html, />Context<\/h2>/);
+  assert.match(html, /rounded-xl border py-6 shadow-sm/);
+  assert.match(html, /fitBar/);
+  assert.ok(html.indexOf("header") < html.indexOf("timeline"));
 });

@@ -1,4 +1,5 @@
 "use client";
+import { type LayoutTree } from "../../../../recipes/layout";
 
 /**
  * A record page's side of customize mode (prototype; the pencil and the overlay are components/customize/customize-mode.tsx).
@@ -22,6 +23,7 @@ import { lensFor, readLens } from "./lens";
 
 const STAGE_NAMES: Record<DealStage, string> = { in: "Get in", case: "Build the case", close: "Close" };
 type Shape = { indexOf: (s: PageSection) => number; changed: (s: PageSection) => boolean; fresh: (s: PageSection) => boolean; stage: DealStage | null };
+export const LayoutTreeContext = createContext<LayoutTree | undefined>(undefined);
 const ShapeContext = createContext<Shape | null>(null);
 export const useShape = () => useContext(ShapeContext);
 
@@ -44,7 +46,7 @@ function whenText(s: PageSection) {
 type Job = CustomizeJob & { target: { component: string; title: string; nth: number } | null; pointed: string };
 
 /** The page the record draws, customize mode's adapter for it, and the provider its sections read. */
-export function useShapeMode({ object = "deal", base, markdown, recipeId, revision, recipeTitle }: { object?: PageObject; base: PageSpec; markdown: string | null; recipeId: string | null; revision: number | null; recipeTitle?: string }) {
+export function useShapeMode({ object = "deal", base, markdown, recipeId, revision, recipeTitle, layoutTree }: { object?: PageObject; base: PageSpec; layoutTree?: LayoutTree; markdown: string | null; recipeId: string | null; revision: number | null; recipeTitle?: string }) {
   const customize = useCustomizeMode();
   const [drafts, setDrafts] = useState<string[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -162,7 +164,8 @@ export function useShapeMode({ object = "deal", base, markdown, recipeId, revisi
     fresh: (s) => lastFresh.current.has(JSON.stringify(s)),
     stage: customize.customizing ? stage : null,
   } : null;
-  const provider = (children: ReactNode) => <ShapeContext.Provider value={shape}>{children}</ShapeContext.Provider>;
+  const tree = draft ? parseRecipe(draft).recipe.layouts?.[object] : layoutTree;
+  const provider = (children: ReactNode) => <LayoutTreeContext.Provider value={tree}><ShapeContext.Provider value={shape}>{children}</ShapeContext.Provider></LayoutTreeContext.Provider>;
   return { page: active ? page : base, provider };
 }
 

@@ -1,3 +1,4 @@
+import { CONTAINERS, completeTree, pageKeys, printLayout, sectionKey, validateTree, type LayoutNode, type LayoutTree, type ContainerKind, type ContainerProps } from "../layout.ts";
 /**
  * Layout edits to a recipe.md, made in its text (docs/recipes.md, "Writing a recipe"). A visual layout editor and an
  * agent editing the file write the same recipe.md, so it stays the one source of truth: each operation rewrites only
@@ -22,7 +23,12 @@ export type SectionRef = { component: PageComponent; nth?: number };
 export type When = { stage: readonly DealStage[] } | { notStage: readonly DealStage[] };
 
 /** One layout edit. An action is known by its id, which is unique on its page; `before: null` puts a thing last. */
-export type LayoutOp =
+export type TreeOp =
+  | { op: "wrapSections"; object: PageObject; sections: SectionRef[]; kind: Exclude<ContainerKind, "stack">; id: string; props?: ContainerProps }
+  | { op: "unwrap"; object: PageObject; container: string }
+  | { op: "moveIntoContainer"; object: PageObject; section: SectionRef; container: string; before: SectionRef | null }
+  | { op: "setContainerProps"; object: PageObject; container: string; props: ContainerProps };
+export type LayoutOp = TreeOp
   | { op: "moveSection"; object: PageObject; section: SectionRef; before: SectionRef | null }
   | { op: "setCollapsed"; object: PageObject; section: SectionRef; collapsed: boolean }
   | { op: "setWhen"; object: "deal"; section: SectionRef; when: When | null }
@@ -50,7 +56,7 @@ export type LayoutSection = {
   actions: Array<Pick<PageAction, "id" | "runs" | "label" | "labelAfter" | "panel" | "shows" | "enabled">>;
   addable: Array<{ runs: ActionId; panel?: Panel }>;
 };
-export type Layout = { object: PageObject; sections: LayoutSection[]; addable: PageComponent[] };
+export type Layout = { tree: LayoutTree; object: PageObject; sections: LayoutSection[]; addable: PageComponent[] };
 
 // ───────────────────────────── Reading the text's structure ─────────────────────────────
 //
@@ -262,19 +268,44 @@ export function apply(markdown: string, op: LayoutOp): EditResult {
   const page = recipe[PAGE_KEYS[op.object]];
   const at = locate(doc, page, op.object);
   if (!at) return { error: `can't find the ${op.object} page's sections in the text` };
-  const plan = planOf(doc, page, at, op);
+  if (["wrapSections", "unwrap", "moveIntoContainer", "setContainerProps"].includes(op.op)) return applyTree(markdown, recipe, doc, op as TreeOp);
+  if (recipe.layouts?.[op.object] && op.op === "moveSection") return moveInTree(markdown, recipe, doc, op);
+  const plan = planOf(doc, page, at, op as Exclude<LayoutOp, TreeOp>);
   if ("error" in plan) return plan;
-  const next = plan.lines.join(doc.eol);
+  let next = plan.lines.join(doc.eol);
+  let layouts = recipe.layouts;
+  if (layouts?.[op.object] && (op.op === "removeSection" || op.op === "addSection")) {
+    const oldKeys = pageKeys(page), newKeys = pageKeys(plan.page);
+    const remap = (n: LayoutNode): LayoutNode[] => {
+      if ("section" in n) { const section = page[oldKeys.indexOf(n.section)]; const i = plan.page.indexOf(section); return i < 0 ? [] : [{ section: newKeys[i] }]; }
+      const children = n.children.flatMap(remap);
+      if (!children.length) return [];
+      if (n.kind === "columns" && children.length < 2) return children;
+      return [{ ...n, children, ...(n.kind === "tabs" ? { labels: n.children.flatMap((c, i) => remap(c).length ? [n.labels![i]] : []) } : {}), ...(n.kind === "columns" && n.widths ? { widths: n.children.flatMap((c, i) => remap(c).length ? [n.widths![i]] : []) } : {}) }];
+    };
+    const tree = remap(layouts[op.object]!)[0] as LayoutTree | undefined;
+    const root: LayoutTree = tree ?? { kind: "stack", id: "root", children: newKeys.map((section) => ({ section })) };
+    if (op.op === "addSection") {
+      const addedIndex = plan.page.findIndex((s) => !page.includes(s));
+      const key = newKeys[addedIndex];
+      const beforeIndex = op.before ? indexOf(page, op.before) : -1;
+      const before = beforeIndex < 0 ? null : newKeys[plan.page.indexOf(page[beforeIndex])];
+      const parent = before ? containers(root).find((n) => n.children.some((c) => "section" in c && c.section === before)) : root;
+      if (parent) parent.children.splice(before ? parent.children.findIndex((c) => "section" in c && c.section === before) : parent.children.length, 0, { section: key });
+    }
+    layouts = { ...layouts, [op.object]: root };
+    next = writeTree(next, read(next), op.object, root);
+  }
   const after = parse(next);
   const errors = after.problems.filter((p) => p.level === "error");
   if (errors.length) return { error: `the edit would break the customization: ${errors.map((p) => p.message).join("; ")}`, problems: errors };
-  const want: CompiledRecipe = { ...recipe, [PAGE_KEYS[op.object]]: plan.page };
+  const want: CompiledRecipe = { ...recipe, [PAGE_KEYS[op.object]]: plan.page, ...(layouts ? { layouts } : {}) };
   const norm = (r: CompiledRecipe) => ({ ...r, dealPage: rendered(r.dealPage), accountPage: rendered(r.accountPage), contactPage: rendered(r.contactPage) });
   if (!same(norm(after.recipe), norm(want))) return { error: "the edit would change more than the layout it names" };
   return { markdown: next };
 }
 
-function planOf(doc: Doc, page: PageSpec, at: Located[], op: LayoutOp): Plan {
+function planOf(doc: Doc, page: PageSpec, at: Located[], op: Exclude<LayoutOp, TreeOp>): Plan {
   const lines = [...doc.lines];
   const sectionAt = (ref: SectionRef): { error: string } | { i: number; s: PageSection; loc: Located } => {
     const i = indexOf(page, ref);
@@ -465,6 +496,7 @@ export function describeLayout(markdown: string, object: PageObject): Layout | {
   const present = new Set(page.map((s) => s.component));
   return {
     object,
+    tree: completeTree(recipe.layouts?.[object], pageKeys(page)),
     sections: page.map((s, i): LayoutSection => {
       const actions = s.actions ?? [];
       const hosts = new Map<string, Panel | undefined>([[s.component, undefined], ...Object.entries(PANELS).filter(([, c]) => c === s.component).map(([p]) => [p, p as Panel] as const)]);
@@ -478,4 +510,72 @@ export function describeLayout(markdown: string, object: PageObject): Layout | {
     }),
     addable: componentsOf(object).filter((c) => c === "fields" || !present.has(c)),
   };
+}
+
+function writeTree(markdown: string, doc: Doc, object: PageObject, tree: LayoutTree): string {
+  const fence = doc.fences.find((f) => f.lang === "layout" && (f.head ? objectOf(f.head) : "deal") === object);
+  const lines = [...doc.lines];
+  const block = ["```layout", ...printLayout(tree).split("\n"), "```"];
+  if (fence) lines.splice(fence.at, fence.close - fence.at + 1, ...block);
+  else {
+    const first = doc.heads.find((h) => h.attrs.section && objectOf(h) === object);
+    if (!first) throw new Error("page has no sections");
+    put(lines, first.at, block);
+  }
+  return lines.join(doc.eol);
+}
+function treeEdit(markdown: string, recipe: CompiledRecipe, doc: Doc, object: PageObject, change: (tree: LayoutTree) => void): EditResult {
+  try {
+    const tree = structuredClone(completeTree(recipe.layouts?.[object], pageKeys(recipe[PAGE_KEYS[object]])));
+    change(tree);
+    validateTree(tree, pageKeys(recipe[PAGE_KEYS[object]]));
+    const next = writeTree(markdown, doc, object, tree);
+    const after = parse(next);
+    const want = { ...recipe, layouts: { ...recipe.layouts, [object]: tree } };
+    if (hasErrors(after.problems) || !same(after.recipe, want)) return { error: "the edit would change more than its tree" };
+    return { markdown: next };
+  } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+}
+function containers(tree: LayoutTree): LayoutTree[] {
+  return [tree, ...tree.children.flatMap((n) => "section" in n ? [] : containers(n))];
+}
+function applyTree(markdown: string, recipe: CompiledRecipe, doc: Doc, op: TreeOp): EditResult {
+  return treeEdit(markdown, recipe, doc, op.object, (tree) => {
+    const all = containers(tree);
+    const owner = (key: string) => all.find((c) => c.children.some((n) => "section" in n && n.section === key));
+    if (op.op === "wrapSections") {
+      const keys = op.sections.map(sectionKey);
+      if (!keys.length || new Set(keys).size !== keys.length) throw new Error("pick distinct sections");
+      const parent = owner(keys[0]);
+      if (!parent || keys.some((key) => owner(key) !== parent)) throw new Error("wrap sections within the same container");
+      const first = parent.children.findIndex((n) => "section" in n && keys.includes(n.section));
+      parent.children = parent.children.filter((n) => !("section" in n && keys.includes(n.section)));
+      const props = CONTAINERS[op.kind].strict().parse(op.props ?? {});
+      const group: LayoutTree = { ...props, kind: op.kind, id: op.id, children: keys.map((section) => ({ section })) };
+      parent.children.splice(first, 0, group);
+    } else {
+      const node = all.find((c) => c.id === op.container);
+      if (!node) throw new Error("container does not exist");
+      if (op.op === "setContainerProps") Object.assign(node, CONTAINERS[node.kind].partial().strict().parse(op.props));
+      else if (op.op === "unwrap") {
+        const parent = all.find((c) => c.children.includes(node));
+        if (!parent) throw new Error("cannot unwrap root");
+        parent.children.splice(parent.children.indexOf(node), 1, ...node.children);
+      } else {
+        const key = sectionKey(op.section), parent = owner(key);
+        if (!parent) throw new Error("section does not exist");
+        parent.children = parent.children.filter((n) => !("section" in n && n.section === key));
+        const at = op.before === null ? node.children.length : node.children.findIndex((n) => "section" in n && n.section === sectionKey(op.before!));
+        if (at < 0) throw new Error("before must be in the destination container");
+        node.children.splice(at, 0, { section: key });
+      }
+    }
+  });
+}
+function moveInTree(markdown: string, recipe: CompiledRecipe, doc: Doc, op: Extract<LayoutOp, {op: "moveSection"}>): EditResult {
+  const tree = completeTree(recipe.layouts?.[op.object], pageKeys(recipe[PAGE_KEYS[op.object]]));
+  const parent = containers(tree).find((c) => c.children.some((n) => "section" in n && n.section === sectionKey(op.section)));
+  if (!parent) return { error: "section does not exist" };
+  if (op.before && sectionKey(op.before) === sectionKey(op.section)) return { markdown };
+  return applyTree(markdown, recipe, doc, { ...op, op: "moveIntoContainer", container: parent.id });
 }

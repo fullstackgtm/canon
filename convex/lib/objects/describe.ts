@@ -61,12 +61,13 @@ export type DescribeInput = {
   icpOptions: readonly PicklistOption[];
   /** The slugs of the org's AI fields, whose answers come from runs, not edits. */
   aiSlugs: ReadonlySet<string>;
+  withheld?: ReadonlySet<string>;
 };
 
-export function describeObject({ object, def: loaded, access, dealsWrite, icpOptions, aiSlugs }: DescribeInput): DescribedObject {
+export function describeObject({ object, def: loaded, access, dealsWrite, icpOptions, aiSlugs, withheld }: DescribeInput): DescribedObject {
   // What the caller's role allows on the object (CP14); a page offers only that.
   const allows = (op: RecordOp) => access !== null && may(access, object, op);
-  const hiddenSet = new Set(access ? hiddenFields(access, object) : []);
+  const hiddenSet = new Set([...(access ? hiddenFields(access, object) : []), ...(withheld ?? [])]);
   const locked = access ? lockedFields(access, object).filter((f) => !hiddenSet.has(f)) : [];
   if (isRegisterObject(object)) {
     // Accounts and contacts list from the register, by record-service id; an edit goes through records.edit, which

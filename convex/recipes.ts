@@ -200,7 +200,7 @@ export const forOrg = query({
     const found = await orgRecipe(ctx, orgId);
     const available = await availableRecipes(ctx, orgId);
     return {
-      dealPage: { ...card(found), sections: found.recipe.dealPage, oldFrame: oldFrame(found), ref: found.ref, coreRoles: found.plays?.coreRoles ?? [], settings: await settingsView(ctx, orgId, found) },
+      dealPage: { ...card(found), sections: found.recipe.dealPage, layoutTree: found.recipe.layouts?.deal, oldFrame: oldFrame(found), ref: found.ref, coreRoles: found.plays?.coreRoles ?? [], settings: await settingsView(ctx, orgId, found) },
       available: await Promise.all(available.map(async (f) => ({
         ...card(f), hasSettings: f.recipe.settingsSchema.length > 0,
         revision: (await currentRevision(ctx, orgId, f.recipe.id))?.revision ?? null, proposals: (await openProposals(ctx, orgId, f.recipe.id)).length,
@@ -219,7 +219,7 @@ export const recordPage = query({
     const caller = await callerOf(ctx);
     if (!caller) return null;
     const [{ recipe }] = await enabledFor(ctx, caller.user.orgId, `${args.object}.page`);
-    return { recipeId: recipe.id, title: recipe.title, sections: pageOf(recipe, args.object), canEdit: mayDecide(caller) };
+    return { recipeId: recipe.id, title: recipe.title, sections: pageOf(recipe, args.object), layoutTree: recipe.layouts?.[args.object], canEdit: mayDecide(caller) };
   },
 });
 

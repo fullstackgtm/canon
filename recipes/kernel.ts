@@ -28,13 +28,13 @@ import type { Kind } from "./sdk.ts";
  * The recipe format this Canon reads: `engines: { canon: "2" }` in a recipe.md's frontmatter. A recipe written for
  * another format is refused before its grammar is read (docs/recipes.md, "Format changelog").
  */
-export const RECIPE_FORMAT = "3";
+export const RECIPE_FORMAT = "4";
 /**
  * The sha256 of the grammar format RECIPE_FORMAT reads (`RECIPE_GRAMMAR` in recipes/md/parse.ts). A change to the
  * grammar fails tests/recipeFormat.test.ts until this is updated, and a change that refuses a recipe the old grammar
  * read also bumps RECIPE_FORMAT and adds a changelog entry, so a published recipe fails with one clear line.
  */
-export const RECIPE_GRAMMAR_SHA256 = "ca117df72b1090e113b534ab812768bcd11c996c9992c902912bf169529b26e3";
+export const RECIPE_GRAMMAR_SHA256 = "df011aa740f201933157f7991e3e2db29cc17c35834adb27f68d6b391962a33f";
 
 export const RECIPE_IDS = ["canon-base", "fsgtm-enterprise-deal", "canon-ledger", "canon-plain-html"] as const;
 /** A first-party recipe, in this repo. An installed package's id is namespaced instead: `@fsgtm/velocity-deal`. */
@@ -374,6 +374,7 @@ export type RecipeDefinition = {
   permissions: Permissions;
   settings: Settings;
   settingsSchema: readonly AnyDescriptor[];
+  layouts?: Partial<Record<PageObject, import("./layout.ts").LayoutTree>>;
   dealPage: PageSpec;
   /** The workspace theme it contributes (recipes/theme.ts), its values bound to settings; null for none. */
   theme: ThemeDecl | null;
