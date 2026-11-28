@@ -400,7 +400,7 @@ export const create = mutation({
  */
 export async function insertField(
   ctx: MutationCtx, user: Doc<"users">,
-  args: AgentSpec & { entityType: "account" | "contact"; judgment?: boolean; refresh?: RefreshCadence },
+  args: AgentSpec & { entityType: "account" | "contact"; judgment?: boolean; refresh?: RefreshCadence; watchFilter?: Doc<"researchAgents">["watchFilter"] },
 ): Promise<Doc<"researchAgents">> {
   let spec: AgentSpec;
   try { spec = checkSpec(args); } catch (e) { throw new ConvexError(e instanceof Error ? e.message : String(e)); }
@@ -415,7 +415,9 @@ export async function insertField(
     ...(spec.options ? { options: spec.options } : {}), ...(spec.answerType ? { answerType: spec.answerType } : {}),
     ...(args.judgment ? { judgment: true } : {}),
     ...(autoAccept !== undefined ? { autoAcceptMinConfidence: autoAccept } : {}),
-    ...(args.refresh ? { refreshCadence: args.refresh, refreshNextAt: now + cadenceMs(args.refresh) } : {}),
+    // A watched field's first refresh starts on the next due check: it asks its whole scope.
+    ...(args.refresh ? { refreshCadence: args.refresh, refreshNextAt: args.watchFilter ? now : now + cadenceMs(args.refresh) } : {}),
+    ...(args.watchFilter && args.entityType === "account" ? { watchFilter: args.watchFilter } : {}),
     createdBy: user._id, createdAt: now, updatedAt: now,
   });
   const field = (await ctx.db.get(fieldId))!;
@@ -853,6 +855,8 @@ export const progressRun = internalMutation({
       sample: v.optional(v.array(v.object({ recordId: v.string(), entityId: v.id("canonEntities"), label: v.string() }))),
     }),
     add: v.optional(countsValidator),
+    /** The run's scope has no more pages: a scoped refresh starts the next one from the top. */
+    listEnded: v.optional(v.boolean()),
     /** How each record of this page was researched; a probe's sample rows also take their outcomes. */
     traces: v.optional(v.array(traceValidator)),
     /** A run on credits: the page's charge, made here as its answers are recorded, so nothing is paid before then. */
@@ -880,6 +884,11 @@ export const progressRun = internalMutation({
         : {}),
       updatedAt: Date.now(),
     });
+    // A scoped refresh that ends keeps its place for the next one; one that reached the end, or failed, starts over.
+    if (args.set.status && run.trigger === "refresh" && run.scope) {
+      const resume = args.set.status === "done" && !args.listEnded ? args.set.cursor ?? run.cursor : undefined;
+      await ctx.db.patch(run.agentId, { watchCursor: resume });
+    }
     const at = Date.now();
     for (const t of traces) await ctx.db.insert("researchTraces", { orgId: run.orgId, runId: run._id, ...t, at });
     if (args.chargeRef) {
@@ -925,10 +934,11 @@ export const stopForCredits = internalMutation({
 export const skippedEntities = internalQuery({
   // `picked`: the records were chosen one by one (a deal's people, selected rows), so a recent attempt without an
   // answer doesn't skip them; only an answer does. The attempt skip is how a run over a list moves on to others.
-  args: { agentId: v.id("researchAgents"), entityIds: v.array(v.id("canonEntities")), attribute: v.string(), picked: v.optional(v.boolean()) },
+  // `staleBefore`: a scoped refresh, where only an answer or an attempt since then skips a record.
+  args: { agentId: v.id("researchAgents"), entityIds: v.array(v.id("canonEntities")), attribute: v.string(), picked: v.optional(v.boolean()), staleBefore: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const out: Array<Id<"canonEntities">> = [];
-    const asked = (await ctx.db.get(args.agentId))?.questionSince ?? 0;
+    const asked = Math.max((await ctx.db.get(args.agentId))?.questionSince ?? 0, args.staleBefore ?? 0);
     const since = args.picked ? Infinity : Math.max(Date.now() - RETRY_AFTER_MS, asked);
     for (const entityId of args.entityIds) {
       const f = await ctx.db.query("facts")
@@ -1071,10 +1081,15 @@ export const startDueRefreshes = internalMutation({
         continue;
       }
       if (await hasLiveRun(ctx, field._id)) { await again(); out.busy++; continue; }
+      const watched = field.entityType === "account" ? field.watchFilter : undefined;
       const runId = await ctx.db.insert("researchRuns", {
-        orgId: field.orgId, agentId: field._id, filter: {}, status: "running", trigger: "refresh",
+        orgId: field.orgId, agentId: field._id, filter: watched ?? {}, status: "running", trigger: "refresh",
+        ...(watched ? { scope: { entity: "account" as const, filter: watched } } : {}),
+        // Resume where the last capped refresh stopped (its scope was counted then).
+        ...(watched && field.watchCursor ? { cursor: field.watchCursor } : {}),
         staleBefore: now - cadenceMs(cadence) + STALE_GRACE_MS,
-        inScope: 0, planned: RUN_CAP, done: 0, skipped: 0, answered: 0, unknown: 0, noEvidence: 0, errors: 0, pagesRead: 0, llmCalls: 0,
+        // A scoped refresh from the top counts its scope on its first slice, as a manual run does.
+        inScope: 0, planned: watched && !field.watchCursor ? 0 : RUN_CAP, done: 0, skipped: 0, answered: 0, unknown: 0, noEvidence: 0, errors: 0, pagesRead: 0, llmCalls: 0,
         createdBy: ownerId, createdAt: now, updatedAt: now,
       });
       await ctx.db.patch(field._id, { refreshNextAt: now + cadenceMs(cadence), refreshHold: undefined });

@@ -1,5 +1,7 @@
 "use client";
 
+import type { WorkflowProposal } from "../../../convex/lib/workflowAgent";
+import { WorkflowTray } from "./workflow-tray";
 import { IntegrationGate } from "@/components/integration-gate";
 
 /**
@@ -42,7 +44,7 @@ export type CustomizeAdapter = {
   stages?: { options: { value: string | null; label: string }[]; value: string | null; set: (v: string | null) => void };
 };
 
-type Ctx = { customizing: boolean; setCustomizing: (on: boolean) => void; adapter: CustomizeAdapter | null; setAdapter: (a: CustomizeAdapter | null) => void };
+type Ctx = { workflow: (WorkflowProposal & { model: string; ms: number }) | null; setWorkflow: (value: (WorkflowProposal & { model: string; ms: number }) | null) => void; customizing: boolean; setCustomizing: (on: boolean) => void; adapter: CustomizeAdapter | null; setAdapter: (a: CustomizeAdapter | null) => void };
 const CustomizeContext = createContext<Ctx | null>(null);
 export const useCustomizeMode = () => useContext(CustomizeContext);
 
@@ -60,9 +62,10 @@ export function useCustomizeAdapter(adapter: CustomizeAdapter | null, deps: read
 
 export function CustomizeProvider({ children }: { children: ReactNode }) {
   const [customizing, setCustomizing] = useState(false);
+  const [workflow, setWorkflow] = useState<(WorkflowProposal & { model: string; ms: number }) | null>(null);
   const [adapter, setAdapter] = useState<CustomizeAdapter | null>(null);
   return (
-    <CustomizeContext.Provider value={{ customizing, setCustomizing, adapter, setAdapter }}>
+    <CustomizeContext.Provider value={{ workflow, setWorkflow, customizing, setCustomizing, adapter, setAdapter }}>
       {children}
       {customizing && <CustomizeOverlay />}
     </CustomizeContext.Provider>
@@ -99,13 +102,13 @@ function CustomizeTrayEnabled() {
       </PopoverTrigger>
       <PopoverContent data-customize-chrome side="top" align="end" sideOffset={12} onMouseEnter={cancel} onMouseLeave={later}
         onOpenAutoFocus={(e) => e.preventDefault()} onCloseAutoFocus={(e) => e.preventDefault()}
-        className={cn(CHROME, "w-[360px] p-0")}>
+        className={cn(CHROME, "w-[360px] max-w-[calc(100vw-24px)] max-h-[85vh] overflow-y-auto p-0")}>
         <div className="flex items-start gap-2 border-b border-white/10 px-4 py-3">
           <Pencil className="mt-0.5 size-3.5 shrink-0 text-violet-400" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold">{customizing ? "Customizing" : "Customize this page"}{adapter && <span className="font-normal text-stone-400"> · {adapter.label}{adapter.detail ? `, ${adapter.detail}` : ""}</span>}</p>
             <p className="mt-0.5 text-xs text-stone-400">
-              {!adapter ? "Nothing here can change yet: only pages drawn by a customization can."
+              {!adapter ? "Describe your workflow to create personal pages."
                 : customizing ? "Point at an outlined part and start typing. Each change lands on the page as it's done."
                 : "Click the pencil, point at an outlined part of the page, and type how it should work. The page redraws so you can judge it."}
             </p>
@@ -118,6 +121,7 @@ function CustomizeTrayEnabled() {
           {adapter.useWorkspace && <button type="button" onClick={adapter.useWorkspace} className="block underline">Use the workspace page</button>}
           {adapter.promote && <button type="button" onClick={adapter.promote} className="block underline">Promote to workspace</button>}
         </div>}
+        {customizing && <WorkflowTray />}
         {adapter?.stages && <div className="border-b border-white/10 px-4 py-2"><StagePicker stages={adapter.stages} /></div>}
         {jobs.length > 0 && <div className="max-h-[50vh] overflow-y-auto px-2 py-2 text-xs"><JobList jobs={jobs} /></div>}
         {adapter && (adapter.kept > 0 || adapter.saved) && <div className="border-t border-white/10 px-3 py-2 text-xs"><SaveBar adapter={adapter} /></div>}
@@ -216,6 +220,7 @@ function CustomizeOverlay() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { if (pinned) close(); else setCustomizing(false); return; }
       // Typing over an area opens its comment with what was typed.
+      if (e.target instanceof HTMLElement && e.target.closest("input,textarea,select,[contenteditable=true]")) return;
       if (selecting && !pinned && hover && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         setPinned(hover);

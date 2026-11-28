@@ -1,5 +1,7 @@
 "use client";
 
+import { useCustomizeMode } from "@/components/customize/customize-mode";
+import { parseRecipe } from "../../../recipes/md/parse";
 import { useMemo } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
@@ -15,7 +17,9 @@ export function useNav(): { sections: readonly NavSection[]; home: string | null
   const available = useQuery(api.integrationsAvailable.status);
   const objects = useQuery(api.customObjects.list);
   const nav = useQuery(api.recipes.nav);
-  const pages = useQuery(api.recipes.workspacePages);
+  const storedPages = useQuery(api.recipes.workspacePages);
+  const workflow = useCustomizeMode()?.workflow;
+  const pages = useMemo(() => [...new Map([...(storedPages ?? []), ...(workflow?.targets.flatMap((t) => (parseRecipe(t.markdown).recipe.workspacePages ?? []).filter((p) => p.slug === t.target)) ?? [])].map((p) => [p.slug, p])).values()], [storedPages, workflow]);
   const modules = useQuery(api.modules.list);
   const names = useObjectLabels();
   return useMemo(() => {

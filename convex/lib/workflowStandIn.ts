@@ -1,0 +1,35 @@
+import { describeLayout as describeLayoutForStandIn, type LayoutOp } from "../../recipes/md/edit.ts";
+
+export function standInWorkflow(input: import("./workflowAgent.ts").WorkflowInput) {
+  const sdr = /SDR|morning.queue/i.test(input.request);
+  if (!sdr && !/renewal/i.test(input.request)) return { plan: [], ops: {}, summary: "The local stand-in handles renewals desk and SDR morning queue only." };
+  const target = sdr ? "morning-queue" : "renewals";
+  const existing = input.pages.find((p) => p.target === target);
+  const plan: import("./workflowAgent.ts").WorkflowPlan[] = [{ target, ...(existing ? {} : { create: { slug: target, title: sdr ? "Morning queue" : "Renewals desk" } }), why: sdr ? "Start the day with contacts; open a person to log a call." : "Review approaching renewals or, without a contract date, open deals by close date." }];
+  const accounts = input.objects.find((o) => o.apiName === "account");
+  const date = accounts?.fields.find((f) => ["date", "datetime"].includes(f.type) && /contract|renewal/i.test(f.apiName));
+  const object = sdr ? "contact" : date ? "account" : "deal";
+  const def = input.objects.find((o) => o.apiName === object);
+  const title = def?.fields.find((f) => f.fieldId === def.titleFieldId)?.apiName ?? def?.fields[0]?.apiName ?? "recordTitle";
+  const close = date?.apiName ?? "closeDate";
+  const query = { object, filter: sdr ? [] : date ? [{ field: close, op: "gte" as const, value: new Date().toISOString().slice(0, 10) }, { field: close, op: "lte" as const, value: new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10) }] : [{ field: "isClosed", op: "eq" as const, value: false }], columns: [title, ...(!sdr ? [close] : [])], ...(!sdr ? { sort: { field: close, dir: "asc" as const } } : {}), limit: 50 };
+  const ops: Record<string, LayoutOp[]> = { [target]: [{ op: "addSection", object: target, component: sdr ? "list" : "table", title: sdr ? "People to contact" : "Upcoming renewals", before: null, query }] };
+  if (!sdr) ops[target].push({ op: "addSection", object: target, component: "metric", title: "In queue", before: null, query: { object, filter: query.filter, aggregate: { fn: "count" }, limit: 50 } });
+  if (sdr) {
+    const contact = input.pages.find((p) => p.target === "contact");
+    const layout = contact && describeLayoutForStandIn(contact.markdown, "contact");
+    if (layout && !("error" in layout)) {
+      plan.push({ target: "contact", why: "Log a call near the top and fold a secondary section." });
+      const call = input.objects.find((o) => o.apiName === "call");
+      const fields = call?.fields.filter((f) => !f.system && ["subject", "body", "description", "callAt", "notes"].includes(f.apiName)).map((f) => f.apiName) ?? [];
+      const taken = new Set(layout.sections.flatMap((s) => s.actions.map((a) => a.id)));
+      let createId = "form";
+      for (let n = 2; taken.has(createId); n++) createId = `form${n}`;
+      const form = { component: "form" as const, nth: layout.sections.filter((s) => s.component === "form").length };
+      ops.contact = [{ op: "addSection", object: "contact", component: "form", title: "Log a call", before: layout.sections[1]?.ref ?? null, query: { object: "call", filter: [], fields: fields.length ? fields : ["subject"], defaults: {}, limit: 10 } }, { op: "addAction", object: "contact", section: form, runs: "kernel.logActivity", label: "Log call" }, { op: "removeAction", object: "contact", section: form, action: createId }];
+      const secondary = layout.sections.find((s) => s.component === "fields") ?? layout.sections.at(-1);
+      if (secondary) ops.contact.push({ op: "setCollapsed", object: "contact", section: secondary.ref, collapsed: true });
+    }
+  }
+  return { plan, ops, summary: sdr ? "Added a morning queue and a call form on contact records; folded contact details." : date ? "Added renewals due in 90 days and a count." : "No contract renewal date is available; added open deals by close date and a count." };
+}

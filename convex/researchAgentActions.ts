@@ -173,7 +173,7 @@ const accountTarget = (r: AccountRow): Target => {
 };
 
 type Client = RecordClient;
-type Scoped = { orgId: Id<"organizations">; agentId: Id<"researchAgents">; attribute: string; remaining: number };
+type Scoped = { orgId: Id<"organizations">; agentId: Id<"researchAgents">; attribute: string; remaining: number; staleBefore?: number };
 
 /** The next page of a TAM scope, by fit: give each account Canon identity, then drop those already answered or recently tried. */
 async function scopeBatch(
@@ -192,7 +192,7 @@ async function scopeBatch(
     : [];
   const entityOf = new Map(promoted.map((p) => [p.recordId, p.entityId]));
   const answered = new Set<string>(promoted.length
-    ? await ctx.runQuery(internal.researchAgents.skippedEntities, { agentId: a.agentId, entityIds: promoted.map((p) => p.entityId), attribute: a.attribute })
+    ? await ctx.runQuery(internal.researchAgents.skippedEntities, { agentId: a.agentId, entityIds: promoted.map((p) => p.entityId), attribute: a.attribute, ...(a.staleBefore !== undefined ? { staleBefore: a.staleBefore } : {}) })
     : []);
   const todo = rows.filter((r) => entityOf.has(r.id) && !answered.has(entityOf.get(r.id)!)).slice(0, a.remaining);
   return { todo: todo.map(accountTarget), entityOf, skipped: page.rows.length - todo.length, nextCursor: page.nextCursor };
@@ -381,7 +381,8 @@ async function slice(ctx: ActionCtx, runId: Id<"researchRuns">): Promise<null> {
   const attribute = attributeFor(agent.slug);
   const contacts = agent.entityType === "contact";
 
-  const scope = refresh ? null : runScopeOf(run, agent.entityType);
+  // A refresh walks its field's lasting scope when it has one (run.scope), else the field's stale answers.
+  const scope = refresh && !run.scope ? null : runScopeOf(run, agent.entityType);
   const probe = run.trigger === "probe";
   if (scope && !run.cursor && run.planned === 0) {
     const total = scope.entity === "contact" ? await contactScopeTotal(client, ws, scope.scope) : (await client.countSegment(ws, scope.filter)).total;
@@ -410,7 +411,7 @@ async function slice(ctx: ActionCtx, runId: Id<"researchRuns">): Promise<null> {
       return null;
     }
     const affordable = Math.min(byCap, byBalance);
-    const scoped = { orgId: run.orgId, agentId: agent._id, attribute, remaining: Math.min(remaining, affordable) };
+    const scoped = { orgId: run.orgId, agentId: agent._id, attribute, remaining: Math.min(remaining, affordable), ...(refresh && run.staleBefore !== undefined ? { staleBefore: run.staleBefore } : {}) };
     const { todo, entityOf, skipped, nextCursor } = probe
       ? await sampleBatch(client, ws, contacts, current.run.sample ?? [], cursor, scoped.remaining)
       : !scope
@@ -528,6 +529,7 @@ async function slice(ctx: ActionCtx, runId: Id<"researchRuns">): Promise<null> {
       const state = await ctx.runMutation(internal.researchAgents.progressRun, {
         runId,
         set: { ...(cursor ? { cursor } : {}), ...(finished ? { status: "done" as const } : {}) },
+        ...(finished ? { listEnded: true } : {}),
         add,
         // Only an answer costs a credit: a quoted one or Jev's inference, that the write gate took. Unknowns,
         // errors and rejected answers are free (Ryan, 2026-10-13).

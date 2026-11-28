@@ -11,6 +11,11 @@
  * - Luna, on the person's own ChatGPT plan, writes the ops when Jev isn't sure or the edit needs words of its own. It
  *   answers with a few ops, not a whole recipe.md, so it takes seconds rather than a minute.
  */
+import { CANON_LAYOUT_SKILL } from "../recipes/skills/canon-layout/skill.generated.ts";
+import { turnMeter } from "./lib/agents/webhook";
+import { NO_PLAN, PROPOSAL_BUDGET, REQUEST_MAX } from "./lib/recipeAgent";
+import { proposeWorkflow, WORKFLOW_TOOL, WORKFLOW_SCHEMA, type WorkflowProposal } from "./lib/workflowAgent";
+import type { ObjectDef } from "./lib/objects/registry";
 import { integrationEnabled } from "./lib/integrationsAvailable.ts";
 
 import { ConvexError, v } from "convex/values";
@@ -30,7 +35,7 @@ import { DRAWN, drawnText, refuseSectionRename } from "../recipes/md/pointed.ts"
 import { isWorkspaceId, lineDiff } from "../recipes/workspace.ts";
 import { jevSystemOne, type SystemOneQuestion } from "./lib/segments/jev";
 import { resolveLlm } from "./lib/llmResolver";
-import { recipeAgentStandIn, standInColumns, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
+import { recipeAgentStandIn, standInWorkflow, standInColumns, STAND_IN_MODEL } from "./lib/recipeAgentStandIn";
 import type { ActionCaller } from "./records";
 
 const STAGE_NAMES: Record<DealStage, string> = { in: "Get in (first stage, finding the way in)", case: "Build the case (middle stage)", close: "Close (final stage)" };
@@ -422,5 +427,32 @@ export const promote = action({
       scope: "workspace", baseRevision: layer.baseRevision ?? undefined, note: `Promoted from ${layer.name}`, acceptFailingEvals: args.acceptFailingEvals });
     if (!result.blocked) await ctx.runMutation(internal.workspaceRecipes.removePromoted, { layerId: args.layerId, revision: layer.revision });
     return { ...revisions, conflict: false, markdown: args.markdown ?? layer.markdown, blocked: result.blocked };
+  },
+});
+
+export const workflow = action({
+  args: { request: v.string() },
+  handler: async (ctx, args): Promise<WorkflowProposal & { model: string; ms: number }> => {
+    const start = Date.now();
+    const bases = await ctx.runQuery(internal.workspaceRecipes.workflowBases, {});
+    const request = args.request.trim();
+    if (!request || request.length > REQUEST_MAX) throw new ConvexError(`Describe your workflow in 1–${REQUEST_MAX} characters.`);
+    const standIn = recipeAgentStandIn();
+    const llm = standIn ? null : await resolveLlm(ctx, bases.userId);
+    if (!standIn && !llm) throw new ConvexError(NO_PLAN);
+    const catalog = await ctx.runQuery(api.dataModel.objects, {});
+    const objects: ObjectDef[] = [];
+    for (const object of catalog ?? []) {
+      if (object.archived) continue;
+      const def = await ctx.runQuery(api.objects.describe, { object: object.apiName });
+      if (def?.readable) objects.push(def as unknown as ObjectDef);
+    }
+    const input = { pages: bases.pages, objects, request };
+    const meter = turnMeter(PROPOSAL_BUDGET, start);
+    const proposal = await proposeWorkflow(input, {
+      skill: CANON_LAYOUT_SKILL, charge: (prompt) => meter.charge(prompt),
+      call: (prompt) => llm ? forcedToolCall(prompt, WORKFLOW_TOOL, { ...WORKFLOW_SCHEMA, properties: { ...WORKFLOW_SCHEMA.properties, ops: { type: "object", additionalProperties: opsSchema("deal").properties.ops } } }, llm.model ?? DEFAULT_MODELS[llm.provider], llm) : Promise.resolve(standInWorkflow(input)),
+    });
+    return { ...proposal, model: llm ? `${llm.provider}:${llm.model ?? DEFAULT_MODELS[llm.provider]}` : STAND_IN_MODEL, ms: Date.now() - start };
   },
 });

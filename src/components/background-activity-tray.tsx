@@ -175,6 +175,8 @@ function BackgroundActivityTray() {
 /** Lower-right dock: the operator BugDrop tray and the activity tray. An error in either never takes down the dashboard. */
 export function BackgroundActivityDock() {
   return (
+    <>
+    <div data-slot="floating-tray-dock" className="fixed bottom-4 right-4 z-50 md:hidden"><TrayErrorBoundary><CustomizeTray /></TrayErrorBoundary></div>
     <FloatingTrayDock>
       <TrayErrorBoundary>
         <BugDropTray />
@@ -186,5 +188,6 @@ export function BackgroundActivityDock() {
         <BackgroundActivityTray />
       </TrayErrorBoundary>
     </FloatingTrayDock>
+    </>
   );
 }

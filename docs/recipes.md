@@ -1314,6 +1314,16 @@ becomes one approved revision, not a ticket.
 
 ## Editing with an agent
 
+The pencil also offers **Describe how you work**. `pageCustomize.workflow` returns
+a checked plan and layout ops across existing record pages and personal standalone
+pages. The tray previews every changed page, lists links and reasons, and offers
+whole-request Undo. Save all writes the personal versions together with revision
+checks. It sends layout summaries and viewer-visible field metadata, never record
+values, and runs on the person’s ChatGPT plan. Local stacks use the $0 renewals
+desk and SDR morning queue stand-ins. `scripts/workflow-evals.ts` checks those by
+default; real-plan runs require the human to set `RECIPE_AGENT_REAL_MODEL=true`
+and the authenticated eval environment described in the script.
+
 A person asks for a change in words, such as "move Activity above Next action" or "make emails max 70 words", and a model rewrites the recipe.md for it. E4a is the backend; the recipe editor's Ask Canon pane (E4b) calls it, and the editor's Save (E1) saves what the person accepts.
 
 **The skill.** `recipes/skills/canon-layout/SKILL.md` is what a model needs to edit a recipe.md correctly. `scripts/build-layout-skill.ts` generates it from the registries the parser checks a recipe against: `RECIPE_FORMAT` and `RECIPE_GRAMMAR`, the points, the setting kinds and their limits, each object's components, every kernel action with where it sits, its binding, its label placeholders, its conditions and its gate, each binding's condition names, the prompts, the built-ins and their tables, the model points with their bounds, AI fields, templates and evals. Its worked examples (move a section, fold it, rename, hide or reorder a button, add an AI field, tune a setting) are cut from `recipes/fsgtm-velocity-deal/recipe.md`, so they can't go stale either. The script also writes `skill.generated.ts` next to it, since Convex can't read markdown, and `tests/recipeAgent.test.ts` fails when either file is stale. The skill's header names the grammar hash it was built from. `scripts/layout-skill-sufficiency.ts` is the proof that the skill is enough: for five realistic requests it applies the change a person would expect to the Velocity recipe, checks that the skill documents every component, action, setting kind and key the change uses, and that the result parses and passes its evals.
