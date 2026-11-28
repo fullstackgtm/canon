@@ -12,6 +12,7 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { indexObjectDef, type ObjectDef } from "../../../convex/lib/objects/registry";
 import { FILTERS_MAX, listColumns, type ListRow, type ListSort, type Scalar } from "../../../convex/lib/objects/listSpec";
 import { BOARD_FIELD_TYPES, BULK_MAX, collapseDayFilters, dayColumnsOf, expandDayFilters, runBulk, viewGroupOf, type ViewGroup } from "../../../convex/lib/objects/views";
+import { PEOPLE_FILTER_RELATIONS, relatedPeopleField, type PeopleFilterDefs } from "../../../convex/lib/objects/peopleFilters";
 import { groupKeyKind } from "../../../convex/lib/objects/reportSpec";
 import { REPORT_BUCKETS } from "../../../modules/kernel/reportLanguage";
 import { EmptyState, LoadingRows, ViewFrame, ReadFailure, SelectionBar } from "@/components/dashboard";
@@ -21,7 +22,6 @@ import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { contactLinks, FieldInput, formatValue, isEditable, isLongText, optionChips, type CellValue, type FieldDescription, type ObjectDescription, type TeamMember } from "./fields";
 import { FilterBar, isComplete } from "./filter-bar";
-import { RelatedPeopleFilters } from "./related-people-filters";
 import { BoardView, type BoardSaves } from "./board-view";
 import { CalendarView } from "./calendar-view";
 import { calendarKind, calendarZone } from "../../../convex/lib/objects/calendar";
@@ -221,15 +221,44 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   const zone = calendarZone(org?.timezone);
   const search = useSearchParams();
   const returnPresent = search.has(MODULE_RETURN_PARAM);
+  const canFilterRelated = object === "contact" && desc.readable && !url.audience && !returnPresent;
+  const canFilterCompany = canFilterRelated && "canFilterCompany" in desc && desc.canFilterCompany;
+  const company = useQuery(api.objects.describe, canFilterCompany ? { object: "account" } : "skip");
+  const opportunity = useQuery(api.objects.describe, canFilterRelated ? { object: "deal" } : "skip");
+  const relatedPending = canFilterRelated && ((canFilterCompany && company === undefined) || opportunity === undefined);
+  const relatedDefs = useMemo<PeopleFilterDefs>(() => ({
+    ...(company?.readable ? { account: indexObjectDef(company as unknown as ObjectDef) } : {}),
+    ...(opportunity?.readable ? { deal: indexObjectDef(opportunity as unknown as ObjectDef) } : {}),
+  }), [company, opportunity]);
+  const { filterColumns, filterFields, fieldGroups } = useMemo(() => {
+    const filterColumns = new Map(columns);
+    const filterFields = [...desc.fields];
+    const fieldGroups = new Map<string, string>();
+    for (const { object, prefix, label } of PEOPLE_FILTER_RELATIONS) {
+      const target = relatedDefs[object];
+      if (!target) continue;
+      const targetColumns = listColumns(target);
+      for (const field of (object === "account" ? company : opportunity)?.fields ?? []) {
+        const column = targetColumns.get(field.apiName);
+        if (!column || field.hidden) continue;
+        const name = `${prefix}.${field.apiName}`;
+        filterColumns.set(name, { ...column, field: name });
+        filterFields.push({ ...field, apiName: name });
+        fieldGroups.set(name, label);
+      }
+    }
+    return { filterColumns, filterFields, fieldGroups };
+  }, [columns, desc.fields, relatedDefs, company, opportunity]);
+  const dayColumns = useMemo(() => dayColumnsOf(def, relatedDefs), [def, relatedDefs]);
   const listModules = useQuery(api.modules.contributions, object === "contact" ? { page: "people" } : "skip");
   const context = object === "contact" ? peopleFilterContext({ ...url, filterPresent: search.has(PEOPLE_FILTER_PARAM), returnPresent }) : { kind: "core" as const };
   const incoming = useMemo(() => {
-    if (context.kind === "core") return null;
+    if (context.kind === "core" || relatedPending) return null;
     try {
       const value = jsonQueryValue({ [PEOPLE_FILTER_PARAM]: url.filter }, PEOPLE_FILTER_PARAM);
-      return { filter: parsePeopleFilter(value, def, new Set(columns.keys())), problem: null };
+      return { filter: parsePeopleFilter(value, def, new Set(filterColumns.keys()), relatedDefs), problem: null };
     } catch (e) { return { filter: null, problem: getErrorMessage(e) }; }
-  }, [context.kind, url.filter, def, columns]);
+  }, [context.kind, url.filter, def, filterColumns, relatedDefs, relatedPending]);
   const moduleReturn = useMemo(() => {
     if (context.kind === "core" || !returnPresent) return null;
     if (listModules === undefined) return { target: null, problem: null };
@@ -239,7 +268,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   const incomingKey = context.kind === "filter" ? JSON.stringify([url.filter, returnPresent, url.returnTo]) : "";
   const [loadedFilterKey, setLoadedFilterKey] = useState("");
   const contextProblem = incoming?.problem ?? moduleReturn?.problem ?? null;
-  const contextPending = context.kind === "filter" && (returnPresent && listModules === undefined);
+  const contextPending = context.kind === "filter" && (relatedPending || (returnPresent && listModules === undefined));
   const inspection = useRecordInspection();
   const pipelines = useQuery(api.pipelines.list, object === "deal" ? {} : "skip");
   const bin = url.bin === "1";
@@ -284,12 +313,12 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
     if (!incoming) { setLoadedFilterKey(""); return; }
     const loaded = incoming.filter;
     if (!loaded || contextProblem || contextPending) return;
-    setSpec((cur) => ({ ...cur, layout: "table", filter: collapseDayFilters(loaded, dayColumnsOf(def)) }));
+    setSpec((cur) => ({ ...cur, layout: "table", filter: collapseDayFilters(loaded, dayColumns) }));
     setSpecLoads((n) => n + 1);
     setSelected(new Set());
     setDirty(false);
     setLoadedFilterKey(incomingKey);
-  }, [incoming, incomingKey, contextProblem, contextPending, def]);
+  }, [incoming, incomingKey, contextProblem, contextPending, dayColumns]);
 
   const deleting = useRef<string | null>(null);
   // The selected view was deleted or unshared (here or elsewhere): fall back to the default list, and say so.
@@ -309,14 +338,14 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   };
 
   // A filter on a field that is gone (archived since the view was saved) is left out, not sent.
-  const filter = useMemo(() => spec.filter.filter((f) => isComplete(f) && columns.has(f.field)), [spec.filter, columns]);
+  const filter = useMemo(() => spec.filter.filter((f) => isComplete(f) && filterColumns.has(f.field)), [spec.filter, filterColumns]);
   // What the list request carries: day-picked timestamp filters widened to whole days.
-  const dayColumns = useMemo(() => dayColumnsOf(def), [def]);
   const listFilter = useMemo(() => expandDayFilters(filter, dayColumns), [filter, dayColumns]);
   const handoffProblem = useMemo(() => {
-    try { parsePeopleFilter(listFilter, def, new Set(columns.keys())); return null; }
+    try { parsePeopleFilter(listFilter, def, new Set(filterColumns.keys()), relatedDefs); return null; }
     catch (e) { return getErrorMessage(e); }
-  }, [listFilter, def, columns]);
+  }, [listFilter, def, filterColumns, relatedDefs]);
+  const hasRelatedFilters = listFilter.some((f) => relatedPeopleField(f.field));
   const fieldByName = (name: string) => desc.fields.find((f) => f.apiName === name);
   // Fields a board makes columns of (views.ts BOARD_FIELD_TYPES), picklists first so a board opens on one as it always has.
   const boardFields = desc.fields
@@ -348,7 +377,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
   ];
   // A request takes FILTERS_MAX filters; a day filter can take two, a board column adds one, and a group one or two (a date range).
   const filterRoom = FILTERS_MAX - listFilter.length - (spec.layout === "board" ? 1 : spec.layout === "calendar" ? 2 : tableGroup ? (groupKind === "value" ? 1 : 2) : 0);
-  const contextWaiting = context.kind === "filter" && (contextProblem !== null || handoffProblem !== null || contextPending || loadedFilterKey !== incomingKey);
+  const contextWaiting = (relatedPending && spec.filter.some((f) => relatedPeopleField(f.field))) || (context.kind === "filter" && (contextProblem !== null || handoffProblem !== null || contextPending || loadedFilterKey !== incomingKey));
   const grouped = Boolean(tableGroup) && !contextWaiting;
   const allQuery = contextWaiting ? null : { object, filter: listFilter, ...(spec.sort && columns.has(spec.sort.field) ? { sort: spec.sort } : {}), ...(bin ? { deleted: true } : {}) };
   const listQuery = board || grouped || calendar ? null : allQuery;
@@ -465,7 +494,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
       if (!name) return;
       const id = await createView({ object, name, shared: naming!.shared, spec: saved });
       setNaming(null);
-      setUrl({ view: id });
+      setUrl({ view: id, ...(context.kind === "filter" && !returnPresent ? { filter: "" } : {}) });
     } catch (cause) {
       void toast.error(getErrorMessage(cause));
     }
@@ -684,8 +713,8 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
             options={pipelines.map((p) => ({ value: p.id ?? "", label: p.name }))} />
         )}
         {!board && !calendar && <ColumnChooser columns={shownColumns} choices={columnChoices} onChange={(next) => edit({ columns: next })} />}
-        {object === "contact" && !bin && (context.kind === "core" || (!returnPresent && !contextWaiting)) && <ContactAudienceActions filter={listFilter} viewId={activeView?._id} audience={audience} onDoneEditing={() => setUrl({ audience: "", filter: "", returnTo: "" })} />}
-        {object === "contact" && !bin && !contextWaiting && !handoffProblem && listModules?.some((m) => m.listActions?.length) && (
+        {object === "contact" && !bin && !contextWaiting && (context.kind === "core" || !returnPresent) && <ContactAudienceActions filter={listFilter} viewId={activeView?._id} audience={audience} onDoneEditing={() => setUrl({ audience: "", filter: "", returnTo: "" })} />}
+        {object === "contact" && !bin && !hasRelatedFilters && !contextWaiting && !handoffProblem && listModules?.some((m) => m.listActions?.length) && (
           <details className="relative">
             <summary className={cn(btn, "cursor-pointer")}>Modules</summary>
             <div className="absolute right-0 z-20 mt-1 min-w-52 border border-border bg-popover p-2 shadow-md">
@@ -703,8 +732,7 @@ function Loaded({ desc }: { desc: ObjectDescription }) {
         {contextProblem && <p role="alert" className="mb-2 text-sm text-destructive">Could not open this filter. {contextProblem}</p>}
         {context.kind === "filter" && handoffProblem && !contextProblem && <p role="alert" className="mb-2 text-sm text-destructive">{handoffProblem}</p>}
         {!!activeView?.omittedClauses && <p role="status" className="mb-2 text-sm text-muted-foreground">Some saved filters or sorting were left out because your role does not see those fields. Saving this view keeps these omissions.</p>}
-        <FilterBar filters={spec.filter} columns={columns} dayColumns={dayColumns} canAdd={filterRoom >= 2} resetKey={specLoads} fields={desc.fields} team={team} onChange={(next) => edit({ filter: next })} />
-        {object === "contact" && !bin && context.kind === "core" && !url.audience && <RelatedPeopleFilters />}
+        <FilterBar filters={spec.filter} columns={filterColumns} dayColumns={dayColumns} canAdd={filterRoom >= 2} resetKey={specLoads} fields={filterFields} fieldGroups={fieldGroups} team={team} onChange={(next) => edit({ filter: next })} />
       </div></div>}
     >
 

@@ -10,7 +10,7 @@ import { mergeSnapshots, normalizeDomain } from "../engine/src/merge.ts";
 import { buildStripeBackfillPlan } from "../engine/src/backfill.ts";
 import { buildRevenueContracts, type StripeRevenueInvoice, type StripeRevenueSubscription } from "../engine/src/revenueContracts.ts";
 import type { CanonicalGtmSnapshot, GtmConnector, PatchOperation, PatchPlan } from "../engine/src/types.ts";
-import { listViewDef, type ListRow } from "../convex/lib/objects/listSpec.ts";
+import { listRowsInMemory, listViewDef, registerListDef, registerListRow, type ListRow } from "../convex/lib/objects/listSpec.ts";
 import { resolveObjectDef, STANDARD_OBJECTS } from "../convex/lib/objects/registry.ts";
 import { aggregateRowsInMemory, compileAggregateRequest, GROUPS_MAX } from "../convex/lib/objects/reportSpec.ts";
 
@@ -292,5 +292,22 @@ test("adding invoices never changes how many deals the backfill books", () => {
     const deals = book(invoices.slice(0, cut));
     assert.equal(deals.length, subscriptions.length);
     assert.deepEqual(book(invoices), deals);
+  }, settings);
+});
+
+test("adding a company clause only narrows the scoped People result", () => {
+  const account = registerListDef("account", resolveObjectDef(STANDARD_OBJECTS.account));
+  const contact = registerListDef("contact", resolveObjectDef(STANDARD_OBJECTS.contact));
+  hegel.test((tc) => {
+    const sizes = tc.draw(gs.arrays(amount, { maxSize: 12 }));
+    const minimum = tc.draw(amount);
+    const companies = sizes.map((employees, i) => registerListRow("account", account, { id: `c${i}`, employees, ownerId: i % 2 ? "peer" : "u" }));
+    const rows = [...companies, { id: "missing" }].map((company, i) => registerListRow("contact", contact, { id: `p${i}`, accountId: company.id }));
+    const predicate = { fields: [], scope: { field: "ownerId", owners: ["u"], unowned: false } };
+    const source = { def: account, rows: companies };
+    const original = listRowsInMemory(contact, rows, { company: predicate }, {}, source);
+    const narrowed = listRowsInMemory(contact, rows, { company: { ...predicate, filter: [{ field: "employees", op: "gte", value: minimum }] } }, {}, source);
+    assert.equal(original.total, rows.length);
+    assert.deepEqual(narrowed.rows.map((r) => r.id).sort(), sizes.flatMap((employees, i) => i % 2 === 0 && employees >= minimum ? [`p${i}`] : []).sort());
   }, settings);
 });

@@ -4,6 +4,7 @@
  * whole org, and only its creator or an admin can change or delete it.
  */
 import { accessFor } from "./permissions";
+import { hiddenFields, may, type Access } from "./lib/access";
 import { metadataFields } from "./lib/metadataFields";
 import { can, refusal } from "./lib/capabilities";
 import { ConvexError, v, type Infer } from "convex/values";
@@ -11,10 +12,11 @@ import { mutation, query, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getCurrentUser, requireUser } from "./lib";
 import { normalizeViewSpec, viewSpecProblem } from "./lib/objects/views";
-import { listViewDef } from "./lib/objects/listSpec";
+import { listViewDef, type ListFilter } from "./lib/objects/listSpec";
 import { isLedgerObjectName, type ResolvedObjectDef } from "./lib/objects/registry";
 import { loadOrgObject } from "./lib/objects/orgDefs";
 import { viewSpec } from "./lib/objects/validators";
+import { relatedPeopleField, type PeopleFilterDefs } from "./lib/objects/peopleFilters";
 
 const NAME_MAX = 80;
 /** Views a user may save per object, and views an org may share per object: the list shows them all. */
@@ -40,9 +42,32 @@ async function displayColumnsOf(ctx: QueryCtx, orgId: Id<"organizations">, objec
   return new Set(fields.filter((f) => f.entityType === "contact").map((f) => `custom.${f.slug}`));
 }
 
+export async function peopleFilterDefs(ctx: QueryCtx, orgId: Id<"organizations">, filter: readonly ListFilter[]): Promise<PeopleFilterDefs> {
+  const objects = new Set(filter.flatMap((f) => {
+    const related = relatedPeopleField(f.field);
+    return related ? [related.relation.object] : [];
+  }));
+  return Object.fromEntries(await Promise.all([...objects].map(async (object) => [object, await listedDef(ctx, orgId, object)])));
+}
+
+function hidesRelatedFilter(access: Access, withheld: Map<string, Set<string>>, name: string) {
+  const related = relatedPeopleField(name);
+  if (!related) return false;
+  const { relation: { object }, field } = related;
+  const hidden = (o: string, f: string) => withheld.get(o)?.has(f) || hiddenFields(access, o).includes(f);
+  return !may(access, object, "read") || hidden(object, field) || (object === "account" && hidden("contact", "accountId"));
+}
+
 /** The spec as it is stored: checked, and with its grouping in `group` only (views.ts normalizeViewSpec). */
-async function checkedViewSpec(ctx: QueryCtx, orgId: Id<"organizations">, object: string, spec: ViewSpec): Promise<ViewSpec> {
-  const problem = viewSpecProblem(await listedDef(ctx, orgId, object), spec, await displayColumnsOf(ctx, orgId, object));
+async function checkedViewSpec(ctx: QueryCtx, user: Doc<"users">, object: string, spec: ViewSpec): Promise<ViewSpec> {
+  const orgId = user.orgId;
+  const related = object === "contact" ? await peopleFilterDefs(ctx, orgId, spec.filter) : {};
+  if (Object.keys(related).length) {
+    const access = await accessFor(ctx, user);
+    const withheld = await metadataFields(ctx, orgId, access);
+    if (spec.filter.some((f) => hidesRelatedFilter(access, withheld, f.field))) throw new ConvexError("A related filter field is unavailable for your role");
+  }
+  const problem = viewSpecProblem(await listedDef(ctx, orgId, object), spec, await displayColumnsOf(ctx, orgId, object), related);
   if (problem) throw new ConvexError(problem);
   return normalizeViewSpec(spec);
 }
@@ -73,14 +98,16 @@ export const list = query({
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
     if (!user) return [];
-    const withheld = (await metadataFields(ctx, user.orgId, await accessFor(ctx, user))).get(args.object) ?? new Set<string>();
+    const access = await accessFor(ctx, user);
+    const withheld = await metadataFields(ctx, user.orgId, access);
+    const ownFields = withheld.get(args.object);
     const own = await ownViews(ctx, user, args.object).take(VIEWS_MAX);
     const shared = await sharedViews(ctx, user.orgId, args.object).take(VIEWS_MAX);
     const byId = new Map([...own, ...shared].map((view) => [view._id, view]));
     return [...byId.values()]
       .map((view) => {
-        const filter = view.spec.filter.filter((f) => !withheld.has(f.field));
-        const omitSort = !!view.spec.sort && withheld.has(view.spec.sort.field);
+        const filter = view.spec.filter.filter((f) => !ownFields?.has(f.field) && (args.object !== "contact" || !hidesRelatedFilter(access, withheld, f.field)));
+        const omitSort = !!view.spec.sort && ownFields?.has(view.spec.sort.field);
         const omittedClauses = view.spec.filter.length - filter.length + Number(omitSort);
         const spec = { ...view.spec, filter };
         if (omitSort) delete spec.sort;
@@ -94,7 +121,7 @@ export const create = mutation({
   args: { object: v.string(), name: v.string(), shared: v.boolean(), spec: viewSpec },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
-    const spec = await checkedViewSpec(ctx, user.orgId, args.object, args.spec);
+    const spec = await checkedViewSpec(ctx, user, args.object, args.spec);
     if ((await ownViews(ctx, user, args.object).take(VIEWS_MAX)).length >= VIEWS_MAX) throw new ConvexError(`At most ${VIEWS_MAX} saved views per object`);
     if (args.shared) await checkShareQuota(ctx, user.orgId, args.object);
     return ctx.db.insert("savedViews", {
@@ -115,7 +142,7 @@ export const update = mutation({
   args: { viewId: v.id("savedViews"), name: v.optional(v.string()), shared: v.optional(v.boolean()), spec: v.optional(viewSpec) },
   handler: async (ctx, args) => {
     const { user, view } = await ownView(ctx, args.viewId);
-    const spec = args.spec ? await checkedViewSpec(ctx, user.orgId, view.object, args.spec) : null;
+    const spec = args.spec ? await checkedViewSpec(ctx, user, view.object, args.spec) : null;
     if (args.shared && !view.shared) await checkShareQuota(ctx, user.orgId, view.object);
     await ctx.db.patch(view._id, {
       ...(args.name !== undefined ? { name: cleanName(args.name) } : {}),

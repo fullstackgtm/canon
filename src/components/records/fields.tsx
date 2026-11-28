@@ -28,6 +28,8 @@ export const isLongText = (field: FieldDescription) => field.type === "text" && 
 /** Fields a person can type into: not timestamps, not formulas. */
 export const isEditable = (field: FieldDescription) => !field.system && field.type !== "formula";
 
+type PicklistChoice = { value: string; label: string };
+
 const optionsOf = (field: FieldDescription) => ("options" in field ? field.options : []);
 const stringsOf = (value: CellValue | undefined) => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" && value ? [value] : [];
 const splitsOf = (value: CellValue | undefined): SplitAllocation[] => Array.isArray(value) ? value.filter((v): v is SplitAllocation => typeof v !== "string") : [];
@@ -241,6 +243,7 @@ export function FieldInput({
   onCommit,
   onCancel,
   disabled,
+  picklistChoices,
 }: {
   field: FieldDescription;
   value: CellValue | undefined;
@@ -251,6 +254,7 @@ export function FieldInput({
   onCommit?: () => void;
   onCancel?: () => void;
   disabled?: boolean;
+  picklistChoices?: readonly PicklistChoice[];
 }) {
   const keys = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && field.type !== "text") onCommit?.();
@@ -283,7 +287,7 @@ export function FieldInput({
           {...select}
           value={typeof value === "string" ? value : ""}
           onValueChange={(v) => onChange(v || null)}
-          options={[{ value: "", label: "—" }, ...optionsOf(field).filter((o) => o.active || o.value === value).map((o) => ({ value: o.value, label: o.label }))]}
+          options={[{ value: "", label: "—" }, ...(picklistChoices ?? optionsOf(field).filter((o) => o.active || o.value === value)).map((o) => ({ value: o.value, label: o.label }))]}
         />
       );
     case "multipicklist": {
@@ -414,6 +418,7 @@ export function InlineField({
   readOnly,
   money,
   onSave,
+  picklistChoices,
 }: {
   field: FieldDescription;
   value: CellValue | undefined;
@@ -424,6 +429,7 @@ export function InlineField({
   /** How money reads: the workspace's currency, or the record's own (a deal's). */
   money?: Money;
   onSave: (next: CellValue, expectedVersion: number) => Promise<boolean>;
+  picklistChoices?: readonly PicklistChoice[];
 }) {
   const [editDraft, setEditDraft] = useRecordDraft<{ value: CellValue | undefined; version: number }>(`field:${field.fieldId}`, { value: undefined, version });
   const draft = editDraft.value;
@@ -479,6 +485,7 @@ export function InlineField({
       <div data-field-editor className="contents" onKeyDown={(event) => { if (event.key === "Escape") setDraft(undefined); }}>
         <FieldInput
           field={field}
+          picklistChoices={picklistChoices}
           value={draft}
           team={team}
           autoFocus

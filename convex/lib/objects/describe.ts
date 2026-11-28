@@ -41,6 +41,8 @@ export type DescribedObject = ObjectDef & {
   register: boolean;
   /** The caller's role may list and read its records. */
   readable: boolean;
+  /** People may filter by their primary company when the company and the link are readable. */
+  canFilterCompany?: boolean;
   writable: boolean;
   canCreate: boolean;
   canDelete: boolean;
@@ -80,6 +82,7 @@ export function describeObject({ object, def: loaded, access, dealsWrite, icpOpt
     const mayEdit = (f: { apiName: string; type: string }) => f.type !== "formula" && (editable.includes(f.apiName) || isStandardEditField(object, f.apiName) || builderOwns(f, aiSlugs));
     return {
       ...plainObjectDef({ ...listed, fields }), pages: true, register: true, readable: allows("read"), writable: allows("edit"), canCreate: false, versionRequired: false,
+      ...(object === "contact" ? { canFilterCompany: !!access && allows("read") && may(access, "account", "read") && !hiddenSet.has("accountId") } : {}),
       // Only admins and managers delete and restore, as deals are edited.
       canDelete: dealsWrite && allows("delete"),
       readOnlyFields: [...fields.filter((f) => !f.system && !mayEdit(f)).map((f) => f.apiName), ...locked],

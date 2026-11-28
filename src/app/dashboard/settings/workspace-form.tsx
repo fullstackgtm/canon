@@ -18,6 +18,7 @@ import { api } from "../../../../convex/_generated/api";
 import { LoadingRows, StatusBadge } from "@/components/dashboard";
 import { cn } from "@/lib/utils";
 import { SelectField } from "@/components/ui/select";
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxLabel, ComboboxList } from "@ui-sdk/react/combobox";
 import { fiscalMonth } from "../../../../modules/kernel/pacing";
 import { formatMoney, moneyDecimals } from "../../../../modules/kernel/text";
 
@@ -165,7 +166,7 @@ export function WorkspaceForm() {
             <h2 className="text-lg font-semibold">Organization Defaults</h2>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="mt-5 grid grid-cols-1 items-start gap-4 md:grid-cols-2">
             <label className="grid gap-1.5 text-sm font-medium">
               Organization name
               <input
@@ -223,17 +224,30 @@ export function WorkspaceForm() {
               <span className="text-xs font-normal text-muted-foreground">Money shows as {formatMoney(123456789, defaultCurrency, currencyDecimals)}</span>
             </label>
 
-            <label className="grid gap-1.5 text-sm font-medium">
-              Timezone
-              <SelectField
-                size="default"
+            <div className="grid min-w-0 gap-1.5 text-sm font-medium">
+              <Combobox
                 value={timezone}
-                onValueChange={set("timezone")}
+                onValueChange={(value) => { if (value) set("timezone")(value); }}
+                itemToLabel={(value) => timezones.find((zone) => zone.value === value)?.label ?? value}
                 disabled={!canEdit}
-                className="w-full font-normal"
-                options={timezones}
-              />
-            </label>
+              >
+                <ComboboxLabel>Timezone</ComboboxLabel>
+                <ComboboxInput
+                  placeholder="Search timezones…"
+                  className="h-8 w-full border border-border bg-background px-2.5 text-sm font-normal outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <ComboboxContent className="z-50 max-h-72 w-(--anchor-width) overflow-y-auto border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+                  <ComboboxEmpty className="p-2 text-sm text-muted-foreground">No timezones found.</ComboboxEmpty>
+                  <ComboboxList>
+                    {timezones.map((zone) => (
+                      <ComboboxItem key={zone.value} value={zone.value} label={zone.label} className="cursor-default px-2 py-1.5 text-sm data-highlighted:bg-muted data-selected:text-primary">
+                        {zone.label}
+                      </ComboboxItem>
+                    ))}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+            </div>
           </div>
         </section>
 

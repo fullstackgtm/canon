@@ -101,6 +101,7 @@ function AskCanonEnabled() {
   const orgId = useQuery(api.users.me)?.orgId;
   const scope = useRef<{ orgId?: string; generation: number }>({ generation: 0 });
   const endRef = useRef<HTMLDivElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const pathname = usePathname();
 
   // Following a cited record closes the panel; the conversation stays for the next open.
@@ -140,6 +141,10 @@ function AskCanonEnabled() {
   }, [orgId]);
 
   const connected = status?.status === "connected" && !lostPlan;
+  // ⌘J opens straight into the prompt, also when the connection status lands after the sheet opens.
+  useEffect(() => {
+    if (open && connected) promptRef.current?.focus();
+  }, [open, connected]);
   useEffect(() => {
     if (status?.status === "connected") setLostPlan(false);
   }, [status?.status]);
@@ -168,7 +173,12 @@ function AskCanonEnabled() {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-md" aria-describedby="ask-canon-desc">
+      <SheetContent side="right" className="w-full gap-0 sm:max-w-md" aria-describedby="ask-canon-desc"
+        onOpenAutoFocus={(event) => {
+          if (!promptRef.current) return;
+          event.preventDefault();
+          promptRef.current.focus();
+        }}>
         <SheetHeader className="border-b border-border">
           <SheetTitle className="flex items-center gap-2 pr-8">
             <MessageSquare className="size-4" /> Ask Canon
@@ -237,6 +247,7 @@ function AskCanonEnabled() {
               }}
             >
               <textarea
+                ref={promptRef}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
