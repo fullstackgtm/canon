@@ -14,6 +14,25 @@ import { AccountsListRequest, EditRequest } from "../convex/lib/recordContract.t
 
 const fixtureUrl = new URL("./fixtures/pdl-sample.json", import.meta.url);
 
+test("aggregate ordering falls back to key order on older or unavailable service contracts", async () => {
+  const result = { groups: [], subtotals: [], total: [0], rows: 0, truncated: false, projectedThrough: {} };
+  let version: string | null = null;
+  const requests: unknown[] = [];
+  const http = createHttpRecordClient({ baseUrl: "https://rs.test", token: "fixture", fetchImpl: async (input, init) => {
+    if (String(input).endsWith("/healthz")) return version ? Response.json({ version }) : new Response(null, { status: 503 });
+    requests.push(JSON.parse(String(init?.body)));
+    return Response.json(result);
+  } });
+  const request = { groupBy: [{ field: "title" }], measures: [{ fn: "count" as const }] };
+  const ordered = { ...request, groupOrder: "firstMeasureDesc" as const };
+  await http.aggregate("ws", "contact", ordered);
+  version = "1.53.0+old";
+  await http.aggregate("ws", "contact", ordered);
+  version = "1.54.0+new";
+  await http.aggregate("ws", "contact", ordered);
+  assert.deepEqual(requests, [request, request, ordered]);
+});
+
 test("a fenced module report requires the service's matching readiness receipt, while legacy reports remain compatible", async () => {
   const projection = { packageId: "package", epoch: 2, generation: 3, collections: ["visits"] };
   const result = { groups: [], subtotals: [], total: [0], rows: 0, truncated: false, projectedThrough: {} };

@@ -18,6 +18,34 @@ const POINTS = [
   { id: "workspace.theme", kind: "theme", title: "Theme", description: "", cardinality: "exclusive" as const, contributions: [on("canon-ledger", "Ledger", "theme")] },
 ];
 
+const baseMarkdown = "# Account {page=account}\n## History {section=history}\n";
+const accountVersion = {
+  _id: "account", userId: "riley", name: "Riley", isOwn: true, updatedAt: 1, baseMarkdown,
+  markdown: baseMarkdown.replace("History", "Account history"),
+  target: { point: "account.page", key: "page" }, pages: [],
+};
+const openDeals = { slug: "open-deals", title: "Open deals" };
+const standaloneVersion = {
+  _id: "layer", userId: "riley", name: "Riley", isOwn: true, updatedAt: 2, baseMarkdown,
+  markdown: `${baseMarkdown}\n# Open deals {page=open-deals}\n`,
+  target: { point: "workspace.pages", key: "open-deals" }, pages: [openDeals],
+};
+
+test("pencil records group a decider's visible versions by person and list each page once", () => {
+  const { people, own, review } = personalPageRows([
+    { ...accountVersion, markdown: `${accountVersion.markdown}\n# Old title {page=open-deals}\n`, pages: [{ ...openDeals, title: "Old title" }] },
+    standaloneVersion,
+    { ...accountVersion, _id: "other-account", userId: "another-riley", isOwn: false },
+  ]);
+  const entries = people.map(({ userId, updatedAt, pages }) => [userId, updatedAt, pages.map(({ title, href, changedLines }) => [title, href, changedLines])]);
+  assert.deepEqual(entries, [
+    ["riley", 2, [["Account page", "/dashboard/accounts", 2], ["Open deals", "/dashboard/p/open-deals", 1]]],
+    ["another-riley", 1, [["Account page", "/dashboard/accounts", 2]]],
+  ]);
+  assert.deepEqual(own, people[0].pages);
+  assert.deepEqual(review, people[1].pages);
+});
+
 test("a page is changed when something other than a new workspace's default runs there", () => {
   const { pages, workspace } = pageRows(POINTS);
   const changed = Object.fromEntries(pages.filter((p) => p.applied.length).map((p) => [p.id, p.applied.map((a) => `${a.title}: ${a.by}`)]));
@@ -28,7 +56,7 @@ test("a page is changed when something other than a new workspace's default runs
 
 test("Applied lists changed pages and lets a rep open, edit and delete their personal pages", () => {
   const view = { canEdit: false, available: [], points: [...POINTS, { id: "workspace.pages", contributions: [on("team", "Team views", "renewals"), on("team", "Team views", "hidden", false)] }] };
-  const versions = [{ _id: "layer", isOwn: true, target: { point: "workspace.pages", key: "open-deals" }, pages: [{ slug: "open-deals", title: "Open deals" }] }];
+  const versions = [standaloneVersion];
   const stubs: Record<string, unknown> = {
     "next/link": { default: ({ children, href }: { children: ReactNode; href: string }) => createElement("a", { href }, children) },
     "next/navigation": { useRouter: () => ({ push: empty }) },
@@ -63,6 +91,12 @@ test("Applied lists changed pages and lets a rep open, edit and delete their per
   assert.match(html, /href="\/dashboard\/p\/open-deals"[^>]*>Open deals/);
   assert.match(html, /href="\/dashboard\/p\/open-deals\?customize=1"[^>]*>Edit/);
   assert.match(html, />Delete<\/button>/);
+  assert.match(html, /Customizations<\/dt><dd[^>]*>1</);
+  assert.equal(html.match(/pencil changes<\/h3>/g)?.length, 1);
+  assert.match(html, /Your pencil changes/);
+  assert.match(html, /Personal · only you see it/);
+  assert.match(html, /1 changed line<\/span>/);
+  assert.match(html, /href="#pages"[^>]*>Also listed under Pages/);
   assert.match(html, /Workspace · Team views/);
   assert.doesNotMatch(html, /\/dashboard\/p\/hidden|>Remove<\/button>/);
 });

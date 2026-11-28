@@ -467,12 +467,12 @@ export function InlineField({
     }
   }
   const linkedinLink = linkedinHref && (
-    <a href={linkedinHref} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2 py-1 text-sm underline">Open LinkedIn</a>
+    <a href={linkedinHref} target="_blank" rel="noopener noreferrer" className="shrink-0 px-2 py-1 record-value underline">Open LinkedIn</a>
   );
   const chips = optionChips(field, value);
   const links = contactLinks(field, value);
   if (readOnly || !isEditable(field)) {
-    return <div className="flex items-start gap-1"><span className={cn("block min-w-0 whitespace-pre-wrap break-words px-2 py-1 text-sm", !shown && "text-muted-foreground")}>{links || (shown && chips) || shown || "—"}</span>{linkedinLink}</div>;
+    return <div className="flex items-start gap-1"><span className={cn("block min-w-0 whitespace-pre-wrap break-words px-2 py-1 record-value", !shown && "text-muted-foreground")}>{links || (shown && chips) || shown || "—"}</span>{linkedinLink}</div>;
   }
   if (editing) {
     return (
@@ -497,9 +497,9 @@ export function InlineField({
   // Links can't sit inside the edit button: they show as links, with Change beside them, as a lookup does.
   if (links) {
     return (
-      <div className="flex items-start gap-3 px-2 py-1 text-sm">
+      <div className="flex items-start gap-3 px-2 py-1 record-value">
         {links}
-        <button type="button" onClick={startEdit} className="shrink-0 text-xs text-muted-foreground underline hover:text-foreground">Change</button>
+        <button type="button" onClick={startEdit} className="shrink-0 record-meta underline hover:text-foreground">Change</button>
       </div>
     );
   }
@@ -508,7 +508,7 @@ export function InlineField({
       <button
         type="button"
         onClick={startEdit}
-        className="min-w-0 w-full whitespace-pre-wrap break-words px-2 py-1 text-left text-sm hover:bg-muted"
+        className="min-w-0 w-full whitespace-pre-wrap break-words px-2 py-1 text-left record-value hover:bg-muted"
         title="Click to edit"
       >
         {(shown && chips) || shown || <span className="text-muted-foreground">—</span>}

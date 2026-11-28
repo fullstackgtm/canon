@@ -1,9 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveObjectDef, STANDARD_OBJECTS } from "../convex/lib/objects/registry.ts";
-import { batchesByShard, collapseDayFilters, dayColumnsOf, expandDayFilters, projectedPast, runBulk, viewSpecProblem, VIEW_COLUMNS_MAX } from "../convex/lib/objects/views.ts";
+import { batchesByShard, collapseDayFilters, dayColumnsOf, expandDayFilters, groupsOf, VIEW_GROUPS_MAX, projectedPast, runBulk, viewSpecProblem, VIEW_COLUMNS_MAX } from "../convex/lib/objects/views.ts";
 import { shardOf } from "../convex/lib/objects/write.ts";
 import { listViewDef } from "../convex/lib/objects/listSpec.ts";
+
+test("grouped lists preserve aggregate order through the view limit", () => {
+  const groups = [
+    { keys: ["a"], values: [1, 10] },
+    { keys: ["z"], values: [20, 200] },
+    { keys: [null], values: [20, 300] },
+    ...Array.from({ length: VIEW_GROUPS_MAX - 1 }, (_, i) => ({ keys: [`g${i}`], values: [1, 10] })),
+  ];
+  const aggregate = { groups, subtotals: [], total: [140, 1500], rows: 140, truncated: false, projectedThrough: { "0": 7 } };
+  const original = structuredClone(aggregate);
+  const result = groupsOf(aggregate, "amount");
+  assert.deepEqual(result.groups.slice(0, 3), [
+    { key: "a", count: 1, sum: 10 },
+    { key: "z", count: 20, sum: 200 },
+    { key: null, count: 20, sum: 300 },
+  ]);
+  assert.equal(result.groups.length, VIEW_GROUPS_MAX);
+  assert.equal(result.truncated, true);
+  assert.equal(result.rows, 140);
+  assert.equal(result.sum, 1500);
+  assert.deepEqual(result.projectedThrough, { "0": 7 });
+  assert.deepEqual(aggregate, original);
+  const contacts = groupsOf({ ...aggregate, groups: groups.slice(1, 3), truncated: true }, null);
+  assert.deepEqual(contacts.groups, [{ key: "z", count: 20, sum: null }, { key: null, count: 20, sum: null }]);
+  assert.equal(contacts.sum, null);
+  assert.equal(contacts.truncated, true);
+});
 
 const ids = Array.from({ length: 200 }, (_, i) => `id${i}`);
 const noSleep = { sleep: async () => {}, backoffMs: () => 0 };

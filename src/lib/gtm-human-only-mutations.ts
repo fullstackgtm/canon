@@ -164,6 +164,8 @@ export const gtmHumanOnlyFunctions: Readonly<Record<string, string>> = {
   "api.callSuggestionActions.identify": "part of a person's review of their own meeting's suggestions; it searches the web on their ChatGPT plan",
   "api.callSuggestions.dismiss": "a person's review of what their own meetings suggest adding; dismissed suggestions are never made again",
   "api.granolaActions.syncNow": "a person's nudge on top of the 15-minute poll; the feed already runs without anyone driving it",
+  // Stripe is the workspace's billing account: agents import from it (api.stripeActions.importRevenue), never connect it.
+  "api.stripeActions.connect": "stores the workspace's Stripe key, which reads its billing data; an admin or manager pastes it",
   // Deepline is the workspace's own account: agents use it through canon_find_contact_info, never connect it.
   "api.deepline.connect": "stores the workspace's Deepline API key, which spends that Deepline account's credits; an admin or manager pastes it",
   "api.deepline.disconnect": "turns off Deepline for the workspace's email lookups and drops its key; an admin or manager's call",

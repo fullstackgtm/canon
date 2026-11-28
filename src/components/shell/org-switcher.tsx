@@ -2,6 +2,8 @@
 
 import { useOrganization, useOrganizationList } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { Building2, Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -27,7 +29,11 @@ export function OrgSwitcher({ collapsed }: { collapsed?: boolean }) {
     router.push("/dashboard");
   };
 
-  const label = organization?.name ?? "Select workspace";
+  // Canon's name wins for the active workspace: a rename in Settings shows at once, before Clerk catches up.
+  const canonOrg = useQuery(api.organizations.current);
+  const canonName = canonOrg && canonOrg.clerkOrgId === organization?.id ? canonOrg.name : undefined;
+  const nameFor = (id: string, clerkName: string) => (id === organization?.id && canonName) || clerkName;
+  const label = organization ? nameFor(organization.id, organization.name) : "Select workspace";
 
   return (
     <div className="border-b border-sidebar-border px-2 py-2">
@@ -65,7 +71,7 @@ export function OrgSwitcher({ collapsed }: { collapsed?: boolean }) {
               onClick={() => handleSwitch(mem.organization.id)}
               className="flex items-center gap-2"
             >
-              <span className="truncate">{mem.organization.name}</span>
+              <span className="truncate">{nameFor(mem.organization.id, mem.organization.name)}</span>
               {mem.organization.id === organization?.id && (
                 <Check className="ml-auto size-4 shrink-0" />
               )}

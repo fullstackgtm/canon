@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import type { ProjectedThrough } from "../../../convex/lib/objects/listSpec";
+import type { AggregateRequest } from "../../../convex/lib/objects/reportSpec";
 import { projectedPast, type GroupsResponse, type ViewGroup } from "../../../convex/lib/objects/views";
 import { getErrorMessage } from "@/lib/utils";
 import type { ListedObject, Save } from "./use-object-list";
@@ -15,7 +16,7 @@ const CATCH_UP_POLL_MS = 150;
 const BACKGROUND_REFRESH_MS = 30_000;
 
 /** The groups of a grouped list (`objects.groups`), read again after each batch of saves until the projection passes them. A null query reads nothing. */
-export function useGroups(query: { object: ListedObject; filter: ViewFilter[]; group: ViewGroup } | null, saves: { n: number; saves: Save[] }) {
+export function useGroups(query: { object: ListedObject; filter: ViewFilter[]; group: ViewGroup; groupOrder?: AggregateRequest["groupOrder"] } | null, saves: { n: number; saves: Save[] }) {
   const run = useAction(api.objects.groups);
   // Tagged with the query it answers, so a new grouping shows loading rather than the last one's groups.
   const [state, setState] = useState<{ key: string; res: GroupsResponse | null; error: string }>({ key: "", res: null, error: "" });

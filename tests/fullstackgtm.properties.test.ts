@@ -7,12 +7,55 @@ import { applyPatchPlan } from "../engine/src/connector.ts";
 import { scoreProspectAgainstIcp } from "../engine/src/icp.ts";
 import { signApproval } from "../engine/src/integrity.ts";
 import { mergeSnapshots, normalizeDomain } from "../engine/src/merge.ts";
+import { buildStripeBackfillPlan } from "../engine/src/backfill.ts";
+import { buildRevenueContracts, type StripeRevenueInvoice, type StripeRevenueSubscription } from "../engine/src/revenueContracts.ts";
 import type { CanonicalGtmSnapshot, GtmConnector, PatchOperation, PatchPlan } from "../engine/src/types.ts";
+import { listViewDef, type ListRow } from "../convex/lib/objects/listSpec.ts";
+import { resolveObjectDef, STANDARD_OBJECTS } from "../convex/lib/objects/registry.ts";
+import { aggregateRowsInMemory, compileAggregateRequest, GROUPS_MAX } from "../convex/lib/objects/reportSpec.ts";
 
 const settings = { profile: "ci", testCases: Number(process.env.CANONCRM_HEGEL_CASES ?? 150), seed: 42 };
 const label = gs.text({ alphabet: "abcdefghijklmnopqrstuvwxyz", minSize: 1, maxSize: 12 });
 const amount = gs.integers({ minValue: 0, maxValue: 100_000 });
 const policy = defaultPolicy("2026-05-03");
+
+test("count-ordered aggregates retain the largest groups and count every matching row in the total", () => {
+  const def = listViewDef("contact", resolveObjectDef(STANDARD_OBJECTS.contact));
+  const request = compileAggregateRequest("contact", def, {
+    groupBy: [{ field: "title" }], groupOrder: "firstMeasureDesc", measures: [{ fn: "count" }],
+  }, () => undefined);
+  hegel.test((tc) => {
+    const singletons = tc.draw(gs.integers({ minValue: GROUPS_MAX - 5, maxValue: GROUPS_MAX + 5 }));
+    const counts = new Map<string | null, number>(Array.from({ length: singletons }, (_, i) => [`Job ${i}`, 1]));
+    counts.set("VP Sales", tc.draw(gs.integers({ minValue: 2, maxValue: 10 })));
+    counts.set(null, tc.draw(gs.integers({ minValue: 1, maxValue: 10 })));
+    const rows: ListRow[] = [];
+    for (const [title, count] of counts) {
+      for (let i = 0; i < count; i++) {
+        rows.push({ id: String(rows.length), object: "contact", status: "active", version: 1, title: "Contact", createdAt: 1, updatedAt: 1, deletedAt: null, values: { title } });
+      }
+    }
+    const { groups, total, truncated } = aggregateRowsInMemory(request, rows, () => new Map(), {});
+    assert.equal(groups.length, Math.min(counts.size, GROUPS_MAX));
+    assert.equal(truncated, counts.size > GROUPS_MAX);
+    let previous = Infinity;
+    let returned = 0;
+    for (const { keys: [key], values: [count] } of groups) {
+      assert.ok(typeof count === "number" && count <= previous);
+      assert.equal(count, counts.get(key as string | null));
+      counts.delete(key as string | null);
+      previous = count;
+      returned += count;
+    }
+    let omitted = 0;
+    for (const count of counts.values()) {
+      assert.ok(count <= previous);
+      omitted += count;
+    }
+    assert.deepEqual(total, [returned + omitted]);
+    assert.deepEqual(total, [rows.length]);
+  }, settings);
+});
 
 function snapshot(provider: CanonicalGtmSnapshot["provider"] = "hubspot"): CanonicalGtmSnapshot {
   return { generatedAt: "2026-05-01", provider, accounts: [], contacts: [], users: [], deals: [], activities: [] };
@@ -197,4 +240,57 @@ test("apply follows a compare-and-set model across replans, external edits, appr
     expected: "initial",
     planned: { beforeValue: "initial", afterValue: "proposed" },
   }, { stepCount: 15 }), settings);
+});
+
+// Revenue contracts (docs/revenue-contracts.md): one booking per subscription, never per invoice.
+function revenueFixture(tc: hegel.TestCase) {
+  const subscriptionCount = tc.draw(gs.integers({ minValue: 0, maxValue: 4 }));
+  const subscriptions: StripeRevenueSubscription[] = Array.from({ length: subscriptionCount }, (_, i) => ({
+    id: `sub_${i}`,
+    status: tc.draw(gs.sampledFrom(["active", "canceled", "past_due", "trialing"])),
+    customerName: `Customer ${tc.draw(label)}`,
+    startDate: "2026-01-01",
+    lines: [{ quantity: 1, unitAmount: tc.draw(amount), interval: tc.draw(gs.sampledFrom(["month", "year", "week"])) }],
+  }));
+  const invoiceCount = tc.draw(gs.integers({ minValue: 0, maxValue: 12 }));
+  const invoices: StripeRevenueInvoice[] = Array.from({ length: invoiceCount }, (_, i) => {
+    const paid = tc.draw(amount);
+    const subscription = tc.draw(gs.integers({ minValue: -1, maxValue: subscriptionCount }));
+    return {
+      id: `in_${i}`,
+      subscriptionId: subscription >= 0 ? `sub_${subscription}` : undefined,
+      status: "paid",
+      amountDue: paid,
+      amountPaid: paid,
+      amountRemaining: 0,
+    };
+  });
+  return { subscriptions, invoices };
+}
+
+test("every invoice attaches to exactly one known contract or is listed unattached, and grouping ignores order", () => {
+  hegel.test((tc) => {
+    const { subscriptions, invoices } = revenueFixture(tc);
+    const result = buildRevenueContracts(subscriptions, invoices);
+    const attached = result.contracts.flatMap((contract) => contract.invoiceIds);
+    assert.equal(new Set(attached).size, attached.length);
+    assert.equal(attached.length + result.unattached.length, invoices.length);
+    assert.deepEqual(buildRevenueContracts([...subscriptions].reverse(), [...invoices].reverse()), result);
+  }, settings);
+});
+
+test("adding invoices never changes how many deals the backfill books", () => {
+  hegel.test((tc) => {
+    const { subscriptions, invoices } = revenueFixture(tc);
+    const cut = tc.draw(gs.integers({ minValue: 0, maxValue: invoices.length }));
+    const book = (rows: StripeRevenueInvoice[]) => {
+      const { contracts } = buildRevenueContracts(subscriptions, rows);
+      return buildStripeBackfillPlan(contracts, snapshot(), { now: () => new Date("2026-07-01T00:00:00.000Z") })
+        .plan.operations.filter((operation) => operation.objectType === "deal")
+        .map((operation) => operation.id);
+    };
+    const deals = book(invoices.slice(0, cut));
+    assert.equal(deals.length, subscriptions.length);
+    assert.deepEqual(book(invoices), deals);
+  }, settings);
 });

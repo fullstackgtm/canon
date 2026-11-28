@@ -20,3 +20,8 @@ function ui(name: string): Record<string, ElementType> {
   return exports;
 }
 export const tabs = ui("tabs");
+
+export const recordSummary: Record<string, ElementType> = {};
+runInNewContext(ts.transpileModule(readFileSync(new URL("../../src/components/records/record-summary.tsx", import.meta.url), "utf8"), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
+}).outputText, { exports: recordSummary, require });

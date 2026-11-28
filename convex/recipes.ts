@@ -61,6 +61,16 @@ function sourceCard(pkg: Doc<"recipePackages">) {
   if (s.kind === "workspace") return { text: `copy of ${s.forkedFrom.id} v${s.forkedFrom.version}`, ref: "", sha: s.markdownHash, installedAt: pkg.installedAt, private: false, workspace: true };
   return { text: sourceText(s), ref: s.ref, sha: s.sha, installedAt: pkg.installedAt, private: s.kind === "github-app", workspace: false };
 }
+
+async function pencilAttribution(ctx: QueryCtx, orgId: Id<"organizations">, recipeId: string) {
+  const revision = await ctx.db.query("recipeMarkdownRevisions")
+    .withIndex("by_orgId_and_recipeId_and_revision", (q) => q.eq("orgId", orgId).eq("recipeId", recipeId)).order("desc").first();
+  const note = revision?.note;
+  if (revision?.status !== "current" || !note) return null;
+  if (note.startsWith("Promoted from ")) return { kind: "promotion" as const, from: note.slice("Promoted from ".length), at: revision.createdAt };
+  if (!note.startsWith("Pencil: ") && !note.startsWith("Customized on the ")) return null;
+  return { kind: "pencil" as const, by: (await ctx.db.get(revision.author.id))?.name || "Someone", at: revision.createdAt };
+}
 const mayEdit = (user: Doc<"users">) => can(user, "recipes.decide");
 
 /** Who is asking: a person, or their agent (lib.ts agentClientOf), which may read and propose but never decide. */
@@ -195,8 +205,8 @@ function oldFrame(found: FoundRecipe): boolean {
 }
 
 export const forOrg = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { includePencilAttribution: v.optional(v.boolean()) },
+  handler: async (ctx, { includePencilAttribution }) => {
     const caller = await callerOf(ctx);
     if (!caller) return null;
     const orgId = caller.user.orgId;
@@ -209,6 +219,7 @@ export const forOrg = query({
         ...card(f), hasSettings: f.recipe.settingsSchema.length > 0,
         revision: (await currentRevision(ctx, orgId, f.recipe.id))?.revision ?? null, proposals: (await openProposals(ctx, orgId, f.recipe.id)).length,
         upstream: f.pkg?.source.kind === "workspace" ? await upstreamChange(ctx, orgId, f.pkg.source.forkedFrom) : null,
+        pencilAttribution: includePencilAttribution && f.pkg?.source.kind === "workspace" ? await pencilAttribution(ctx, orgId, f.recipe.id) : null,
       }))),
       points: await pointViews(ctx, orgId, available),
       canEdit: mayDecide(caller),

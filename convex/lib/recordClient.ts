@@ -846,6 +846,8 @@ export function createHttpRecordClient(opts: { baseUrl: string; token: string; f
       return null;
     }
   };
+  const groupOrderFor = (order: ActivityAggregateRequest["groupOrder"], version: string | null) =>
+    atLeastVersion(version, "1.54.0") ? order : undefined;
   return {
     mode: "http",
     contractVersion,
@@ -885,14 +887,17 @@ export function createHttpRecordClient(opts: { baseUrl: string; token: string; f
     listRegister: (ws, object, req) => projection<RegisterListResponse>(`/register/${object}/list`, ws, req),
     moduleSync: async (ws, { module, ...body }) => (await call<ModuleSyncResponse>(`${w(ws)}/modules/${encodeURIComponent(module)}/sync`, ws, body))!,
     // A field's label (up to 200 characters in a manifest) names it for people; the service reads at most 80 of it.
-    moduleAggregate: async (ws, { module, ...body }) => {
-      const out = await projection<AggregateResponse & { projection?: ModuleProjection }>(`/modules/${encodeURIComponent(module)}/aggregate`, ws, { ...body, fields: body.fields.map((f) => ({ ...f, label: f.label.slice(0, 80) })) });
+    moduleAggregate: async (ws, { module, groupOrder, ...body }) => {
+      const out = await projection<AggregateResponse & { projection?: ModuleProjection }>(`/modules/${encodeURIComponent(module)}/aggregate`, ws, {
+        ...body, groupOrder: groupOrder && groupOrderFor(groupOrder, await contractVersion()), fields: body.fields.map((f) => ({ ...f, label: f.label.slice(0, 80) })),
+      });
       if (body.projection && !sameProjection(body.projection, out.projection)) throw new Error("Module reports need record service 1.43.0 with projection receipts.");
       return out;
     },
     aggregate: async (ws, object, req) => {
-      if (req.moduleActivities?.length && (object !== ACTIVITY_OBJECT || !atLeastVersion(await contractVersion(), "1.44.0"))) throw new Error("Module activity reports need record service 1.44.0 or newer.");
-      const out = await projection<AggregateResponse & Partial<ActivityAggregateReceipt>>(isRegisterObject(object) ? `/register/${object}/aggregate` : `/p/${encodeURIComponent(object)}/aggregate`, ws, req);
+      const version = req.groupOrder || req.moduleActivities?.length ? await contractVersion() : null;
+      if (req.moduleActivities?.length && (object !== ACTIVITY_OBJECT || !atLeastVersion(version, "1.44.0"))) throw new Error("Module activity reports need record service 1.44.0 or newer.");
+      const out = await projection<AggregateResponse & Partial<ActivityAggregateReceipt>>(isRegisterObject(object) ? `/register/${object}/aggregate` : `/p/${encodeURIComponent(object)}/aggregate`, ws, { ...req, groupOrder: groupOrderFor(req.groupOrder, version) });
       if (req.moduleActivities?.length && canonicalJson(req.moduleActivities) !== canonicalJson(out.moduleActivities ?? null)) throw new Error("Module activity reports need the complete record service 1.44.0 source receipt.");
       const result = { ...out };
       delete result.moduleActivities;

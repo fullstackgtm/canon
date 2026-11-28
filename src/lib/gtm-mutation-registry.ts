@@ -55,6 +55,7 @@ export const gtmMutationRegistry = {
   "api.fieldConsolidations.undoRun": api.fieldConsolidations.undoRun,
   "api.fieldConsolidationActions.createUndoPlan": api.fieldConsolidationActions.createUndoPlan,
   "api.stripe.disconnect": api.stripe.disconnect,
+  "api.stripeActions.importRevenue": api.stripeActions.importRevenue,
   "api.icp.createProfile": api.icp.createProfile,
   "api.icps.create": api.icps.create,
   "api.icps.update": api.icps.update,

@@ -21,7 +21,7 @@ const TONE: Record<Health, string> = {
 
 export default function PlaysPage() {
   const list = useAction(api.dealPlays.list);
-  const dealPage = useQuery(api.recipes.forOrg)?.dealPage;
+  const dealPage = useQuery(api.recipes.forOrg, {})?.dealPage;
   const coreRoles = dealPage?.coreRoles.length ?? 0;
   // A decision window closing within the deal recipe's urgent window reads amber.
   const urgent = dealPage?.settings.settings.windowUrgentDays;

@@ -156,6 +156,8 @@ export const ARCHIVE_TABLES = {
   dealPlayPeople: child("dealPlays", "playId", "by_playId_and_contactId"),
   dealPlaySteps: child("dealPlays", "playId", "by_playId"),
   dealOverrides: data("by_orgId"),
+  revenueContracts: derived("the Stripe revenue import (stripeActions.importRevenue) re-reads it from Stripe"),
+  revenueInvoices: derived("the Stripe revenue import (stripeActions.importRevenue) re-reads it from Stripe"),
   commissionPlans: data("by_orgId"),
   planRules: data("by_orgId"),
   planAssignments: data("by_orgId"),

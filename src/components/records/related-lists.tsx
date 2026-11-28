@@ -19,7 +19,6 @@ import { SelectField } from "@/components/ui/select";
 import { offered, type ActionId, type Context, type Offer, type PageAction } from "../../../recipes";
 
 const linkBtn = "py-1 text-xs text-muted-foreground underline hover:text-foreground disabled:opacity-50 sm:py-0";
-const heading = "text-xs font-medium text-muted-foreground";
 
 /** Data a panel loads, reread after every change it makes. */
 function useLoaded<T>(load: () => Promise<T>) {
@@ -68,9 +67,9 @@ function useRelated(object: "account" | "contact", id: string) {
 
 function Panel({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
-    <section className="min-w-0 border border-border bg-card p-4">
+    <section className="record-panel record-panel-pad">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className={heading}>{title}</h2>
+        <h2 className="record-block-heading record-section-title">{title}</h2>
         {action}
       </div>
       {/* A related table scrolls inside its panel on a phone rather than widening the page. */}

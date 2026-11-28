@@ -76,7 +76,7 @@ export function RecordPicker({ object, label, autoFocus, onPick, onCancel }: {
 }
 
 /** A lookup's target as a link, named by its title once read. An account opens on the Accounts page. */
-export function LookupLink({ object, id, title: known, className = "px-2 py-1 text-sm underline" }: { object: ListedObject; id: string; title?: string; className?: string }) {
+export function LookupLink({ object, id, title: known, className = "px-2 py-1 record-value record-link underline" }: { object: ListedObject; id: string; title?: string; className?: string }) {
   const list = useAction(api.objects.list);
   const [title, setTitle] = useState("");
   useEffect(() => {
@@ -167,7 +167,7 @@ export function LookupField({ field, value, version, readOnly, onSave }: {
   }
   return (
     <div className="flex items-center gap-3">
-      {id ? <LookupLink object={object} id={id} /> : <span className="px-2 py-1 text-sm text-muted-foreground">—</span>}
+      {id ? <LookupLink object={object} id={id} /> : <span className="px-2 py-1 record-value text-muted-foreground">—</span>}
       {!readOnly && (
         <>
           <button type="button" disabled={saving} onClick={() => setEditing(true)} className={linkBtn}>{id ? "Change" : "Set"}</button>

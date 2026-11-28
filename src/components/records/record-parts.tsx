@@ -13,12 +13,13 @@ import { formatValue, type CellValue, type FieldDescription, type TeamMember } f
 import { recordHref, recordListOf } from "./record-target";
 import type { Save } from "./use-object-list";
 import { useLookupTitles } from "./lookup-field";
+import { RecordSummary } from "./record-summary";
 
 export const SOURCE_LABEL: Record<string, string> = {
   salesforce: "Salesforce", hubspot: "HubSpot", import: "an import", call: "a call", email: "an email", linkedin: "a LinkedIn message", enrichment: "enrichment", pipeline: "a pipeline", agent_run: "an agent", canon_field: "a Canon field",
 };
 
-export const btn = "inline-flex items-center gap-1 border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-50";
+export const btn = "inline-flex items-center gap-1 border border-border px-3 record-button hover:bg-muted disabled:opacity-50";
 
 type HistoryEntry = {
   version: number;
@@ -171,18 +172,18 @@ export function History({ streamId, fields, team, onUndone, scoped = false, refr
     : e.actor.kind === "rule" ? "An auto-accept rule"
     : e.source.ref.startsWith("grant:") ? "An agent's standing grant" : e.source.kind);
   return (
-    <section className="border border-border bg-card p-4">
-      <h2 className="mb-2 text-xs font-medium text-muted-foreground">{title}</h2>
+    <section className="record-panel record-panel-pad">
+      <h2 className="mb-2 record-block-heading record-section-title">{title}</h2>
       {results.length === 0 && status !== "LoadingFirstPage" ? (
-        <p className="text-sm text-muted-foreground">No changes yet.</p>
+        <p className="record-value text-muted-foreground">No changes yet.</p>
       ) : (
-        <ol className="space-y-2 text-sm">
+        <ol className="space-y-2 record-value">
           {entries.map((e) => (
             <li key={e.version} className="border-b border-border pb-2 last:border-b-0">
-              {describeEntry(e, fields, titles, team).map((line, i) => <div key={i} className={line.startsWith("  ") ? "pl-4 text-xs text-muted-foreground" : undefined}>{line.trim()}</div>)}
-              {evidenceOf(e) && <p className="mt-1 whitespace-pre-line border-l-2 border-border pl-2 text-xs text-muted-foreground">{evidenceOf(e)}</p>}
+              {describeEntry(e, fields, titles, team).map((line, i) => <div key={i} className={line.startsWith("  ") ? "pl-4 record-meta" : undefined}>{line.trim()}</div>)}
+              {evidenceOf(e) && <p className="mt-1 whitespace-pre-line border-l-2 border-border pl-2 record-meta">{evidenceOf(e)}</p>}
               {e.body.kind === "lifecycle" && e.body.op === "absorb" && e.body.mergeId && <UndoMerge mergeId={e.body.mergeId} onUndone={onUndone} />}
-              <div className="text-xs text-muted-foreground">{who(e)}{e.actor.kind === "user" && e.source.kind !== "user" ? ` via ${SOURCE_LABEL[e.source.kind] ?? e.source.kind}` : ""} · {new Date(e.observedAt).toLocaleString()}{validAsOf(e)} · v{e.version}</div>
+              <div className="record-meta">{who(e)}{e.actor.kind === "user" && e.source.kind !== "user" ? ` via ${SOURCE_LABEL[e.source.kind] ?? e.source.kind}` : ""} · {new Date(e.observedAt).toLocaleString()}{validAsOf(e)} · v{e.version}</div>
             </li>
           ))}
         </ol>
@@ -194,13 +195,12 @@ export function History({ streamId, fields, team, onUndone, scoped = false, refr
 
 /** A record's fields in titled groups, each a card; a collapsed group starts folded. */
 export function FieldGroups({ groups, field }: { groups: ReadonlyArray<{ title: string; collapsed: boolean; fields: readonly FieldDescription[] }>; field: (f: FieldDescription) => ReactNode }) {
-  const heading = "text-xs font-medium text-muted-foreground";
   return groups.map(({ title, collapsed, fields }) => {
     const rows = <dl className={collapsed ? "mt-2" : undefined}>{fields.map(field)}</dl>;
     return collapsed ? (
-      <details key={title} className="border border-border bg-card p-4"><summary className={cn(heading, "cursor-pointer")}>{title}</summary>{rows}</details>
+      <details key={title} className="record-panel record-panel-pad"><RecordSummary>{title}</RecordSummary>{rows}</details>
     ) : (
-      <section key={title} className="border border-border bg-card p-4"><h2 className={cn(heading, "mb-2")}>{title}</h2>{rows}</section>
+      <section key={title} className="record-panel record-panel-pad"><h2 className="record-block-heading record-section-title mb-2">{title}</h2>{rows}</section>
     );
   });
 }
@@ -209,7 +209,7 @@ export function FieldGroups({ groups, field }: { groups: ReadonlyArray<{ title: 
 export type InDialog = { onSaved: (saves: Save[]) => void };
 
 export function Frame({ object, id, plural, inDialog, children }: { object: string; id: string; plural: string; inDialog?: InDialog; children: ReactNode }) {
-  const link = "mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground";
+  const link = "mb-4 inline-flex items-center gap-1 record-meta hover:text-foreground";
   if (inDialog) {
     return <div className="record-frame"><Link href={recordHref(object, id)} className="record-full-page">Open full page <ArrowUpRight className="h-3 w-3" /></Link>{children}</div>;
   }
