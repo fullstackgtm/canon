@@ -10,6 +10,8 @@ import ts from "typescript";
 import * as model from "../convex/lib/plays/model.ts";
 import * as committee from "../convex/lib/committee.ts";
 import * as recipes from "../recipes/index.ts";
+import * as theme from "../recipes/theme.ts";
+import * as nav from "../src/components/shell/nav.ts";
 import * as selection from "../convex/lib/plays/prospectSelection.ts";
 import * as icps from "../convex/lib/icps.ts";
 import * as icpGates from "../convex/lib/icpGates.ts";
@@ -178,6 +180,8 @@ function harness(plan = steps, canEdit = true, extra: Record<string, unknown> = 
     "./deal-chat": { DealChat: () => null, DealChatButton: () => null },
     // Customize mode is off: no shape context, so sections draw unwrapped.
     "@/components/ui/tabs": tabs,
+    "@/components/shell/nav": nav,
+    "../../../recipes/theme": theme,
     "./shape/shape-mode": { LayoutTreeContext: createContext(undefined), useShape: () => null, ShapeSection: ({ children }: { children: ReactNode }) => children },
   };
   const pageSections: Record<string, unknown> = {};

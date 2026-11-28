@@ -1,9 +1,15 @@
 import { describeLayout as describeLayoutForStandIn, type Layout, type LayoutOp } from "../../recipes/md/edit.ts";
+import type { PageStyle } from "../../recipes/layout.ts";
+
+const SALESFORCE_STYLE = { density: "compact", surface: "bordered", headerBand: "tinted", accent: "#0176d3" } satisfies PageStyle;
 
 export function standInReferenceLayout(layout: Layout, request: string): LayoutOp[] | null {
   if (layout.object !== "deal" || !/\bsalesforce\b/i.test(request)) return null;
   const object = "deal";
-  if (layout.sections.some((section) => section.component === "highlights")) return [];
+  const style: LayoutOp = { op: "setPageStyle", object, style: { ...layout.style, ...SALESFORCE_STYLE } };
+  if (layout.sections.some((section) => section.component === "highlights")) {
+    return Object.entries(SALESFORCE_STYLE).every(([key, value]) => layout.style?.[key as keyof PageStyle] === value) ? [] : [style];
+  }
   const before = layout.sections[0]?.ref ?? null;
   const fields = layout.sections.filter((section) => section.component === "fields").map((section) => section.ref);
   const related = { component: "relatedList" } as const;
@@ -17,12 +23,12 @@ export function standInReferenceLayout(layout: Layout, request: string): LayoutO
   ];
   if (before?.component === "header") ops.push({ op: "removeSection", object, section: before });
   const [first = { component: "fields" }, ...rest] = fields;
-  ops.push({ op: "wrapSections", object, sections: [first, related], kind: "columns", id: "recordColumns", props: { widths: [2, 1] } });
+  ops.push({ op: "wrapSections", object, sections: [first, related], kind: "columns", id: "recordColumns", props: { widths: [2, 1], gap: "tight" } });
   if (rest.length) {
     ops.push({ op: "wrapSections", object, sections: [first], kind: "stack", id: "recordFields" });
     for (const section of rest) ops.push({ op: "moveIntoContainer", object, section, container: "recordFields", before: null });
   }
-  return ops;
+  return [...ops, style];
 }
 
 export function standInWorkflow(input: import("./workflowAgent.ts").WorkflowInput) {
@@ -31,7 +37,7 @@ export function standInWorkflow(input: import("./workflowAgent.ts").WorkflowInpu
     const layout = describeLayoutForStandIn(dealPage.markdown, "deal");
     const ops = !("error" in layout) ? standInReferenceLayout(layout, input.request) : null;
     if (ops?.length) return { plan: [{ target: "deal", why: "Bring pipeline progress and related records together." }],
-      ops: { deal: ops }, summary: "Added highlights, the pipeline path, related links and an opportunities card beside the fields." };
+      ops: { deal: ops }, summary: ops.length === 1 ? "Applied a compact, bordered style with blue highlights." : "Added highlights, the pipeline path and related records, with compact spacing, borders and a blue accent." };
   }
   if (/\badd\b.*\bstage rail\b/i.test(input.request)) {
     const deal = input.pages.find((p) => p.target === "deal");

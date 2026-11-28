@@ -52,6 +52,12 @@ const channel = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12
 export const luminance = (h: string) => { const [r, g, b] = rgb(h).map(channel); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
 /** WCAG contrast ratio of two colours. */
 export const contrast = (a: string, b: string) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+const MIN_SURFACE_LUMINANCE = 0.7;
+const MARK_CONTRAST = 3;
+
+/** Page styles travel between workspace themes, so require contrast even on the darkest supported surface. */
+export const isPageAccent = (value: unknown): value is string => isHexColor(value)
+  && (MIN_SURFACE_LUMINANCE + 0.05) / (luminance(value) + 0.05) >= MARK_CONTRAST;
 /** `c` darkened toward `toward` in steps until it reaches `target` contrast on `bg`. */
 function until(c: string, bg: string, target: number, toward: string): string {
   let x = c;
@@ -67,11 +73,11 @@ export function themeProblems(t: ThemeSpec): Array<{ key: keyof ThemeSpec; messa
   if (!THEME_RADII.includes(t.radius)) out.push({ key: "radius", message: `radius must be one of ${THEME_RADII.join(", ")}` });
   if (out.length) return out;
   const ratio = (a: string, b: string) => contrast(a, b).toFixed(1);
-  if (luminance(t.surface) < 0.7) out.push({ key: "surface", message: "Canon's screens are built for a light page: pick a lighter surface" });
+  if (luminance(t.surface) < MIN_SURFACE_LUMINANCE) out.push({ key: "surface", message: "Canon's screens are built for a light page: pick a lighter surface" });
   if (luminance(t.paper) < 0.6) out.push({ key: "paper", message: "Canon's screens are built for a light page: pick a lighter paper" });
   if (contrast(t.ink, t.surface) < 7) out.push({ key: "ink", message: `body text needs 7:1 on the surface, and this is ${ratio(t.ink, t.surface)}:1` });
   for (const k of ["primary", "provenance", "destructive", "warning"] as const) {
-    if (contrast(t[k], t.surface) < 3) out.push({ key: k, message: `${k} needs 3:1 on the surface to be seen, and this is ${ratio(t[k], t.surface)}:1` });
+    if (contrast(t[k], t.surface) < MARK_CONTRAST) out.push({ key: k, message: `${k} needs 3:1 on the surface to be seen, and this is ${ratio(t[k], t.surface)}:1` });
   }
   return out;
 }
@@ -93,6 +99,11 @@ const HEADING_FONTS: Record<ThemeHeadings, string> = {
 
 /** Text on a colour: white when it reads at 4.5:1, else the ink when it does, else black (white or black always does). */
 const on = (c: string, ink: string) => ["#ffffff", ink, "#000000"].find((x) => contrast(x, c) >= 4.5) ?? "#000000";
+
+export function pageAccentVars(accent: unknown): Record<string, string> | undefined {
+  if (!isPageAccent(accent)) return;
+  return { "--primary": accent, "--primary-foreground": on(accent, LEDGER.ink), "--ring": accent, "--chart-1": accent };
+}
 
 /**
  * Every CSS variable globals.css defines, derived from the theme. Lines and fills mix the ink into the surface;

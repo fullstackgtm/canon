@@ -1,4 +1,4 @@
-import { LAYOUT_GRAMMAR } from "../recipes/layout.ts";
+import { LAYOUT_GRAMMAR, PAGE_STYLE_GUIDE } from "../recipes/layout.ts";
 /**
  * Writes recipes/skills/canon-layout/SKILL.md, the skill an agent reads before it edits a recipe.md, and the module
  * that carries the same text into Convex (recipes/skills/canon-layout/skill.generated.ts). Every list in it comes from
@@ -371,10 +371,12 @@ export function generate(): { skill: string; module: string } {
     ...Object.entries(RECORD_PROPS_GRAMMAR).map(([kind, schema]) => `${code(kind)} props: ${code(JSON.stringify(schema.properties))}.`),
     "Custom record pages use a heading such as # Details {page=custom_subscription} and contribute through workspace.pages. They open on the object's record route. They can use fields and the four record building blocks.",
     `Standalone workspace pages: heading # Open deals {page=open-deals icon=chart nav=main}. Add workspace.pages to contributes. Lowercase kebab slugs must be unique and cannot name a dashboard route or deal/account/contact. nav=hidden omits the sidebar. Each page holds its own sections and optional layout. Use only table, list, metric, chart, form and board, with no {record:…} references. Editors support addPage {slug,title,icon?}, removePage {slug}, and existing section/query/tree ops with object set to the slug.`,
-    `Layout containers: ${LAYOUT_GRAMMAR.containers.join(", ")}. At most one fenced layout block per page, scoped like headings. Leaves use component#nth (zero-based). Two spaces per level. Unmentioned sections render afterward. Columns need 2–3 children, optional widths. Tabs need one label per child. Cards need a title. Example using existing Velocity sections:`,
+    `Layout containers: ${Object.keys(LAYOUT_GRAMMAR.containers).join(", ")}. At most one fenced layout block per page, scoped like headings. Leaves use component#nth (zero-based). Two spaces per level. Unmentioned sections render afterward. Columns need 2–3 children, optional widths. Tabs need one label per child. Cards need a title.`,
+    PAGE_STYLE_GUIDE,
+    "Only the root stack can carry page style. A root with style and no children keeps the existing section order and grouping. For screenshot requests choose these tokens alongside the layout. Example using existing Velocity sections:",
     '```layout',
-    'stack root',
-    '  columns overview {"widths":[2,1]}',
+    'stack root {"style":{"density":"compact","surface":"bordered","headerBand":"tinted","accent":"#0176d3"}}',
+    '  columns overview {"widths":[2,1],"gap":"tight"}',
     '    section summary#0',
     '    section brief#0',
     '```',

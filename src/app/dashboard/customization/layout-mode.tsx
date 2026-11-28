@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { AlertCircle, Undo2 } from "lucide-react";
 import type { DealStage } from "../../../../convex/lib/plays/model";
-import { sectionKey, type LayoutNode } from "../../../../recipes/layout";
+import { CONTAINERS, CONTAINER_PATCHES, PAGE_STYLE, sectionKey, type LayoutNode, type LayoutTree, type PageStyle } from "../../../../recipes/layout";
 import { PAGE_OBJECTS } from "../../../../recipes/kernel";
 import { apply, describeLayout, type LayoutOp } from "../../../../recipes/md/edit";
 import { parseRecipe } from "../../../../recipes/md/parse";
@@ -12,6 +12,51 @@ import { AddSection, btn, SectionCard, type Ctx, type Drag } from "./layout-sect
 import type { Slot } from "./layout-drops";
 
 const PAGE_TITLE: Record<string, string> = { deal: "Deal page", account: "Account page", contact: "Person page" };
+
+function StyleChoice({ name, label, value, options }: { name: string; label: string; value?: string; options: readonly string[] }) {
+  return <label className="grid gap-1 text-xs">{label}<select name={name} defaultValue={value ?? ""} className="rounded border px-2 py-1">
+    <option value="">Default</option>
+    {options.map((option) => <option key={option}>{option}</option>)}
+  </select></label>;
+}
+
+function PageStyleForm({ ctx, style }: { ctx: Ctx; style?: PageStyle }) {
+  return <form key={JSON.stringify(style ?? {})} className="flex flex-wrap items-end gap-2 border bg-card p-3" aria-label="Page style" onSubmit={(event) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const result = PAGE_STYLE.safeParse(Object.fromEntries([...values].filter(([, value]) => value !== "")));
+    if (!result.success) ctx.refuse("page", result.error.issues[0].message);
+    else ctx.edit({ op: "setPageStyle", object: ctx.layout.object, style: result.data }, "page", "Updated page style");
+  }}>
+    <StyleChoice name="density" label="Density" value={style?.density} options={PAGE_STYLE.shape.density.unwrap().options} />
+    <StyleChoice name="surface" label="Surface" value={style?.surface} options={PAGE_STYLE.shape.surface.unwrap().options} />
+    <StyleChoice name="headerBand" label="Header band" value={style?.headerBand} options={PAGE_STYLE.shape.headerBand.unwrap().options} />
+    <label className="grid gap-1 text-xs">Accent<input name="accent" defaultValue={style?.accent} placeholder="#0176d3" className="w-28 rounded border px-2 py-1" /></label>
+    <button className={btn}>Apply page style</button>
+  </form>;
+}
+
+function ContainerStyleForm({ ctx, node }: { ctx: Ctx; node: LayoutTree }) {
+  if (node.kind === "stack") return null;
+  return <form className="flex flex-wrap items-end gap-2 px-3 py-2" aria-label={`Style for ${node.title ?? node.id}`} onSubmit={(event) => {
+    event.preventDefault();
+    const values = new FormData(event.currentTarget);
+    const props: Record<string, unknown> = Object.fromEntries([...values].map(([key, value]) => [key, value || null]));
+    if (node.kind === "card") props.collapsible = values.has("collapsible");
+    const patch = CONTAINER_PATCHES[node.kind].safeParse(props);
+    if (!patch.success) ctx.refuse("page", patch.error.issues[0].message);
+    else ctx.edit({ op: "setContainerProps", object: ctx.layout.object, container: node.id, props: patch.data }, "page", "Updated container style");
+  }}>
+    {node.kind === "columns" && <StyleChoice name="gap" label="Column gap" value={node.gap} options={CONTAINERS.columns.shape.gap.unwrap().options} />}
+    {node.kind === "tabs" && <StyleChoice name="variant" label="Tab style" value={node.variant} options={CONTAINERS.tabs.shape.variant.unwrap().options} />}
+    {node.kind === "card" && <>
+      <StyleChoice name="icon" label="Icon" value={node.icon} options={CONTAINERS.card.shape.icon.unwrap().options} />
+      <StyleChoice name="tone" label="Tone" value={node.tone} options={CONTAINERS.card.shape.tone.unwrap().options} />
+      <label className="flex items-center gap-1 text-xs"><input name="collapsible" type="checkbox" defaultChecked={node.collapsible} />Collapsible</label>
+    </>}
+    <button className={btn}>Apply container style</button>
+  </form>;
+}
 
 /**
  * The visual layout mode (docs/recipes.md, "Visual layout mode"): the pages a recipe.md lays out, edited by
@@ -73,7 +118,9 @@ export function LayoutMode({ markdown, object, onPage, onChange, canUndo, onUndo
       const s = layout.sections[i];
       return s ? <SectionCard key={node.section} ctx={ctx} index={i} over={drag?.kind === "section" ? over : null} setOver={setOver} autoRename={fresh === i} /> : null;
     }
-    return <li key={node.id}><p className="px-3 py-1 text-xs font-medium text-muted-foreground">{node.title ?? node.kind} <span className="font-mono">{node.id}</span></p><ol className="ml-4 border-l">{node.children.map(outline)}</ol></li>;
+    return <li key={node.id}><p className="px-3 py-1 text-xs font-medium text-muted-foreground">{node.title ?? node.kind} <span className="font-mono">{node.id}</span></p>
+      {!readOnly && <ContainerStyleForm key={JSON.stringify({ ...node, children: undefined })} ctx={ctx} node={node} />}
+      <ol className="ml-4 border-l">{node.children.map(outline)}</ol></li>;
   };
   const keys = (e: KeyboardEvent) => {
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
@@ -110,6 +157,7 @@ export function LayoutMode({ markdown, object, onPage, onChange, canUndo, onUndo
         <p className="border border-border bg-card p-4 text-sm text-muted-foreground">This customization lays out no page. Its sections are headings with <span className="font-mono">{"{section=…}"}</span> in customization.md.</p>
       ) : (
         <>
+          {!readOnly && <PageStyleForm key={page} ctx={ctx} style={layout.style} />}
           <ol aria-label={`Sections of the ${titles[page].toLowerCase()}`} className="border border-border bg-card" onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null); }}>
             {layout.tree.children.map(outline)}
           </ol>

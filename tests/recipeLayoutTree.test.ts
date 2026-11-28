@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { apply, describeLayout, type LayoutOp } from "../recipes/md/edit.ts";
 import { parseRecipe } from "../recipes/md/parse.ts";
 import { parseLayout, printLayout } from "../recipes/layout.ts";
+import { contrast, pageAccentVars } from "../recipes/theme.ts";
 import { loadConvex } from "./convexHandlers.ts";
 const standInColumns = loadConvex(["lib/recipeAgentStandIn.ts"])["lib/recipeAgentStandIn.ts"].standInColumns as unknown as typeof import("../convex/lib/recipeAgentStandIn.ts").standInColumns;
 
@@ -41,12 +42,65 @@ test("layout text round trips and rejects duplicate leaves, invalid props and in
   for (const invalid of [text.replace("timeline#0", "header#0"), text.replace('[2,1]', '[2]'), text.replace('    card', '     card'), text.replace('"widths":[2,1]', '"children":[]')]) assert.throws(() => parseLayout(invalid, ["header#0", "timeline#0"]));
 });
 
+const style = { density: "compact", surface: "bordered", headerBand: "tinted", accent: "#0176d3" } as const;
+
+test("page and container styles round trip through the layout grammar", () => {
+  const text = [
+    `stack root ${JSON.stringify({ style })}`,
+    '  columns overview {"widths":[2,1],"gap":"tight"}',
+    '    section header#0',
+    '    tabs context {"labels":["Timeline","History"],"variant":"underline"}',
+    '      card activity {"title":"Activity","icon":"clipboard","tone":"accent","collapsible":true}',
+    '        section timeline#0',
+    '      section history#0',
+  ].join("\n");
+  const keys = ["header#0", "timeline#0", "history#0"];
+  assert.equal(printLayout(parseLayout(text, keys)), text);
+  for (const invalid of [
+    text.replace("#0176d3", "#eeeeee"),
+    text.replace("#0176d3", "url(example)"),
+    text.replace('"compact"', '"huge"'),
+    text.replace('"bordered"', '"transparent"'),
+    text.replace('"tinted"', '"solid"'),
+    text.replace('"tight"', '"12px"'),
+    text.replace('"underline"', '"flat"'),
+    text.replace('"clipboard"', '"arbitrary"'),
+    text.replace('"accent","collapsible"', '"wild","collapsible"'),
+    text.replace('"collapsible":true', '"collapsible":"true"'),
+    text.replace(/^      card activity.*$/m, '      stack activity {"style":{}}'),
+  ]) assert.throws(() => parseLayout(invalid, keys));
+  const vars = pageAccentVars(style.accent)!;
+  assert.equal(vars["--primary"], style.accent);
+  assert.ok(contrast(vars["--primary"], vars["--primary-foreground"]) >= 4.5);
+  assert.equal(pageAccentVars("#eeeeee"), undefined);
+});
+
+test("setPageStyle changes only the root line and keeps implicit layout implicit", () => {
+  const op = { op: "setPageStyle", object: "account", style } as const;
+  const plain = base.replaceAll("\n", "\r\n");
+  const styled = edit(plain, op);
+  const root = `stack root ${JSON.stringify({ style })}`;
+  assert.equal(styled.replace(`\`\`\`layout\r\n${root}\r\n\`\`\`\r\n\r\n`, ""), plain);
+  assert.deepEqual(parseRecipe(styled).recipe.layouts?.account, { kind: "stack", id: "root", style, children: [] });
+  assert.deepEqual(layout(styled).style, style);
+  const grouped = edit(base, wrap).replace("stack root\n", "stack root\n\n");
+  assert.equal(edit(grouped, op), grouped.replace("stack root\n", `${root}\n`));
+  assert.equal(edit(styled, op), styled);
+  const cleared = edit(styled, { ...op, style: {} });
+  assert.deepEqual(layout(cleared).style, {});
+  assert.ok("error" in apply(styled, { ...op, style: { accent: "#ffffff" } }));
+});
+
 test("tree operations preserve surrounding bytes and refuse edits that cannot express the exact tree", () => {
   const grouped = edit(base, wrap);
   assert.equal(grouped.replace(/```layout\n[\s\S]*?```\n\n/, ""), base);
   assert.equal(parseRecipe(grouped).recipe.layouts?.account?.children.filter((n) => !("section" in n)).length, 1);
   const sized = edit(grouped, { op: "setContainerProps", object: "account", container: "activity", props: { widths: [2, 1] } });
   assert.match(sized, /"widths":\[2,1\]/);
+  const gapOp = { op: "setContainerProps", object: "account", container: "activity", props: { gap: "tight" } } as const;
+  const tightened = edit(sized, gapOp);
+  assert.equal(tightened, sized.replace('"widths":[2,1]', '"widths":[2,1],"gap":"tight"'));
+  assert.equal(edit(tightened, { ...gapOp, props: { gap: null } }), sized);
   const added = edit(sized, { op: "addSection", object: "account", component: "fields", title: "Notes", fields: ["customNote"], before: { component: "header" } });
   assert.match(added, /columns activity {"widths":\[2,1\]}/);
   const first = layout(added).tree.children[0];

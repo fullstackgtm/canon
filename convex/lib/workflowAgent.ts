@@ -3,7 +3,7 @@ import { isCustomObjectName } from "../../modules/kernel/reportLanguage.ts";
 import { z } from "zod";
 import { BLOCKS, PLAY_COMPONENTS, pageKind, type PlayComponent } from "../../recipes/blocks.ts";
 import { KERNEL_ACTIONS } from "../../recipes/actions.ts";
-import { CONTAINERS } from "../../recipes/layout.ts";
+import { LAYOUT_GRAMMAR, PAGE_STYLE } from "../../recipes/layout.ts";
 import { isDataComponent, validateDataQuery, validateQueryFields, recordReference } from "../../recipes/data.ts";
 import { apply, describeLayout, type LayoutOp } from "../../recipes/md/edit.ts";
 import { pageOf, shows } from "../../recipes/kernel.ts";
@@ -47,7 +47,7 @@ export function workflowContext(input: Pick<WorkflowInput, "pages" | "objects">,
     blocks: Object.fromEntries(Object.entries(BLOCKS)
       .filter(([, block]) => block.group !== "play" || input.pages.some((p) => p.target === "deal" && p.dealPlay?.available))
       .map(([name, block]) => [name, compact ? { title: block.title, purpose: block.purpose, objects: block.objects, parts: block.parts, actions: block.actions, ...("settings" in block ? { settings: z.toJSONSchema(block.settings) } : {}) } : { ...block, props: z.toJSONSchema(block.props), ...("settings" in block ? { settings: z.toJSONSchema(block.settings) } : {}), ...("query" in block ? { query: z.toJSONSchema(block.query) } : {}) }])),
-    containers: compact ? Object.keys(CONTAINERS) : Object.fromEntries(Object.entries(CONTAINERS).map(([kind, schema]) => [kind, z.toJSONSchema(schema)])), actions: KERNEL_ACTIONS,
+    containers: LAYOUT_GRAMMAR.containers, pageStyle: z.toJSONSchema(PAGE_STYLE), actions: KERNEL_ACTIONS,
   };
 }
 

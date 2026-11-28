@@ -8,6 +8,8 @@ import { createContext, createElement, type ComponentType, type ReactNode } from
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import * as recipes from "../recipes/index.ts";
+import * as theme from "../recipes/theme.ts";
+import * as nav from "../src/components/shell/nav.ts";
 import { scopeOf } from "../recipes/actions.ts";
 import { parseCondition } from "../recipes/conditions.ts";
 import { parseRecipe } from "../recipes/md/parse.ts";
@@ -21,7 +23,11 @@ const NO_SHAPE = { LayoutTreeContext: createContext<import("../recipes/layout.ts
 const sections: { PageSections?: ComponentType<Record<string, unknown>> } = {};
 runInNewContext(ts.transpileModule(readFileSync(new URL("../src/components/records/page-sections.tsx", import.meta.url), "utf8"), {
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS },
-}).outputText, { exports: sections, require: (id: string) => (id === "@/components/ui/tabs" ? tabs : id === "../../../recipes" ? recipes : id === "./shape/shape-mode" ? NO_SHAPE : require(id)) });
+}).outputText, { exports: sections, require: (id: string) => (id === "@/components/ui/tabs" ? tabs :
+  id === "@/components/shell/nav" ? nav :
+  id === "../../../recipes/theme" ? theme :
+  id === "../../../recipes" ? recipes :
+  id === "./shape/shape-mode" ? NO_SHAPE : require(id)) });
 
 /** The page drawn with each component as its name, a held section inside its holder, and the two columns as [ | ]. */
 function drawn(object: recipes.PageObject, page: recipes.PageSpec): string {
@@ -81,4 +87,18 @@ test("explicit layout draws responsive columns, UI SDK tabs, cards and trailing 
   assert.match(html, /rounded-xl border py-6 shadow-sm/);
   assert.match(html, /fitBar/);
   assert.ok(html.indexOf("header") < html.indexOf("timeline"));
+});
+
+test("page tokens reach the section scope and a styled card renders as a disclosure", () => {
+  const tree: import("../recipes/layout.ts").LayoutTree = {
+    kind: "stack", id: "root", style: { density: "compact", surface: "flat", headerBand: "brand", accent: "#0176d3" },
+    children: [{ kind: "card", id: "context", title: "Context", tone: "accent", icon: "briefcase", collapsible: true, children: [{ section: "header#0" }] }],
+  };
+  const page = recipes.RECIPES["canon-base"].accountPage;
+  const renderers = { header: () => createElement("p", null, "Account") };
+  const html = renderToStaticMarkup(createElement(NO_SHAPE.LayoutTreeContext.Provider, { value: tree }, createElement(sections.PageSections!, { object: "account", page, stage: null, renderers })));
+  assert.match(html, /data-density="compact" data-surface="flat" data-header-band="brand" style="--primary:#0176d3/);
+  assert.match(html, /<details open="" data-layout="card" data-tone="accent"/);
+  assert.match(html, /<summary[^>]*><svg[^>]*aria-hidden="true"[^>]*>.*<\/svg>Context<\/summary>/);
+  assert.match(html, /<p>Account<\/p>/);
 });
