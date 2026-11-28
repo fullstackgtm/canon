@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
-const item = "rounded-none text-xs focus:bg-muted focus:text-foreground"
+const item = "rounded-none text-xs data-highlighted:bg-muted data-highlighted:text-foreground"
 
 /**
  * A dropdown of checkboxes that stays open while you pick, styled like `SelectTrigger size="sm"`.
@@ -32,14 +32,14 @@ export function MultiSelect({ label, options, value, onChange, emptyLabel, class
       <DropdownMenuTrigger
         aria-label={label}
         className={cn(
-          "border-border hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-primary/30 data-[state=open]:border-primary flex h-7 w-fit max-w-64 items-center justify-between gap-2 border bg-background px-2 text-xs text-foreground whitespace-nowrap transition-[color,border-color,box-shadow] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50",
+          "border-border hover:border-foreground/30 focus-visible:border-primary focus-visible:ring-primary/30 data-open:border-primary flex h-7 w-fit max-w-64 items-center justify-between gap-2 border bg-background px-2 text-xs text-foreground whitespace-nowrap transition-[color,border-color,box-shadow] outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
       >
         <span className="truncate">{summary}</span>
         <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground opacity-50" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-(--radix-dropdown-menu-trigger-width) rounded-none border-border shadow-lg">
+      <DropdownMenuContent align="start" className="min-w-(--anchor-width) rounded-none border-border shadow-lg">
         <DropdownMenuCheckboxItem className={item} checked={value.length === 0} onSelect={(e) => e.preventDefault()} onCheckedChange={() => onChange([])}>
           {emptyLabel}
         </DropdownMenuCheckboxItem>

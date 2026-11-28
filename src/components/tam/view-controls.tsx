@@ -100,7 +100,7 @@ export function ViewControls({
   );
 }
 
-const chip = "inline-flex h-8 items-center gap-2 border px-2.5 text-xs transition-colors data-[state=open]:border-primary";
+const chip = "inline-flex h-8 items-center gap-2 border px-2.5 text-xs transition-colors data-open:border-primary";
 const chipIdle = "border-border bg-card hover:border-primary/60";
 
 function ChipLabel({ children }: { children: React.ReactNode }) {

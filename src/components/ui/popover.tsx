@@ -1,48 +1,62 @@
 "use client"
 
 import * as React from "react"
-import { Popover as PopoverPrimitive } from "radix-ui"
+import { renderElement, mergeProps } from "@ui-sdk/react/primitive"
+import * as PopoverPrimitive from "@ui-sdk/react/popover"
+
+import { type UiProps, type AutoFocusProps, autoFocusTarget, asChildProps } from "@/components/ui/composition"
 
 import { cn } from "@/lib/utils"
 
-function Popover({
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+const AnchorContext = React.createContext<{
+  anchor: HTMLElement | null
+  setAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>>
+} | null>(null)
+
+function Popover({ ...props }: UiProps<typeof PopoverPrimitive.Popover>) {
+  const [anchor, setAnchor] = React.useState<HTMLElement | null>(null)
+  return <AnchorContext.Provider value={{ anchor, setAnchor }}><PopoverPrimitive.Popover {...props} /></AnchorContext.Provider>
 }
 
 function PopoverTrigger({
+  children,
+  asChild,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
+}: UiProps<typeof PopoverPrimitive.PopoverTrigger> & { asChild?: boolean }) {
+  return <PopoverPrimitive.PopoverTrigger data-slot="popover-trigger" {...asChildProps(asChild, children)}
+      {...props} />
 }
 
 function PopoverContent({
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   className,
   align = "center",
   sideOffset = 4,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: UiProps<typeof PopoverPrimitive.PopoverContent> & AutoFocusProps) {
+  const context = React.useContext(AnchorContext)
   return (
-    <PopoverPrimitive.Portal>
-      <PopoverPrimitive.Content
-        data-slot="popover-content"
-        align={align}
-        sideOffset={sideOffset}
-        className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-md border p-4 shadow-md outline-hidden",
-          className
-        )}
-        {...props}
-      />
-    </PopoverPrimitive.Portal>
+    <PopoverPrimitive.PopoverContent
+      data-slot="popover-content"
+      finalFocus={autoFocusTarget(onCloseAutoFocus)}
+      initialFocus={autoFocusTarget(onOpenAutoFocus)}
+      anchor={context?.anchor ?? undefined}
+      align={align}
+      sideOffset={sideOffset}
+      className={cn(
+        "bg-popover text-popover-foreground z-50 w-72 origin-(--transform-origin) rounded-md border p-4 shadow-md outline-hidden transition-[opacity,transform,scale] duration-150 data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none data-starting-style:scale-95 data-ending-style:scale-95",
+        className
+      )}
+      {...props}
+    />
   )
 }
 
-function PopoverAnchor({
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
-  return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />
+function PopoverAnchor({ asChild, children, ...props }: React.ComponentProps<"div"> & { asChild?: boolean }) {
+  const context = React.useContext(AnchorContext)
+  const { render, children: content } = asChildProps(asChild, children)
+  return renderElement("div", mergeProps({ ref: context?.setAnchor }, { ...props, children: content }), render)
 }
 
 function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {

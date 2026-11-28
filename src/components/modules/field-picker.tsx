@@ -21,12 +21,12 @@ export function FieldPicker({ options, onPick, label = "Add a field", search = "
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" aria-label={label} className="flex h-8 w-full items-center justify-between gap-2 border border-border bg-background px-2.5 text-sm hover:border-foreground/30 data-[state=open]:border-primary">
+        <button type="button" aria-label={label} className="flex h-8 w-full items-center justify-between gap-2 border border-border bg-background px-2.5 text-sm hover:border-foreground/30 data-open:border-primary">
           <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Plus className="size-3.5" />{label}…</span>
           <ChevronDown className="size-4 text-muted-foreground opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-(--radix-popover-trigger-width) min-w-64 rounded-none p-0">
+      <PopoverContent align="start" className="w-(--anchor-width) min-w-64 rounded-none p-0">
         <Command label={label}>
           <div className="flex items-center gap-2 border-b border-border px-3">
             <Search className="size-3.5 shrink-0 text-muted-foreground" />
