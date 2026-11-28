@@ -3,9 +3,38 @@ import { test } from "node:test";
 import { checkWorkflow, proposeWorkflow, workflowContext } from "../convex/lib/workflowAgent.ts";
 import { fixtureInput, workflowCases, checkExpectation } from "../scripts/workflow-evals.ts";
 import { parseRecipe } from "../recipes/md/parse.ts";
+import { standInWorkflow as standIn } from "../convex/lib/workflowStandIn.ts";
 import { loadConvex } from "./convexHandlers.ts";
-const modules = loadConvex(["lib/recipeAgentStandIn.ts"]);
-const standIn = modules["lib/recipeAgentStandIn.ts"].standInWorkflow as unknown as (input: ReturnType<typeof fixtureInput>) => unknown;
+
+test("workflow refuses a Stage rail on Canon defaults and withholds the model's success claim", async () => {
+  const input = fixtureInput("Add the Stage rail below the header so I can see the deal's progress at a glance");
+  const proposal = await proposeWorkflow(input, { skill: "test", charge: () => {}, call: async () => standIn(input) });
+  assert.deepEqual(proposal.targets, []);
+  assert.match(proposal.summary, /Stage rail requires a deal play/);
+  assert.doesNotMatch(proposal.summary, /Added the Stage rail/);
+});
+
+test("workflow treats archived deals as record-only even with plays enabled", async () => {
+  const request = "Add a Stage rail below the header";
+  const input = fixtureInput(request);
+  input.pages.find((p) => p.target === "deal")!.dealPlay = { available: true };
+  const fn = loadConvex(["pageCustomize.ts"], {
+    "lib/recipeAgentStandIn.ts": (real) => ({ ...real, recipeAgentStandIn: () => true }),
+  })["pageCustomize.ts"];
+  const proposal = await fn.workflow.handler({
+    runQuery: async (ref: unknown) => {
+      switch (String(ref)) {
+        case "internal.workspaceRecipes.workflowBases": return { userId: "user", pages: input.pages };
+        case "api.dataModel.objects": return [];
+        case "api.objects.get": return { object: "deal", lifecycle: { status: "deleted" } };
+        default: assert.fail(`unexpected query ${String(ref)}`);
+      }
+    },
+    runAction: () => assert.fail("an archived record cannot mount its play"),
+  }, { request, dealId: "archived-deal" });
+  assert.equal(proposal.targets.length, 0);
+  assert.match(proposal.summary, /deal play is unavailable on this record/i);
+});
 
 for (const c of workflowCases.filter((c) => c.canonical)) test(`stand-in ${c.request} satisfies workflow structure`, () => {
   const input = fixtureInput(c.request);

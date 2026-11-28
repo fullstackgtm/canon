@@ -519,7 +519,8 @@ export const workflowBases = internalQuery({
     const caller = await callerOf(ctx);
     if (!caller || caller.agent) throw new ConvexError("Sign in to customize your pages.");
     const { user } = caller;
-    const fallback = (await orgRecipe(ctx, user.orgId)).recipe.id;
+    const { recipe, plays } = await orgRecipe(ctx, user.orgId);
+    const fallback = recipe.id;
     const targets = new Map<string, string>([["deal", fallback], ["account", "canon-base"], ["contact", "canon-base"]]);
     for (const row of await enabledFor(ctx, user.orgId, "workspace.pages")) targets.set(row.contribution.key, row.recipe.id);
     for (const layer of await ownLayers(ctx, user)) {
@@ -536,7 +537,8 @@ export const workflowBases = internalQuery({
           if (candidate?.recipe.workspacePages?.some((p) => p.slug === target) && !candidate.basePages.includes(target)) { personal = { ...candidate, revision: 0 }; break; }
         }
       }
-      pages.push({ target, recipeId: base.recipeId, markdown: personal?.markdown ?? base.markdown, baseMarkdown: base.markdown, layerRevision: personal?.revision ?? 0 });
+      pages.push({ target, recipeId: base.recipeId, markdown: personal?.markdown ?? base.markdown, baseMarkdown: base.markdown, layerRevision: personal?.revision ?? 0,
+        ...(target === "deal" ? { dealPlay: plays ? { available: true as const } : { available: false as const, reason: "This workspace’s deal page has no deal play enabled." } } : {}) });
     }
     return { userId: user._id, pages };
   },

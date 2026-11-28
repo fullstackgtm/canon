@@ -25,6 +25,19 @@ test("section suggestions focus on the pinned Timeline instead of Deals", () => 
   assert.ok(suggestions.every((prompt) => /Timeline/i.test(prompt) && !/Deals/i.test(prompt)));
 });
 
+test("deal suggestions expose play blocks only when the deal play is available", () => {
+  const fixture = fixtureInput("");
+  const scope = { target: "deal" };
+  const unavailable = customizationSuggestionContext(fixture, scope);
+  assert.ok(!Object.hasOwn(unavailable.context.blocks, "stageRail"));
+  assert.ok(!unavailable.pages[0].addable.includes("stageRail"));
+
+  fixture.pages.find((p) => p.target === "deal")!.dealPlay = { available: true, stage: "in" };
+  const available = customizationSuggestionContext(fixture, scope);
+  assert.ok(Object.hasOwn(available.context.blocks, "stageRail"));
+  assert.ok(available.pages[0].addable.includes("stageRail"));
+});
+
 test("suggest refuses a missing plan before reading the object catalog or calling a model", async () => {
   const fn = loadConvex(["pageCustomize.ts"], {
     "lib/recipeAgentStandIn.ts": (real) => ({ ...real, recipeAgentStandIn: () => false }),

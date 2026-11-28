@@ -1,6 +1,17 @@
 import { describeLayout as describeLayoutForStandIn, type LayoutOp } from "../../recipes/md/edit.ts";
 
 export function standInWorkflow(input: import("./workflowAgent.ts").WorkflowInput) {
+  if (/\badd\b.*\bstage rail\b/i.test(input.request)) {
+    const deal = input.pages.find((p) => p.target === "deal");
+    const layout = deal && describeLayoutForStandIn(deal.markdown, "deal");
+    if (layout && !("error" in layout)) {
+      return {
+        plan: [{ target: "deal", why: "See the deal's progress at a glance." }],
+        ops: { deal: [{ op: "addSection", object: "deal", component: "stageRail", title: "Stage rail", before: layout.sections[1]?.ref ?? null }] },
+        summary: "Added the Stage rail directly below the deal header.",
+      };
+    }
+  }
   const sdr = /SDR|morning.queue/i.test(input.request);
   if (!sdr && !/renewal/i.test(input.request)) return { plan: [], ops: {}, summary: "The local stand-in handles renewals desk and SDR morning queue only." };
   const target = sdr ? "morning-queue" : "renewals";
