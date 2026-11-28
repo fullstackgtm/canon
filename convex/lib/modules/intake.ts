@@ -66,6 +66,19 @@ export async function admit(ctx: MutationCtx, args: SubmitInput) {
   }
   return { status: 202 as const, orgId: f.link.orgId, version: f.form.version, email: normalized.values.email, companyName: normalized.values.company ?? '' };
 }
+const RECENT_MS = 10 * 60000;
+/**
+ * The row saying a submission with this email created a lead here in the last ten minutes. Matching reads the record
+ * service before this transaction, so two submissions a moment apart both see no lead; this row is read and written in
+ * the transaction, so only the first creates one. The key holds a digest, not the address.
+ */
+async function recentLead(ctx: MutationCtx, orgId: string, email: string) {
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email))), b => b.toString(16).padStart(2, '0')).join('');
+  const key = `form:${orgId}:email:${digest}`, now = Date.now();
+  const row = await ctx.db.query('moduleRateLimits').withIndex('by_key', q => q.eq('key', key)).unique();
+  const next = { key, count: 1, windowStart: now, expiresAt: now + RECENT_MS };
+  return { created: !!row && row.expiresAt > now, mark: () => (row ? ctx.db.patch(row._id, next) : ctx.db.insert('moduleRateLimits', next)) };
+}
 export async function commit(ctx: MutationCtx, args: SubmitInput, version: number, match: InboundMatch | null) {
   const f = await resolveForm(ctx, args.publicId);
   if (!f || f.form.version !== version) return { status: 404 };
@@ -77,9 +90,13 @@ export async function commit(ctx: MutationCtx, args: SubmitInput, version: numbe
   let leadId = match && 'leadId' in match ? match.leadId : undefined;
   const personId = match && 'personId' in match ? match.personId : undefined;
   if (!leadId && !personId && outcome !== 'needs_review') {
-    const saved = await saveAsCaller(ctx, f.user, 'lead', { op: 'create', values: n.values }, { intake: { formKey: f.link.formKey } });
-    if (saved.status === 'applied' || saved.status === 'unchanged') leadId = saved.streamId;
-    else outcome = 'failed';
+    const recent = await recentLead(ctx, f.link.orgId, n.values.email);
+    if (recent.created) outcome = 'duplicate';
+    else {
+      const saved = await saveAsCaller(ctx, f.user, 'lead', { op: 'create', values: n.values }, { intake: { formKey: f.link.formKey } });
+      if (saved.status === 'applied' || saved.status === 'unchanged') { leadId = saved.streamId; await recent.mark(); }
+      else outcome = 'failed';
+    }
   }
   await f.scope.op('submissions.receive', { data: { formKey: f.link.formKey, answers: JSON.stringify(n.answers), utm: JSON.stringify(n.utm), hidden: JSON.stringify(n.hidden), outcome, receivedAt: Date.now(), ipHash: args.ipHash, userAgent: args.userAgent.slice(0,400), ...(leadId ? { leadId } : {}), ...(personId ? { personId } : {}), ...(match && 'companyId' in match && match.companyId ? { companyId: match.companyId } : {}), ...(match && 'accountOwner' in match && match.accountOwner ? { accountOwner: match.accountOwner } : {}), ...(!match ? { matchUnavailable: true } : {}) } });
   return { status: 200, message: f.config.message || 'Thank you. Your submission was received.', ...(f.config.redirect ? { redirect: f.config.redirect } : {}) };

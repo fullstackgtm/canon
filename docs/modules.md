@@ -4416,9 +4416,14 @@ record. Ambiguous matches need review. Other matches create a standard lead and
 retain company and account-owner suggestions on the submission. Matching outages
 still create leads and mark `matchUnavailable`. Invalid lead values retain a
 failed submission while the visitor sees the success message. An HTTPS redirect
-may replace that message; Canon never fetches the destination.
+may replace that message; Canon never fetches the destination. A second
+submission of the same new email within ten minutes of the one that created its
+lead is kept with outcome `duplicate` and creates no second lead.
 
 All public entry points return the unknown-form 404 while `INBOUND_FORMS` is
-not `on`, except on the explicit local demo bypass. The switch remains off on
-dev pending independent boundary review. Embeds, cross-origin intake, custom
+not `on`, except on the explicit local demo bypass. The page and the submit
+route also return it when `CANON_CLIENT_IP_HEADER` is unset, except on the local
+HTTP stack: without it every visitor shares one rate bucket, so one script could
+hold every form at its limit. The switch remains off on dev until that header is
+set there (#1335). Embeds, cross-origin intake, custom
 field mapping, routing queues, SLA timers and booking are outside this slice.

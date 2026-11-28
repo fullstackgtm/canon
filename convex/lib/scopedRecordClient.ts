@@ -20,7 +20,9 @@ import {
   canSeeRecord, hasOwnerField, hiddenFields, intersectScopes, isRestricted, narrowsReads, ownerScope, refuseHiddenUse, scopeFor,
   type Access,
 } from "./access.ts";
-import { LIST_LIMIT_MAX, type CompanyPredicate, type ListRequest, type OwnerScope } from "./objects/listSpec.ts";
+import { FormulaError, parseFormula, type Expr } from "./objects/formula.ts";
+import { indexObjectDef, type ObjectDef } from "./objects/registry.ts";
+import { LIST_LIMIT_MAX, listViewDef, type CompanyPredicate, type ListRequest, type OwnerScope } from "./objects/listSpec.ts";
 import { accountCriterionFields, personCriterionFields } from "./icpCriteria.ts";
 import type { AccountsFilter } from "./recordContract.ts";
 import { atLeastVersion, type RecordClient } from "./recordClient.ts";
@@ -104,7 +106,7 @@ export async function admitThenRead<T>(client: RecordClient, ws: string, read: (
   return (await read(admitted)).value;
 }
 
-export function scopedRecordClient(base: RecordClient, accesses: readonly Access[], dealScope: () => Promise<OwnerScope | null>): RecordClient {
+export function scopedRecordClient(base: RecordClient, accesses: readonly Access[], dealScope: () => Promise<OwnerScope | null>, definitions: () => Promise<readonly ObjectDef[]> = async () => []): RecordClient {
   if (!accesses.length) throw new ConvexError("A scoped read needs at least one principal");
   const matchInbound: RecordClient["matchInbound"] = async () => { throw new ConvexError("Inbound matching runs only as Canon."); };
   if (!accesses.some(isRestricted)) return { ...base, matchInbound };
@@ -118,6 +120,59 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
     dealIds ??= accesses.some((a) => ownerScope(a, "deal", true)) ? dealScope() : Promise.resolve(null);
     return dealIds;
   };
+  const computedHidden = new Map<string, Set<string>>();
+  let loaded: Promise<void> | undefined;
+  const loadHidden = () => loaded ??= (async () => {
+    const formulaRefs: { object: string; name: string; refs: string[] }[] = [];
+    const defs = new Map((await definitions()).map((d) => [d.apiName, indexObjectDef(d)]));
+    const references = (e: Expr): string[] => {
+      switch (e.k) {
+        case "field": return [e.name];
+        case "neg": case "not": return references(e.arg);
+        case "bin": return [...references(e.left), ...references(e.right)];
+        case "call": return e.args.flatMap(references);
+        default: return [];
+      }
+    };
+    for (const [object, def] of defs) {
+      const h = hidden(object);
+      if (object === "contact") {
+        if (hidden("account").has("fit")) h.add("accountFit");
+        if (hidden("account").has("icpIds")) h.add("accountIcpIds");
+      }
+      computedHidden.set(object, h);
+      for (const f of def.fields) {
+        if (f.type !== "formula" || f.archivedAt !== undefined) continue;
+        const source = f.rollup ? defs.get(f.rollup.object) : listViewDef(object, def);
+        if (!source) continue;
+        let refs: string[];
+        try {
+          refs = f.formula.trim() ? references(parseFormula(source, f.formula, { rollups: !f.rollup })) : [];
+        } catch (e) {
+          // The evaluator returns empty for stale definitions; permission checks must not throw instead.
+          if (!(e instanceof FormulaError)) throw e;
+          continue;
+        }
+        if (f.rollup) {
+          const via = source.byFieldId.get(f.rollup.via as never);
+          const field = source.byFieldId.get(f.rollup.field as never);
+          refs.push(...[via, field].flatMap((x) => x ? [x.apiName] : []));
+          if (await scopeOf(source.apiName) || accesses.some((a) => refs.some((r) => hiddenFields(a, source.apiName).includes(r)))) h.add(f.apiName);
+        } else {
+          // Formulas can read rollups; propagate after all direct dependencies have been classified.
+          formulaRefs.push({ object, name: f.apiName, refs });
+        }
+      }
+    }
+    let changed: boolean;
+    do {
+      changed = false;
+      for (const { object, name, refs } of formulaRefs) {
+        const h = computedHidden.get(object)!;
+        if (!h.has(name) && refs.some((r) => h.has(r))) { h.add(name); changed = true; }
+      }
+    } while (changed);
+  })();
   const scoped = async <T extends object>(object: string, req: T): Promise<T> => {
     const scope = await scopeOf(object);
     return scope ? { ...req, scope } : req;
@@ -127,6 +182,8 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
   const narrows = accesses.some(narrowsReads);
   const derivedField = (field: string | undefined) => field === "accountFit" ? "fit" : field === "accountIcpIds" ? "icpIds" : undefined;
   const refuse = (object: string, fields: ReadonlyArray<string | undefined>) => {
+    const used = fields.find((f) => f !== undefined && hidden(object).has(f));
+    if (used) throw new ConvexError(`${used} is hidden for your role`);
     for (const a of accesses) {
       refuseHiddenUse(a, object, fields.flatMap((f) => object === "account" && f === "revenue" ? [f, "annualRevenue"] : [f]));
       if (object === "contact") refuseHiddenUse(a, "account", fields.map(derivedField));
@@ -134,7 +191,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
   };
   // Field permissions (CP14): a field any principal may not see leaves every row, and no filter, sort, group or measure may name it.
   const hidden = (object: string) => {
-    const fields = new Set(accesses.flatMap((a) => hiddenFields(a, object)));
+    const fields = new Set([...(computedHidden.get(object) ?? []), ...accesses.flatMap((a) => hiddenFields(a, object))]);
     if (object === "account" && fields.has("annualRevenue")) fields.add("revenue");
     return fields;
   };
@@ -191,14 +248,16 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
 
   return {
     ...base,
-    checkReadFields: refuse,
+    async checkReadFields(object, fields) { await loadHidden(); refuse(object, fields); },
     async list(ws, req) {
+      await loadHidden();
       refuse("account", [...legacyFields(req.filter), req.sort?.field === "employees" ? "employees" : req.sort?.field === "name" ? "name" : undefined]);
       const scope = await legacyScope(base, accesses, "account");
       const page = await base.list(ws, scope ? { ...req, filter: { ...req.filter, scope } } : req);
       return { ...page, rows: page.rows.map((r) => stripLegacy("account", r)) };
     },
     async listContacts(ws, req) {
+      await loadHidden();
       if (req.filter?.q) refuse("contact", ["title", "email"]);
       if ((req.filter?.accountId || req.filter?.accountIds?.length) && hidden("contact").has("accountId")) return { rows: [], nextCursor: null, total: 0 };
       const scope = await legacyScope(base, accesses, "contact");
@@ -206,16 +265,19 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
       return { ...page, rows: page.rows.map((r) => stripLegacy("contact", r)) };
     },
     async countSegment(ws, filter) {
+      await loadHidden();
       refuse("account", legacyFields(filter));
       const scope = await legacyScope(base, accesses, "account");
       return base.countSegment(ws, scope ? { ...filter, scope } : filter);
     },
     async facets(ws, req) {
+      await loadHidden();
       refuse("account", [...legacyFields(req.filter, req.groupBy), "employees", "revenue", "annualRevenue"]);
       const scope = await legacyScope(base, accesses, "account");
       return base.facets(ws, scope ? { ...req, filter: { ...req.filter, scope } } : req);
     },
     async get(ws, id) {
+      await loadHidden();
       const detail = await base.get(ws, id);
       if (!detail || !sees("account", detail.account)) return null;
       return {
@@ -225,26 +287,31 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
       };
     },
     async getContact(ws, id) {
+      await loadHidden();
       const row = await base.getContact(ws, id);
       return row && sees("contact", row) ? stripLegacy("contact", row) : null;
     },
     async listRegister(ws, object, req) {
+      await loadHidden();
       refuse(object, listFields(req));
       const page = await base.listRegister(ws, object, await scoped(object, await companyRequest(object, req)));
       return { ...page, rows: page.rows.map((r) => stripRow(object, r)) };
     },
     async listObjects(ws, object, req) {
+      await loadHidden();
       refuse(object, listFields(req));
       const page = await base.listObjects(ws, object, await scoped(object, req));
       return { ...page, rows: page.rows.map((r) => stripRow(object, r)) };
     },
     async aggregate(ws, object, req) {
+      await loadHidden();
       // A key on a related record reads that record's fields, which this scope does not cover: not for a role with narrowed reads.
       if (narrows && req.groupBy?.some((g) => g.via !== undefined)) throw new ConvexError("Grouping by a related record's field isn't available for your role yet");
       refuse(object, [...(req.filter ?? []).map((f) => f.field), ...(req.groupBy ?? []).map((g) => g.field), ...req.measures.flatMap((m) => [m.field, m.weight])]);
       return base.aggregate(ws, object, await scoped(object, await companyRequest(object, req)));
     },
     async searchObjects(ws, req) {
+      await loadHidden();
       // Every object a rule narrows, by its scope; objects with no rule are seen whole.
       const scopes: Record<string, OwnerScope> = {};
       for (const object of new Set(["lineItem", ...accesses.flatMap((a) => Object.keys(a.rules))])) {
@@ -269,6 +336,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
     },
     matchInbound,
     async listDuplicates(ws, object, limit) {
+      await loadHidden();
       const found = await base.listDuplicates(ws, object, limit, await legacyScope(base, accesses, object));
       // A member's detail is a company's industry or a person's title; the keys groups match on cannot be hidden (lib/access.ts unhideableFields).
       if (!hidden(object).has(object === "account" ? "industry" : "title")) return found;
@@ -276,6 +344,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
     },
     icpStats: async (ws) => (narrows ? { gates: [] } : base.icpStats(ws)),
     async icpTreeCounts(ws, req) {
+      await loadHidden();
       // Counts read companies' industry, country, size and AI answers, and people's titles: a role that hides one can't count by it.
       refuse("account", req.nodes.flatMap((n) => accountCriterionFields(n.account)));
       refuse("contact", req.nodes.flatMap((n) => [...(n.person || n.has?.length ? ["title"] : []), ...personCriterionFields(n.person), ...(n.has ?? []).flatMap((h) => personCriterionFields(h.person))]));
@@ -283,6 +352,7 @@ export function scopedRecordClient(base: RecordClient, accesses: readonly Access
       return base.icpTreeCounts(ws, { ...req, ...(accountScope ? { accountScope } : {}), ...(contactScope ? { contactScope } : {}) });
     },
     async territoryTreeCounts(ws, req) {
+      await loadHidden();
       // A territory counts the companies the caller sees, by fields their role shows: a hidden one can't carve, and owners
       // are named only to a role that sees the owner.
       refuse("account", [

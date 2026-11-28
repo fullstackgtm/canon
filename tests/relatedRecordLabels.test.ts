@@ -5,7 +5,7 @@ import { accessOf, type Access } from "../convex/lib/access.ts";
 
 const user = { _id: "u", orgId: "ws", role: "rep", name: "Rep" };
 let access: Access = accessOf({ userId: "u", role: "rep" });
-const files = loadConvex(["deals.ts", "explee.ts", "activity.ts", "conversationView.ts", "lib/modules/canonReads.ts"], {
+const files = loadConvex(["granola.ts", "deals.ts", "explee.ts", "activity.ts", "conversationView.ts", "lib/modules/canonReads.ts"], {
   "lib.ts": (real) => ({ ...real, getCurrentUser: async () => user }),
   "permissions.ts": (real) => ({ ...real, accessFor: async () => access }),
 });
@@ -96,4 +96,62 @@ test("conversation owners remain workspace directory labels under CRM restrictio
   const rows = await files["conversationView.ts"].listFor.handler({ db }, { people: [{ id: "person", name: "Person" }], admitted: ["person"] });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].ownerName, "Teammate");
+});
+
+
+test("hidden deal company links remove labels and link metadata from list and context", async () => {
+  access = accessOf({ userId: "u", role: "rep", rules: [{ object: "deal", fields: [{ apiName: "companyId", level: "hidden" }] }] });
+  for (const companyId of [undefined, "acc_private"]) {
+    await db.patch("deal", { companyId });
+    for (const name of ["list", "context"]) {
+      const result = await files["deals.ts"][name].handler(ctx, {});
+      const row = (name === "list" ? result : result.deals)[0];
+      for (const key of ["companyId", "accountId"]) assert.equal(row[key], undefined, key);
+      assert.equal(row.accountName, null);
+      assert.equal(row.accountDomain, null);
+      if (name === "list") assert.deepEqual(plain(row.company), { kind: "none" });
+    }
+    const detail = await files["deals.ts"].get.handler(ctx, { dealId: "deal" });
+    assert.equal(detail.accountId, undefined);
+    if (companyId) {
+      const rows = await files["deals.ts"].forCompany.handler(ctx, { companyId });
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].link, undefined);
+    }
+  }
+});
+
+test("latest closed derives legacy company identity only from an admitted account", async () => {
+  const read = files["lib/modules/canonReads.ts"].canonRead as unknown as (...args: unknown[]) => Promise<any[]>;
+  await db.patch("deal", { companyId: undefined, isClosed: true, isWon: true });
+  for (const ownerId of ["peer", "u"]) {
+    await db.patch("crm", { ownerId });
+    access = accessOf({ userId: "u", role: "rep", rules: [{ object: "account", visibility: "own", unowned: false }] });
+    const rows = await read(ctx, "ws", access, { reads: { deals: ["companyId"] } }, "deals.latestClosed", { won: true }, 10);
+    assert.equal(rows.length, 1);
+    assert.equal(typeof rows[0].companyId === "string", ownerId === "u");
+  }
+});
+
+test("Granola recent and outside owners use call visibility including a readable linked deal", async () => {
+  const calls = [
+    { _id: "own", ownerId: "u" }, { _id: "private", ownerId: "peer" }, { _id: "linked", ownerId: "peer", dealId: "deal" }, { _id: "blocked", ownerId: "peer", dealId: "other-deal" },
+  ].map((c) => ({ ...c, orgId: "ws", provider: "granola", title: c._id, createdAt: 1, participants: [{ role: "owner", email: `${c._id}@outside.example` }], sourceMetadata: { suggestionCheck: { reason: "not_our_meeting" } } }));
+  const db = memoryDb({ users: [user], deals: [deal, { ...deal, _id: "other-deal", primaryRepId: "peer" }], callRecordings: calls, integrations: [{ _id: "g", orgId: "ws", provider: "granola", isActive: true }] });
+  const query = db.query;
+  db.query = (table) => {
+    const chain = query(table);
+    return Object.assign(chain, { filter: (predicate: (q: { field: (name: string) => string; eq: (field: string, value: unknown) => [string, unknown] }) => [string, unknown]) => {
+      const [field, value] = predicate({ field: (name) => name, eq: (field, value) => [field, value] });
+      return chain.withIndex("filter", (q: any) => q.eq(field, value));
+    } });
+  };
+  for (const restricted of [true, false]) {
+    access = accessOf({ userId: "u", role: "rep", rules: restricted ? [{ object: "call", visibility: "own", unowned: false }, { object: "deal", visibility: "own", unowned: false }] : [] });
+    const result = await files["granola.ts"].status.handler({ db }, {});
+    assert.deepEqual(plain(result.recent.map((r: any) => r.id).sort()), restricted ? ["linked", "own"] : ["blocked", "linked", "own", "private"]);
+    const meetings = await files["granola.ts"].meetings.handler({ db }, {});
+    assert.deepEqual(plain(meetings.map((r: any) => r.id).sort()), restricted ? ["linked", "own"] : ["blocked", "linked", "own", "private"]);
+    assert.deepEqual(plain(result.outsideOwners.sort()), (restricted ? ["linked", "own"] : ["blocked", "linked", "own", "private"]).map((id) => `${id}@outside.example`));
+  }
 });

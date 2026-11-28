@@ -17,6 +17,7 @@
  * A hosted deployment takes imports once its operator sets CANON_WORKSPACE_IMPORT=on (`importEnabled`); every import
  * runs its dry run first and refuses to start while the dry run refuses anything.
  */
+import { unhideableFields } from "./lib/access";
 import { ConvexError, v } from "convex/values";
 import { action, internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -501,6 +502,15 @@ export const importPage = mutation({
     const decoded = await Promise.all(raws.map(decode));
     const problems = decoded.flatMap((d) => d.unmapped);
     if (problems.length) refuse(problems);
+    if (args.section === "rolePermissions") {
+      for (const d of decoded) for (const rule of (d.row as unknown as Doc<"rolePermissions">).rules) {
+        const def = rule.fields?.some((f) => f.level === "hidden") ? await loadOrgObject(ctx, orgId, rule.object) : null;
+        const title = def?.byFieldId.get(def.titleFieldId)?.apiName;
+        const unhideable = new Set(unhideableFields(rule.object, title));
+        const bad = rule.fields?.find((f) => f.level === "hidden" && unhideable.has(f.apiName));
+        if (bad) throw new ConvexError(`${bad.apiName} names or matches ${rule.object} records, so it can be read-only but not hidden`);
+      }
+    }
     for (const d of decoded) {
       for (const [t, n] of Object.entries(d.cleared)) result.cleared[t] = (result.cleared[t] ?? 0) + n;
       result.foreign += d.foreign;

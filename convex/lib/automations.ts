@@ -324,12 +324,14 @@ function plainValue(def: ResolvedObjectDef, apiName: string, value: FieldValue |
 /**
  * A notify step's text, filled from the record as the rule's member sees it: `{record}` is its name, `{<field>}` a
  * field's value (a field hidden from them, or one the record doesn't have, reads empty). Other braces stay as written.
+ * `escape` is applied to what the record supplies and never to the template: a record's values can come from outside
+ * the workspace (a public form), so a channel with markup of its own passes its escaper.
  */
-export function renderMessage(template: string, def: ResolvedObjectDef, row: ListRow): string {
+export function renderMessage(template: string, def: ResolvedObjectDef, row: ListRow, escape: (value: string) => string = (value) => value): string {
   return template.replace(/\{([A-Za-z0-9_.]+)\}/g, (all, name: string) => {
-    if (name === "record") return row.title || "the record";
+    if (name === "record") return row.title ? escape(row.title) : "the record";
     const f = def.byApiName.get(name);
-    return f ? plainValue(def, name, row.values[f.fieldId]) : all;
+    return f ? escape(plainValue(def, name, row.values[f.fieldId])) : all;
   }).slice(0, MESSAGE_MAX);
 }
 

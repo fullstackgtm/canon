@@ -93,7 +93,7 @@ export const IMPORT_TABLES: Readonly<Record<string, ImportSpec>> = {
   users: { kind: "members" },
   organizations: { kind: "self", dependsOn: ["users"] },
   orgRoles: { kind: "rows", replace: true },
-  rolePermissions: { kind: "rows", replace: true },
+  rolePermissions: { kind: "rows", replace: true, dependsOn: ["objectDefs"] },
   teamGroups: { kind: "rows", replace: true },
   pipelineStageConfigs: { kind: "rows", replace: true },
   dealPipelines: { kind: "rows", replace: true },

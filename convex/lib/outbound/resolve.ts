@@ -53,7 +53,7 @@ function listsOf(r: RegisterListRow): { otherEmails?: string[]; otherPhones?: st
 
 export async function resolveContacts(ports: ResolvePorts, filter: ListRequest["filter"], addedIds: readonly string[] = [], related: readonly RelatedCondition[] = []): Promise<Resolved> {
   if (related.length && !ports.related) throw new Error("Related audience reader missing");
-  ports.related?.check(related);
+  await ports.related?.check(related);
   const first = await ports.listContacts({ filter, limit: PAGE });
   // The filter alone already over the cap: nothing to fetch. Otherwise the cap is on distinct members, below.
   if (first.total > AUDIENCE_MAX) return { contacts: [], total: first.total, tooLarge: true };

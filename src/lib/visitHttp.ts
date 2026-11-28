@@ -60,7 +60,7 @@ function defaults(request: Request): Dependencies {
   }, fetch };
 }
 
-function localHttp(env: Dependencies["env"]): boolean {
+export function localHttp(env: Dependencies["env"]): boolean {
   if (env.NODE_ENV === "production" || env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || !env.NEXT_PUBLIC_SITE_URL) return false;
   const url = new URL(env.NEXT_PUBLIC_SITE_URL);
   return url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);

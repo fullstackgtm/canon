@@ -16,7 +16,7 @@ export function assertSupportedRelated(related: readonly RelatedCondition[]) {
 }
 
 export type RelatedPorts = {
-  check(related: readonly RelatedCondition[]): void;
+  check(related: readonly RelatedCondition[]): void | Promise<void>;
   companiesMatching(ids: string[], filter: ListFilter[]): Promise<Set<string>>;
   companiesWithDeals(ids: string[], filter: ListFilter[]): Promise<Set<string>>;
 };
@@ -44,10 +44,10 @@ export function relatedPorts(client: RecordClient, ws: string): RelatedPorts {
     return found;
   };
   return {
-    check(related) {
+    async check(related) {
       assertSupportedRelated(related);
-      if (related.length) client.checkReadFields?.("contact", ["accountId"]);
-      for (const condition of related) client.checkReadFields?.(condition.path === "company" ? "account" : "deal", [
+      if (related.length) await client.checkReadFields?.("contact", ["accountId"]);
+      for (const condition of related) await client.checkReadFields?.(condition.path === "company" ? "account" : "deal", [
         ...(condition.path === "company.deals" ? ["companyId"] : []), ...condition.filter.map((f) => f.field),
       ]);
     },
@@ -58,7 +58,7 @@ export function relatedPorts(client: RecordClient, ws: string): RelatedPorts {
 
 export async function applyRelated<T>(rows: T[], related: readonly RelatedCondition[], ports: RelatedPorts): Promise<T[]> {
   assertSupportedRelated(related);
-  ports.check(related);
+  await ports.check(related);
   const accountId = (row: T): string | undefined => (row as { accountId?: string }).accountId;
   let kept = rows;
   for (const condition of related) {

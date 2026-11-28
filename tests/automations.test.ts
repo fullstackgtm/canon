@@ -517,6 +517,29 @@ test("a Wait until a date field waits for that day, goes straight on when it is 
 
 // ───────────────────────────── Notify and webhooks: what leaves Canon ─────────────────────────────
 
+test("a Slack notice shows a record's values as literal text and keeps the rule's own links", async () => {
+  const w = workspace();
+  await w.db.insert("outboundTargets", { orgId: ORG, channel: "slack", name: "sales", url: "sealed", hint: "hooks.slack.com/…", createdBy: RILEY, createdAt: 0 });
+  await inPerson(w, RILEY);
+  await automations.propose.handler(w.ctx, {
+    name: "Tell sales", object: "lead", trigger: { kind: "created" }, conditions: [],
+    actions: [
+      { kind: "notify_slack", channel: "sales", message: "<https://crm.example/leads|Open> {record} from {company}" },
+      { kind: "notify_email", to: { kind: "record_owner" }, subject: "New lead", message: "{record} from {company}" },
+    ],
+  });
+  await as(w, await withQuinn(w));
+  // A public form can put any text in a lead: Slack must not read it as a mention or a link.
+  await write(w, { lastName: "<!channel> <https://evil.example|Sign in>", company: "A & B", ownerId: AVERY });
+  await fanout(w);
+  await drain(w);
+  const sent = plain((w.db.rows("outboundMessages") as Array<Record<string, any>>).map((r) => [r.channel, r.rendered.text]));
+  assert.deepEqual(sent, [
+    ["slack", "<https://crm.example/leads|Open> &lt;!channel&gt; &lt;https://evil.example|Sign in&gt; from A &amp; B"],
+    ["email", "<!channel> <https://evil.example|Sign in> from A & B"],
+  ]);
+});
+
 test("notify steps post to a mapped Slack channel and email the record's owner through the outbox, filled from the record as the approver sees it", async () => {
   const w = workspace();
   await w.db.insert("outboundTargets", { orgId: ORG, channel: "slack", name: "sales", url: "sealed", hint: "hooks.slack.com/…", createdBy: RILEY, createdAt: 0 });

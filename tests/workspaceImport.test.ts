@@ -1047,3 +1047,26 @@ test("intake source refs remap their publisher and preserve their form key", () 
   const decoded = decodeRow("t", shape, row, { orgId: "dest", map: (id: string) => id === publisher ? "new-publisher" : undefined, imported: () => true });
   assert.equal(decoded.row?.sourceRef, "intake:@canon/inbound:contact:user:new-publisher");
 });
+
+test("workspace import refuses hidden standard and custom titles and preserves read-only rules", async () => {
+  for (const custom of [false, true]) for (const level of ["hidden", "readOnly"]) {
+    const w = world();
+    const object = custom ? (await M["customObjects.ts"].create.handler(ctxOf(w.db, "clerk_ada"), { label: "Widget", pluralLabel: "Widgets", icon: "box", titleLabel: "Name" })).apiName : "account";
+    const def = await orgDefs.loadOrgObject(ctxOf(w.db), w.A, object);
+    const apiName = def.byFieldId.get(def.titleFieldId).apiName;
+    await w.db.insert("rolePermissions", { orgId: w.A, role: "rep", rules: [{ object, fields: [{ apiName, level }] }], updatedAt: 1, updatedBy: w.ada });
+    const archive = await exportOf(w.db, "clerk_ada");
+    const key = await importKey(w.db);
+    const run = () => importWorkspace(importTransport(w.db, key), archive.files);
+    if (level === "hidden") {
+      const dry = await planImport(archive.files, { ...(await I.importPlan.handler(ctxOf(w.db), { key })), refusals: [] });
+      assert.ok(dry.report.refusals.some((r) => r.includes("read-only but not hidden")));
+      await assert.rejects(run(), /read-only but not hidden/);
+      assert.equal(of(w.db, "workspaceImports", w.B).length, 0);
+      assert.equal(of(w.db, "rolePermissions", w.B).length, 0);
+    } else {
+      await run();
+      assert.deepEqual(JSON.parse(JSON.stringify(of(w.db, "rolePermissions", w.B)[0].rules)), [{ object, fields: [{ apiName, level: "readOnly" }] }]);
+    }
+  }
+});

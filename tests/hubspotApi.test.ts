@@ -19,7 +19,7 @@ const PROJECT: OrgObjectExtension & { apiName: string } = {
 };
 
 let user = ADMIN;
-const FILES = ["objects.ts", "records.ts", "deals.ts", "customObjects.ts", "permissions.ts", "canon.ts", "activityTargets.ts", "apiIdempotency.ts", "associations.ts", "dealCommittee.ts", "pipelines.ts"];
+const FILES = ["ledgerFeed.ts", "objects.ts", "records.ts", "deals.ts", "customObjects.ts", "permissions.ts", "canon.ts", "activityTargets.ts", "apiIdempotency.ts", "associations.ts", "dealCommittee.ts", "pipelines.ts"];
 const M = loadConvex(FILES, { "lib.ts": (real) => ({ ...real, getCurrentUser: async () => user, requireUser: async () => user }) });
 
 // ---- the workspace ----

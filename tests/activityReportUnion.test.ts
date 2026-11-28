@@ -29,6 +29,7 @@ function fixture() {
   ];
   let session = users[1];
   const db = memoryDb({
+    organizations: [{ _id: "org" }],
     users, orgRoles: [{ _id: "custom-role", orgId: "org", key: "custom", base: "rep", label: "Custom" }],
     rolePermissions: [{ _id: "rules", orgId: "org", role: "custom", rules: [{ object: "account", visibility: "own", unowned: false }] }],
     modulePackages: [{ _id: "pkg", orgId: "org", moduleId: manifest.id, status: "installed", slug: "activity", manifestHash: "initial", manifest: JSON.stringify(manifest), epoch: 1, projection: { ...projection, completed: ["visits"] } }],
@@ -43,7 +44,7 @@ function fixture() {
     await during?.();
     return Response.json({ ...empty, moduleActivities: request.moduleActivities });
   } });
-  const loaded = loadConvex(["reports.ts", "records.ts", "moduleActivities.ts", "permissions.ts"], {
+  const loaded = loadConvex(["reports.ts", "records.ts", "moduleActivities.ts", "permissions.ts", "ledgerFeed.ts"], {
     "lib.ts": (real) => ({ ...real, getCurrentUser: async () => session }),
     "lib/recordClient.ts": (real) => ({ ...real, recordClient: () => client }),
   });

@@ -69,3 +69,13 @@ test("a CLI run's findings read only for a role that sees every record", async (
   assert.deepEqual(await read(admin, "away"), []);
   assert.deepEqual(await read(admin, "not-an-id"), []);
 });
+
+
+test("a member-private background job title stays out of workspace module run history", async () => {
+  const db = world();
+  await db.insert("backgroundJobs", { _id: "intake", orgId: "org", userId: "owner", kind: "conversation_intake", title: "Reading private@example.com: last 90 days", status: "processing", phases: [], startedAt: T + 10_000, updatedAt: T + 10_000, href: "/dashboard/integrations" });
+  const access = accessOf({ userId: "other", role: "rep", rules: [{ object: "account", read: false }] });
+  const rows = plain(await runsRead({ db } as never, "org" as never, access, ["title"], "runs.between", {}, 50));
+  assert.ok(rows.some((r: { title: string }) => r.title === "Find people"));
+  assert.ok(!rows.some((r: { id: string }) => r.id === "intake"));
+});

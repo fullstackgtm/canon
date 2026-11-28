@@ -421,7 +421,11 @@ export function principalClient(ctx: ActionCtx, orgId: string, accesses: readonl
     },
   };
   return scopedRecordClient(activityClient, accesses, () =>
-    ctx.runQuery(internal.permissions.dealScopeOf, { orgId: orgId as Id<"organizations">, accesses: [...accesses] }));
+    ctx.runQuery(internal.permissions.dealScopeOf, { orgId: orgId as Id<"organizations">, accesses: [...accesses] }), async () => {
+      const snapshot = await ctx.runQuery(internal.ledgerFeed.heads, { org: orgId });
+      if (!snapshot) throw new ConvexError("Workspace definitions unavailable");
+      return snapshot.defs;
+    });
 }
 
 /** Refuse `op` on a register row the caller's role may not perform or see; a hidden row reads as missing. */
