@@ -276,7 +276,7 @@ function CustomizeOverlay() {
           onMouseDown={(e) => { e.preventDefault(); if (pinned) { if (!hasComment && !attachments.pending) close(); return; } const a = areaAt(e.clientX, e.clientY); if (a) { setPinned(a); setPointed(pointedAt(leafAt(e.clientX, e.clientY), a)); } }}
           onWheel={(e) => { window.scrollBy(0, e.deltaY); document.querySelector("main")?.scrollBy(0, e.deltaY); }}>
           {rect ? (
-            <div className="pointer-events-none fixed rounded-md outline outline-2 outline-violet-500 transition-all duration-100"
+            <div className="pointer-events-none fixed rounded-md outline outline-2 outline-violet-500"
               style={{ top: rect.top - 4, left: rect.left - 4, width: rect.width + 8, height: rect.height + 8, boxShadow: "0 0 0 200vmax rgba(28,25,23,0.45)" }} />
           ) : <div className="pointer-events-none fixed inset-0 bg-stone-950/45" />}
           {editable.map((r, i) => (

@@ -6,6 +6,7 @@ import { GitMerge, Search } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { MergePreview } from "../../../convex/recordMerges";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { RecordActionControl } from "@/components/ui/record-action-control";
 import { toast } from "@/lib/toast";
 import { cn, getErrorMessage } from "@/lib/utils";
 import { formatValue, type CellValue, type FieldDescription, type TeamMember } from "./fields";
@@ -156,7 +157,7 @@ export function MergeDialog({ object, ids, onClose, onMerged }: { object: PartyO
 }
 
 /** "Merge with…" on a record page: find the duplicates of this record, then open the merge dialog with them. */
-export function MergeWith({ object, id, title, onMerged, label = "Merge with…", disabled }: { object: PartyObject; id: string; title: string; onMerged: (survivorId: string) => void; label?: string; disabled?: boolean }) {
+export function MergeWith({ object, id, title, onMerged, label = "Merge with…", disabled, menu }: { menu?: boolean; object: PartyObject; id: string; title: string; onMerged: (survivorId: string) => void; label?: string; disabled?: boolean }) {
   const list = useAction(api.objects.list);
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState(title);
@@ -184,7 +185,7 @@ export function MergeWith({ object, id, title, onMerged, label = "Merge with…"
   if (merging) return <MergeDialog object={object} ids={[id, ...chosen]} onClose={() => setMerging(false)} onMerged={(s) => { setMerging(false); setOpen(false); onMerged(s); }} />;
   return (
     <>
-      <button type="button" disabled={disabled} onClick={() => { setOpen(true); setChosen([]); }} className={btn}><GitMerge className="h-3 w-3" /> {label}</button>
+      <RecordActionControl menu={menu} disabled={disabled} onClick={() => { setOpen(true); setChosen([]); }} className={btn}><GitMerge className="h-3 w-3" /> {label}</RecordActionControl>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

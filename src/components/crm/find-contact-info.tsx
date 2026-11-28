@@ -1,5 +1,6 @@
 "use client";
 
+import { RecordActionControl } from "@/components/ui/record-action-control";
 import { IntegrationGate } from "@/components/integration-gate";
 
 import { useState } from "react";
@@ -15,7 +16,8 @@ const btn = "border border-border px-2 py-0.5 text-xs font-medium hover:bg-muted
  * records.findPhone (the lookup writes what it finds onto the contact), says
  * when nothing was found, and calls `onFound` so the page rereads the row.
  */
-function FindContactInfoEnabled({ kind, accountId, contactId, name, onFound, className, label, disabled }: {
+function FindContactInfoEnabled({ kind, accountId, contactId, name, onFound, className, label, disabled, menu }: {
+  menu?: boolean;
   kind: "email" | "phone";
   /** The page's label for it, from the recipe. */
   label?: string;
@@ -49,9 +51,9 @@ function FindContactInfoEnabled({ kind, accountId, contactId, name, onFound, cla
 
   if (missed) return <span className={cn("text-xs text-muted-foreground", className)}>{kind} not found</span>;
   return (
-    <button type="button" onClick={() => void find()} disabled={busy || disabled} className={cn(btn, className)} data-testid={`find-${kind}`}>
+    <RecordActionControl menu={menu} onClick={() => void find()} disabled={busy || disabled} className={cn(btn, className)} data-testid={`find-${kind}`}>
       {busy ? "Finding…" : label ?? (kind === "email" ? "Find email" : "Find phone")}
-    </button>
+    </RecordActionControl>
   );
 }
 

@@ -9,7 +9,7 @@ type Relation =
 export type RecordRelation = Relation & { id: string; object: string; label: string };
 type ModelObject = {
   apiName: string; pluralLabel: string;
-  fields: readonly { apiName: string; type: string; lookupTo?: string; hidden?: boolean; archivedAt?: number }[];
+  fields: readonly { apiName: string; fieldId?: string; label?: string; type: string; lookupTo?: string; hidden?: boolean; archivedAt?: number }[];
 };
 
 const builtIn: Record<string, RecordRelation[]> = {
@@ -40,6 +40,28 @@ export function recordRelations(source: string, objects: readonly ModelObject[])
         : [],
     )),
   ];
+}
+
+export type ParentRecordRelation = { id: string; object: string; label: string } & (
+  { kind: "field"; field: string } | { kind: "association"; edge: "parent" | "primaryCompany" }
+);
+
+export function parentRecordRelations(source: string, objects: readonly ModelObject[]): ParentRecordRelation[] {
+  const fields = objects.find((object) => object.apiName === source)?.fields;
+  if (!fields) return [];
+  const hasAccount = objects.some((object) => object.apiName === "account");
+  const parent: ParentRecordRelation[] = !hasAccount ? [] : source === "account"
+    ? [{ id: "parentCompany", object: "account", label: "Parent company", kind: "association", edge: "parent" }]
+    : source === "contact"
+      ? [{ id: "primaryCompany", object: "account", label: "Primary company", kind: "association", edge: "primaryCompany" }]
+      : [];
+  return [...parent, ...fields.flatMap((field): ParentRecordRelation[] => {
+    if (field.type !== "lookup" || field.hidden || field.archivedAt !== undefined) return [];
+    const target = objects.find((object) => object.apiName === field.lookupTo);
+    if (!target) return [];
+    const dealCompany = source === "deal" && field.apiName === "companyId" && target.apiName === "account";
+    return [{ id: dealCompany ? "dealCompany" : field.apiName, kind: "field", field: field.fieldId ?? field.apiName, object: target.apiName, label: field.label ?? target.pluralLabel }];
+  })];
 }
 
 export function relatedListQuery(relation: RecordRelation, sourceId: string, props: Partial<RecordProps<"relatedList">>, ids?: string[]) {

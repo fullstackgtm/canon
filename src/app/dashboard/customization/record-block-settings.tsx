@@ -4,16 +4,20 @@ import { z } from "zod";
 import { useId, useState, type FormEvent } from "react";
 import { BLOCKS, pageKind, parseRecordProps, type RecordBlock, type RecordProps } from "../../../../recipes/blocks";
 
-type Property = { type?: string; enum?: string[]; items?: Property; properties?: Record<string, Property>; minimum?: number; maximum?: number };
+type Property = { type?: string; enum?: string[]; items?: Property; properties?: Record<string, Property>; minimum?: number; maximum?: number; maxLength?: number; anyOf?: { const?: number }[] };
 const input = "block w-full border border-border bg-background px-2 py-1 text-sm";
 
 function readProperty(schema: Property, data: FormData, key: string): unknown {
-  if (schema.type === "boolean") return data.has(key) || undefined;
+  if (schema.type === "boolean") {
+    const choice = data.get(key);
+    return typeof choice === "string" && choice !== "" ? choice === "true" : undefined;
+  }
   if (schema.type === "object") {
     const fields = Object.entries(schema.properties ?? {}).map(([name, value]) => [name, readProperty(value, data, `${key}.${name}`)]);
     return fields.some(([, value]) => value !== undefined) ? Object.fromEntries(fields) : undefined;
   }
-  const value = String(data.get(key) ?? "").trim();
+  const raw = String(data.get(key) ?? "");
+  const value = key === "markdown" ? raw : raw.trim();
   if (schema.type === "array") {
     if (schema.items?.enum) {
       const values = data.getAll(key);
@@ -21,7 +25,7 @@ function readProperty(schema: Property, data: FormData, key: string): unknown {
     }
     return value ? value.split(",").map((part) => part.trim()).filter(Boolean) : undefined;
   }
-  return value ? schema.type === "integer" || schema.type === "number" ? Number(value) : value : undefined;
+  return value ? schema.type === "integer" || schema.type === "number" || schema.anyOf?.every((option) => typeof option.const === "number") ? Number(value) : value : undefined;
 }
 
 function PropInput({ name, schema, value, allowed, required }: { name: string; schema: Property; value: unknown; allowed?: string[]; required?: boolean }) {
@@ -31,14 +35,22 @@ function PropInput({ name, schema, value, allowed, required }: { name: string; s
     <legend className="text-xs">{label}</legend>
     {Object.entries(schema.properties ?? {}).map(([key, child]) => <PropInput key={key} name={`${name}.${key}`} schema={child} value={value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined} />)}
   </fieldset>;
-  if (schema.type === "boolean") return <label className="flex items-center gap-2 text-xs"><input type="checkbox" name={name} defaultChecked={value === true} />{label}</label>;
+  if (schema.type === "boolean") return <label htmlFor={id} className="block text-xs">{label}
+    <select id={id} name={name} className={input} defaultValue={String(value ?? "")}>
+      <option value="">Default</option><option value="true">Yes</option><option value="false">No</option>
+    </select>
+  </label>;
+  if (name === "markdown") return <label htmlFor={id} className="block text-xs">{label}
+    <textarea id={id} name={name} required={required} rows={5} maxLength={schema.maxLength} className={input} defaultValue={String(value ?? "")} />
+  </label>;
   if (schema.type === "array" && schema.items?.enum) return <label htmlFor={id} className="block text-xs">{label}
     <select id={id} name={name} multiple size={Math.min(5, allowed?.length ?? schema.items.enum.length)} className={input} defaultValue={Array.isArray(value) ? value : []}>
       {(allowed ?? schema.items.enum).map((v) => <option key={v} value={v}>{v.replace("kernel.", "")}</option>)}
     </select>
   </label>;
-  if (schema.enum) return <label htmlFor={id} className="block text-xs">{label}
-    <select id={id} name={name} className={input} defaultValue={String(value ?? "")}><option value="">Choose…</option>{schema.enum.map((v) => <option key={v}>{v}</option>)}</select>
+  const choices = schema.enum ?? schema.anyOf?.flatMap((option) => typeof option.const === "number" ? [String(option.const)] : []);
+  if (choices?.length) return <label htmlFor={id} className="block text-xs">{label}
+    <select id={id} name={name} required={required} className={input} defaultValue={String(value ?? "")}><option value="">Choose…</option>{choices.map((v) => <option key={v}>{v}</option>)}</select>
   </label>;
   const numeric = schema.type === "integer" || schema.type === "number";
   return <label htmlFor={id} className="block text-xs">{label}
@@ -65,6 +77,7 @@ export function RecordBlockSettings({ component, object, value, disabled, onSave
         const value = readProperty(property, form, name);
         return value === undefined ? [] : [[name, value]];
       }));
+      if (component === "actionBar" && !("actions" in props)) props.actions = [];
       onSave(parseRecordProps(component, props, kind));
       setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }

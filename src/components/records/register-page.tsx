@@ -6,7 +6,8 @@
  * An edit goes through records.edit, which puts a row nobody has worked onto the ledger first, and returns once the
  * row shows it. History exists once the row is on the ledger.
  */
-import { highlightsActions, useRecordBlockRenderers } from "./record-blocks";
+import { RecordActionControl } from "@/components/ui/record-action-control";
+import { useRecordBlockRenderers, type RecordActionHost } from "./record-blocks";
 import { dataRenderers } from "./data-section";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ModulePanels } from "../modules/module-panels";
@@ -212,30 +213,30 @@ function logLabel(p: Page, section: PageSection) {
   return (kind: ActivityObject) => offered([action], "timeline", [action.runs], p.ctx, { kind: KIND_LABEL[kind] }, p.object)[0]?.label ?? KIND_LABEL[kind];
 }
 
-function partyHeaderControls(p: Page, actions: readonly PageAction[], host: "header" | "highlights") {
+function partyHeaderControls(p: Page, actions: readonly PageAction[], host: "header" | RecordActionHost, menu?: boolean) {
   const { object, id, row, desc: { fields }, team } = p;
-  const offer = (runs: ActionId) => offered(actions, host, [runs], p.ctx, {}, object)[0];
-  const status = offer("kernel.setStatus"), owner = offer("kernel.setOwner"), merge = offer("kernel.merge"), restore = offer("kernel.restore"), archive = offer("kernel.archive");
   const statusField = fields.find((f) => f.apiName === "status"), ownerField = fields.find((f) => f.apiName === "ownerId");
   const lookupAccountId = object === "contact" && row.accountId ? row.accountId : undefined;
   const controls = actions.flatMap((a): ReactNode[] => {
-    const placed = (o: typeof status) => o?.action.id === a.id;
-    if (placed(status) && statusField) {
-      return [<StatusSelect key={a.id} label={status!.label} disabled={status!.disabled} value={(valueOf(fields, row.values, "status") as AccountStatus | undefined) ?? "new"} onChange={(next) => void p.saveField(statusField, next)} />];
+    const matches = host === "actionBar" || a.runs === "kernel.findEmail" || a.runs === "kernel.findPhone" ? [a] : actions;
+    const [control] = offered(matches, host, [a.runs], p.ctx, {}, object);
+    if (control?.action.id !== a.id) return [];
+    const { label, disabled } = control;
+    if (a.runs === "kernel.setStatus" && statusField) {
+      return [<StatusSelect key={a.id} label={label} disabled={disabled} value={(valueOf(fields, row.values, "status") as AccountStatus | undefined) ?? "new"} onChange={(next) => void p.saveField(statusField, next)} />];
     }
-    if (placed(owner) && ownerField) {
-      return [<SelectField key={a.id} aria-label={owner!.label} disabled={owner!.disabled} value={(valueOf(fields, row.values, "ownerId") as string | undefined) ?? ""}
+    if (a.runs === "kernel.setOwner" && ownerField) {
+      return [<SelectField key={a.id} aria-label={label} disabled={disabled} value={(valueOf(fields, row.values, "ownerId") as string | undefined) ?? ""}
         onValueChange={(v) => void p.saveField(ownerField, v || null)}
         options={[{ value: "", label: "Unassigned" }, ...(team ?? []).filter((u) => u.isActive).map((u) => ({ value: u._id, label: u.name }))]} />];
     }
     if ((a.runs === "kernel.findEmail" || a.runs === "kernel.findPhone") && lookupAccountId) {
-      const find = offered([a], host, [a.runs], p.ctx, {}, object)[0];
       const kind = a.runs === "kernel.findEmail" ? "email" : "phone";
-      return find ? [<FindContactInfo key={a.id} kind={kind} label={find.label} disabled={find.disabled} accountId={lookupAccountId} contactId={id} name={row.title || "this person"} className="py-1.5" onFound={p.refresh} />] : [];
+      return [<FindContactInfo key={a.id} menu={menu} kind={kind} label={label} disabled={disabled} accountId={lookupAccountId} contactId={id} name={row.title || "this person"} className="py-1.5" onFound={p.refresh} />];
     }
-    if (placed(restore)) return [<ArchiveButton key={a.id} page={p} archived={false} label={restore!.label} disabled={restore!.disabled} />];
-    if (placed(archive)) return [<ArchiveButton key={a.id} page={p} archived label={archive!.label} disabled={archive!.disabled} />];
-    if (placed(merge)) return [<MergeButton key={a.id} page={p} label={merge!.label} disabled={merge!.disabled} />];
+    if (a.runs === "kernel.restore") return [<ArchiveButton key={a.id} menu={menu} page={p} archived={false} label={label} disabled={disabled} />];
+    if (a.runs === "kernel.archive") return [<ArchiveButton key={a.id} menu={menu} page={p} archived label={label} disabled={disabled} />];
+    if (a.runs === "kernel.merge") return [<MergeButton key={a.id} menu={menu} page={p} label={label} disabled={disabled} />];
     return [];
   });
   return controls;
@@ -245,7 +246,7 @@ function usePartyRecordBlocks(p: Page) {
   return useRecordBlockRenderers({
     data: { object: p.object, id: p.id, desc: p.desc, title: p.row.title, values: p.row.values, version: p.row.version, team: p.team },
     page: p.page, context: p.ctx,
-    actions: (section) => partyHeaderControls(p, highlightsActions(section), "highlights"),
+    actions: (actions, host, control) => partyHeaderControls(p, actions, host, control?.menu),
   });
 }
 
@@ -312,7 +313,7 @@ function partyRenderers(p: Page, title: { aside?: ReactNode; extra?: ReactNode }
 }
 
 /** Archive the record, or restore it. An archived record leaves lists, search, reports and agents; the toast's Undo brings it back. */
-function ArchiveButton({ page: p, archived, label, disabled }: { page: Page; archived: boolean; label: string; disabled: boolean }) {
+function ArchiveButton({ page: p, archived, label, disabled, menu }: { menu?: boolean; page: Page; archived: boolean; label: string; disabled: boolean }) {
   const bulk = useAction(api.records.bulkRegister);
   const [busy, setBusy] = useState(false);
   async function setArchived(to: boolean) {
@@ -331,10 +332,10 @@ function ArchiveButton({ page: p, archived, label, disabled }: { page: Page; arc
     }
   }
   const Icon = archived ? Archive : Undo2;
-  return <button type="button" disabled={busy || disabled} onClick={() => void setArchived(archived)} className={btn}><Icon className="h-3 w-3" /> {label}</button>;
+  return <RecordActionControl menu={menu} disabled={busy || disabled} onClick={() => void setArchived(archived)} className={btn}><Icon className="h-3 w-3" /> {label}</RecordActionControl>;
 }
 
-function MergeButton({ page: p, label, disabled }: { page: Page; label: string; disabled: boolean }) {
+function MergeButton({ page: p, label, disabled, menu }: { menu?: boolean; page: Page; label: string; disabled: boolean }) {
   const router = useRouter();
   const inspection = useRecordInspection();
   function onMerged(survivorId: string) {
@@ -344,7 +345,7 @@ function MergeButton({ page: p, label, disabled }: { page: Page; label: string; 
       inspection.open({ object: p.object, id: survivorId });
     } else router.push(recordHref(p.object, survivorId));
   }
-  return <MergeWith object={p.object} id={p.id} title={p.row.title || p.id} label={label} disabled={disabled} onMerged={onMerged} />;
+  return <MergeWith menu={menu} object={p.object} id={p.id} title={p.row.title || p.id} label={label} disabled={disabled} onMerged={onMerged} />;
 }
 
 /** A company's own reads past its row: its fit, contacts and field history, its activities, and the ICP that scored it. */

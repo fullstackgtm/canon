@@ -6,8 +6,11 @@ import { apply, describeLayout, type LayoutOp } from "../recipes/md/edit.ts";
 import { parseRecipe } from "../recipes/md/parse.ts";
 import { forkMarkdown } from "../recipes/workspace.ts";
 import { parseManifest, toManifest } from "../recipes/manifest.ts";
+import { canEditRecordField, visibleRecordFields } from "../recipes/recordFields.ts";
+import { splitRecordActions } from "../recipes/recordActionBar.ts";
+import { RECORD_MARKDOWN_MAX, recordTextSpans } from "../recipes/recordText.ts";
 import { canChangeRecordPath } from "../recipes/recordPath.ts";
-import { recordRelations, relatedCount, relatedListQuery } from "../recipes/recordRelations.ts";
+import { parentRecordRelations, recordRelations, relatedCount, relatedListQuery } from "../recipes/recordRelations.ts";
 import { resolveObjectDef, STANDARD_OBJECTS } from "../convex/lib/objects/registry.ts";
 import { standInWorkflow } from "../convex/lib/workflowStandIn.ts";
 import { checkWorkflow } from "../convex/lib/workflowAgent.ts";
@@ -18,6 +21,10 @@ const props = {
   path: { field: "stage", change: true },
   quickLinks: { relationships: ["companyDeals", "dealPeople"] },
   relatedList: { relationship: "companyDeals", columns: ["amount"], limit: 3, sort: { field: "amount", dir: "desc" }, create: true },
+  fieldSection: { title: "Opportunity information", fields: ["name", "stage"], columns: 2, collapsible: true, collapsed: false },
+  relatedRecord: { relationship: "dealCompany", fields: ["name", "domain"], title: "Account details" },
+  actionBar: { actions: ["kernel.archive", "kernel.restore"] },
+  richText: { markdown: "### Next steps\n\n- **Review** the [account](https://example.com) with *Sales*." },
 } satisfies Record<RecordBlock, RecordProps>;
 
 function edited(markdown: string, op: LayoutOp) {
@@ -33,6 +40,10 @@ test("record block settings validate types, counts and object-specific action pl
   assert.throws(() => parseRecordProps("path", { change: "yes" }, "account"));
   assert.throws(() => parseRecordProps("quickLinks", { relationships: ["<unknown>"] }, "custom"));
   assert.throws(() => parseRecordProps("relatedList", { limit: 101 }, "account"));
+  assert.throws(() => parseRecordProps("fieldSection", { ...props.fieldSection, columns: 3 }, "deal"));
+  assert.throws(() => parseRecordProps("relatedRecord", { ...props.relatedRecord, fields: [] }, "deal"));
+  assert.throws(() => parseRecordProps("actionBar", { actions: ["kernel.findEmail"] }, "deal"));
+  assert.deepEqual(parseRecordProps("actionBar", { actions: ["kernel.findEmail"] }, "contact"), { actions: ["kernel.findEmail"] });
 });
 
 test("addSection preserves all other bytes and describeLayout round trips block settings", () => {
@@ -54,8 +65,11 @@ test("custom-object layouts use the record grammar and survive manifest validati
   let markdown = edited(base, { op: "addPage", slug: object, title: "Subscription", record: true });
   markdown = edited(markdown, { op: "addSection", object, component: "highlights", props: { actions: ["kernel.archive"] }, title: "Subscription", before: null });
   markdown = edited(markdown, { op: "addSection", object, component: "path", props: { field: "custom.status" }, title: "Status", before: null });
+  for (const component of ["fieldSection", "relatedRecord", "actionBar", "richText"] as const) {
+    markdown = edited(markdown, { op: "addSection", object, component, props: props[component], title: component, before: null });
+  }
   const { recipe } = parseRecipe(forkMarkdown(markdown, { id: "@workspace/subscriptions", title: "Subscriptions", org: "workspace" }));
-  assert.deepEqual(recipe.workspacePages?.find((p) => p.slug === object)?.sections.map((s) => s.component), ["highlights", "path"]);
+  assert.deepEqual(recipe.workspacePages?.find((p) => p.slug === object)?.sections.map((s) => s.component), ["highlights", "path", "fieldSection", "relatedRecord", "actionBar", "richText"]);
   assert.equal(recipe.workspacePages?.[0].nav, "hidden");
   const manifest = parseManifest(JSON.parse(JSON.stringify(toManifest(recipe))));
   assert.ok(manifest.ok, JSON.stringify(manifest));
@@ -86,7 +100,7 @@ test("related reads build the viewer list request from the relationship and curr
   assert.equal(relatedListQuery(deals, "acc_1", {}).from, "companyDeals");
 });
 
-test("the local Salesforce request produces a checked layout with two columns", () => {
+test("the local Salesforce request builds the styled record layout and only updates style on repeat", () => {
   const input = {
     request: "Make this look like a Salesforce record page",
     pages: [{ target: "deal", recipeId: "canon-base", markdown: base, baseMarkdown: base, layerRevision: 0 }],
@@ -94,11 +108,59 @@ test("the local Salesforce request produces a checked layout with two columns", 
   };
   const proposal = checkWorkflow(input, standInWorkflow(input));
   assert.deepEqual(proposal.dropped, []);
-  const layout = describeLayout(proposal.targets[0].markdown, "deal");
+  const { markdown } = proposal.targets[0];
+  const layout = describeLayout(markdown, "deal");
   assert.ok(!("error" in layout));
-  assert.deepEqual(layout.sections.slice(0, 3).map((s) => s.component), ["highlights", "path", "quickLinks"]);
+  const style = { density: "compact", surface: "bordered", headerBand: "tinted", accent: "#0176d3" };
+  assert.deepEqual(layout.style, style);
+  assert.deepEqual(layout.sections.slice(0, 4).map((s) => s.component), ["highlights", "actionBar", "path", "quickLinks"]);
+  assert.equal(layout.sections.find((s) => s.component === "fieldSection")?.title, "Opportunity information");
+  assert.equal(layout.sections.find((s) => s.component === "relatedRecord")?.title, "Account details");
   const columns = layout.tree.children.find((n) => "kind" in n && n.kind === "columns");
   assert.ok(columns && "kind" in columns);
-  assert.deepEqual(columns.children[1], { section: "relatedList#0" });
-  assert.ok("kind" in columns.children[0] && columns.children[0].kind === "stack");
+  assert.deepEqual(columns.widths, [2, 1]);
+  assert.equal(columns.gap, "tight");
+  const [left, right] = columns.children;
+  assert.ok("kind" in left && left.kind === "stack");
+  assert.deepEqual(left.children[0], { section: "fieldSection#0" });
+  assert.ok("kind" in right && right.kind === "stack");
+  assert.deepEqual(right.children, [{ section: "relatedRecord#0" }, { section: "relatedList#0" }]);
+
+  const restyled = edited(markdown, { op: "setPageStyle", object: "deal", style: { density: "comfortable" } });
+  const repeat = (text: string) => standInWorkflow({ ...input, pages: [{ ...input.pages[0], markdown: text }] });
+  assert.deepEqual(repeat(restyled).ops, { deal: [{ op: "setPageStyle", object: "deal", style }] });
+  assert.deepEqual(repeat(markdown).ops, {});
+});
+
+test("field section edits require permission, compare-and-set and a writable field", () => {
+  const field = { apiName: "stage", fieldId: "stage" };
+  assert.equal(canEditRecordField(true, true, field, []), true);
+  assert.equal(canEditRecordField(true, true, field, ["stage"]), false);
+  assert.equal(canEditRecordField(false, true, field, []), false);
+  assert.equal(canEditRecordField(true, false, field, []), false);
+});
+
+test("related record relationships and fields omit hidden metadata", () => {
+  const visible = { apiName: "name", fieldId: "name", type: "text" };
+  const hidden = { apiName: "secret", fieldId: "c_secret", type: "text", hidden: true };
+  const account = { apiName: "account", pluralLabel: "Accounts", fields: [visible, hidden] };
+  const custom = { apiName: "custom_subscription", pluralLabel: "Subscriptions", fields: [
+    { apiName: "custom.company", fieldId: "c_company", type: "lookup", lookupTo: "account" },
+    { apiName: "custom.secret", fieldId: "c_secret", type: "lookup", lookupTo: "account", hidden: true },
+  ] };
+  assert.deepEqual(parentRecordRelations(custom.apiName, [account, custom]).map((relation) => relation.id), ["custom.company"]);
+  assert.deepEqual(visibleRecordFields(account.fields, ["name", "secret", "c_secret"]), [visible]);
+});
+
+test("rich text rejects unsafe links and oversized input", () => {
+  const markdown = "[Click](javascript:alert(1))";
+  assert.throws(() => parseRecordProps("richText", { markdown }, "deal"));
+  assert.throws(() => parseRecordProps("richText", { markdown: "x".repeat(RECORD_MARKDOWN_MAX + 1) }, "deal"));
+  assert.ok(recordTextSpans(markdown).every(({ href }) => !href));
+  assert.deepEqual(recordTextSpans("[Account](https://example.com)"), [{ text: "Account", href: "https://example.com/" }]);
+});
+
+test("action bar splits visible controls after the sixth button in recipe order", () => {
+  assert.deepEqual(splitRecordActions([1, 2, 3, 4, 5, 6, 7, 8]), { buttons: [1, 2, 3, 4, 5, 6], overflow: [7, 8] });
+  assert.deepEqual(splitRecordActions([1]), { buttons: [1], overflow: [] });
 });
